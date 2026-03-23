@@ -12,7 +12,7 @@ html, body {
     background: #1a1a2e;
     color: #eee;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: auto;
 }
 
 /* Main component */
