@@ -781,6 +781,42 @@ class PetriNote extends HTMLElement {
         workspace.appendChild(canvasContainer);
         this.appendChild(workspace);
 
+        // Touch-drag on workspace scrolls page horizontally (for tablets/small screens)
+        let dragStartX = 0, scrollStartX = 0, isDragging = false;
+        workspace.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            dragStartX = e.touches[0].clientX;
+            scrollStartX = window.scrollX;
+            isDragging = true;
+        }, { passive: true });
+        workspace.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const dx = dragStartX - e.touches[0].clientX;
+            window.scrollTo(scrollStartX + dx, 0);
+        }, { passive: true });
+        workspace.addEventListener('touchend', () => { isDragging = false; }, { passive: true });
+
+        // Mouse drag on workspace for desktop testing
+        workspace.addEventListener('mousedown', (e) => {
+            if (document.documentElement.scrollWidth <= window.innerWidth) return;
+            dragStartX = e.clientX;
+            scrollStartX = window.scrollX;
+            isDragging = true;
+            workspace.style.cursor = 'grab';
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            workspace.style.cursor = 'grabbing';
+            const dx = dragStartX - e.clientX;
+            window.scrollTo(scrollStartX + dx, 0);
+        });
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                workspace.style.cursor = '';
+            }
+        });
+
         // Status bar
         // Setup canvas size
         this._resizeCanvas();
