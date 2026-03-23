@@ -1286,9 +1286,11 @@ petri-note {
         display: none;
     }
 
-    /* Sliders wrap to second row */
+    /* Sliders wrap to second row and stretch to fill */
     .pn-mixer-slider-group {
         order: 10;
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .pn-mixer-row::after {
@@ -1299,12 +1301,14 @@ petri-note {
     }
 
     .pn-mixer-slider {
-        width: 60px;
+        width: 100%;
+        min-width: 30px;
     }
 
     .pn-mixer-slider-group span {
         font-size: 9px;
         width: 18px;
+        flex-shrink: 0;
     }
 
     /* FX panel: fewer columns */
