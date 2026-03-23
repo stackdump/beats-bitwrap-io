@@ -1583,9 +1583,10 @@ petri-note {
         padding: 2px 8px;
     }
 
-    /* Status: compact */
+    /* Status: compact + extra bottom clearance for Chrome bar */
     .pn-status {
         padding: 2px 8px;
+        padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
         font-size: 10px;
     }
 }
