@@ -17,10 +17,11 @@ html, body {
 petri-note {
     display: flex;
     flex-direction: column;
-    width: 100vw;
+    width: 100%;
     user-select: none;
     -webkit-user-select: none;
     height: 100vh;
+    overflow-x: hidden;
 }
 
 /* Header bar */
@@ -1260,6 +1261,69 @@ petri-note {
 
 .pn-transition.firing {
     animation: pulse 0.1s ease-out;
+}
+
+/* ===== Tablet landscape (iPad Mini etc.) ===== */
+@media (max-width: 1100px) {
+    .pn-mixer-row {
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        padding: 4px 10px;
+    }
+
+    .pn-mixer-name {
+        width: auto;
+        font-size: 11px;
+    }
+
+    .pn-mixer-instrument {
+        width: 120px;
+        font-size: 11px;
+        flex-shrink: 1;
+    }
+
+    .pn-riff-variants {
+        display: none;
+    }
+
+    /* Sliders wrap to second row */
+    .pn-mixer-slider-group {
+        order: 10;
+    }
+
+    .pn-mixer-row::after {
+        content: '';
+        flex-basis: 100%;
+        height: 0;
+        order: 9;
+    }
+
+    .pn-mixer-slider {
+        width: 60px;
+    }
+
+    .pn-mixer-slider-group span {
+        font-size: 9px;
+        width: 18px;
+    }
+
+    /* FX panel: fewer columns */
+    .pn-effects-panel {
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 6px 12px;
+        padding: 6px 10px;
+    }
+
+    .pn-fx-slider {
+        width: 70px;
+    }
+
+    /* Download/upload: hide on tablets */
+    .pn-download-btn,
+    .pn-upload-btn,
+    .pn-upload-input {
+        display: none;
+    }
 }
 
 /* ===== Mobile / narrow screens ===== */
