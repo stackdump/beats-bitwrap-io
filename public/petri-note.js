@@ -459,19 +459,7 @@ class PetriNote extends HTMLElement {
         this._fxNotchesAdded = true;
         requestAnimationFrame(() => this._addDefaultNotches(fx));
 
-        // FX toggle
-        fx.querySelector('.pn-effects-btn').addEventListener('click', () => {
-            const panel = fx.querySelector('.pn-effects-panel');
-            const btn = fx.querySelector('.pn-effects-btn');
-            const open = panel.style.display === 'none';
-            panel.style.display = open ? 'flex' : 'none';
-            btn.classList.toggle('active', open);
-            // Add notches on first open (sliders need layout for pixel-accurate positioning)
-            if (open && !this._fxNotchesAdded) {
-                this._fxNotchesAdded = true;
-                requestAnimationFrame(() => this._addDefaultNotches(fx));
-            }
-        });
+        // FX panel always open (toggle removed)
 
         // FX bypass toggle
         this._fxBypassed = false;
@@ -780,42 +768,6 @@ class PetriNote extends HTMLElement {
 
         workspace.appendChild(canvasContainer);
         this.appendChild(workspace);
-
-        // Touch-drag on workspace scrolls page horizontally (for tablets/small screens)
-        let dragStartX = 0, scrollStartX = 0, isDragging = false;
-        workspace.addEventListener('touchstart', (e) => {
-            if (e.touches.length !== 1) return;
-            dragStartX = e.touches[0].clientX;
-            scrollStartX = window.scrollX;
-            isDragging = true;
-        }, { passive: true });
-        workspace.addEventListener('touchmove', (e) => {
-            if (!isDragging) return;
-            const dx = dragStartX - e.touches[0].clientX;
-            window.scrollTo(scrollStartX + dx, 0);
-        }, { passive: true });
-        workspace.addEventListener('touchend', () => { isDragging = false; }, { passive: true });
-
-        // Mouse drag on workspace for desktop testing
-        workspace.addEventListener('mousedown', (e) => {
-            if (document.documentElement.scrollWidth <= window.innerWidth) return;
-            dragStartX = e.clientX;
-            scrollStartX = window.scrollX;
-            isDragging = true;
-            workspace.style.cursor = 'grab';
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            workspace.style.cursor = 'grabbing';
-            const dx = dragStartX - e.clientX;
-            window.scrollTo(scrollStartX + dx, 0);
-        });
-        window.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                workspace.style.cursor = '';
-            }
-        });
 
         // Status bar
         // Setup canvas size

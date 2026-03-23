@@ -856,6 +856,7 @@ petri-note {
     align-items: center;
     gap: 16px;
     padding: 4px 16px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
     background: #16213e;
     border-top: 1px solid #0f3460;
     font-size: 12px;
