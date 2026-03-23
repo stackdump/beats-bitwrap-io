@@ -1135,6 +1135,17 @@ petri-note {
     border-color: #4a90d9;
 }
 
+.pn-gh-link {
+    color: #888;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    transition: color 0.15s;
+}
+.pn-gh-link:hover {
+    color: #fff;
+}
+
 /* Help modal */
 .pn-help-overlay {
     position: fixed;
