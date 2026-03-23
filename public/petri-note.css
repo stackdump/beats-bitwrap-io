@@ -1,0 +1,1565 @@
+/* petri-note.css - Base styling for the petri-note component */
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+}
+
+/* Main component */
+petri-note {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    user-select: none;
+    -webkit-user-select: none;
+    height: 100vh;
+}
+
+/* Header bar */
+.pn-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    flex-shrink: 0;
+}
+
+.pn-header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #e94560;
+}
+
+.pn-project-name {
+    font-size: 14px;
+    color: #aaa;
+}
+
+.pn-track-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pn-track-nav button {
+    background: none;
+    border: 1px solid #334;
+    color: #8af;
+    font-size: 10px;
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.pn-track-nav button:hover {
+    background: #223;
+    border-color: #4a90d9;
+}
+
+.pn-track-label {
+    font-size: 13px;
+    color: #ccc;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Transport controls */
+.pn-transport {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pn-transport button {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 4px;
+    background: #0f3460;
+    color: #eee;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pn-transport button:hover {
+    background: #1a4a7a;
+}
+
+.pn-transport button.playing {
+    background: #e94560;
+}
+
+.pn-playback-mode {
+    font-size: 13px !important;
+    font-weight: bold;
+    letter-spacing: -0.5px;
+}
+
+.pn-playback-mode.active {
+    background: #1a6a3a !important;
+}
+
+.pn-tempo {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pn-tempo input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 14px;
+    text-align: center;
+}
+
+.pn-tempo span {
+    font-size: 12px;
+    color: #888;
+}
+
+/* Genre traits display */
+.pn-genre-traits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 12px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+    align-items: center;
+    min-height: 24px;
+}
+
+.pn-trait {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    white-space: nowrap;
+}
+
+.pn-trait[data-param] {
+    cursor: pointer;
+    user-select: none;
+}
+
+.pn-trait[data-param]:hover {
+    opacity: 0.8;
+    outline: 1px solid rgba(255,255,255,0.2);
+}
+
+.pn-trait.on {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.pn-trait.off {
+    background: rgba(255, 255, 255, 0.05);
+    color: #555;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pn-trait-info {
+    font-size: 10px;
+    color: #667;
+    margin-left: auto;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+/* Mixer panel */
+.pn-mixer {
+    display: flex;
+    flex-direction: column;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    flex-shrink: 0;
+}
+
+.pn-mixer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 16px;
+    border-bottom: 1px solid rgba(15, 52, 96, 0.5);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.pn-mixer-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.pn-mixer-row.active {
+    background: rgba(233, 69, 96, 0.08);
+    border-left: 3px solid #e94560;
+    padding-left: 13px;
+}
+
+.pn-mixer-solo {
+    width: 14px;
+    height: 14px;
+    margin: 0 2px 0 0;
+    cursor: pointer;
+    accent-color: #e94560;
+    flex-shrink: 0;
+}
+
+.pn-mixer-mute {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.pn-mixer-mute:hover {
+    opacity: 1;
+    background: rgba(255,255,255,0.1);
+}
+
+.pn-mixer-mute.muted {
+    opacity: 1;
+    color: #e94560;
+}
+
+.pn-mixer-name {
+    width: 70px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ccc;
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: grab;
+}
+
+.pn-mixer-name:active {
+    cursor: grabbing;
+}
+
+.pn-mixer-row.dragging {
+    opacity: 0.5;
+    background: #1a3a5c;
+}
+
+.pn-mixer-row.active .pn-mixer-name {
+    color: #e94560;
+}
+
+.pn-riff-variants {
+    display: flex;
+    gap: 2px;
+    margin-right: 4px;
+    flex-shrink: 0;
+    width: 42px;
+}
+
+.pn-riff-label {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.1);
+    color: #888;
+}
+
+.pn-riff-label.active {
+    background: rgba(46, 204, 113, 0.3);
+    color: #2ecc71;
+}
+
+.pn-riff-label.muted {
+    background: rgba(233, 69, 96, 0.2);
+    color: #666;
+}
+
+.pn-mixer-instrument {
+    width: 140px;
+    padding: 3px 6px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.pn-mixer-instrument:hover {
+    border-color: #1a4a7a;
+}
+
+.pn-mixer-slider-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.pn-mixer-slider-group span {
+    font-size: 10px;
+    color: #666;
+    width: 24px;
+    flex-shrink: 0;
+}
+
+.pn-mixer-slider {
+    width: 80px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #0f3460;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.pn-mixer-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #4a90d9;
+    cursor: pointer;
+}
+
+.pn-mixer-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #4a90d9;
+    cursor: pointer;
+    border: none;
+}
+
+/* Default value notch mark on sliders */
+.pn-slider-notch {
+    position: absolute;
+    bottom: 2px;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    pointer-events: none;
+    z-index: 1;
+    transform: translateX(-1.5px);
+}
+
+.pn-mixer-test {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.pn-mixer-test:hover {
+    background: rgba(233, 69, 96, 0.2);
+    color: #e94560;
+}
+
+.pn-mixer-tone-reset {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.pn-mixer-tone-reset:hover {
+    background: rgba(100, 200, 255, 0.2);
+    color: #64ffda;
+}
+
+.pn-mixer-tone-prev,
+.pn-mixer-tone-next {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #666;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    padding: 0;
+    line-height: 24px;
+    text-align: center;
+}
+
+.pn-mixer-tone-prev:hover {
+    background: rgba(100, 200, 255, 0.2);
+    color: #64ffda;
+}
+
+.pn-mixer-tone-next:hover {
+    background: rgba(233, 69, 96, 0.2);
+    color: #e94560;
+}
+
+.pn-mixer-rotate {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin-left: -4px;
+}
+
+.pn-mixer-rotate:hover {
+    background: rgba(100, 200, 100, 0.2);
+    color: #64ffda;
+}
+
+/* Effects panel */
+.pn-effects {
+    border-bottom: 1px solid #0f3460;
+    margin-bottom: 4px;
+}
+
+.pn-effects-toggle {
+    display: flex;
+    gap: 6px;
+    padding: 4px 12px;
+    background: #0a1628;
+}
+
+.pn-effects-btn {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.pn-effects-btn.active {
+    background: #0f3460;
+    color: #e94560;
+}
+
+.pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #666;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+}
+
+.pn-fx-bypass:hover, .pn-fx-reset:hover, .pn-cc-reset:hover {
+    color: #4a90d9;
+    border-color: #4a90d9;
+}
+
+.pn-fx-bypass.active {
+    background: #e94560;
+    border-color: #e94560;
+    color: #fff;
+}
+
+.pn-effects-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px 16px;
+    padding: 8px 12px;
+    background: #0d1b2a;
+}
+
+.pn-fx-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pn-fx-label {
+    font-size: 11px;
+    font-weight: bold;
+    color: #e94560;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 2px;
+    margin-bottom: 2px;
+}
+
+.pn-fx-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pn-fx-control span {
+    font-size: 10px;
+    color: #666;
+    min-width: 20px;
+}
+
+.pn-fx-slider {
+    width: 70px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #0f3460;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.pn-fx-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e94560;
+    cursor: pointer;
+}
+
+.pn-fx-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e94560;
+    cursor: pointer;
+    border: none;
+}
+
+.pn-fx-value {
+    font-size: 10px;
+    color: #4a90d9;
+    min-width: 32px;
+    text-align: right;
+}
+
+.pn-fx-apply {
+    background: #0f3460;
+    border: 1px solid #4a90d9;
+    color: #4a90d9;
+    padding: 4px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+    margin-left: auto;
+    align-self: center;
+}
+
+.pn-fx-apply:hover {
+    background: #1a4a7a;
+    color: #fff;
+}
+
+/* Timeline */
+.pn-timeline {
+    display: flex;
+    align-items: stretch;
+    height: 28px;
+    position: relative;
+    background: #0a0a1a;
+    border-bottom: 1px solid #0f3460;
+    flex-shrink: 0;
+    overflow: visible;
+    cursor: pointer;
+    margin: 0 8px;
+}
+
+.pn-timeline-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    border-right: 1px solid rgba(0,0,0,0.4);
+    transition: opacity 0.2s;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.pn-timeline-section {
+    position: relative;
+}
+
+.pn-timeline-section span {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    white-space: nowrap;
+}
+
+.pn-timeline-phrases {
+    font-size: 8px !important;
+    font-weight: 400 !important;
+    text-transform: none !important;
+    letter-spacing: 1px !important;
+    opacity: 0.7;
+    margin-left: 4px;
+}
+
+.pn-timeline-phrase-divider {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: rgba(255,255,255,0.25);
+    pointer-events: none;
+}
+
+/* Loop markers */
+.pn-loop-marker {
+    position: absolute;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    z-index: 3;
+    cursor: ew-resize;
+}
+
+.pn-loop-start {
+    border-left: 3px solid #f5a623;
+    background: linear-gradient(to right, rgba(245,166,35,0.25), transparent);
+}
+
+.pn-loop-end {
+    border-right: 3px solid #f5a623;
+    background: linear-gradient(to left, rgba(245,166,35,0.25), transparent);
+    transform: translateX(-8px);
+}
+
+.pn-loop-marker:hover {
+    border-color: #ffc857;
+}
+
+.pn-loop-region {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(245, 166, 35, 0.08);
+    border-top: 2px solid rgba(245, 166, 35, 0.4);
+    z-index: 1;
+    pointer-events: none;
+    display: none;
+}
+
+.pn-crop-bar-btn {
+    background: #f5a623;
+    border: none;
+    border-radius: 3px;
+    color: #000;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 8px;
+    margin-left: 8px;
+}
+
+.pn-crop-bar-btn:hover {
+    background: #ffc857;
+}
+
+.pn-timeline-playhead {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2px;
+    height: 100%;
+    background: #fff;
+    box-shadow: 0 0 6px rgba(255,255,255,0.8);
+    z-index: 2;
+    transition: left 0.1s linear;
+    pointer-events: none;
+}
+
+/* (Track settings replaced by mixer panel above) */
+
+/* Main workspace */
+.pn-workspace {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Canvas container */
+.pn-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.pn-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Stage for DOM nodes */
+.pn-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* Petri net nodes */
+.pn-node {
+    position: absolute;
+    pointer-events: auto;
+    cursor: grab;
+    user-select: none;
+}
+
+.pn-node:active {
+    cursor: grabbing;
+}
+
+.pn-node.selected {
+    filter: drop-shadow(0 0 8px #e94560);
+}
+
+/* Places */
+.pn-place {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.pn-place-circle {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #4a90d9;
+    border-radius: 50%;
+    background: #1a1a2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    color: #4a90d9;
+}
+
+/* Transitions */
+.pn-transition {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.pn-transition-rect {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e94560;
+    background: #1a1a2e;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pn-transition.firing .pn-transition-rect {
+    background: #e94560;
+    box-shadow: 0 0 20px #e94560;
+}
+
+.pn-transition.has-midi .pn-transition-rect {
+    background: linear-gradient(135deg, #1a1a2e 50%, #2d1f3d 50%);
+}
+
+/* Node labels */
+.pn-label {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 4px;
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+    pointer-events: auto;
+}
+
+/* MIDI indicator on transition */
+.pn-midi-badge {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 34px;
+    height: 34px;
+    background: rgba(155, 89, 182, 0.4);
+    border-radius: 4px;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* (Toolbar removed - diagram is read-only) */
+
+/* Status bar */
+.pn-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 16px;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    font-size: 12px;
+    color: #666;
+    flex-shrink: 0;
+}
+
+.pn-status .connected {
+    color: #2ecc71;
+}
+
+.pn-status .disconnected {
+    color: #e74c3c;
+}
+
+/* MIDI binding editor modal */
+.pn-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.pn-modal {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 400px;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.pn-modal h2 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    color: #e94560;
+}
+
+.pn-modal-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.pn-modal-row label {
+    width: 80px;
+    font-size: 13px;
+    color: #888;
+}
+
+.pn-modal-row input,
+.pn-modal-row select {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 14px;
+}
+
+.pn-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.pn-modal-actions button {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.pn-modal-actions .cancel {
+    background: transparent;
+    color: #888;
+}
+
+.pn-modal-actions .save {
+    background: #e94560;
+    color: #fff;
+}
+
+/* Piano keyboard for note selection */
+.pn-piano {
+    display: flex;
+    height: 80px;
+    margin: 12px 0;
+    position: relative;
+}
+
+.pn-piano-key {
+    flex: 1;
+    border: 1px solid #333;
+    background: #eee;
+    cursor: pointer;
+    position: relative;
+}
+
+.pn-piano-key.black {
+    background: #222;
+    width: 60%;
+    height: 60%;
+    position: absolute;
+    z-index: 1;
+}
+
+.pn-piano-key.selected {
+    background: #e94560;
+}
+
+.pn-piano-key.white.selected {
+    background: #f7a8b8;
+}
+
+/* Generate controls */
+.pn-generate {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.pn-genre-select {
+    padding: 6px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+}
+
+.pn-structure-select {
+    padding: 6px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+}
+
+.pn-generate-btn {
+    padding: 6px 14px;
+    border: 1px solid #e94560;
+    border-radius: 4px;
+    background: #e94560;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pn-generate-btn:hover {
+    background: #d63851;
+}
+
+.pn-shuffle-btn {
+    padding: 6px 14px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #0f3460;
+    color: #ccc;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pn-shuffle-btn:hover {
+    background: #16213e;
+    color: #fff;
+}
+
+.pn-download-btn {
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #0f3460;
+    color: #ccc;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pn-download-btn:hover,
+.pn-upload-btn:hover {
+    background: #16213e;
+    color: #64ffda;
+}
+
+.pn-upload-btn {
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #0f3460;
+    color: #ccc;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+/* Generator options toggle button */
+.pn-gen-opts-toggle {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pn-gen-opts-toggle:hover {
+    background: rgba(255,255,255,0.05);
+    color: #eee;
+    border-color: #1a4a7a;
+}
+
+/* Generator options panel (collapsible) */
+.pn-gen-options {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    padding: 6px 16px;
+    background: #0f1a2e;
+    border-bottom: 1px solid #0f3460;
+    flex-shrink: 0;
+}
+
+.pn-gen-options label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: #aaa;
+    cursor: pointer;
+    user-select: none;
+}
+
+.pn-gen-options label:hover {
+    color: #eee;
+}
+
+.pn-gen-options input[type="checkbox"] {
+    accent-color: #e94560;
+    cursor: pointer;
+}
+
+/* (Control ghosts removed - control nets shown in mixer) */
+
+/* Help button */
+.pn-help-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #0f3460;
+    background: transparent;
+    color: #666;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pn-help-btn:hover {
+    color: #4a90d9;
+    border-color: #4a90d9;
+}
+
+/* Help modal */
+.pn-help-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pn-help-modal {
+    background: #0a0a1a;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 24px 32px;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    color: #ccc;
+    font-size: 13px;
+    line-height: 1.6;
+    position: relative;
+}
+
+.pn-help-modal h2 {
+    color: #e94560;
+    font-size: 18px;
+    margin: 0 0 16px 0;
+}
+
+.pn-help-modal h3 {
+    color: #4a90d9;
+    font-size: 14px;
+    margin: 16px 0 6px 0;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 4px;
+}
+
+.pn-help-modal ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.pn-help-modal li {
+    margin-bottom: 4px;
+}
+
+.pn-help-modal b {
+    color: #fff;
+}
+
+.pn-help-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.pn-help-close:hover {
+    color: #e94560;
+}
+
+/* Audio output selector */
+.pn-audio-mode {
+    display: flex;
+    gap: 8px;
+}
+
+.pn-audio-mode button {
+    padding: 6px 12px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pn-audio-mode button.active {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.pn-midi-output {
+    padding: 6px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.pn-midi-output:hover {
+    border-color: #1a4a7a;
+}
+
+/* Animations */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.pn-transition.firing {
+    animation: pulse 0.1s ease-out;
+}
+
+/* ===== Mobile / narrow screens ===== */
+@media (max-width: 768px) {
+    /* Header: wrap into rows */
+    .pn-header {
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        padding: 6px 10px;
+    }
+
+    .pn-header h1 {
+        font-size: 15px;
+    }
+
+    .pn-project-name {
+        display: none;
+    }
+
+    /* Transport: tighter */
+    .pn-transport button {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+    }
+
+    .pn-tempo input {
+        width: 50px;
+        font-size: 13px;
+    }
+
+    /* Generate controls: wrap and fill width */
+    .pn-generate {
+        flex-wrap: wrap;
+        width: 100%;
+        order: 10;
+    }
+
+    .pn-genre-select {
+        min-width: 90px;
+        font-size: 13px;
+    }
+
+    .pn-structure-select {
+        min-width: 70px;
+        font-size: 13px;
+    }
+
+    .pn-generate-btn,
+    .pn-shuffle-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* Hide download/upload on mobile */
+    .pn-download-btn,
+    .pn-upload-btn,
+    .pn-upload-input {
+        display: none;
+    }
+
+    /* Audio mode: hide MIDI selector on mobile (rare use) */
+    .pn-audio-mode {
+        display: none;
+    }
+
+    /* Track nav: hide if not needed */
+    .pn-track-nav {
+        display: none;
+    }
+
+    /* Genre traits: hide on mobile */
+    .pn-genre-traits {
+        display: none;
+    }
+
+    /* Mixer: scroll if needed */
+    .pn-mixer {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .pn-mixer-row {
+        gap: 4px;
+        padding: 6px 8px;
+        flex-wrap: wrap;
+    }
+
+    .pn-mixer-name {
+        width: auto;
+        font-size: 12px;
+    }
+
+    .pn-mixer-instrument {
+        flex: 1;
+        min-width: 80px;
+        font-size: 11px;
+    }
+
+    .pn-riff-variants {
+        display: none;
+    }
+
+    /* Row 1: controls. Row 2: all 8 sliders in a single row */
+    .pn-mixer-slider-group {
+        order: 10;
+        flex: 0 0 auto;
+    }
+
+    .pn-mixer-test,
+    .pn-mixer-reset {
+        order: 5;
+    }
+
+    /* Line break before sliders via pseudo-element */
+    .pn-mixer-row::after {
+        content: '';
+        flex-basis: 100%;
+        height: 0;
+        order: 9;
+    }
+
+    .pn-mixer-slider-group span {
+        font-size: 8px;
+        width: 14px;
+        flex-shrink: 0;
+    }
+
+    .pn-mixer-slider {
+        width: 24px;
+        height: 8px;
+    }
+
+    .pn-mixer-slider::-webkit-slider-thumb {
+        width: 16px;
+        height: 16px;
+    }
+
+    .pn-mixer-slider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Mixer buttons: bigger touch targets */
+    .pn-mixer-mute,
+    .pn-mixer-test,
+    .pn-mixer-tone-reset,
+    .pn-mixer-tone-prev,
+    .pn-mixer-tone-next,
+    .pn-mixer-rotate {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+    }
+
+    /* FX panel: tighter grid */
+    .pn-effects-panel {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px 10px;
+        padding: 6px 8px;
+    }
+
+    .pn-fx-slider {
+        width: 60px;
+        height: 8px;
+    }
+
+    .pn-fx-slider::-webkit-slider-thumb {
+        width: 20px;
+        height: 20px;
+    }
+
+    .pn-fx-slider::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Timeline: taller for touch */
+    .pn-timeline {
+        height: 36px;
+    }
+
+    /* Hide timeline and Petri net visualization on mobile */
+    .pn-timeline {
+        display: none;
+    }
+
+    .pn-workspace {
+        display: none;
+    }
+
+    /* Status bar: tighter */
+    .pn-status {
+        padding: 4px 10px;
+        font-size: 11px;
+    }
+
+    /* Modal: full-width on mobile */
+    .pn-modal {
+        min-width: unset;
+        width: 95vw;
+        padding: 16px;
+    }
+}
+
+/* ===== Landscape phone (short + wide) ===== */
+@media (max-height: 500px) and (orientation: landscape) {
+    /* Header: single compact row */
+    .pn-header {
+        padding: 4px 10px;
+        gap: 8px;
+    }
+
+    .pn-header h1 {
+        font-size: 14px;
+    }
+
+    .pn-project-name,
+    .pn-track-nav,
+    .pn-audio-mode {
+        display: none;
+    }
+
+    /* Genre traits: hide */
+    .pn-genre-traits {
+        display: none;
+    }
+
+    /* Generate: inline, compact */
+    .pn-generate {
+        gap: 4px;
+    }
+
+    .pn-generate-btn,
+    .pn-shuffle-btn {
+        padding: 4px 10px;
+        font-size: 11px;
+    }
+
+    .pn-download-btn,
+    .pn-upload-btn {
+        display: none;
+    }
+
+    /* Transport: compact */
+    .pn-transport button {
+        width: 30px;
+        height: 30px;
+        font-size: 14px;
+    }
+
+    .pn-tempo input {
+        width: 48px;
+        font-size: 12px;
+        padding: 2px 4px;
+    }
+
+    /* Mixer: scroll vertically, compact rows */
+    .pn-mixer {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .pn-mixer-row {
+        padding: 2px 8px;
+        gap: 6px;
+    }
+
+    .pn-mixer-name {
+        width: 45px;
+        font-size: 10px;
+    }
+
+    .pn-mixer-instrument {
+        width: 90px;
+        font-size: 10px;
+    }
+
+    .pn-riff-variants {
+        display: none;
+    }
+
+    .pn-mixer-slider {
+        width: 50px;
+    }
+
+    .pn-mixer-slider-group span {
+        font-size: 9px;
+        width: 18px;
+    }
+
+    /* Hide timeline and canvas */
+    .pn-timeline {
+        display: none;
+    }
+
+    .pn-workspace {
+        display: none;
+    }
+
+    /* FX: compact */
+    .pn-effects-toggle {
+        padding: 2px 8px;
+    }
+
+    /* Status: compact */
+    .pn-status {
+        padding: 2px 8px;
+        font-size: 10px;
+    }
+}
+
+

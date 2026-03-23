@@ -1,0 +1,79 @@
+# beats-btw
+
+A deterministic beat generator powered by Petri nets. No AI, no LLMs, no neural networks — just math, music theory, and token flow.
+
+**Live at [beats.bitwrap.io](https://beats.bitwrap.io)**
+
+## How It Works
+
+Petri nets are mathematical models where **tokens** circulate through **places** and **transitions** fire when conditions are met. beats-btw uses this to generate music:
+
+- **Drum patterns** are Euclidean rhythms encoded as token rings — the [Bjorklund algorithm](https://en.wikipedia.org/wiki/Euclidean_rhythm) distributes K hits across N steps, then a single token circulates the ring, triggering MIDI notes at hit positions
+- **Melodies** use Markov-chain composition with music theory constraints — chord-tone targeting on strong beats, stepwise motion on weak beats, density-controlled rests
+- **Bass lines** walk chromatically between chord roots using approach notes
+- **Song structure** is controlled by linear Petri nets that mute/unmute tracks at section boundaries
+
+Everything is **100% deterministic** given the same seed. Same genre + same seed = same track, every time. The generation uses seeded PRNGs, Euclidean geometry, music theory rules, and graph traversal — no machine learning, no sampling, no probabilistic models beyond explicit Markov chains with hand-tuned transition weights.
+
+## Architecture
+
+```
+Browser Main Thread                    Web Worker
+──────────────────                    ──────────────
+petri-note.js (UI)  ◄─ postMessage ─► sequencer-worker.js
+tone-engine.js (audio)                 ├── pflow.js (Petri net engine)
+                                       └── generator/ (beat generation)
+```
+
+The sequencer runs in a **Web Worker** so timing stays accurate even when the tab is backgrounded. The worker posts `transition-fired` messages to the main thread, which plays sounds via Tone.js. Zero backend involvement during playback.
+
+## Genres
+
+19 genre presets with distinct scales, chord progressions, drum patterns, and instrument palettes:
+
+`techno` `house` `jazz` `ambient` `dnb` `edm` `speedcore` `dubstep` `country` `blues` `synthwave` `trance` `lofi` `reggae` `funk` `bossa` `trap` `garage` `metal`
+
+Each genre defines BPM, scale type, root note, Euclidean drum parameters, melody density, swing, humanize, and variety features (ghost notes, walking bass, call/response, modal interchange, tension curves).
+
+## Features
+
+- **Euclidean rhythms** — mathematically optimal hit distribution for drums
+- **Markov melodies** — chord-aware note selection with beat-strength rules
+- **Walking bass** — chromatic approach notes between chord roots
+- **Ghost notes** — low-velocity fills between hihat hits for groove
+- **Song structure** — intro/verse/chorus/drop/bridge/outro with phrase variants (A/B/C tension levels)
+- **19 genre presets** with per-genre music theory (chord progressions, drum styles, phrase patterns)
+- **Modal interchange** — borrows chords from parallel key for harmonic color
+- **Polyrhythm** — odd-length hihat loops (e.g., 6-over-4)
+- **Call and response** — 32-step melodies with mirrored answering phrases
+- **Dual-ring melodies** — interlocking theme/variation rings with crossover transitions
+- **Per-channel mixer** — volume, pan, HP/LP filters, resonance, decay
+- **Master FX** — reverb, delay, distortion, phaser, bit crusher, filters
+- **Web MIDI output** — send to external DAWs via IAC/ALSA virtual ports
+- **Instrument shuffle** — randomize synth patches per track from genre-curated sets
+- **Download/upload** — export projects as JSON-LD, re-import later
+
+## Build & Run
+
+```bash
+make build   # Build Go binary (embeds public/ files)
+make run     # Build and serve on :8089
+make dev     # Serve from disk (hot reload) on :8089
+```
+
+Requires Go 1.23+. No npm, no node_modules, no bundler.
+
+## Stack
+
+- **Go** — static file server with `embed`
+- **Vanilla JS** — ES modules, no framework, no build step
+- **Tone.js v14** — Web Audio synthesis (CDN)
+- **Web Workers** — background sequencer thread (`type: 'module'`)
+
+## Schema
+
+Project files use JSON-LD with the schema at [`beats.bitwrap.io/schema`](https://beats.bitwrap.io/schema/petri-note.schema.json). A project contains Petri nets (places, transitions, arcs), MIDI bindings, control bindings, and track metadata.
+
+## License
+
+MIT
