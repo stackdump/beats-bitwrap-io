@@ -19,6 +19,7 @@ html, body {
 petri-note {
     display: flex;
     flex-direction: column;
+    width: fit-content;
     min-width: 100%;
     user-select: none;
     -webkit-user-select: none;
