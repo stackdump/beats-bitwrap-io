@@ -209,6 +209,37 @@ class PetriNote extends HTMLElement {
             arc.weight = Array.isArray(arc.weight) ? arc.weight : [arc.weight || 1];
             arc.inhibit = arc.inhibit || false;
         }
+
+        // Regenerate ring layout when coords are absent (compact export format)
+        const hasCoords = Object.values(net.places).some(p => p.x !== 0 || p.y !== 0) ||
+                          Object.values(net.transitions).some(t => t.x !== 0 || t.y !== 0);
+        if (!hasCoords) this._recomputeLayout(net);
+    }
+
+    _recomputeLayout(net) {
+        const n = Object.keys(net.places).length;
+        if (n === 0) return;
+        let radius = n * 70.0 / (2 * Math.PI * 0.7);
+        if (radius < 150) radius = 150;
+        const cx = radius + 80, cy = radius + 80;
+
+        const placeLabels = Object.keys(net.places).sort((a, b) => {
+            return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0);
+        });
+        for (let i = 0; i < placeLabels.length; i++) {
+            const angle = (i / n) * 2 * Math.PI;
+            net.places[placeLabels[i]].x = cx + radius * 0.7 * Math.cos(angle);
+            net.places[placeLabels[i]].y = cy + radius * 0.7 * Math.sin(angle);
+        }
+
+        const transLabels = Object.keys(net.transitions).sort((a, b) => {
+            return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0);
+        });
+        for (let i = 0; i < transLabels.length; i++) {
+            const angle = ((i + 0.5) / transLabels.length) * 2 * Math.PI;
+            net.transitions[transLabels[i]].x = cx + radius * Math.cos(angle);
+            net.transitions[transLabels[i]].y = cy + radius * Math.sin(angle);
+        }
     }
 
     _createEmptyNet() {
