@@ -373,10 +373,109 @@ export function extractSlotIndex(netId, riffGroup) {
     return idx;
 }
 
+// --- Accumulator control net ---
+//
+// Compact alternative to linear chains. A self-loop clock adds 1 token per tick
+// to a counter place. Each control transition consumes N tokens from the counter,
+// where N is the tick gap since the previous event. This reduces a 1536-step chain
+// to ~10 nodes for a typical song.
+//
+// Layout:
+//   p_clock(1) → t_clock → p_clock  (self-loop)
+//                    ↓ (weight 1)
+//                p_counter
+//                    ↓ (weight = gap)
+//              t_ctrl_0, t_ctrl_1, ...
+
+function buildAccumulatorNet(events) {
+    const bundle = new NetBundle();
+    const controlBindings = {};
+
+    if (events.length === 0) {
+        bundle.places['p0'] = { initial: [1], x: 0, y: 0 };
+        bundle.transitions['t0'] = { x: 0, y: 0 };
+        bundle.arcs.push(
+            { source: 'p0', target: 't0', weight: [1], inhibit: false },
+            { source: 't0', target: 'p0', weight: [1], inhibit: false },
+        );
+        bundle.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
+        bundle.role = 'control';
+        bundle.buildArcIndex();
+        bundle.resetState();
+        return bundle;
+    }
+
+    events.sort((a, b) => a.tick - b.tick);
+
+    // Design: countdown timers chained by gate tokens.
+    //
+    // Each event i has:
+    //   p_delay_i — starts with gap tokens, drained 1/tick by t_drain_i
+    //   p_gate_i  — 1 token when this stage is active (enables drain + control)
+    //   t_drain_i — consumes 1 from delay + borrows gate (returns it)
+    //   t_ctrl_i  — fires when delay=0 (inhibitor), consumes gate, passes gate to next
+    //
+    // t_drain_i: enabled when p_delay_i >= 1 AND p_gate_i >= 1
+    //   consumes: 1 from p_delay_i, 1 from p_gate_i
+    //   produces: 1 to p_gate_i (return gate)
+    //
+    // t_ctrl_i: enabled when p_delay_i < 1 (inhibitor) AND p_gate_i >= 1
+    //   consumes: 1 from p_gate_i
+    //   produces: 1 to p_gate_{i+1} (advance to next stage)
+
+    const n = events.length;
+    let prevTick = 0;
+
+    for (let i = 0; i < n; i++) {
+        const ev = events[i];
+        const gap = ev.tick - prevTick;
+        const pDelay = `p_delay_${i}`;
+        const pGate = `p_gate_${i}`;
+        const tDrain = `t_drain_${i}`;
+        const tCtrl = `t_ctrl_${i}`;
+
+        bundle.places[pDelay] = { initial: [gap], x: 0, y: 0 };
+        bundle.places[pGate] = { initial: [i === 0 ? 1 : 0], x: 0, y: 0 };
+
+        // Drain: eats 1 from delay each tick while gate is held
+        bundle.transitions[tDrain] = { x: 0, y: 0 };
+        bundle.arcs.push(
+            { source: pDelay, target: tDrain, weight: [1], inhibit: false },
+            { source: pGate, target: tDrain, weight: [1], inhibit: false },
+            { source: tDrain, target: pGate, weight: [1], inhibit: false },
+        );
+
+        // Control: fires when delay is empty (inhibitor) and gate is held
+        bundle.transitions[tCtrl] = { x: 0, y: 0 };
+        bundle.arcs.push(
+            { source: pDelay, target: tCtrl, weight: [1], inhibit: true },
+            { source: pGate, target: tCtrl, weight: [1], inhibit: false },
+        );
+
+        // Pass gate to next stage
+        if (i < n - 1) {
+            bundle.arcs.push(
+                { source: tCtrl, target: `p_gate_${i + 1}`, weight: [1], inhibit: false },
+            );
+        }
+
+        controlBindings[tCtrl] = ev.binding;
+        prevTick = ev.tick;
+    }
+
+    bundle.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
+    bundle.role = 'control';
+    bundle.controlBindings = controlBindings;
+
+    bundle.buildArcIndex();
+    bundle.resetState();
+    return bundle;
+}
+
 // --- roleControlNet (internal) ---
 
 /**
- * Creates a single linear control net for a role with activate-slot at phrase boundaries.
+ * Creates a compact control net for a role with activate-slot at phrase boundaries.
  * @param {string} role
  * @param {number[][]} slotMap - [sectionIdx][phraseIdx] -> global slot index (-1 = inactive)
  * @param {object} template
@@ -384,11 +483,8 @@ export function extractSlotIndex(netId, riffGroup) {
  * @returns {NetBundle}
  */
 function roleControlNet(role, slotMap, template, totalSteps) {
-    const bundle = new NetBundle();
-    const controlBindings = {};
-    const { cx, cy, radius } = ringLayout(totalSteps);
-
-    // Build the schedule of active slots at each phrase boundary
+    // Collect control events with their tick positions
+    const events = []; // { tick, binding }
     let prevSlot = -1;
     if (slotMap && slotMap.length > 0 && slotMap[0] && slotMap[0].length > 0) {
         prevSlot = slotMap[0][0];
@@ -405,7 +501,7 @@ function roleControlNet(role, slotMap, template, totalSteps) {
 
         for (let pi = 0; pi < phrases.length; pi++) {
             const phraseStart = pos + pi * phraseLen;
-            if (phraseStart === 0) continue; // initial state handled by initialMutes
+            if (phraseStart === 0) continue;
 
             let curSlot = -1;
             if (slotMap && si < slotMap.length && slotMap[si] && pi < slotMap[si].length) {
@@ -413,21 +509,18 @@ function roleControlNet(role, slotMap, template, totalSteps) {
             }
 
             if (curSlot !== prevSlot) {
-                const tLabel = `t${phraseStart}`;
                 if (curSlot >= 0) {
-                    // Activate new slot
-                    controlBindings[tLabel] = {
+                    events.push({ tick: phraseStart, binding: {
                         action: 'activate-slot',
                         targetNet: `${role}-${curSlot}`,
                         targetNote: 0,
-                    };
+                    }});
                 } else {
-                    // Role becomes inactive — mute the outgoing slot
-                    controlBindings[tLabel] = {
+                    events.push({ tick: phraseStart, binding: {
                         action: 'mute-track',
                         targetNet: `${role}-${prevSlot}`,
                         targetNote: 0,
-                    };
+                    }});
                 }
                 prevSlot = curSlot;
             }
@@ -435,43 +528,7 @@ function roleControlNet(role, slotMap, template, totalSteps) {
         pos += sec.steps;
     }
 
-    // Build linear chain: totalSteps+1 places, totalSteps transitions
-    for (let i = 0; i < totalSteps; i++) {
-        const initial = i === 0 ? 1 : 0;
-        const angle = (i / totalSteps) * 2 * Math.PI;
-        const x = cx + radius * 0.7 * Math.cos(angle);
-        const y = cy + radius * 0.7 * Math.sin(angle);
-        bundle.places[`p${i}`] = { initial: [initial], x, y };
-    }
-
-    // Sink place
-    const sinkAngle = (totalSteps / totalSteps) * 2 * Math.PI;
-    const sinkX = cx + radius * 0.7 * Math.cos(sinkAngle);
-    const sinkY = cx + radius * 0.7 * Math.sin(sinkAngle);
-    bundle.places[`p${totalSteps}`] = { initial: [0], x: sinkX, y: sinkY };
-
-    for (let i = 0; i < totalSteps; i++) {
-        const tLabel = `t${i}`;
-        const angle = ((i + 0.5) / totalSteps) * 2 * Math.PI;
-        const tx = cx + radius * Math.cos(angle);
-        const ty = cy + radius * Math.sin(angle);
-        bundle.transitions[tLabel] = { x: tx, y: ty };
-
-        // Linear: p[i] -> t[i] -> p[i+1]
-        bundle.arcs.push(
-            { source: `p${i}`, target: tLabel, weight: [1], inhibit: false },
-            { source: tLabel, target: `p${i + 1}`, weight: [1], inhibit: false },
-        );
-    }
-
-    bundle.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
-    bundle.role = 'control';
-    bundle.controlBindings = controlBindings;
-
-    bundle.buildArcIndex();
-    bundle.resetState();
-
-    return bundle;
+    return buildAccumulatorNet(events);
 }
 
 // --- linearControlNet (internal) ---
@@ -484,73 +541,23 @@ function roleControlNet(role, slotMap, template, totalSteps) {
  * @returns {NetBundle}
  */
 function linearControlNet(targetNet, template, totalSteps) {
-    const bundle = new NetBundle();
-    const controlBindings = {};
-    const { cx, cy, radius } = ringLayout(totalSteps);
-
-    // Linear chain: totalSteps+1 places, totalSteps transitions
-    for (let i = 0; i < totalSteps; i++) {
-        const initial = i === 0 ? 1 : 0;
-        const angle = (i / totalSteps) * 2 * Math.PI;
-        const x = cx + radius * 0.7 * Math.cos(angle);
-        const y = cy + radius * 0.7 * Math.sin(angle);
-        bundle.places[`p${i}`] = { initial: [initial], x, y };
-    }
-
-    // Sink place
-    const sinkAngle = (totalSteps / totalSteps) * 2 * Math.PI;
-    const sinkX = cx + radius * 0.7 * Math.cos(sinkAngle);
-    const sinkY = cx + radius * 0.7 * Math.sin(sinkAngle);
-    bundle.places[`p${totalSteps}`] = { initial: [0], x: sinkX, y: sinkY };
-
-    // Build section boundary positions
+    const events = [];
     let wasActive = template.sections[0].active[targetNet] || false;
     let pos = 0;
     for (let si = 1; si < template.sections.length; si++) {
         pos += template.sections[si - 1].steps;
         const isActive = template.sections[si].active[targetNet] || false;
         if (isActive !== wasActive) {
-            const tLabel = `t${pos}`;
-            if (isActive) {
-                controlBindings[tLabel] = {
-                    action: 'unmute-track',
-                    targetNet,
-                    targetNote: 0,
-                };
-            } else {
-                controlBindings[tLabel] = {
-                    action: 'mute-track',
-                    targetNet,
-                    targetNote: 0,
-                };
-            }
+            events.push({ tick: pos, binding: {
+                action: isActive ? 'unmute-track' : 'mute-track',
+                targetNet,
+                targetNote: 0,
+            }});
             wasActive = isActive;
         }
     }
 
-    // Transitions
-    for (let i = 0; i < totalSteps; i++) {
-        const tLabel = `t${i}`;
-        const angle = ((i + 0.5) / totalSteps) * 2 * Math.PI;
-        const tx = cx + radius * Math.cos(angle);
-        const ty = cy + radius * Math.sin(angle);
-        bundle.transitions[tLabel] = { x: tx, y: ty };
-
-        // Linear: p[i] -> t[i] -> p[i+1]
-        bundle.arcs.push(
-            { source: `p${i}`, target: tLabel, weight: [1], inhibit: false },
-            { source: tLabel, target: `p${i + 1}`, weight: [1], inhibit: false },
-        );
-    }
-
-    bundle.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
-    bundle.role = 'control';
-    bundle.controlBindings = controlBindings;
-
-    bundle.buildArcIndex();
-    bundle.resetState();
-
-    return bundle;
+    return buildAccumulatorNet(events);
 }
 
 // --- linearStopNet (internal) ---
@@ -561,50 +568,10 @@ function linearControlNet(targetNet, template, totalSteps) {
  * @returns {NetBundle}
  */
 function linearStopNet(totalSteps) {
-    const bundle = new NetBundle();
-    const controlBindings = {};
-    const { cx, cy, radius } = ringLayout(totalSteps + 1);
-
-    // totalSteps+1 places, totalSteps transitions
-    for (let i = 0; i <= totalSteps; i++) {
-        const initial = i === 0 ? 1 : 0;
-        const angle = (i / (totalSteps + 1)) * 2 * Math.PI;
-        const x = cx + radius * 0.7 * Math.cos(angle);
-        const y = cy + radius * 0.7 * Math.sin(angle);
-        bundle.places[`p${i}`] = { initial: [initial], x, y };
-    }
-
-    for (let i = 0; i < totalSteps; i++) {
-        const tLabel = `t${i}`;
-        const angle = ((i + 0.5) / (totalSteps + 1)) * 2 * Math.PI;
-        const tx = cx + radius * Math.cos(angle);
-        const ty = cy + radius * Math.sin(angle);
-        bundle.transitions[tLabel] = { x: tx, y: ty };
-
-        // Linear: p[i] -> t[i] -> p[i+1]
-        bundle.arcs.push(
-            { source: `p${i}`, target: tLabel, weight: [1], inhibit: false },
-            { source: tLabel, target: `p${i + 1}`, weight: [1], inhibit: false },
-        );
-
-        // Last transition fires stop-transport
-        if (i === totalSteps - 1) {
-            controlBindings[tLabel] = {
-                action: 'stop-transport',
-                targetNet: '',
-                targetNote: 0,
-            };
-        }
-    }
-
-    bundle.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
-    bundle.role = 'control';
-    bundle.controlBindings = controlBindings;
-
-    bundle.buildArcIndex();
-    bundle.resetState();
-
-    return bundle;
+    return buildAccumulatorNet([{
+        tick: totalSteps,
+        binding: { action: 'stop-transport', targetNet: '', targetNote: 0 },
+    }]);
 }
 
 // --- songStructure ---
