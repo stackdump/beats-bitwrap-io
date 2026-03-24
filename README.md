@@ -74,6 +74,14 @@ Requires Go 1.23+. No npm, no node_modules, no bundler.
 
 Project files use JSON-LD with the schema at [`beats.bitwrap.io/schema`](https://beats.bitwrap.io/schema/petri-note.schema.json). A project contains Petri nets (places, transitions, arcs), MIDI bindings, control bindings, and track metadata.
 
+## Acknowledgments
+
+The entire sequencer is a **[Petri net](https://en.wikipedia.org/wiki/Petri_net)** executor — every note that plays is a transition firing, every rhythm is tokens circulating through places. Carl Adam Petri's 1962 formalism is the runtime, not just an inspiration.
+
+Within that framework:
+- **[Tone.js](https://tonejs.github.io/)** turns transition firings into sound — synthesis, scheduling, and effects
+- **[Bjorklund's algorithm](https://en.wikipedia.org/wiki/Euclidean_rhythm)** generates the Euclidean rhythms that become token rings in the net
+
 ## License
 
 MIT

@@ -5,7 +5,6 @@
  */
 
 import { toneEngine, INSTRUMENT_CONFIGS } from './audio/tone-engine.js';
-window._toneEngine = toneEngine; // debug access
 
 // Mixer math: maps 0–100 slider values to audio-engine frequencies/Q
 function hpFreq(val) { return 20 * Math.pow(250, val / 100); }
@@ -2506,7 +2505,6 @@ class PetriNote extends HTMLElement {
         for (const arc of inputArcs) {
             const place = net.places[arc.source];
             if (!place || (place.tokens[0] || 0) < arc.weight[0]) {
-                console.log('Transition blocked:', transitionId);
                 return false;
             }
         }
@@ -2710,6 +2708,13 @@ class PetriNote extends HTMLElement {
                 <ul>
                     <li>Hover a slider and move a MIDI CC knob to bind it</li>
                     <li>Use <b>CC Reset</b> in the FX panel to clear all bindings</li>
+                </ul>
+
+                <h3>Built With</h3>
+                <p style="margin:0 0 8px;color:#aaa;font-size:0.95em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Carl Adam Petri's 1962 formalism is the runtime.</p>
+                <ul>
+                    <li><b><a href="https://tonejs.github.io/" target="_blank" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
+                    <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms that become token rings in the net</li>
                 </ul>
             </div>
         `;
@@ -3071,7 +3076,6 @@ class PetriNote extends HTMLElement {
         if (structSelect && prevStructure) {
             structSelect.value = prevStructure;
         }
-        console.log('Project synced:', project.name, `(${netIds.length} nets)`, seamless ? '(seamless)' : '');
         if (seamless) {
             // Server already has the project loaded and is playing —
             // just ensure frontend state is correct
@@ -3110,7 +3114,6 @@ class PetriNote extends HTMLElement {
 
         // Refresh mixer display
         this._renderMixer();
-        console.log('Instruments changed:', instruments);
     }
 
     /**
