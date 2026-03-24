@@ -3,6 +3,37 @@
  * Port of internal/pflow/adapter.go + go-pflow/petri types.
  */
 
+// --- Layout recompute (regenerates x/y when absent) ---
+function recomputeLayout(nb) {
+    const n = Object.keys(nb.places).length;
+    if (n === 0) return;
+    let radius = n * 70.0 / (2 * Math.PI * 0.7);
+    if (radius < 150) radius = 150;
+    const cx = radius + 80, cy = radius + 80;
+
+    const placeLabels = Object.keys(nb.places).sort((a, b) => {
+        const na = parseInt(a.replace(/\D/g, ''), 10) || 0;
+        const nb2 = parseInt(b.replace(/\D/g, ''), 10) || 0;
+        return na - nb2;
+    });
+    for (let i = 0; i < placeLabels.length; i++) {
+        const angle = (i / n) * 2 * Math.PI;
+        nb.places[placeLabels[i]].x = cx + radius * 0.7 * Math.cos(angle);
+        nb.places[placeLabels[i]].y = cy + radius * 0.7 * Math.sin(angle);
+    }
+
+    const transLabels = Object.keys(nb.transitions).sort((a, b) => {
+        const na = parseInt(a.replace(/\D/g, ''), 10) || 0;
+        const nb2 = parseInt(b.replace(/\D/g, ''), 10) || 0;
+        return na - nb2;
+    });
+    for (let i = 0; i < transLabels.length; i++) {
+        const angle = ((i + 0.5) / transLabels.length) * 2 * Math.PI;
+        nb.transitions[transLabels[i]].x = cx + radius * Math.cos(angle);
+        nb.transitions[transLabels[i]].y = cy + radius * Math.sin(angle);
+    }
+}
+
 // --- Arc weight helper ---
 function weightSum(w) {
     if (!w || !w.length) return 1;
@@ -201,6 +232,12 @@ function parseNetBundle(data) {
 
     nb.buildArcIndex();
     nb.resetState();
+
+    // Regenerate layout if coords are missing (compact export format)
+    const hasCoords = Object.values(nb.places).some(p => p.x !== 0 || p.y !== 0) ||
+                      Object.values(nb.transitions).some(t => t.x !== 0 || t.y !== 0);
+    if (!hasCoords) recomputeLayout(nb);
+
     return nb;
 }
 
@@ -287,8 +324,8 @@ export function projectToJSON(proj) {
 function bundleToJSON(nb) {
     const trackMap = {
         channel: nb.track.channel,
-        defaultVelocity: nb.track.defaultVelocity,
     };
+    if (nb.track.defaultVelocity !== 100) trackMap.defaultVelocity = nb.track.defaultVelocity;
     if (nb.track.instrument) trackMap.instrument = nb.track.instrument;
     if (nb.track.instrumentSet && nb.track.instrumentSet.length > 0) {
         trackMap.instrumentSet = nb.track.instrumentSet;
@@ -300,23 +337,32 @@ function bundleToJSON(nb) {
     if (nb.riffGroup) result.riffGroup = nb.riffGroup;
     if (nb.riffVariant) result.riffVariant = nb.riffVariant;
 
-    // Places
+    const ch = nb.track.channel;
+    const defVel = nb.track.defaultVelocity;
+
+    // Places — omit x/y (regenerated on import) and default initial
     const places = {};
     for (const [label, place] of Object.entries(nb.places)) {
-        const p = { x: place.x, y: place.y, initial: place.initial };
+        const p = {};
+        const initSum = place.initial ? place.initial.reduce((a, b) => a + b, 0) : 0;
+        if (initSum > 0) p.initial = place.initial;
         if (place.label) p.label = place.label;
         places[label] = p;
     }
     result.places = places;
 
-    // Transitions
+    // Transitions — omit x/y, omit default midi channel/velocity/duration
     const transitions = {};
     for (const [label, trans] of Object.entries(nb.transitions)) {
-        const t = { x: trans.x, y: trans.y };
+        const t = {};
         if (trans.label) t.label = trans.label;
         if (nb.bindings[label]) {
             const m = nb.bindings[label];
-            t.midi = { note: m.note, channel: m.channel, velocity: m.velocity, duration: m.duration };
+            const midi = { note: m.note };
+            if (m.channel !== ch) midi.channel = m.channel;
+            if (m.velocity !== defVel) midi.velocity = m.velocity;
+            if (m.duration !== 100) midi.duration = m.duration;
+            t.midi = midi;
         }
         if (nb.controlBindings[label]) {
             const c = nb.controlBindings[label];
@@ -328,9 +374,11 @@ function bundleToJSON(nb) {
     }
     result.transitions = transitions;
 
-    // Arcs
+    // Arcs — omit default weight and inhibit
     result.arcs = nb.arcs.map(arc => {
-        const a = { source: arc.source, target: arc.target, weight: arc.weight };
+        const a = { source: arc.source, target: arc.target };
+        const w = arc.weight;
+        if (!(w.length === 1 && w[0] === 1)) a.weight = w;
         if (arc.inhibit) a.inhibit = true;
         return a;
     });
