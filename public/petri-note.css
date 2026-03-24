@@ -723,6 +723,7 @@ petri-note {
     display: flex;
     position: relative;
     overflow: hidden;
+    min-height: 400px;
 }
 
 /* Canvas container */
