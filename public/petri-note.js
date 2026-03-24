@@ -3062,6 +3062,7 @@ class PetriNote extends HTMLElement {
      */
     _applyProjectSync(project, seamless = false) {
         this._project = project;
+        this._normalizeProject();
         this._vizHistory = [];
         // Save to track history (unless navigating back)
         if (!this._navingHistory) {
