@@ -2715,6 +2715,10 @@ class PetriNote extends HTMLElement {
         this._toneInitPromise = (async () => {
             try {
                 await toneEngine.init();
+                // Apply initial master volume from slider (default 80% = -12 dB)
+                const initVol = parseInt(this.querySelector('[data-fx="master-vol"]')?.value || '80');
+                const initDb = initVol === 0 ? -60 : -60 + (initVol / 100) * 60;
+                toneEngine.setMasterVolume(initDb);
                 this._toneStarted = true;
                 const loads = Object.entries(this._channelInstruments).map(
                     ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
