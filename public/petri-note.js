@@ -389,6 +389,10 @@ class PetriNote extends HTMLElement {
                 <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
                 <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
                 <button class="pn-crop-bar-btn" title="Crop track to loop region" style="display:none">✂ Crop</button>
+                <select class="pn-loop-mode-select" title="Loop conflict resolution mode">
+                    <option value="drift">Drift</option>
+                    <option value="deterministic">Deterministic</option>
+                </select>
             </div>
             <div class="pn-effects-panel" style="display:flex">
                 <div class="pn-fx-group">
@@ -561,6 +565,10 @@ class PetriNote extends HTMLElement {
             if (this._loopStart >= 0 && this._loopEnd > this._loopStart) {
                 this._sendWs({ type: 'crop', startTick: this._loopStart, endTick: this._loopEnd });
             }
+        });
+
+        fx.querySelector('.pn-loop-mode-select').addEventListener('change', (e) => {
+            this._sendWs({ type: 'deterministic-loop', enabled: e.target.value === 'deterministic' });
         });
 
         // FX slider events - throttled to avoid audio thread overload

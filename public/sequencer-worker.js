@@ -29,6 +29,18 @@ let mutedNets = {};
 let mutedNotes = {};   // netId -> { note: bool }
 let mutedGroups = {};   // riffGroup -> bool
 
+// When true, conflict resolution is deterministic (loops repeat exactly).
+// When false, Math.random() picks winners (original behavior — loops drift).
+let deterministicLoop = false;
+
+// Drift state: tracks loop iterations for evolving variation
+let loopIteration = 0;
+const GHOST_VEL_THRESHOLD = 55; // velocity at or below this = ghost note
+const DRIFT_GHOST_SUPPRESS = 0.15; // probability a ghost note is suppressed per loop
+const DRIFT_GHOST_ADD = 0.08; // probability a silent step becomes a ghost
+const DRIFT_VEL_RANGE = 12; // max velocity jitter ±
+const DRIFT_PHASE_CHANCE = 0.12; // probability of token phase shift on loop wrap
+
 // --- Helpers ---
 
 function tickInterval() {
@@ -60,6 +72,83 @@ function deepCopyMutedNotes() {
     return copy;
 }
 
+// --- Deterministic hash for conflict resolution ---
+// Mulberry32 one-shot: same (tick, salt) always gives the same result,
+// so replay via fastForwardTo produces identical conflict outcomes.
+
+function deterministicRand(tick, salt) {
+    let s = (tick + salt) | 0;
+    s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+
+// Simple string hash for place labels (used as salt)
+function strHash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+    }
+    return h;
+}
+
+// --- Drift: per-tick MIDI variation when not deterministic ---
+
+function driftMidi(midi, netId, tLabel) {
+    if (!midi) return midi;
+
+    // Seed from loop iteration + transition identity for repeatable-within-loop but varying-across-loops
+    const salt = strHash(netId + ':' + tLabel);
+    const r = deterministicRand(loopIteration, salt);
+
+    const isGhost = midi.velocity <= GHOST_VEL_THRESHOLD;
+
+    // Ghost suppression: occasionally silence a ghost note
+    if (isGhost && r < DRIFT_GHOST_SUPPRESS) {
+        return null; // suppress this ghost
+    }
+
+    // Velocity drift: jitter based on loop iteration
+    const r2 = deterministicRand(loopIteration * 7 + tickCount, salt);
+    const velJitter = Math.round((r2 * 2 - 1) * DRIFT_VEL_RANGE);
+    const newVel = Math.max(1, Math.min(127, midi.velocity + velJitter));
+
+    return { ...midi, velocity: newVel };
+}
+
+// Apply token phase drift on loop wrap: shift one token in a random music net
+function applyPhaseDrift() {
+    const musicNets = [];
+    for (const [netId, bundle] of Object.entries(project.nets)) {
+        if (bundle.role === 'music' || bundle.role === '') musicNets.push({ netId, bundle });
+    }
+    if (musicNets.length === 0) return;
+
+    // Pick a net to phase-shift, seeded from loop iteration
+    const r = deterministicRand(loopIteration * 31, 0xDEAD);
+    if (r >= DRIFT_PHASE_CHANCE) return; // usually skip
+
+    const r2 = deterministicRand(loopIteration * 37, 0xBEEF);
+    const entry = musicNets[Math.floor(r2 * musicNets.length)];
+    const bundle = entry.bundle;
+
+    // Find the place that currently has a token
+    const places = Object.keys(bundle.places);
+    if (places.length < 3) return; // too small to phase-shift meaningfully
+
+    for (const p of places) {
+        if ((bundle.state[p] || 0) >= 1) {
+            // Move token forward by 1 step in the ring
+            const idx = places.indexOf(p);
+            const nextIdx = (idx + 1) % places.length;
+            bundle.state[p] -= 1;
+            bundle.state[places[nextIdx]] = (bundle.state[places[nextIdx]] || 0) + 1;
+            break;
+        }
+    }
+}
+
 // --- Conflict resolution ---
 
 function resolveConflicts(bundle, enabled) {
@@ -75,9 +164,10 @@ function resolveConflicts(bundle, enabled) {
         }
     }
 
-    for (const consumers of Object.values(placeConsumers)) {
+    for (const [place, consumers] of Object.entries(placeConsumers)) {
         if (consumers.length <= 1) continue;
-        const winner = consumers[Math.floor(Math.random() * consumers.length)];
+        const r = deterministicLoop ? deterministicRand(tickCount, strHash(place)) : Math.random();
+        const winner = consumers[Math.floor(r * consumers.length)];
         for (const t of consumers) {
             if (t !== winner) blocked[t] = true;
         }
@@ -182,7 +272,9 @@ function tick() {
 
     // Loop wrap
     if (loopEnd > 0 && loopStart >= 0 && tickCount >= loopEnd) {
+        loopIteration++;
         fastForwardTo(loopStart);
+        if (!deterministicLoop) applyPhaseDrift();
         broadcastState();
         return;
     }
@@ -192,6 +284,7 @@ function tick() {
         project = pendingProject;
         tempo = project.tempo;
         tickCount = 0;
+        loopIteration = 0;
         mutedNets = {};
         mutedNotes = {};
         mutedGroups = {};
@@ -226,7 +319,10 @@ function tick() {
             if (result.midi && !mutedNets[netId]) {
                 const noteMap = mutedNotes[netId];
                 if (noteMap && noteMap[result.midi.note]) continue;
-                post({ type: 'transition-fired', netId, transitionId: tLabel, midi: result.midi });
+                const midi = !deterministicLoop ? driftMidi(result.midi, netId, tLabel) : result.midi;
+                if (midi) {
+                    post({ type: 'transition-fired', netId, transitionId: tLabel, midi });
+                }
             }
         }
     }
@@ -271,6 +367,7 @@ function doStop() {
     playing = false;
     stopRequested = false;
     tickCount = 0;
+    loopIteration = 0;
     loopStart = -1;
     loopEnd = -1;
     mutedNets = {};
@@ -304,6 +401,7 @@ function loadProject(data) {
     project = parseProject(data);
     tempo = project.tempo;
     mutedGroups = {};
+    loopIteration = 0;
     // Apply initial mutes
     mutedNets = {};
     mutedNotes = {};
@@ -438,6 +536,11 @@ self.onmessage = function(e) {
                 loopEnd = msg.endTick;
             }
             post({ type: 'loop-changed', startTick: loopStart, endTick: loopEnd });
+            break;
+
+        case 'deterministic-loop':
+            deterministicLoop = !!msg.enabled;
+            post({ type: 'deterministic-loop-changed', enabled: deterministicLoop });
             break;
     }
 };
