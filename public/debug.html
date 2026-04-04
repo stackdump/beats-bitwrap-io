@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Instrument Debug - beats-btw</title>
+    <script src="https://unpkg.com/tone@14"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0a0e1a; color: #e0e0e0;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            padding: 20px;
+        }
+        h1 { color: #7fdbca; margin-bottom: 4px; font-size: 1.4em; }
+        .subtitle { color: #666; font-size: 0.8em; margin-bottom: 12px; }
+        .toolbar {
+            display: flex; gap: 12px; align-items: center;
+            margin-bottom: 12px; flex-wrap: wrap;
+        }
+        .toolbar label { color: #888; font-size: 0.85em; }
+        .toolbar select, .toolbar input[type="range"] {
+            background: #1a1e2e; color: #e0e0e0; border: 1px solid #333;
+            padding: 4px 8px; border-radius: 4px; font-family: inherit;
+        }
+        button {
+            background: #1a3a5c; color: #7fdbca; border: 1px solid #2a5a8c;
+            padding: 6px 14px; border-radius: 4px; cursor: pointer;
+            font-family: inherit; font-size: 0.9em;
+        }
+        button:hover { opacity: 0.85; }
+        button:active { opacity: 0.7; }
+        button.playing { outline: 2px solid #fff; outline-offset: -2px; }
+        .btn-danger { background: #5a2a1c; border-color: #8a4a2c; color: #ffb07c; }
+        .btn-stop { background: #5a1a1a; border-color: #8a2a2a; color: #ff7c7c; }
+        .btn-export { background: #1a3a1a; border-color: #2a6a2c; color: #7fdb7f; }
+
+        .filter-bar {
+            display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-bar button { font-size: 0.8em; padding: 3px 10px; }
+        .filter-bar button.active { background: #2a5a8c; border-color: #4a8abc; }
+        #categories { margin-bottom: 4px; }
+        #categories button.active { background: #4a2a6c; border-color: #7a4a9c; }
+        .filter-label { color: #555; font-size: 0.75em; margin-right: 4px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 8px;
+        }
+        .instrument-card {
+            background: #12162a; border: 1px solid #222;
+            border-radius: 6px; padding: 10px;
+            display: flex; flex-direction: column; gap: 5px;
+            transition: border-color 0.2s;
+        }
+        .instrument-card.hidden { display: none; }
+        .instrument-card.success { border-color: #2a8a4c; }
+        .instrument-card.error { border-color: #8a2a2a; }
+        .instrument-card.untested { border-color: #333; }
+        .instrument-card.flagged { border-color: #c0a020; border-width: 2px; }
+        .instrument-card .header {
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .instrument-card .name {
+            font-weight: bold; font-size: 0.95em; color: #c3a6ff;
+        }
+        .instrument-card .mark-btn {
+            font-size: 0.7em; padding: 1px 6px; background: transparent;
+            border: 1px solid #555; color: #888; cursor: pointer; border-radius: 3px;
+        }
+        .instrument-card .mark-btn.marked {
+            background: #5a4a10; border-color: #c0a020; color: #f0d040;
+        }
+        .instrument-card .type { font-size: 0.75em; color: #666; }
+        .instrument-card .status { font-size: 0.8em; min-height: 1.2em; }
+        .instrument-card .status.ok { color: #7fdbca; }
+        .instrument-card .status.err { color: #ff6b6b; }
+        .instrument-card .status.warn { color: #f0c040; }
+        .instrument-card .note-btns { display: flex; gap: 3px; }
+        .instrument-card .note-btns button {
+            flex: 1; font-size: 0.8em; padding: 4px 2px; font-weight: bold;
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 3px;
+        }
+        /* Close Encounters: D E C C↓ G — each a distinct color */
+        .note-d  { background: #c62828; color: #fff; }
+        .note-e  { background: #e65100; color: #fff; }
+        .note-c  { background: #1565c0; color: #fff; }
+        .note-cl { background: #6a1b9a; color: #fff; }
+        .note-g  { background: #2e7d32; color: #fff; }
+        .meter-bar { height: 4px; background: #222; border-radius: 2px; }
+        .meter-bar .fill {
+            height: 100%; background: #7fdbca; border-radius: 2px;
+            width: 0; transition: width 0.1s;
+        }
+
+        #summary {
+            margin-bottom: 12px; padding: 10px; background: #12162a;
+            border: 1px solid #333; border-radius: 6px;
+            font-size: 0.9em; display: none;
+        }
+        #summary.visible { display: block; }
+        #log {
+            margin-top: 16px; background: #0d1020; border: 1px solid #222;
+            border-radius: 6px; padding: 12px; max-height: 250px;
+            overflow-y: auto; font-size: 0.8em; line-height: 1.5;
+        }
+        #log .err { color: #ff6b6b; }
+        #log .ok { color: #7fdbca; }
+        #log .warn { color: #f0c040; }
+    </style>
+</head>
+<body>
+    <h1>Instrument Debugger</h1>
+    <p class="subtitle">Test every synth. Press the colored buttons to play the Close Encounters motif.</p>
+
+    <div class="toolbar">
+        <label>Duration:
+            <select id="test-dur">
+                <option value="100">100ms</option>
+                <option value="300" selected>300ms</option>
+                <option value="500">500ms</option>
+                <option value="1000">1s</option>
+            </select>
+        </label>
+        <label>Velocity:
+            <input type="range" id="test-vel" min="1" max="127" value="100" style="width:80px"/>
+        </label>
+        <button class="btn-danger" id="run-all">Test All</button>
+        <button class="btn-stop" id="stop-all">Stop</button>
+        <button class="btn-export" id="export-btn">Export Report</button>
+        <button class="btn-export" id="auto-level-btn">Auto-Level</button>
+        <button class="btn-danger" id="apply-level-btn">Apply</button>
+    </div>
+
+    <div class="filter-bar" id="categories">
+        <span class="filter-label">Role:</span>
+        <button data-cat="all" class="active">All</button>
+        <button data-cat="drums">Drums</button>
+        <button data-cat="bass">Bass</button>
+        <button data-cat="lead">Lead</button>
+        <button data-cat="pad">Pad</button>
+        <button data-cat="keys">Keys</button>
+        <button data-cat="pluck">Pluck</button>
+        <button data-cat="bell">Bell</button>
+        <button data-cat="brass">Brass/Wind</button>
+        <button data-cat="other">Other</button>
+    </div>
+    <div class="filter-bar" id="filters">
+        <span class="filter-label">Status:</span>
+        <button data-filter="all" class="active">All</button>
+        <button data-filter="flagged">Flagged</button>
+        <button data-filter="silent">Silent</button>
+        <button data-filter="error">Error</button>
+        <button data-filter="quiet">Quiet</button>
+        <button data-filter="success">OK</button>
+    </div>
+
+    <div id="summary"></div>
+    <div class="grid" id="grid"></div>
+    <div id="log"></div>
+
+    <script type="module">
+        import { ToneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN } from './audio/tone-engine.js';
+
+        const grid = document.getElementById('grid');
+        const logEl = document.getElementById('log');
+        const summaryEl = document.getElementById('summary');
+        let engine = null;
+        let running = false;
+        let stopRequested = false;
+
+        // Close Encounters of the Third Kind: D4 E4 C4 C3 G3
+        // MIDI: D4=62, E4=64, C4=60, C3=48, G3=55
+        const CE_NOTES = [
+            { label: 'D', midi: 62, cls: 'note-d' },
+            { label: 'E', midi: 64, cls: 'note-e' },
+            { label: 'C', midi: 60, cls: 'note-c' },
+            { label: 'C\u2193', midi: 48, cls: 'note-cl' },
+            { label: 'G', midi: 55, cls: 'note-g' },
+        ];
+
+        // Persistent state
+        const STORAGE_KEY = 'beats-debug-instruments';
+        let state = loadState();
+
+        function loadState() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+            catch { return {}; }
+        }
+        function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+        function getInstrumentState(name) {
+            if (!state[name]) state[name] = { flagged: false, lastResult: null };
+            return state[name];
+        }
+
+        function log(msg, cls = '') {
+            const line = document.createElement('div');
+            line.className = cls;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.prepend(line);
+            while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+        }
+
+        async function ensureEngine() {
+            if (engine) return engine;
+            engine = new ToneEngine();
+            await engine.init();
+            log('ToneEngine initialized', 'ok');
+            return engine;
+        }
+
+        const allInstruments = Object.keys(INSTRUMENT_CONFIGS).sort((a, b) => {
+            const catOrder = ['drums', 'bass', 'lead', 'pad', 'keys', 'pluck', 'bell', 'brass', 'other'];
+            const iA = catOrder.indexOf(getCategory(a));
+            const iB = catOrder.indexOf(getCategory(b));
+            if (iA !== iB) return iA - iB;
+            return a.localeCompare(b);
+        });
+
+        function getCategory(name) {
+            if (name.startsWith('drums')) return 'drums';
+            if (name.includes('bass') || name === '808-bass') return 'bass';
+            if (name.includes('lead') || name.includes('saw') || name.includes('screech') || name.includes('stab')) return 'lead';
+            if (name.includes('pad') || name === 'strings' || name === 'choir') return 'pad';
+            if (['piano', 'electric-piano', 'organ', 'clavinet', 'harpsichord', 'chiptune', 'rave-organ'].includes(name)) return 'keys';
+            if (name.includes('pluck') || name.includes('guitar') || name === 'sitar') return 'pluck';
+            if (['fm-bell', 'am-bell', 'marimba', 'vibes', 'kalimba', 'steel-drum', 'music-box', 'metallic'].includes(name)) return 'bell';
+            if (['brass', 'trumpet', 'flute', 'sax', 'talkbox'].includes(name)) return 'brass';
+            return 'other';
+        }
+
+        // Build cards
+        const cards = new Map();
+        allInstruments.forEach(name => {
+            const card = document.createElement('div');
+            const s = getInstrumentState(name);
+            card.className = `instrument-card ${s.flagged ? 'flagged' : 'untested'}`;
+            card.dataset.instrument = name;
+            const config = INSTRUMENT_CONFIGS[name];
+            const typeLabel = config.type === 'custom' ? 'custom' :
+                config.type === 'synth' ? config.synth : config.type;
+
+            const isDrum = name.startsWith('drums');
+            const noteButtons = isDrum
+                ? `<button class="note-d" data-note="${name}:36">Kick</button>
+                   <button class="note-e" data-note="${name}:38">Snare</button>
+                   <button class="note-c" data-note="${name}:42">HH</button>
+                   <button class="note-cl" data-note="${name}:39">Clap</button>
+                   <button class="note-g" data-note="${name}:49">Cym</button>`
+                : CE_NOTES.map(n =>
+                    `<button class="${n.cls}" data-note="${name}:${n.midi}">${n.label}</button>`
+                ).join('');
+
+            card.innerHTML = `
+                <div class="header">
+                    <span class="name">${name}</span>
+                    <button class="mark-btn ${s.flagged ? 'marked' : ''}" data-flag="${name}">${s.flagged ? 'flagged' : 'flag'}</button>
+                </div>
+                <div class="type">${typeLabel} | ${getCategory(name)} | gain: ${INSTRUMENT_GAIN[name] || 0}dB</div>
+                <div class="status" data-status>${s.lastResult || ''}</div>
+                <div class="meter-bar"><div class="fill" data-meter></div></div>
+                <div class="note-btns">${noteButtons}</div>
+            `;
+            grid.appendChild(card);
+            cards.set(name, card);
+        });
+
+        // Flag toggle
+        grid.addEventListener('click', (e) => {
+            const flagBtn = e.target.closest('[data-flag]');
+            if (flagBtn) {
+                const name = flagBtn.dataset.flag;
+                const s = getInstrumentState(name);
+                s.flagged = !s.flagged;
+                flagBtn.textContent = s.flagged ? 'flagged' : 'flag';
+                flagBtn.classList.toggle('marked', s.flagged);
+                const card = cards.get(name);
+                card.classList.toggle('flagged', s.flagged);
+                saveState();
+            }
+        });
+
+        function setCardStatus(name, status, msg) {
+            const card = cards.get(name);
+            if (!card) return;
+            const s = getInstrumentState(name);
+            card.className = `instrument-card ${status}${s.flagged ? ' flagged' : ''}`;
+            const el = card.querySelector('[data-status]');
+            el.textContent = msg;
+            el.className = `status ${status === 'success' ? 'ok' : status === 'error' ? 'err' : 'warn'}`;
+            s.lastResult = msg;
+            s.lastStatus = status;
+            saveState();
+        }
+
+        async function testInstrument(name, midiNote, duration, velocity) {
+            const eng = await ensureEngine();
+            const channel = 99;
+
+            const analyser = Tone.context.createAnalyser();
+            analyser.fftSize = 2048;
+            Tone.getDestination().connect(analyser);
+
+            try {
+                await eng.loadInstrument(channel, name);
+                setCardStatus(name, 'untested', 'loading...');
+                await new Promise(r => setTimeout(r, 50));
+
+                const isDrum = name.startsWith('drums');
+                const note = isDrum ? 36 : midiNote;
+                eng.playNote({ channel, note, velocity, duration });
+
+                await new Promise(r => setTimeout(r, Math.min(duration + 150, 700)));
+
+                const buf = new Float32Array(analyser.fftSize);
+                analyser.getFloatTimeDomainData(buf);
+
+                let peak = 0;
+                for (let i = 0; i < buf.length; i++) {
+                    peak = Math.max(peak, Math.abs(buf[i]));
+                }
+
+                const card = cards.get(name);
+                if (card) {
+                    const meter = card.querySelector('[data-meter]');
+                    meter.style.width = `${Math.min(100, peak * 200)}%`;
+                    meter.style.background = peak > 0.01 ? '#7fdbca' : peak > 0.001 ? '#f0c040' : '#ff6b6b';
+                }
+
+                // Save raw peak for auto-leveling
+                getInstrumentState(name).peak = peak;
+                saveState();
+
+                if (peak > 0.01) {
+                    setCardStatus(name, 'success', `peak: ${peak.toFixed(4)}`);
+                    log(`${name}: OK (peak=${peak.toFixed(4)})`, 'ok');
+                    return 'ok';
+                } else if (peak > 0.001) {
+                    setCardStatus(name, 'success', `quiet (peak: ${peak.toFixed(4)})`);
+                    log(`${name}: quiet (peak=${peak.toFixed(4)})`, 'warn');
+                    return 'quiet';
+                } else {
+                    setCardStatus(name, 'error', `SILENT (peak: ${peak.toFixed(6)})`);
+                    log(`${name}: SILENT`, 'err');
+                    return 'silent';
+                }
+            } catch (err) {
+                setCardStatus(name, 'error', `ERROR: ${err.message}`);
+                log(`${name}: ERROR - ${err.message}`, 'err');
+                return 'error';
+            } finally {
+                Tone.getDestination().disconnect(analyser);
+            }
+        }
+
+        // Play note buttons on mouseover (and click for touch)
+        let hoverDebounce = null;
+        grid.addEventListener('mouseover', (e) => {
+            const noteBtn = e.target.closest('button[data-note]');
+            if (!noteBtn || noteBtn === hoverDebounce) return;
+            hoverDebounce = noteBtn;
+            fireNoteButton(noteBtn);
+        });
+        grid.addEventListener('mouseout', (e) => {
+            const noteBtn = e.target.closest('button[data-note]');
+            if (noteBtn === hoverDebounce) hoverDebounce = null;
+        });
+        // Also support click/touch
+        grid.addEventListener('click', (e) => {
+            const noteBtn = e.target.closest('button[data-note]');
+            if (noteBtn) fireNoteButton(noteBtn);
+        });
+
+        async function fireNoteButton(noteBtn) {
+            const [name, midiStr] = noteBtn.dataset.note.split(':');
+            const midi = parseInt(midiStr);
+            const dur = parseInt(document.getElementById('test-dur').value);
+            const vel = parseInt(document.getElementById('test-vel').value);
+
+            noteBtn.classList.add('playing');
+            await testInstrument(name, midi, dur, vel);
+            noteBtn.classList.remove('playing');
+        }
+
+        // Run all — plays the full CE motif on each instrument
+        document.getElementById('run-all').addEventListener('click', async () => {
+            if (running) return;
+            running = true;
+            stopRequested = false;
+            const btn = document.getElementById('run-all');
+            btn.textContent = 'Running...';
+            btn.disabled = true;
+
+            const dur = parseInt(document.getElementById('test-dur').value);
+            const vel = parseInt(document.getElementById('test-vel').value);
+
+            const results = { ok: [], quiet: [], silent: [], error: [] };
+
+            for (const name of allInstruments) {
+                if (stopRequested) break;
+                const card = cards.get(name);
+                if (card.classList.contains('hidden')) continue;
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                const testNote = name.startsWith('drums') ? 36 : 60;
+                const result = await testInstrument(name, testNote, dur, vel);
+                results[result].push(name);
+                await new Promise(r => setTimeout(r, 200));
+            }
+
+            summaryEl.innerHTML = `
+                <strong>Results:</strong>
+                <span style="color:#7fdbca">${results.ok.length} OK</span> |
+                <span style="color:#f0c040">${results.quiet.length} quiet</span> |
+                <span style="color:#ff6b6b">${results.silent.length} silent</span> |
+                <span style="color:#ff6b6b">${results.error.length} errors</span>
+                ${results.silent.length > 0 ? `<br><strong style="color:#ff6b6b">Silent:</strong> ${results.silent.join(', ')}` : ''}
+                ${results.error.length > 0 ? `<br><strong style="color:#ff6b6b">Errors:</strong> ${results.error.join(', ')}` : ''}
+                ${results.quiet.length > 0 ? `<br><strong style="color:#f0c040">Quiet:</strong> ${results.quiet.join(', ')}` : ''}
+            `;
+            summaryEl.classList.add('visible');
+
+            btn.textContent = 'Test All';
+            btn.disabled = false;
+            running = false;
+        });
+
+        document.getElementById('stop-all').addEventListener('click', () => {
+            stopRequested = true;
+            if (engine) engine.panic();
+        });
+
+        // Category filter
+        let activeCat = 'all';
+        document.getElementById('categories').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-cat]');
+            if (!btn) return;
+            activeCat = btn.dataset.cat;
+            document.querySelectorAll('#categories button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyFilter();
+        });
+
+        // Status filter
+        let activeFilter = 'all';
+        document.getElementById('filters').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-filter]');
+            if (!btn) return;
+            activeFilter = btn.dataset.filter;
+            document.querySelectorAll('#filters button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyFilter();
+        });
+
+        function applyFilter() {
+            // Update category counts
+            const catCounts = {};
+            cards.forEach((_, name) => {
+                const cat = getCategory(name);
+                catCounts[cat] = (catCounts[cat] || 0) + 1;
+            });
+            document.querySelectorAll('#categories button[data-cat]').forEach(btn => {
+                const cat = btn.dataset.cat;
+                if (cat !== 'all') {
+                    btn.textContent = `${btn.textContent.split(' (')[0]} (${catCounts[cat] || 0})`;
+                }
+            });
+
+            cards.forEach((card, name) => {
+                const s = getInstrumentState(name);
+                const cat = getCategory(name);
+
+                // Category match
+                let catMatch = activeCat === 'all' || cat === activeCat;
+
+                // Status match
+                let statusMatch = true;
+                switch (activeFilter) {
+                    case 'flagged': statusMatch = s.flagged; break;
+                    case 'silent': statusMatch = s.lastStatus === 'error'; break;
+                    case 'error': statusMatch = s.lastStatus === 'error'; break;
+                    case 'quiet': statusMatch = s.lastResult?.includes('quiet'); break;
+                    case 'success': statusMatch = s.lastStatus === 'success'; break;
+                }
+
+                card.classList.toggle('hidden', !(catMatch && statusMatch));
+            });
+        }
+
+        // Export report
+        document.getElementById('export-btn').addEventListener('click', () => {
+            const lines = ['# Instrument Debug Report', `Date: ${new Date().toISOString()}`, ''];
+            const flagged = [];
+            const issues = [];
+
+            for (const name of allInstruments) {
+                const s = getInstrumentState(name);
+                const parts = [`- **${name}**`];
+                if (s.lastResult) parts.push(`[${s.lastResult}]`);
+                if (s.flagged) parts.push('FLAGGED');
+                if (s.flagged || s.lastStatus === 'error') {
+                    issues.push(parts.join(' '));
+                }
+                if (s.flagged) flagged.push(name);
+            }
+
+            if (flagged.length) {
+                lines.push(`## Flagged (${flagged.length})`, ...flagged.map(n => `- ${n}`), '');
+            }
+            if (issues.length) {
+                lines.push('## Issues & Notes', ...issues, '');
+            }
+
+            const text = lines.join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                log('Report copied to clipboard', 'ok');
+            }).catch(() => {
+                const blob = new Blob([text], { type: 'text/plain' });
+                window.open(URL.createObjectURL(blob));
+            });
+        });
+
+        // Instruments where the analyser can't reliably measure peaks
+        // (transients too short, or percussion that fires at specific MIDI notes)
+        const SKIP_AUTO_LEVEL = new Set([
+            'drums', 'drums-808', 'drums-breakbeat', 'drums-cr78', 'drums-v8', 'drums-lofi',
+            'fm-bell', 'am-bell', 'marimba', 'kalimba', 'steel-drum', 'music-box',
+            'metallic', 'noise-hit', 'vibes',
+            'edm-stab', 'laser', 'edm-pluck'
+        ]);
+
+        function computeAutoLevels() {
+            const TARGET_PEAK = 0.5;
+            const measured = {};
+            let hasData = false;
+
+            for (const name of allInstruments) {
+                const s = getInstrumentState(name);
+                if (s.peak && s.peak > 0.001) {
+                    measured[name] = s.peak;
+                    hasData = true;
+                }
+            }
+
+            if (!hasData) return null;
+
+            const newGains = {};
+            for (const name of allInstruments) {
+                const currentGain = INSTRUMENT_GAIN[name] || 0;
+                if (SKIP_AUTO_LEVEL.has(name)) {
+                    newGains[name] = currentGain;
+                    continue;
+                }
+                const peak = measured[name];
+                if (!peak || peak < 0.001) {
+                    newGains[name] = currentGain;
+                    continue;
+                }
+                const correction = 20 * Math.log10(TARGET_PEAK / peak);
+                newGains[name] = Math.max(-12, Math.min(18, Math.round(currentGain + correction)));
+            }
+            return newGains;
+        }
+
+        function formatGainTable(newGains) {
+            const categories = {
+                'Keys': ['piano', 'electric-piano', 'organ', 'clavinet', 'harpsichord'],
+                'Bass': ['bass', 'sub-bass', 'acid', 'reese', '808-bass', 'wobble-bass', 'rubber-bass'],
+                'Leads': ['lead', 'square-lead', 'pwm-lead', 'supersaw', 'hoover',
+                    'detuned-saw', 'distorted-lead', 'scream-lead', 'rave-stab',
+                    'sync-lead', 'tape-lead', 'talkbox'],
+                'Pads': ['pad', 'warm-pad', 'strings', 'dark-pad', 'glass-pad', 'choir'],
+                'Bells': ['fm-bell', 'marimba', 'vibes', 'kalimba', 'steel-drum', 'music-box',
+                    'metallic', 'noise-hit'],
+                'Pluck': ['pluck', 'bright-pluck', 'muted-pluck', 'acoustic-guitar',
+                    'electric-guitar', 'distorted-guitar', 'sitar'],
+                'Brass': ['brass', 'trumpet', 'flute', 'sax'],
+                'Drums': ['drums', 'drums-808', 'drums-breakbeat', 'drums-cr78',
+                    'drums-v8', 'drums-lofi'],
+                'DuoSynth': ['duo-lead', 'duo-bass'],
+                'AMSynth': ['am-bell', 'am-pad'],
+                'EDM': ['big-saw', 'edm-stab', 'trance-lead', 'edm-pluck',
+                    'drop-bass', 'chiptune', 'rave-organ', 'laser',
+                    'wobble-lead', 'screech', 'fm-bass'],
+                'Misc': ['sine']
+            };
+            const lines = ['const INSTRUMENT_GAIN = {'];
+            for (const [cat, names] of Object.entries(categories)) {
+                const entries = names
+                    .filter(n => newGains[n] !== undefined)
+                    .map(n => `'${n}': ${newGains[n]}`);
+                if (entries.length) {
+                    lines.push(`    // ${cat}`);
+                    lines.push(`    ${entries.join(', ')},`);
+                }
+            }
+            lines.push('};');
+            return lines.join('\n');
+        }
+
+        // Auto-level: copy gain table to clipboard
+        document.getElementById('auto-level-btn').addEventListener('click', () => {
+            const newGains = computeAutoLevels();
+            if (!newGains) { log('Run Test All first to collect peak data', 'err'); return; }
+
+            const text = formatGainTable(newGains);
+            navigator.clipboard.writeText(text).then(() => {
+                log('Auto-level gains copied to clipboard', 'ok');
+            }).catch(() => {
+                const blob = new Blob([text], { type: 'text/plain' });
+                window.open(URL.createObjectURL(blob));
+            });
+
+            const skipped = allInstruments.filter(n => SKIP_AUTO_LEVEL.has(n)).length;
+            const changed = allInstruments.filter(n =>
+                !SKIP_AUTO_LEVEL.has(n) && newGains[n] !== undefined && newGains[n] !== (INSTRUMENT_GAIN[n] || 0)
+            ).length;
+            log(`${changed} adjusted, ${skipped} skipped (transients), target=0.5`, 'ok');
+        });
+
+        // Apply auto-levels live: hot-swap gain nodes in the running engine
+        document.getElementById('apply-level-btn').addEventListener('click', async () => {
+            const newGains = computeAutoLevels();
+            if (!newGains) { log('Run Test All first to collect peak data', 'err'); return; }
+
+            const eng = await ensureEngine();
+            let applied = 0;
+
+            for (const name of allInstruments) {
+                if (SKIP_AUTO_LEVEL.has(name)) continue;
+                const newDb = newGains[name];
+                const oldDb = INSTRUMENT_GAIN[name] || 0;
+                if (newDb === oldDb) continue;
+
+                // Update the gain node if this instrument is loaded on any channel
+                const gainNode = eng._instrumentGains?.get(99);
+                // Update the global table so future loads use the new value
+                INSTRUMENT_GAIN[name] = newDb;
+                applied++;
+            }
+
+            // Reload current test channel instrument with new gain
+            const config = eng._channelConfigs?.get(99);
+            if (config) {
+                eng._channelConfigs.delete(99); // force reload
+                await eng.loadInstrument(99, config.name);
+            }
+
+            log(`Applied ${applied} gain changes live (${allInstruments.filter(n => SKIP_AUTO_LEVEL.has(n)).length} skipped)`, 'ok');
+            log('Run Test All again to verify new levels', 'warn');
+        });
+
+        // Unlock audio
+        document.addEventListener('click', () => {
+            if (Tone.context.state !== 'running') Tone.start();
+        }, { once: true });
+
+        log(`Found ${allInstruments.length} instruments`);
+    </script>
+</body>
+</html>

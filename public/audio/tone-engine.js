@@ -148,38 +148,39 @@ function _synthDrumKit(destination, opts) {
 
 // Gain normalization (dB) per instrument to equalize perceived loudness.
 // 0 = reference level. Positive = boost quiet instruments, negative = cut loud ones.
+// Auto-leveled to ~0.5 peak target. Transient instruments (drums, bells) hand-tuned.
 const INSTRUMENT_GAIN = {
     // Keys
-    'piano': 0, 'electric-piano': -2, 'organ': -2, 'clavinet': 0, 'harpsichord': 2,
+    'piano': 13, 'electric-piano': 10, 'organ': -5, 'clavinet': 11, 'harpsichord': 8,
     // Bass
-    'bass': -3, 'sub-bass': 4, 'acid': -4, 'reese': -5, '808-bass': 2, 'wobble-bass': -3, 'rubber-bass': -3,
+    'bass': -2, 'sub-bass': -2, 'acid': 6, 'reese': 1, '808-bass': 3, 'wobble-bass': -2, 'rubber-bass': 4,
     // Leads
-    'lead': -4, 'square-lead': -3, 'pwm-lead': -2, 'supersaw': -6, 'hoover': -4,
-    'detuned-saw': -5, 'distorted-lead': -6, 'scream-lead': -8, 'rave-stab': -4,
-    'sync-lead': -3, 'tape-lead': -4, 'talkbox': -3,
+    'lead': -5, 'square-lead': -5, 'pwm-lead': -7, 'supersaw': -2, 'hoover': 4,
+    'detuned-saw': 0, 'distorted-lead': -1, 'scream-lead': 0, 'rave-stab': 8,
+    'sync-lead': -6, 'tape-lead': -2, 'talkbox': -3,
     // Pads
-    'pad': 2, 'warm-pad': 2, 'strings': -2, 'dark-pad': 0, 'glass-pad': 2, 'choir': -2,
-    // Bells / Percussion
-    'fm-bell': 0, 'marimba': 2, 'vibes': 0, 'kalimba': 2, 'steel-drum': 0, 'music-box': 2,
-    'metallic': -4, 'noise-hit': -4,
+    'pad': -1, 'warm-pad': 3, 'strings': -1, 'dark-pad': 2, 'glass-pad': 7, 'choir': 7,
+    // Bells / Percussion (hand-tuned — analyser can't measure transients reliably)
+    'fm-bell': 8, 'marimba': 10, 'vibes': 0, 'kalimba': 10, 'steel-drum': 0, 'music-box': 10,
+    'metallic': 4, 'noise-hit': 4,
     // Pluck / Guitar
-    'pluck': 2, 'bright-pluck': 2, 'muted-pluck': 3, 'acoustic-guitar': 2,
-    'electric-guitar': -2, 'distorted-guitar': -6, 'sitar': 2,
+    'pluck': 8, 'bright-pluck': 2, 'muted-pluck': 12, 'acoustic-guitar': 10,
+    'electric-guitar': 4, 'distorted-guitar': 1, 'sitar': 3,
     // Brass / Wind
-    'brass': -3, 'trumpet': -2, 'flute': 2, 'sax': -3,
-    // Drums
-    'drums': 0, 'drums-808': 0, 'drums-breakbeat': 0, 'drums-cr78': 0,
-    'drums-v8': 0, 'drums-lofi': 0,
+    'brass': -3, 'trumpet': -6, 'flute': -4, 'sax': 0,
+    // Drums (hand-tuned)
+    'drums': 0, 'drums-808': 6, 'drums-breakbeat': 0, 'drums-cr78': 6,
+    'drums-v8': 6, 'drums-lofi': 0,
     // DuoSynth
-    'duo-lead': -4, 'duo-bass': -3,
+    'duo-lead': -10, 'duo-bass': 0,
     // AMSynth
-    'am-bell': 0, 'am-pad': 2,
+    'am-bell': 8, 'am-pad': 10,
     // EDM
-    'big-saw': -8, 'edm-stab': -4, 'trance-lead': -4, 'edm-pluck': 0,
-    'drop-bass': -5, 'chiptune': -2, 'rave-organ': -3, 'laser': -2,
-    'wobble-lead': -3, 'screech': -8, 'fm-bass': -3,
+    'big-saw': 2, 'edm-stab': -4, 'trance-lead': -5, 'edm-pluck': 6,
+    'drop-bass': 3, 'chiptune': 1, 'rave-organ': 3, 'laser': -2,
+    'wobble-lead': -3, 'screech': -1, 'fm-bass': 5,
     // Misc
-    'sine': 3
+    'sine': 5
 };
 
 const INSTRUMENT_CONFIGS = {
@@ -487,14 +488,17 @@ const INSTRUMENT_CONFIGS = {
     },
 
     'marimba': {
-        type: 'synth', synth: 'FMSynth',
-        options: {
-            harmonicity: 5.1,
-            modulationIndex: 2,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.003, decay: 0.5, sustain: 0, release: 0.3 },
-            modulation: { type: 'triangle' },
-            modulationEnvelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
+        type: 'custom',
+        create: (dest) => {
+            const synth = new Tone.FMSynth({
+                harmonicity: 5.1, modulationIndex: 2,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.003, decay: 0.6, sustain: 0.05, release: 0.3 },
+                modulation: { type: 'triangle' },
+                modulationEnvelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.2 }
+            });
+            const comp = new Tone.Compressor(-20, 6).connect(dest);
+            return synth.connect(comp);
         }
     },
 
@@ -550,22 +554,38 @@ const INSTRUMENT_CONFIGS = {
     // === Metallic / Noise ===
 
     'metallic': {
-        type: 'synth', synth: 'MetalSynth',
-        options: {
-            frequency: 200,
-            envelope: { attack: 0.003, decay: 0.4, release: 0.2 },
-            harmonicity: 5.1,
-            modulationIndex: 16,
-            resonance: 4000,
-            octaves: 1.5
+        type: 'custom',
+        create: (dest) => {
+            // FMSynth with inharmonic ratios to emulate metallic percussion
+            // (MetalSynth.connect() is broken in Tone.js v14)
+            const synth = new Tone.FMSynth({
+                harmonicity: 5.1,
+                modulationIndex: 16,
+                oscillator: { type: 'square' },
+                envelope: { attack: 0.003, decay: 0.4, sustain: 0, release: 0.2 },
+                modulation: { type: 'square' },
+                modulationEnvelope: { attack: 0.003, decay: 0.3, sustain: 0, release: 0.2 }
+            });
+            const filter = new Tone.Filter(4000, 'bandpass', -12).connect(dest);
+            return synth.connect(filter);
         }
     },
 
     'noise-hit': {
-        type: 'synth', synth: 'NoiseSynth',
-        options: {
-            noise: { type: 'white' },
-            envelope: { attack: 0.003, decay: 0.15, sustain: 0 }
+        type: 'custom',
+        create: (dest) => {
+            const synth = new Tone.NoiseSynth({
+                noise: { type: 'white' },
+                envelope: { attack: 0.003, decay: 0.2, sustain: 0.05, release: 0.1 }
+            });
+            const comp = new Tone.Compressor(-18, 6).connect(dest);
+            synth.connect(comp);
+            return {
+                triggerAttackRelease: (note, duration, time, velocity) => {
+                    synth.triggerAttackRelease(duration, time, velocity);
+                },
+                dispose: () => { synth.dispose(); comp.dispose(); }
+            };
         }
     },
 
@@ -729,14 +749,17 @@ const INSTRUMENT_CONFIGS = {
     },
 
     'kalimba': {
-        type: 'synth', synth: 'FMSynth',
-        options: {
-            harmonicity: 8,
-            modulationIndex: 2,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.4 },
-            modulation: { type: 'square' },
-            modulationEnvelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }
+        type: 'custom',
+        create: (dest) => {
+            const synth = new Tone.FMSynth({
+                harmonicity: 8, modulationIndex: 2,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.8, sustain: 0.05, release: 0.4 },
+                modulation: { type: 'square' },
+                modulationEnvelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.3 }
+            });
+            const comp = new Tone.Compressor(-20, 6).connect(dest);
+            return synth.connect(comp);
         }
     },
 
@@ -753,14 +776,17 @@ const INSTRUMENT_CONFIGS = {
     },
 
     'music-box': {
-        type: 'synth', synth: 'FMSynth',
-        options: {
-            harmonicity: 6,
-            modulationIndex: 20,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 },
-            modulation: { type: 'square' },
-            modulationEnvelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 }
+        type: 'custom',
+        create: (dest) => {
+            const synth = new Tone.FMSynth({
+                harmonicity: 6, modulationIndex: 20,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.6, sustain: 0.05, release: 0.3 },
+                modulation: { type: 'square' },
+                modulationEnvelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
+            });
+            const comp = new Tone.Compressor(-20, 6).connect(dest);
+            return synth.connect(comp);
         }
     },
 
@@ -1118,13 +1144,13 @@ const INSTRUMENT_CONFIGS = {
         create: (dest) => {
             const synth = new Tone.FMSynth({
                 harmonicity: 0.5,
-                modulationIndex: 8,
+                modulationIndex: 10,
                 oscillator: { type: 'sine' },
-                envelope: { attack: 0.005, decay: 0.4, sustain: 0.3, release: 0.3 },
+                envelope: { attack: 0.005, decay: 0.5, sustain: 0.4, release: 0.3 },
                 modulation: { type: 'square' },
-                modulationEnvelope: { attack: 0.003, decay: 0.3, sustain: 0.2, release: 0.2 }
+                modulationEnvelope: { attack: 0.003, decay: 0.4, sustain: 0.3, release: 0.2 }
             });
-            const comp = new Tone.Compressor(-18, 5).connect(dest);
+            const comp = new Tone.Compressor(-24, 8).connect(dest);
             return synth.connect(comp);
         }
     },
@@ -1721,4 +1747,4 @@ class ToneEngine {
 
 const toneEngine = new ToneEngine();
 
-export { toneEngine, ToneEngine, INSTRUMENT_CONFIGS };
+export { toneEngine, ToneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN };

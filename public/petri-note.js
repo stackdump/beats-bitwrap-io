@@ -886,12 +886,15 @@ class PetriNote extends HTMLElement {
 
             if (typeof current === 'boolean') {
                 this._traitOverrides[param] = !current;
-            } else if (typeof current === 'number') {
-                // Toggle: if > 0 set to 0, if 0 set to genre default (or 0.3 if default is 0)
-                if (current > 0) {
-                    this._traitOverrides[param] = param === 'polyrhythm' ? 0 : 0;
+            } else if (typeof current === 'number' && current > 0) {
+                // Turn off: set to 0 (or false for boolean-like traits)
+                this._traitOverrides[param] = param === 'polyrhythm' ? 0 : 0;
+            } else {
+                // Turn on: undefined, 0, or falsy — set to genre default or sensible fallback
+                const def = genreDefaults[param];
+                if (typeof def === 'boolean') {
+                    this._traitOverrides[param] = true;
                 } else {
-                    const def = genreDefaults[param];
                     this._traitOverrides[param] = def > 0 ? def : (param === 'polyrhythm' ? 6 : 0.3);
                 }
             }
@@ -1974,55 +1977,11 @@ class PetriNote extends HTMLElement {
         };
     }
 
-    _onPointerDown(e) {
-        const rect = this._canvas.parentElement.getBoundingClientRect();
-        const vx = e.clientX - rect.left;
-        const vy = e.clientY - rect.top;
-
-        // Pan: any click or space held
-        if (e.button === 1 || this._spaceHeld || e.button === 0) {
-            this._panning = { lastX: vx, lastY: vy };
-            e.preventDefault();
-            return;
-        }
-    }
-
-    _onPointerMove(e) {
-        if (!this._panning) return;
-
-        const rect = this._canvas.parentElement.getBoundingClientRect();
-        const vx = e.clientX - rect.left;
-        const vy = e.clientY - rect.top;
-
-        this._view.tx += vx - this._panning.lastX;
-        this._view.ty += vy - this._panning.lastY;
-        this._panning.lastX = vx;
-        this._panning.lastY = vy;
-        this._stage.style.transform = `translate(${this._view.tx}px, ${this._view.ty}px) scale(${this._view.scale})`;
-        this._draw();
-    }
-
-    _onPointerUp(e) {
-        this._panning = null;
-    }
-
-    _onWheel(e) {
-        e.preventDefault();
-        const rect = this._canvas.parentElement.getBoundingClientRect();
-        const vx = e.clientX - rect.left;
-        const vy = e.clientY - rect.top;
-
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        const newScale = Math.max(0.1, Math.min(3, this._view.scale * delta));
-
-        // Zoom toward cursor
-        this._view.tx = vx - (vx - this._view.tx) * (newScale / this._view.scale);
-        this._view.ty = vy - (vy - this._view.ty) * (newScale / this._view.scale);
-        this._view.scale = newScale;
-
-        this._stage.style.transform = `translate(${this._view.tx}px, ${this._view.ty}px) scale(${this._view.scale})`;
-        this._draw();
-    }
+    // Diagram is read-only — no panning, dragging, or zooming
+    _onPointerDown(e) {}
+    _onPointerMove(e) {}
+    _onPointerUp(e) {}
+    _onWheel(e) {}
 
     _onKeyDown(e) {
         // Space to play/stop
@@ -2795,6 +2754,11 @@ class PetriNote extends HTMLElement {
                     <li>Use <b>CC Reset</b> in the FX panel to clear all bindings</li>
                 </ul>
 
+                <h3>Tools</h3>
+                <ul>
+                    <li><b><a href="/debug.html" target="_blank" style="color:#c3a6ff">Instrument Debugger</a></b> &mdash; test and audition all 71 synth instruments</li>
+                </ul>
+
                 <h3>Built With</h3>
                 <p style="margin:0 0 8px;color:#aaa;font-size:0.95em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Carl Adam Petri's 1962 formalism is the runtime.</p>
                 <ul>
@@ -3162,6 +3126,8 @@ class PetriNote extends HTMLElement {
         if (structSelect && prevStructure) {
             structSelect.value = prevStructure;
         }
+        // Re-render traits now that genre dropdown is restored
+        this._updateTraits();
         if (seamless) {
             // Server already has the project loaded and is playing —
             // just ensure frontend state is correct
@@ -3250,6 +3216,10 @@ class PetriNote extends HTMLElement {
             this._setupMediaSession();
         } else {
             this._vizStopLoop();
+            // Reset playhead to loop start (or beginning if no loop)
+            this._tick = this._loopStart > 0 ? this._loopStart : 0;
+            this._lastPlayheadPct = null;
+            this._updatePlayhead();
             this._draw(); // restore static view
             this._releaseWakeLock();
         }

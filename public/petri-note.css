@@ -1000,7 +1000,8 @@ petri-note {
     font-size: 12px;
 }
 
-.pn-structure-select {
+.pn-structure-select,
+.pn-loop-mode-select {
     padding: 6px 8px;
     border: 1px solid #0f3460;
     border-radius: 4px;

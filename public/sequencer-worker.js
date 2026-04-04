@@ -355,6 +355,11 @@ function restartTimer() {
 
 function doPlay() {
     if (playing) return;
+    // Seek to loop start to restore correct Petri net state
+    if (loopStart > 0 && project) {
+        fastForwardTo(loopStart);
+        broadcastState();
+    }
     playing = true;
     restartTimer();
 }
@@ -366,10 +371,8 @@ function doStop() {
     }
     playing = false;
     stopRequested = false;
-    tickCount = 0;
+    tickCount = loopStart >= 0 ? loopStart : 0;
     loopIteration = 0;
-    loopStart = -1;
-    loopEnd = -1;
     mutedNets = {};
     mutedNotes = {};
 
@@ -522,10 +525,82 @@ self.onmessage = function(e) {
             }
             break;
 
-        case 'crop':
-            // Simplified crop: not porting full crop logic for initial version
-            // Could be added later
+        case 'crop': {
+            const cropStart = msg.startTick;
+            const cropEnd = msg.endTick;
+            if (!(cropStart >= 0 && cropEnd > cropStart && project)) break;
+
+            // Build cropped project JSON
+            const srcJSON = projectToJSON(project);
+            const cropped = {
+                name: srcJSON.name + ' [crop]',
+                tempo: srcJSON.tempo,
+                nets: srcJSON.nets,
+            };
+            if (srcJSON.swing) cropped.swing = srcJSON.swing;
+            if (srcJSON.humanize) cropped.humanize = srcJSON.humanize;
+
+            // Trim structure to crop range
+            if (srcJSON.structure && srcJSON.structure.length > 0) {
+                const newStructure = [];
+                let offset = 0;
+                for (const sec of srcJSON.structure) {
+                    const secStart = offset;
+                    const secEnd = offset + sec.steps;
+                    offset = secEnd;
+
+                    // Skip sections entirely outside crop range
+                    if (secEnd <= cropStart || secStart >= cropEnd) continue;
+
+                    // Trim sections that partially overlap
+                    const trimStart = Math.max(0, cropStart - secStart);
+                    const trimEnd = Math.min(sec.steps, cropEnd - secStart);
+                    const trimmedSteps = trimEnd - trimStart;
+                    if (trimmedSteps <= 0) continue;
+
+                    const s = { name: sec.name, steps: trimmedSteps };
+                    if (sec.phrases) s.phrases = sec.phrases;
+                    newStructure.push(s);
+                }
+                cropped.structure = newStructure;
+            }
+
+            // Trim initialMutes to only nets that still exist
+            if (srcJSON.initialMutes) {
+                cropped.initialMutes = srcJSON.initialMutes;
+            }
+
+            // Parse and load as new project
+            const newProj = parseProject(cropped);
+            const wasPlaying = playing;
+            if (wasPlaying) {
+                clearInterval(timerId);
+                timerId = null;
+                playing = false;
+            }
+            project = newProj;
+            tempo = newProj.tempo;
+            tickCount = 0;
+            loopStart = -1;
+            loopEnd = -1;
+            loopIteration = 0;
+            mutedNets = {};
+            mutedNotes = {};
+            mutedGroups = {};
+            if (newProj.initialMutes) {
+                for (const netId of newProj.initialMutes) {
+                    mutedNets[netId] = true;
+                }
+            }
+            post({ type: 'project-sync', project: projectToJSON(newProj) });
+            broadcastMuteState();
+            broadcastState();
+            if (wasPlaying) {
+                playing = true;
+                restartTimer();
+            }
             break;
+        }
 
         case 'loop':
             if (msg.startTick >= 0 && msg.endTick >= 0 && msg.startTick >= msg.endTick) {
