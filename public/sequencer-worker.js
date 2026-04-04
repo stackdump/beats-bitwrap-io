@@ -5,7 +5,7 @@
  */
 
 import { parseProject, projectToJSON } from './lib/pflow.js';
-import { compose, shuffleInstruments, Genres, GenreInstrumentSets } from './lib/generator/index.js';
+import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js';
 
 const DefaultTempo = 120;
 const DefaultPPQ = 4;
@@ -530,12 +530,22 @@ self.onmessage = function(e) {
             const cropEnd = msg.endTick;
             if (!(cropStart >= 0 && cropEnd > cropStart && project)) break;
 
-            // Build cropped project JSON
             const srcJSON = projectToJSON(project);
+
+            // Keep only music nets (strip old control nets)
+            const musicNets = {};
+            for (const [id, net] of Object.entries(srcJSON.nets)) {
+                if (net.role !== 'control') musicNets[id] = net;
+            }
+
             const cropped = {
-                name: srcJSON.name + ' [crop]',
+                name: (() => {
+                    const m = srcJSON.name.match(/^(.*?)\s*(\[+)crop(\]+)$/);
+                    if (m) return m[1] + ' ' + '[' + m[2] + 'crop' + m[3] + ']';
+                    return srcJSON.name + ' [crop]';
+                })(),
                 tempo: srcJSON.tempo,
-                nets: srcJSON.nets,
+                nets: musicNets,
             };
             if (srcJSON.swing) cropped.swing = srcJSON.swing;
             if (srcJSON.humanize) cropped.humanize = srcJSON.humanize;
@@ -548,16 +558,11 @@ self.onmessage = function(e) {
                     const secStart = offset;
                     const secEnd = offset + sec.steps;
                     offset = secEnd;
-
-                    // Skip sections entirely outside crop range
                     if (secEnd <= cropStart || secStart >= cropEnd) continue;
-
-                    // Trim sections that partially overlap
                     const trimStart = Math.max(0, cropStart - secStart);
                     const trimEnd = Math.min(sec.steps, cropEnd - secStart);
                     const trimmedSteps = trimEnd - trimStart;
                     if (trimmedSteps <= 0) continue;
-
                     const s = { name: sec.name, steps: trimmedSteps };
                     if (sec.phrases) s.phrases = sec.phrases;
                     newStructure.push(s);
@@ -565,40 +570,11 @@ self.onmessage = function(e) {
                 cropped.structure = newStructure;
             }
 
-            // Trim initialMutes to only nets that still exist
-            if (srcJSON.initialMutes) {
-                cropped.initialMutes = srcJSON.initialMutes;
-            }
-
-            // Parse and load as new project
+            // Parse, rebuild control nets, and load as a normal project
             const newProj = parseProject(cropped);
-            const wasPlaying = playing;
-            if (wasPlaying) {
-                clearInterval(timerId);
-                timerId = null;
-                playing = false;
-            }
-            project = newProj;
-            tempo = newProj.tempo;
-            tickCount = 0;
-            loopStart = -1;
-            loopEnd = -1;
-            loopIteration = 0;
-            mutedNets = {};
-            mutedNotes = {};
-            mutedGroups = {};
-            if (newProj.initialMutes) {
-                for (const netId of newProj.initialMutes) {
-                    mutedNets[netId] = true;
-                }
-            }
-            post({ type: 'project-sync', project: projectToJSON(newProj) });
-            broadcastMuteState();
-            broadcastState();
-            if (wasPlaying) {
-                playing = true;
-                restartTimer();
-            }
+            const cropMutes = rebuildControlNets(newProj);
+            newProj.initialMutes = cropMutes;
+            queueProject(newProj);
             break;
         }
 

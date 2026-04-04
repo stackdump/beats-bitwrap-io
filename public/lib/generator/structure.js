@@ -659,3 +659,152 @@ export function songStructure(proj, template, musicNets) {
 
     return initialMutes;
 }
+
+/**
+ * Rebuild control nets from a project's serialized structure.
+ * Used after crop to recreate mute/unmute, activate-slot, and stop-transport
+ * control nets so the cropped track behaves like a freshly generated one.
+ *
+ * @param {object} proj - parsed project with .nets and .structure
+ * @returns {string[]} net IDs that should start muted
+ */
+export function rebuildControlNets(proj) {
+    const structure = proj.structure;
+    if (!structure || structure.length === 0) return [];
+
+    const totalSteps = structure.reduce((s, sec) => s + sec.steps, 0);
+
+    // Identify music nets and group by role
+    const netRoles = {};      // netId → base role
+    const riffGroups = {};    // role → [netId, ...]
+    const simpleNets = [];    // netIds without riff groups
+
+    for (const [id, net] of Object.entries(proj.nets)) {
+        if (net.role === 'control') continue;
+        const role = net.riffGroup || id;
+        netRoles[id] = role;
+        if (net.riffGroup) {
+            if (!riffGroups[role]) riffGroups[role] = [];
+            riffGroups[role].push(id);
+        } else {
+            simpleNets.push(id);
+        }
+    }
+
+    // Determine which roles are active in each section
+    // A role is active if it appears in section.phrases or in the section archetype
+    function isRoleActive(sec, role) {
+        if (sec.phrases && sec.phrases[role]) return true;
+        const arch = sectionArchetypes[sec.name];
+        if (arch && arch[role]) return true;
+        return false;
+    }
+
+    const initialMutes = [];
+
+    // Simple nets (no riff group): mute/unmute at section boundaries
+    for (const netId of simpleNets) {
+        const role = netRoles[netId];
+        const events = [];
+        let wasActive = isRoleActive(structure[0], role);
+        let pos = 0;
+
+        for (let si = 1; si < structure.length; si++) {
+            pos += structure[si - 1].steps;
+            const active = isRoleActive(structure[si], role);
+            if (active !== wasActive) {
+                events.push({ tick: pos, binding: {
+                    action: active ? 'unmute-track' : 'mute-track',
+                    targetNet: netId,
+                    targetNote: 0,
+                }});
+                wasActive = active;
+            }
+        }
+
+        if (events.length > 0) {
+            proj.nets[`struct-${netId}`] = buildAccumulatorNet(events);
+        }
+
+        if (!isRoleActive(structure[0], role)) {
+            initialMutes.push(netId);
+        }
+    }
+
+    // Riff groups: activate-slot at phrase boundaries
+    for (const [role, netIds] of Object.entries(riffGroups)) {
+        const events = [];
+        // Map phrase letters to slot indices: A→0, B→1, C→2
+        let prevSlot = -1;
+        let pos = 0;
+
+        for (let si = 0; si < structure.length; si++) {
+            const sec = structure[si];
+            const phrases = (sec.phrases && sec.phrases[role]) || [];
+
+            if (phrases.length === 0) {
+                // Role not active in this section — mute it
+                if (prevSlot >= 0 && pos > 0) {
+                    events.push({ tick: pos, binding: {
+                        action: 'mute-track',
+                        targetNet: `${role}-${prevSlot}`,
+                        targetNote: 0,
+                    }});
+                    prevSlot = -1;
+                }
+                pos += sec.steps;
+                continue;
+            }
+
+            const phraseLen = Math.floor(sec.steps / phrases.length);
+
+            for (let pi = 0; pi < phrases.length; pi++) {
+                const phraseStart = pos + pi * phraseLen;
+                // Convert letter to slot: 'A'→0, 'B'→1, 'C'→2
+                const letter = phrases[pi];
+                const slot = letter ? letter.charCodeAt(0) - 65 : 0;
+
+                if (slot !== prevSlot) {
+                    if (phraseStart > 0) {
+                        if (slot >= 0) {
+                            events.push({ tick: phraseStart, binding: {
+                                action: 'activate-slot',
+                                targetNet: `${role}-${slot}`,
+                                targetNote: 0,
+                            }});
+                        } else if (prevSlot >= 0) {
+                            events.push({ tick: phraseStart, binding: {
+                                action: 'mute-track',
+                                targetNet: `${role}-${prevSlot}`,
+                                targetNote: 0,
+                            }});
+                        }
+                    }
+                    prevSlot = slot;
+                }
+            }
+            pos += sec.steps;
+        }
+
+        if (events.length > 0) {
+            proj.nets[`struct-${role}`] = buildAccumulatorNet(events);
+        }
+
+        // Initial mutes: all slots muted except the first active one
+        const firstSec = structure[0];
+        const firstPhrases = (firstSec.phrases && firstSec.phrases[role]) || [];
+        const firstSlot = firstPhrases.length > 0 ? (firstPhrases[0].charCodeAt(0) - 65) : -1;
+
+        for (const nId of netIds) {
+            const slotIdx = extractSlotIndex(nId, role);
+            if (slotIdx !== firstSlot || firstSlot < 0) {
+                initialMutes.push(nId);
+            }
+        }
+    }
+
+    // Stop net
+    proj.nets['struct-stop'] = linearStopNet(totalSteps);
+
+    return initialMutes;
+}
