@@ -71,21 +71,33 @@ function _buildEffectChain(effectConfigs, destination) {
  * Returns an object with triggerAttackRelease + dispose matching synth interface.
  */
 function _synthDrumKit(destination, opts) {
+    // Per-voice LP/HP filter pairs for independent mixer control
+    const voiceFilters = {};
+    for (const role of ['kick', 'snare', 'hihat', 'clap']) {
+        const lp = new Tone.Filter({ frequency: 20000, type: 'lowpass', rolloff: -12, Q: 1 });
+        const hp = new Tone.Filter({ frequency: 20, type: 'highpass', rolloff: -12, Q: 1 });
+        hp.connect(lp);
+        lp.connect(destination);
+        voiceFilters[role] = { lpFilter: lp, hpFilter: hp };
+    }
+
     // Layered kick: membrane body + short click transient
+    const kickDest = voiceFilters.kick.hpFilter;
     const kickBody = new Tone.MembraneSynth({
         pitchDecay: 0.05, octaves: opts.kickOctaves,
         oscillator: { type: 'sine' },
         envelope: { attack: 0.003, decay: opts.kickDecay, sustain: 0, release: 0.1 }
-    }).connect(destination);
+    }).connect(kickDest);
 
     const kickClick = new Tone.Synth({
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.001, decay: 0.02, sustain: 0, release: 0.01 }
-    }).connect(destination);
+    }).connect(kickDest);
     kickClick.volume.value = -12;
 
     // Snare: noise + body through bandpass
-    const snareFilter = new Tone.Filter(3000, 'bandpass', -12).connect(destination);
+    const snareDest = voiceFilters.snare.hpFilter;
+    const snareFilter = new Tone.Filter(3000, 'bandpass', -12).connect(snareDest);
     const snareNoise = new Tone.NoiseSynth({
         noise: { type: 'white' },
         envelope: { attack: 0.001, decay: opts.snareDecay, sustain: 0, release: 0.1 }
@@ -95,11 +107,12 @@ function _synthDrumKit(destination, opts) {
         pitchDecay: 0.01, octaves: 2,
         oscillator: { type: 'sine' },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
-    }).connect(destination);
+    }).connect(snareDest);
     snareBody.volume.value = -8;
 
     // Hihat: filtered noise (more reliable than MetalSynth for rapid retriggers)
-    const hihatFilter = new Tone.Filter(8000, 'bandpass', -12).connect(destination);
+    const hihatDest = voiceFilters.hihat.hpFilter;
+    const hihatFilter = new Tone.Filter(8000, 'bandpass', -12).connect(hihatDest);
     const hihat = new Tone.NoiseSynth({
         noise: { type: 'white' },
         envelope: { attack: 0.001, decay: opts.hihatDecay, sustain: 0, release: 0.01 }
@@ -107,13 +120,15 @@ function _synthDrumKit(destination, opts) {
     hihat.volume.value = opts.hihatVol + 4;
 
     // Clap: multi-burst noise for realism
-    const clapFilter = new Tone.Filter(2500, 'bandpass', -12).connect(destination);
+    const clapDest = voiceFilters.clap.hpFilter;
+    const clapFilter = new Tone.Filter(2500, 'bandpass', -12).connect(clapDest);
     const clap = new Tone.NoiseSynth({
         noise: { type: 'pink' },
         envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
     }).connect(clapFilter);
 
     return {
+        _voiceFilters: voiceFilters,
         triggerAttackRelease: (note, duration, time, velocity) => {
             const midiNote = typeof note === 'string' ? Tone.Frequency(note).toMidi() : note;
             const vel = velocity || 0.8;
@@ -142,6 +157,10 @@ function _synthDrumKit(destination, opts) {
             snareNoise.dispose(); snareBody.dispose(); snareFilter.dispose();
             hihat.dispose(); hihatFilter.dispose();
             clap.dispose(); clapFilter.dispose();
+            for (const vf of Object.values(voiceFilters)) {
+                vf.lpFilter.dispose();
+                vf.hpFilter.dispose();
+            }
         }
     };
 }
@@ -1280,6 +1299,7 @@ class ToneEngine {
         if (oldInst) {
             oldInst.dispose();
         }
+        this._drumVoiceFilters?.delete(channel);
         // Dispose old normalization gain node
         const oldGain = this._instrumentGains?.get(channel);
         if (oldGain) {
@@ -1308,6 +1328,14 @@ class ToneEngine {
                     break;
                 case 'custom':
                     instrument = config.create(dest);
+                    if (instrument._voiceFilters) {
+                        if (!this._drumVoiceFilters) this._drumVoiceFilters = new Map();
+                        const roleMap = new Map();
+                        for (const [role, filters] of Object.entries(instrument._voiceFilters)) {
+                            roleMap.set(role, filters);
+                        }
+                        this._drumVoiceFilters.set(channel, roleMap);
+                    }
                     break;
                 default:
                     instrument = new Tone.Synth().connect(dest);
@@ -1617,6 +1645,48 @@ class ToneEngine {
         }
     }
 
+    // --- Per-voice drum filter controls ---
+
+    hasDrumVoiceFilters(channel) {
+        return this._drumVoiceFilters?.has(channel) || false;
+    }
+
+    setDrumVoiceCutoff(channel, role, freq) {
+        const vf = this._drumVoiceFilters?.get(channel)?.get(role);
+        if (vf?.lpFilter) {
+            const f = Math.max(100, Math.min(20000, freq));
+            vf.lpFilter.frequency.cancelScheduledValues(Tone.now());
+            vf.lpFilter.frequency.setValueAtTime(f, Tone.now());
+        }
+    }
+
+    setDrumVoiceResonance(channel, role, q) {
+        const vf = this._drumVoiceFilters?.get(channel)?.get(role);
+        if (vf?.lpFilter) {
+            const v = Math.max(0.5, Math.min(50, q));
+            vf.lpFilter.Q.cancelScheduledValues(Tone.now());
+            vf.lpFilter.Q.setValueAtTime(v, Tone.now());
+        }
+    }
+
+    setDrumVoiceLoCut(channel, role, freq) {
+        const vf = this._drumVoiceFilters?.get(channel)?.get(role);
+        if (vf?.hpFilter) {
+            const f = Math.max(20, Math.min(5000, freq));
+            vf.hpFilter.frequency.cancelScheduledValues(Tone.now());
+            vf.hpFilter.frequency.setValueAtTime(f, Tone.now());
+        }
+    }
+
+    setDrumVoiceLoResonance(channel, role, q) {
+        const vf = this._drumVoiceFilters?.get(channel)?.get(role);
+        if (vf?.hpFilter) {
+            const v = Math.max(0.5, Math.min(50, q));
+            vf.hpFilter.Q.cancelScheduledValues(Tone.now());
+            vf.hpFilter.Q.setValueAtTime(v, Tone.now());
+        }
+    }
+
     setChannelDecay(channel, value) {
         const strip = this._channelStrips.get(channel);
         if (strip) {
@@ -1726,9 +1796,13 @@ class ToneEngine {
             instrument.dispose();
         }
         this._instruments.clear();
+        if (this._drumVoiceFilters) {
+            this._drumVoiceFilters.clear();
+        }
         for (const strip of this._channelStrips.values()) {
             strip.volume.dispose();
             strip.filter?.dispose();
+            strip.hpFilter?.dispose();
             strip.panner.dispose();
             strip.delaySend?.dispose();
         }

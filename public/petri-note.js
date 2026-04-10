@@ -11,15 +11,27 @@ function hpFreq(val) { return 20 * Math.pow(250, val / 100); }
 function lpFreq(val) { return 100 * Math.pow(200, val / 100); }
 function qCurve(val) { return 0.5 + (Math.pow(val / 100, 2) * 49.5); }
 
-// Slider config: [css class, state key, apply function factory(ch) => fn(val)]
+// Slider config: [css class, state key, apply function factory(ch, drumRole) => fn(val)]
 const MIXER_SLIDERS = [
-    ['pn-mixer-vol',    'vol',   ch => v => toneEngine.controlChange(ch, 7, v)],
-    ['pn-mixer-pan',    'pan',   ch => v => toneEngine.controlChange(ch, 10, v)],
-    ['pn-mixer-locut',  'locut', ch => v => toneEngine.setChannelLoCut(ch, hpFreq(v))],
-    ['pn-mixer-loreso', 'lores', ch => v => toneEngine.setChannelLoResonance(ch, qCurve(v))],
-    ['pn-mixer-cutoff', 'cut',   ch => v => toneEngine.setChannelCutoff(ch, lpFreq(v))],
-    ['pn-mixer-reso',   'res',   ch => v => toneEngine.setChannelResonance(ch, qCurve(v))],
-    ['pn-mixer-decay',  'dec',   ch => v => toneEngine.setChannelDecay(ch, v / 100)],
+    ['pn-mixer-vol',    'vol',   (ch) => v => toneEngine.controlChange(ch, 7, v)],
+    ['pn-mixer-pan',    'pan',   (ch) => v => toneEngine.controlChange(ch, 10, v)],
+    ['pn-mixer-locut',  'locut', (ch, role) => v => {
+        if (role && toneEngine.hasDrumVoiceFilters(ch)) toneEngine.setDrumVoiceLoCut(ch, role, hpFreq(v));
+        else toneEngine.setChannelLoCut(ch, hpFreq(v));
+    }],
+    ['pn-mixer-loreso', 'lores', (ch, role) => v => {
+        if (role && toneEngine.hasDrumVoiceFilters(ch)) toneEngine.setDrumVoiceLoResonance(ch, role, qCurve(v));
+        else toneEngine.setChannelLoResonance(ch, qCurve(v));
+    }],
+    ['pn-mixer-cutoff', 'cut',   (ch, role) => v => {
+        if (role && toneEngine.hasDrumVoiceFilters(ch)) toneEngine.setDrumVoiceCutoff(ch, role, lpFreq(v));
+        else toneEngine.setChannelCutoff(ch, lpFreq(v));
+    }],
+    ['pn-mixer-reso',   'res',   (ch, role) => v => {
+        if (role && toneEngine.hasDrumVoiceFilters(ch)) toneEngine.setDrumVoiceResonance(ch, role, qCurve(v));
+        else toneEngine.setChannelResonance(ch, qCurve(v));
+    }],
+    ['pn-mixer-decay',  'dec',   (ch) => v => toneEngine.setChannelDecay(ch, v / 100)],
 ];
 
 // Genre-specific instrument mappings (channel -> instrument name)
@@ -1169,24 +1181,18 @@ class PetriNote extends HTMLElement {
             const net = this._project.nets[netId];
             if (!net) return;
             const ch = net.track?.channel || 1;
+            const row = slider.closest('.pn-mixer-row');
+            const drumRole = (ch === 10) ? (net.riffGroup || row?.dataset.riffGroup || netId) : null;
 
             // Save slider state for this net
             this._saveMixerSliderState(netId);
 
-            if (slider.classList.contains('pn-mixer-vol')) {
-                toneEngine.controlChange(ch, 7, parseInt(slider.value));
-            } else if (slider.classList.contains('pn-mixer-pan')) {
-                toneEngine.controlChange(ch, 10, parseInt(slider.value));
-            } else if (slider.classList.contains('pn-mixer-locut')) {
-                toneEngine.setChannelLoCut(ch, hpFreq(parseInt(slider.value)));
-            } else if (slider.classList.contains('pn-mixer-loreso')) {
-                toneEngine.setChannelLoResonance(ch, qCurve(parseInt(slider.value)));
-            } else if (slider.classList.contains('pn-mixer-cutoff')) {
-                toneEngine.setChannelCutoff(ch, lpFreq(parseInt(slider.value)));
-            } else if (slider.classList.contains('pn-mixer-reso')) {
-                toneEngine.setChannelResonance(ch, qCurve(parseInt(slider.value)));
-            } else if (slider.classList.contains('pn-mixer-decay')) {
-                toneEngine.setChannelDecay(ch, parseInt(slider.value) / 100);
+            const v = parseInt(slider.value);
+            for (const [cls, , applyFactory] of MIXER_SLIDERS) {
+                if (slider.classList.contains(cls)) {
+                    applyFactory(ch, drumRole)(v);
+                    return;
+                }
             }
         });
 
@@ -1355,13 +1361,14 @@ class PetriNote extends HTMLElement {
             const net = this._project.nets[netId];
             if (!net) continue;
             const ch = net.track?.channel || 1;
+            const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
 
             for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
                 const el = row.querySelector(`.${cls}`);
                 const val = state[key];
                 if (el && val != null) {
                     el.value = val;
-                    applyFactory(ch)(parseInt(val));
+                    applyFactory(ch, drumRole)(parseInt(val));
                 }
             }
         }
@@ -1440,13 +1447,14 @@ class PetriNote extends HTMLElement {
         if (!net) return;
         const ch = net.track?.channel || 1;
         const isPerc = ch === 10;
+        const drumRole = isPerc ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
         const defaults = { locut: '0', lores: '5', cut: '100', res: '5', dec: isPerc ? '100' : '5' };
         for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
             if (key === 'vol' || key === 'pan') continue;
             const el = row.querySelector(`.${cls}`);
             if (el && defaults[key] != null) {
                 el.value = defaults[key];
-                applyFactory(ch)(parseInt(defaults[key]));
+                applyFactory(ch, drumRole)(parseInt(defaults[key]));
             }
         }
         this._saveMixerSliderState(netId);
@@ -1475,6 +1483,7 @@ class PetriNote extends HTMLElement {
         if (!net) return;
         const ch = net.track?.channel || 1;
         const isPerc = ch === 10;
+        const drumRole = isPerc ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
 
         const readCurrent = () => {
             const state = {};
@@ -1491,7 +1500,7 @@ class PetriNote extends HTMLElement {
                 const el = row.querySelector(`.${cls}`);
                 if (el && s[key] != null) {
                     el.value = s[key];
-                    applyFactory(ch)(parseInt(s[key]));
+                    applyFactory(ch, drumRole)(parseInt(s[key]));
                 }
             }
             this._saveMixerSliderState(netId);
