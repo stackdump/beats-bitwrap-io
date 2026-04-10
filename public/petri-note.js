@@ -140,7 +140,7 @@ class PetriNote extends HTMLElement {
         this._loadProject();
         this._buildUI();
         this._setupEventListeners();
-        this._connectWorker();
+        this._connectBackend();
         this._initAudio();
         this._renderNet();
     }
@@ -148,6 +148,12 @@ class PetriNote extends HTMLElement {
     disconnectedCallback() {
         if (this._worker) {
             this._worker.terminate();
+        }
+        if (this._ws) {
+            this._ws.close();
+        }
+        if (this._wsReconnectTimer) {
+            clearTimeout(this._wsReconnectTimer);
         }
     }
 
@@ -819,7 +825,14 @@ class PetriNote extends HTMLElement {
         workspace.appendChild(canvasContainer);
         this.appendChild(workspace);
 
-        // Status bar
+        // Status bar (WebSocket mode only)
+        if (this.dataset.backend === 'ws') {
+            const status = document.createElement('div');
+            status.className = 'pn-status';
+            status.innerHTML = '<span class="pn-ws-status disconnected">&#9679; Disconnected</span>';
+            this.appendChild(status);
+        }
+
         // Setup canvas size
         this._resizeCanvas();
     }
@@ -3329,7 +3342,15 @@ class PetriNote extends HTMLElement {
         this._syncProject();
     }
 
-    // === Worker (replaces WebSocket) ===
+    // === Backend: Worker (default) or WebSocket (data-backend="ws") ===
+
+    _connectBackend() {
+        if (this.dataset.backend === 'ws') {
+            this._connectWebSocket();
+        } else {
+            this._connectWorker();
+        }
+    }
 
     _connectWorker() {
         this._worker = new Worker('./sequencer-worker.js', { type: 'module' });
@@ -3361,12 +3382,66 @@ class PetriNote extends HTMLElement {
         };
     }
 
-    _updateWsStatus() {
-        // No-op: status indicator removed for client-only mode
+    _connectWebSocket() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${location.host}/ws`;
+
+        try {
+            this._ws = new WebSocket(wsUrl);
+
+            this._ws.onopen = () => {
+                console.log('WebSocket connected');
+                this._updateWsStatus(true);
+                if (!this._hasInitialProject) {
+                    this._hasInitialProject = true;
+                    this._sendWs({ type: 'generate', genre: 'techno', params: {} });
+                } else {
+                    this._sendWs({ type: 'project-load', project: this._project });
+                }
+            };
+
+            this._ws.onmessage = (event) => {
+                this._handleWsMessage(JSON.parse(event.data));
+            };
+
+            this._ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                this._updateWsStatus(false);
+                this._scheduleReconnect();
+            };
+
+            this._ws.onerror = (err) => {
+                console.error('WebSocket error:', err);
+            };
+        } catch (e) {
+            console.warn('WebSocket connection failed:', e);
+            this._updateWsStatus(false);
+        }
+    }
+
+    _scheduleReconnect() {
+        if (this._wsReconnectTimer) return;
+        this._wsReconnectTimer = setTimeout(() => {
+            this._wsReconnectTimer = null;
+            this._connectWebSocket();
+        }, 3000);
+    }
+
+    _updateWsStatus(connected) {
+        // Infer from actual state when called with no args (e.g. after UI rebuild)
+        if (connected === undefined) {
+            connected = this._ws?.readyState === WebSocket.OPEN;
+        }
+        const el = this.querySelector('.pn-ws-status');
+        if (!el) return;
+        el.className = `pn-ws-status ${connected ? 'connected' : 'disconnected'}`;
+        el.innerHTML = connected ? '&#9679; Connected' : '&#9679; Disconnected';
     }
 
     _sendWs(msg) {
-        if (this._worker) {
+        if (this._ws?.readyState === WebSocket.OPEN) {
+            this._ws.send(JSON.stringify(msg));
+        } else if (this._worker) {
             this._worker.postMessage(msg);
         }
     }

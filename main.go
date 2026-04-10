@@ -30,7 +30,18 @@ func main() {
 		log.Printf("Serving embedded files")
 	}
 
+	// Wrap with CORS headers for cross-origin consumption (CDN, data-backend="ws")
+	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+
 	log.Printf("Listening on %s", *addr)
 	fmt.Printf("beats.bitwrap.io → http://localhost%s\n", *addr)
-	log.Fatal(http.ListenAndServe(*addr, handler))
+	log.Fatal(http.ListenAndServe(*addr, cors))
 }
