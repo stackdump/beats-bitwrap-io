@@ -486,10 +486,12 @@ self.onmessage = function(e) {
         case 'transition-fire':
             if (project && project.nets[msg.netId]) {
                 const bundle = project.nets[msg.netId];
-                const result = bundle.fire(msg.transitionId);
-                if (result.control) applyControl(msg.netId, msg.transitionId, result.control);
-                if (result.midi && !mutedNets[msg.netId]) {
-                    post({ type: 'transition-fired', netId: msg.netId, transitionId: msg.transitionId, midi: result.midi });
+                if (bundle.isEnabled(msg.transitionId)) {
+                    const result = bundle.fire(msg.transitionId);
+                    if (result.control) applyControl(msg.netId, msg.transitionId, result.control);
+                    if (result.midi && !mutedNets[msg.netId]) {
+                        post({ type: 'transition-fired', netId: msg.netId, transitionId: msg.transitionId, midi: result.midi });
+                    }
                 }
             }
             break;
@@ -579,7 +581,7 @@ self.onmessage = function(e) {
         }
 
         case 'loop':
-            if (msg.startTick >= 0 && msg.endTick >= 0 && msg.startTick >= msg.endTick) {
+            if (msg.startTick < 0 || msg.endTick < 0 || msg.startTick >= msg.endTick) {
                 loopStart = -1;
                 loopEnd = -1;
             } else {
