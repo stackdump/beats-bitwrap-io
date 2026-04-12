@@ -1196,6 +1196,7 @@ class ToneEngine {
         this._channelStrips = new Map(); // channel -> { volume, panner }
         this._sustainedNotes = new Map(); // channel -> Set of note names
         this._masterVolume = null;
+        this._channelSinks = new Map(); // channel -> { streamDest, audioEl, deviceId }
         this._reverb = null;
         this._delay = null;
         this._distortion = null;
@@ -1212,6 +1213,10 @@ class ToneEngine {
         if (Tone.context.state !== 'running') {
             Tone.context.resume();
         }
+    }
+
+    isContextRunning() {
+        return Tone.context.state === 'running';
     }
 
     async init() {
@@ -1256,21 +1261,125 @@ class ToneEngine {
 
     async listOutputDevices() {
         if (!navigator.mediaDevices?.enumerateDevices) return [];
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        return devices.filter(d => d.kind === 'audiooutput');
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        let outputs = devices.filter(d => d.kind === 'audiooutput');
+        // Chrome hides non-default outputs and labels until mic permission is granted.
+        const needsPermission = !this._micPermissionRequested &&
+            (outputs.length <= 1 || outputs.some(d => !d.label));
+        if (needsPermission) {
+            this._micPermissionRequested = true;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(t => t.stop());
+                devices = await navigator.mediaDevices.enumerateDevices();
+                outputs = devices.filter(d => d.kind === 'audiooutput');
+            } catch (err) {
+                console.warn('Mic permission denied — output device list limited:', err);
+            }
+        }
+        return outputs;
     }
 
     async setOutputDevice(deviceId) {
+        await this.init();
         const raw = Tone.context.rawContext;
-        if (typeof raw.setSinkId !== 'function') {
-            throw new Error('AudioContext.setSinkId not supported (Chrome 110+ required)');
+
+        // Preferred path: AudioContext.setSinkId (Chrome 110+)
+        if (typeof raw.setSinkId === 'function') {
+            await raw.setSinkId(deviceId || '');
+            if (this._masterSink) {
+                try { this._masterComp.disconnect(); } catch {}
+                this._masterSink.audioEl.srcObject = null;
+                this._masterSink.audioEl.remove();
+                this._masterSink = null;
+                this._masterComp.toDestination();
+            }
+            this._masterSinkId = deviceId || '';
+            return;
         }
-        await raw.setSinkId(deviceId);
+
+        // Fallback: master MediaStreamDestination + <audio> with setSinkId
+        if (typeof HTMLAudioElement.prototype.setSinkId !== 'function') {
+            throw new Error('Neither AudioContext.setSinkId nor HTMLAudioElement.setSinkId is supported');
+        }
+        if (!deviceId) {
+            if (this._masterSink) {
+                try { this._masterComp.disconnect(); } catch {}
+                this._masterSink.audioEl.srcObject = null;
+                this._masterSink.audioEl.remove();
+                this._masterSink = null;
+                this._masterComp.toDestination();
+            }
+            this._masterSinkId = '';
+            return;
+        }
+
+        if (!this._masterSink) {
+            const streamDest = raw.createMediaStreamDestination();
+            const audioEl = document.createElement('audio');
+            audioEl.autoplay = true;
+            audioEl.srcObject = streamDest.stream;
+            audioEl.style.display = 'none';
+            document.body.appendChild(audioEl);
+            try { this._masterComp.disconnect(); } catch {}
+            this._masterComp.connect(streamDest);
+            this._masterSink = { streamDest, audioEl };
+        }
+        await this._masterSink.audioEl.setSinkId(deviceId);
+        this._masterSinkId = deviceId;
     }
 
     getOutputDeviceId() {
+        if (this._masterSinkId) return this._masterSinkId;
         const raw = Tone.context.rawContext;
         return typeof raw.sinkId === 'string' ? raw.sinkId : '';
+    }
+
+    async setChannelOutputDevice(channel, deviceId) {
+        await this.init();
+        const strip = this._getChannelStrip(channel);
+        const existing = this._channelSinks.get(channel);
+
+        if (!deviceId || deviceId === 'master') {
+            if (existing) {
+                try { strip.panner.disconnect(existing.streamDest); } catch {}
+                existing.audioEl.srcObject = null;
+                existing.audioEl.remove();
+                this._channelSinks.delete(channel);
+                strip.panner.connect(this._reverb);
+                strip.panner.connect(strip.delaySend);
+            }
+            return;
+        }
+
+        const raw = Tone.context.rawContext;
+        if (typeof HTMLAudioElement.prototype.setSinkId !== 'function') {
+            throw new Error('HTMLAudioElement.setSinkId not supported');
+        }
+
+        let sink = existing;
+        if (!sink) {
+            const streamDest = raw.createMediaStreamDestination();
+            const audioEl = document.createElement('audio');
+            audioEl.autoplay = true;
+            audioEl.srcObject = streamDest.stream;
+            audioEl.style.display = 'none';
+            document.body.appendChild(audioEl);
+            sink = { streamDest, audioEl, deviceId: '' };
+            this._channelSinks.set(channel, sink);
+
+            try { strip.panner.disconnect(this._reverb); } catch {}
+            try { strip.panner.disconnect(strip.delaySend); } catch {}
+            strip.panner.connect(streamDest);
+        }
+
+        await sink.audioEl.setSinkId(deviceId);
+        sink.deviceId = deviceId;
+    }
+
+    getChannelOutputDevice(channel) {
+        const sink = this._channelSinks.get(channel);
+        return sink ? sink.deviceId : '';
     }
 
     _getChannelStrip(channel) {

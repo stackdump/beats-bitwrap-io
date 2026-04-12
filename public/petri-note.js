@@ -82,11 +82,12 @@ class PetriNote extends HTMLElement {
         this._pendingInstruments = null;    // buffered instruments-changed for bar-quantized apply
         this._pendingBarTarget = 0;         // tick at which to apply pending changes (next bar)
 
-        // Audio
-        this._audioMode = 'web-audio'; // 'web-audio' | 'web-midi' | 'backend'
+        // Audio — Set of enabled global output modes: 'web-audio', 'web-midi'
+        this._audioModes = new Set(['web-audio']);
         this._audioCtx = null;
         this._midiAccess = null;
         this._midiOutputId = null; // Selected MIDI output port ID
+        this._channelRouting = new Map(); // channel -> { kind: 'audio'|'midi', id: string }
 
         // Rendering
         this._canvas = null;
@@ -137,12 +138,32 @@ class PetriNote extends HTMLElement {
     }
 
     connectedCallback() {
+        this._firstLoad = true;
         this._loadProject();
         this._buildUI();
         this._setupEventListeners();
         this._connectBackend();
         this._initAudio();
         this._renderNet();
+        this._watchAudioContextState();
+        if (!localStorage.getItem('pn-quickstart-seen')) {
+            this._showQuickstartModal();
+        }
+    }
+
+    _watchAudioContextState() {
+        const ctx = window.Tone?.context?.rawContext;
+        if (!ctx) return;
+        const sync = () => {
+            if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();
+            else this._hideAudioLockBanner();
+        };
+        ctx.addEventListener('statechange', sync);
+        this._ctxListenerBound = true;
+        // Re-sync whenever _playing toggles
+        this._ctxStateSync = sync;
+        // Initial check after a tick so _playing has a chance to be set by auto-play
+        setTimeout(sync, 0);
     }
 
     disconnectedCallback() {
@@ -297,7 +318,6 @@ class PetriNote extends HTMLElement {
                     <input type="number" value="${this._tempo}" min="20" max="300" step="1"/>
                     <span>BPM</span>
                 </div>
-                <select class="pn-audio-output" title="Audio output device"></select>
             </div>
             <div class="pn-generate">
                 <select class="pn-genre-select">
@@ -340,11 +360,8 @@ class PetriNote extends HTMLElement {
                 </select>
             </div>
             <div class="pn-audio-mode">
-                <button class="${this._audioMode === 'web-audio' ? 'active' : ''}" data-mode="web-audio">Synth</button>
-                <button class="${this._audioMode === 'web-midi' ? 'active' : ''}" data-mode="web-midi">MIDI</button>
-                <select class="pn-midi-output" style="display: ${this._audioMode === 'web-midi' ? 'block' : 'none'}">
-                    <option value="">Select MIDI output...</option>
-                </select>
+                <button class="${this._audioModes.has('web-audio') ? 'active' : ''}" data-mode="web-audio">Synth</button>
+                <button class="${this._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>
                 <button class="pn-help-btn" title="Performance tips">?</button>
                 <a class="pn-gh-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener" title="View source on GitHub">
                     <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1023,6 +1040,9 @@ class PetriNote extends HTMLElement {
                         </option>
                     `).join('')}
                 </select>
+                <select class="pn-mixer-output" data-channel="${channel}" title="Audio output device">
+                    <option value="">Master</option>
+                </select>
                 ${(firstNet.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${netIds[0]}" data-riff-group="${group}" title="Next genre instrument">&raquo;</button>` : ''}
                 ${this._mixerSlidersHtml(netIds[0], percOrder.includes(group))}
                 <button class="pn-mixer-test" data-net-id="${netIds[0]}" title="Test note">&#9835;</button>
@@ -1058,6 +1078,16 @@ class PetriNote extends HTMLElement {
             return;
         }
         this._mixerEventsBound = true;
+
+        this._mixerEl.addEventListener('pointerdown', async (e) => {
+            if (e.target.closest('.pn-mixer-output') && !this._midiEnumerated) {
+                this._midiEnumerated = true;
+                try {
+                    await this._refreshMidiOutputs();
+                    await this._populateAudioOutputs();
+                } catch {}
+            }
+        }, true);
 
         this._mixerEl.addEventListener('click', async (e) => {
             const muteBtn = e.target.closest('.pn-mixer-mute');
@@ -1162,6 +1192,14 @@ class PetriNote extends HTMLElement {
                     this._sendWs(msg);
                 }
                 this._debouncedRenderMixer();
+                return;
+            }
+            const outputSelect = e.target.closest('.pn-mixer-output');
+            if (outputSelect) {
+                const channel = parseInt(outputSelect.dataset.channel, 10);
+                const val = outputSelect.value; // '' | 'audio:<id>' | 'midi:<id>'
+                await this._setChannelRouting(channel, val);
+                sessionStorage.setItem(`pn-channel-routing-${channel}`, val);
                 return;
             }
             const instSelect = e.target.closest('.pn-mixer-instrument');
@@ -1280,6 +1318,8 @@ class PetriNote extends HTMLElement {
 
         // Restore saved slider positions after DOM rebuild
         this._restoreMixerSliderState();
+        // Populate per-channel output selectors (async, non-blocking)
+        this._populateAudioOutputs();
         // Defer notches to after layout is complete (double rAF ensures paint)
         const mixerEl = this._mixerEl;
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1346,6 +1386,9 @@ class PetriNote extends HTMLElement {
                         ${inst.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                     </option>
                 `).join('')}
+            </select>
+            <select class="pn-mixer-output" data-channel="${channel}" title="Audio output device">
+                <option value="">Master</option>
             </select>
             ${(net.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${id}" title="Next genre instrument">&raquo;</button>` : ''}
             ${this._mixerSlidersHtml(id, channel === 10)}
@@ -1705,36 +1748,36 @@ class PetriNote extends HTMLElement {
     // === Event Listeners ===
 
     async _populateAudioOutputs() {
-        const sel = this.querySelector('.pn-audio-output');
-        if (!sel) return;
         const devices = await toneEngine.listOutputDevices();
-        const saved = sessionStorage.getItem('pn-audio-output') || '';
-        sel.innerHTML = devices.length
-            ? devices.map((d, i) => `<option value="${d.deviceId}">${d.label || `Output ${i + 1}`}</option>`).join('')
-            : '<option value="">Default output</option>';
-        if (saved && devices.some(d => d.deviceId === saved)) sel.value = saved;
-    }
 
-    _setupAudioOutputPicker() {
-        const sel = this.querySelector('.pn-audio-output');
-        if (!sel) return;
-        const apply = async () => {
-            try {
-                await toneEngine.init();
-                await toneEngine.setOutputDevice(sel.value);
-                sessionStorage.setItem('pn-audio-output', sel.value);
-            } catch (err) {
-                console.warn('setOutputDevice failed:', err);
+        // Lazy-load MIDI outputs (requires user permission) — only if browser supports it
+        let midiOutputs = [];
+        if (this._midiAccess) {
+            midiOutputs = [...this._midiAccess.outputs.values()];
+        }
+
+        const audioEnabled = this._audioModes.has('web-audio');
+        const midiEnabled = this._audioModes.has('web-midi');
+
+        const audioOpts = audioEnabled
+            ? devices.map((d, i) => `<option value="audio:${d.deviceId}">${d.label || `Output ${i + 1}`}</option>`).join('')
+            : '';
+        const midiOpts = midiEnabled
+            ? midiOutputs.map((p) => `<option value="midi:${p.id}">${p.name || p.id}</option>`).join('')
+            : '';
+
+        const perChannelOpts =
+            '<option value="">Master</option>' +
+            (audioOpts ? `<optgroup label="Audio">${audioOpts}</optgroup>` : '') +
+            (midiOpts ? `<optgroup label="MIDI">${midiOpts}</optgroup>` : '');
+
+        for (const chanSel of this.querySelectorAll('.pn-mixer-output')) {
+            const ch = chanSel.dataset.channel;
+            const saved = sessionStorage.getItem(`pn-channel-routing-${ch}`) || '';
+            chanSel.innerHTML = perChannelOpts;
+            if (saved && chanSel.querySelector(`option[value="${CSS.escape(saved)}"]`)) {
+                chanSel.value = saved;
             }
-        };
-        sel.addEventListener('change', apply);
-        sel.addEventListener('pointerdown', () => this._populateAudioOutputs(), { once: true });
-        this._populateAudioOutputs().then(() => {
-            const saved = sessionStorage.getItem('pn-audio-output');
-            if (saved) sel.value = saved;
-        });
-        if (navigator.mediaDevices?.addEventListener) {
-            navigator.mediaDevices.addEventListener('devicechange', () => this._populateAudioOutputs());
         }
     }
 
@@ -1744,7 +1787,10 @@ class PetriNote extends HTMLElement {
 
         // Transport controls
         this.querySelector('.pn-play').addEventListener('click', () => this._togglePlay());
-        this._setupAudioOutputPicker();
+        this._populateAudioOutputs();
+        if (navigator.mediaDevices?.addEventListener) {
+            navigator.mediaDevices.addEventListener('devicechange', () => this._populateAudioOutputs());
+        }
         this.querySelector('.pn-playback-mode').addEventListener('click', () => this._cyclePlaybackMode());
         this.querySelector('.pn-tempo input').addEventListener('change', (e) => {
             this._setTempo(parseInt(e.target.value, 10));
@@ -1811,22 +1857,17 @@ class PetriNote extends HTMLElement {
             uploadInput.value = '';
         });
 
-        // Audio mode
+        // Audio mode (multi-select: either, both, or neither)
         this.querySelector('.pn-audio-mode').addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-mode]');
             if (btn) {
-                this._setAudioMode(btn.dataset.mode);
+                this._toggleAudioMode(btn.dataset.mode);
             }
         });
 
         // Help modal
         this.querySelector('.pn-help-btn')?.addEventListener('click', () => {
             this._showHelpModal();
-        });
-
-        // MIDI output selector
-        this.querySelector('.pn-midi-output').addEventListener('change', (e) => {
-            this._midiOutputId = e.target.value || null;
         });
 
         // Canvas interactions (pan/zoom only)
@@ -2737,20 +2778,69 @@ class PetriNote extends HTMLElement {
                 const initDb = initVol === 0 ? -60 : -60 + (initVol / 100) * 60;
                 toneEngine.setMasterVolume(initDb);
                 this._toneStarted = true;
-                const savedSink = sessionStorage.getItem('pn-audio-output');
-                if (savedSink) {
-                    try { await toneEngine.setOutputDevice(savedSink); } catch (e) { console.warn('setOutputDevice:', e); }
+                // Keep banner in sync with context state
+                const ctx = window.Tone?.context?.rawContext;
+                if (ctx && !this._ctxListenerBound) {
+                    this._ctxListenerBound = true;
+                    ctx.addEventListener('statechange', () => {
+                        if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();
+                        else this._hideAudioLockBanner();
+                    });
                 }
-                this._populateAudioOutputs();
+                // If auto-play triggered init without a user gesture, context stays suspended.
+                if (ctx && ctx.state !== 'running' && this._playing) {
+                    this._showAudioLockBanner();
+                }
                 const loads = Object.entries(this._channelInstruments).map(
                     ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
                 );
                 await Promise.all(loads);
+                await this._reapplyChannelRoutings();
+                this._populateAudioOutputs();
             } catch (e) {
                 console.error('Failed to start Tone.js:', e);
             }
         })();
         return this._toneInitPromise;
+    }
+
+    _showQuickstartModal() {
+        this.querySelector('.pn-help-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.className = 'pn-help-overlay pn-quickstart-overlay';
+        overlay.innerHTML = `
+            <div class="pn-help-modal">
+                <button class="pn-help-close">&times;</button>
+                <h2>Welcome to Petri Note</h2>
+                <p style="color:#ccc;margin:0 0 14px">
+                    A deterministic beat generator. Every note is a Petri net transition firing — tokens circulate, rhythms emerge.
+                </p>
+                <ol style="line-height:1.7">
+                    <li>Pick a <b>Genre</b> and hit <b>Generate</b></li>
+                    <li>Press <b>Play</b> (Space) to listen</li>
+                    <li>Enable <b>Shuffle</b> mode for a continuous stream of new tracks</li>
+                    <li>Tweak <b>volume, filters, FX</b> — everything is live</li>
+                    <li>Click the <b>?</b> button any time for the full performance guide</li>
+                </ol>
+                <div style="display:flex;gap:10px;margin-top:18px">
+                    <button class="pn-quickstart-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Get Started</button>
+                    <button class="pn-quickstart-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">Open Full Guide</button>
+                </div>
+            </div>
+        `;
+        const dismiss = () => {
+            localStorage.setItem('pn-quickstart-seen', '1');
+            overlay.remove();
+        };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay || e.target.closest('.pn-help-close') || e.target.closest('.pn-quickstart-start')) {
+                dismiss();
+            } else if (e.target.closest('.pn-quickstart-guide')) {
+                dismiss();
+                this._showHelpModal();
+            }
+        });
+        this.appendChild(overlay);
     }
 
     _showHelpModal() {
@@ -2838,18 +2928,28 @@ class PetriNote extends HTMLElement {
         this.appendChild(overlay);
     }
 
-    _setAudioMode(mode) {
-        this._audioMode = mode;
+    async _toggleAudioMode(mode) {
+        if (this._audioModes.has(mode)) {
+            this._audioModes.delete(mode);
+            // Clear per-channel pins of the now-disabled kind
+            const kind = mode === 'web-audio' ? 'audio' : 'midi';
+            for (const [ch, routing] of [...this._channelRouting.entries()]) {
+                if (routing.kind === kind) {
+                    await this._setChannelRouting(ch, '');
+                    sessionStorage.removeItem(`pn-channel-routing-${ch}`);
+                }
+            }
+        } else {
+            this._audioModes.add(mode);
+        }
         this.querySelectorAll('.pn-audio-mode button').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
+            btn.classList.toggle('active', this._audioModes.has(btn.dataset.mode));
         });
 
-        const midiSelect = this.querySelector('.pn-midi-output');
-        if (midiSelect) {
-            midiSelect.style.display = mode === 'web-midi' ? 'block' : 'none';
-            if (mode === 'web-midi') {
-                this._refreshMidiOutputs();
-            }
+        if (this._audioModes.has('web-midi')) {
+            this._refreshMidiOutputs().then(() => this._populateAudioOutputs());
+        } else {
+            this._populateAudioOutputs();
         }
     }
 
@@ -2861,29 +2961,6 @@ class PetriNote extends HTMLElement {
 
         try {
             this._midiAccess = await navigator.requestMIDIAccess();
-            const select = this.querySelector('.pn-midi-output');
-            if (!select) return;
-
-            // Clear existing options except first
-            select.innerHTML = '<option value="">Select MIDI output...</option>';
-
-            // Add available outputs
-            for (const [id, output] of this._midiAccess.outputs) {
-                const option = document.createElement('option');
-                option.value = id;
-                option.textContent = output.name || id;
-                if (this._midiOutputId === id) {
-                    option.selected = true;
-                }
-                select.appendChild(option);
-            }
-
-            // Auto-select first if none selected and outputs available
-            if (!this._midiOutputId && this._midiAccess.outputs.size > 0) {
-                const firstId = this._midiAccess.outputs.keys().next().value;
-                this._midiOutputId = firstId;
-                select.value = firstId;
-            }
         } catch (e) {
             console.error('MIDI access error:', e);
         }
@@ -2932,13 +3009,63 @@ class PetriNote extends HTMLElement {
         if (this._mutedChannels.has(channel)) {
             return; // Skip muted channels (legacy)
         }
+        // Drop notes while AudioContext is suspended — otherwise they queue up
+        // and fire in a burst when the context resumes, blowing polyphony.
+        if (this._toneStarted && !toneEngine.isContextRunning()) {
+            return;
+        }
 
-        if (this._audioMode === 'tone' || this._audioMode === 'web-audio') {
+        const routing = this._channelRouting.get(channel);
+        if (routing?.kind === 'midi') {
+            await this._playWebMidi(midi, routing.id);
+            return;
+        }
+        if (routing?.kind === 'audio') {
             await this._playTone(midi);
-        } else if (this._audioMode === 'web-midi') {
+            return;
+        }
+
+        // Global fallback: honor whichever modes are enabled
+        if (this._audioModes.has('web-audio')) {
+            await this._playTone(midi);
+        } else if (this._audioModes.has('web-midi')) {
             await this._playWebMidi(midi);
         }
-        // 'backend' mode: server handles MIDI
+    }
+
+    async _reapplyChannelRoutings() {
+        if (!this._toneStarted) return;
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            const m = key && key.match(/^pn-channel-routing-(\d+)$/);
+            if (!m) continue;
+            const ch = parseInt(m[1], 10);
+            const val = sessionStorage.getItem(key);
+            if (val) await this._setChannelRouting(ch, val);
+        }
+    }
+
+    async _setChannelRouting(channel, value) {
+        // value: '' | 'audio:<deviceId>' | 'midi:<portId>'
+        if (!value) {
+            this._channelRouting.delete(channel);
+            try { await toneEngine.setChannelOutputDevice(channel, ''); } catch (err) { console.warn(err); }
+            return;
+        }
+        const sep = value.indexOf(':');
+        const kind = value.slice(0, sep);
+        const id = value.slice(sep + 1);
+
+        if (kind === 'audio') {
+            this._channelRouting.set(channel, { kind, id });
+            try { await toneEngine.setChannelOutputDevice(channel, id); }
+            catch (err) { console.warn('setChannelOutputDevice failed:', err); }
+        } else if (kind === 'midi') {
+            if (!this._midiAccess) await this._refreshMidiOutputs();
+            this._channelRouting.set(channel, { kind, id });
+            // Release any audio-sink routing for this channel (no local synth output)
+            try { await toneEngine.setChannelOutputDevice(channel, ''); } catch {}
+        }
     }
 
     async _playTone(midi) {
@@ -3077,19 +3204,20 @@ class PetriNote extends HTMLElement {
         ctx.restore();
     }
 
-    async _playWebMidi(midi) {
+    async _playWebMidi(midi, portIdOverride) {
         if (!this._midiAccess) {
             await this._refreshMidiOutputs();
         }
 
-        if (!this._midiAccess || !this._midiOutputId) {
+        const portId = portIdOverride || this._midiOutputId;
+        if (!this._midiAccess || !portId) {
             console.warn('No MIDI output selected');
             return;
         }
 
-        const output = this._midiAccess.outputs.get(this._midiOutputId);
+        const output = this._midiAccess.outputs.get(portId);
         if (!output) {
-            console.warn('MIDI output not found:', this._midiOutputId);
+            console.warn('MIDI output not found:', portId);
             return;
         }
 
@@ -3166,6 +3294,7 @@ class PetriNote extends HTMLElement {
         const netIds = Object.keys(project.nets || {});
         this._activeNetId = netIds.find(id => project.nets[id].role !== 'control') || netIds[0] || null;
         this._applyProjectInstruments(project);
+        this._reapplyChannelRoutings();
         const prevGenre = this.querySelector('.pn-genre-select')?.value;
         const prevStructure = this.querySelector('.pn-structure-select')?.value;
         this._saveFxState();
@@ -3191,6 +3320,15 @@ class PetriNote extends HTMLElement {
         }
         // Re-render traits now that genre dropdown is restored
         this._updateTraits();
+        if (this._firstLoad) {
+            // Initial page load — don't auto-play (browser blocks audio without a gesture)
+            this._firstLoad = false;
+            this._sendWs({ type: 'project-load', project: this._project });
+            this._playing = false;
+            const playBtn = this.querySelector('.pn-play');
+            if (playBtn) playBtn.innerHTML = '&#9654;';
+            return;
+        }
         if (seamless) {
             // Server already has the project loaded and is playing —
             // just ensure frontend state is correct
@@ -3229,6 +3367,8 @@ class PetriNote extends HTMLElement {
 
         // Refresh mixer display
         this._renderMixer();
+        this._reapplyChannelRoutings();
+        this._populateAudioOutputs();
     }
 
     /**
@@ -3268,6 +3408,19 @@ class PetriNote extends HTMLElement {
         toneEngine.resumeContext();
 
         this._playing = !this._playing;
+
+        // After resume() settles, check if the context actually unlocked.
+        if (this._playing) {
+            setTimeout(() => {
+                if (this._playing && !toneEngine.isContextRunning()) {
+                    this._showAudioLockBanner();
+                } else {
+                    this._hideAudioLockBanner();
+                }
+            }, 150);
+        } else {
+            this._hideAudioLockBanner();
+        }
         const btn = this.querySelector('.pn-play');
         btn.classList.toggle('playing', this._playing);
         btn.innerHTML = this._playing ? '&#9632;' : '&#9654;';
@@ -3289,6 +3442,28 @@ class PetriNote extends HTMLElement {
 
         this._sendWs({ type: 'transport', action: this._playing ? 'play' : 'stop' });
         this._updateMediaSessionState();
+    }
+
+    _showAudioLockBanner() {
+        if (this._audioLockBanner) return;
+        const banner = document.createElement('div');
+        banner.className = 'pn-audio-lock-banner';
+        banner.innerHTML = '<span>Audio is blocked by the browser.</span><button>Click to enable</button>';
+        banner.querySelector('button').addEventListener('click', async () => {
+            toneEngine.resumeContext();
+            await this._ensureToneStarted();
+            // Clear any notes that may have been scheduled pre-resume
+            try { toneEngine.panic?.(); } catch {}
+            if (toneEngine.isContextRunning()) this._hideAudioLockBanner();
+        });
+        this.appendChild(banner);
+        this._audioLockBanner = banner;
+    }
+
+    _hideAudioLockBanner() {
+        if (!this._audioLockBanner) return;
+        this._audioLockBanner.remove();
+        this._audioLockBanner = null;
     }
 
     async _acquireWakeLock() {
@@ -3647,8 +3822,8 @@ class PetriNote extends HTMLElement {
             this._vizSpawnParticle(netId, midi);
         }
 
-        // Play sound locally if not in backend mode
-        if (this._audioMode !== 'backend' && midi) {
+        // Play sound locally
+        if (midi) {
             // Apply client-side humanization
             const humanizedMidi = this._humanizeNote(midi);
             const delay = this._swingDelay();

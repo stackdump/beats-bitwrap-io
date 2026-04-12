@@ -136,16 +136,6 @@ petri-note {
     color: #888;
 }
 
-.pn-audio-output {
-    padding: 4px 8px;
-    border: 1px solid #0f3460;
-    border-radius: 4px;
-    background: #1a1a2e;
-    color: #eee;
-    font-size: 12px;
-    max-width: 160px;
-}
-
 /* Genre traits display */
 .pn-genre-traits {
     display: flex;
@@ -323,6 +313,50 @@ petri-note {
 
 .pn-mixer-instrument:hover {
     border-color: #1a4a7a;
+}
+
+.pn-mixer-output {
+    width: 100px;
+    padding: 3px 6px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.pn-mixer-output:hover {
+    border-color: #1a4a7a;
+}
+
+.pn-audio-lock-banner {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #3a1a1a;
+    border: 1px solid #e94560;
+    color: #ffe;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 9999;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.pn-audio-lock-banner button {
+    background: #e94560;
+    border: none;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
 }
 
 .pn-mixer-slider-group {
