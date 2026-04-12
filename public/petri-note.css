@@ -136,6 +136,16 @@ petri-note {
     color: #888;
 }
 
+.pn-audio-output {
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+    max-width: 160px;
+}
+
 /* Genre traits display */
 .pn-genre-traits {
     display: flex;

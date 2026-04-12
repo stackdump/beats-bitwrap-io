@@ -297,6 +297,7 @@ class PetriNote extends HTMLElement {
                     <input type="number" value="${this._tempo}" min="20" max="300" step="1"/>
                     <span>BPM</span>
                 </div>
+                <select class="pn-audio-output" title="Audio output device"></select>
             </div>
             <div class="pn-generate">
                 <select class="pn-genre-select">
@@ -1703,12 +1704,47 @@ class PetriNote extends HTMLElement {
 
     // === Event Listeners ===
 
+    async _populateAudioOutputs() {
+        const sel = this.querySelector('.pn-audio-output');
+        if (!sel) return;
+        const devices = await toneEngine.listOutputDevices();
+        const saved = sessionStorage.getItem('pn-audio-output') || '';
+        sel.innerHTML = devices.length
+            ? devices.map((d, i) => `<option value="${d.deviceId}">${d.label || `Output ${i + 1}`}</option>`).join('')
+            : '<option value="">Default output</option>';
+        if (saved && devices.some(d => d.deviceId === saved)) sel.value = saved;
+    }
+
+    _setupAudioOutputPicker() {
+        const sel = this.querySelector('.pn-audio-output');
+        if (!sel) return;
+        const apply = async () => {
+            try {
+                await toneEngine.init();
+                await toneEngine.setOutputDevice(sel.value);
+                sessionStorage.setItem('pn-audio-output', sel.value);
+            } catch (err) {
+                console.warn('setOutputDevice failed:', err);
+            }
+        };
+        sel.addEventListener('change', apply);
+        sel.addEventListener('pointerdown', () => this._populateAudioOutputs(), { once: true });
+        this._populateAudioOutputs().then(() => {
+            const saved = sessionStorage.getItem('pn-audio-output');
+            if (saved) sel.value = saved;
+        });
+        if (navigator.mediaDevices?.addEventListener) {
+            navigator.mediaDevices.addEventListener('devicechange', () => this._populateAudioOutputs());
+        }
+    }
+
     _setupEventListeners() {
         // Window resize
         window.addEventListener('resize', () => this._resizeCanvas());
 
         // Transport controls
         this.querySelector('.pn-play').addEventListener('click', () => this._togglePlay());
+        this._setupAudioOutputPicker();
         this.querySelector('.pn-playback-mode').addEventListener('click', () => this._cyclePlaybackMode());
         this.querySelector('.pn-tempo input').addEventListener('change', (e) => {
             this._setTempo(parseInt(e.target.value, 10));
@@ -2701,6 +2737,11 @@ class PetriNote extends HTMLElement {
                 const initDb = initVol === 0 ? -60 : -60 + (initVol / 100) * 60;
                 toneEngine.setMasterVolume(initDb);
                 this._toneStarted = true;
+                const savedSink = sessionStorage.getItem('pn-audio-output');
+                if (savedSink) {
+                    try { await toneEngine.setOutputDevice(savedSink); } catch (e) { console.warn('setOutputDevice:', e); }
+                }
+                this._populateAudioOutputs();
                 const loads = Object.entries(this._channelInstruments).map(
                     ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
                 );

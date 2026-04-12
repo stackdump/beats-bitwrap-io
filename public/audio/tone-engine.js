@@ -1254,6 +1254,25 @@ class ToneEngine {
         return this._started;
     }
 
+    async listOutputDevices() {
+        if (!navigator.mediaDevices?.enumerateDevices) return [];
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices.filter(d => d.kind === 'audiooutput');
+    }
+
+    async setOutputDevice(deviceId) {
+        const raw = Tone.context.rawContext;
+        if (typeof raw.setSinkId !== 'function') {
+            throw new Error('AudioContext.setSinkId not supported (Chrome 110+ required)');
+        }
+        await raw.setSinkId(deviceId);
+    }
+
+    getOutputDeviceId() {
+        const raw = Tone.context.rawContext;
+        return typeof raw.sinkId === 'string' ? raw.sinkId : '';
+    }
+
     _getChannelStrip(channel) {
         if (this._channelStrips.has(channel)) return this._channelStrips.get(channel);
         // Channel strips: synth -> hpFilter -> lpFilter -> volume -> panner -> reverb -> master
