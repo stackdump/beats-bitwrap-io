@@ -1072,6 +1072,8 @@ class PetriNote extends HTMLElement {
             }
         }
 
+        this._populateAudioOutputs();
+
         // Bind mixer events (only once — event delegation handles dynamic content)
         if (this._mixerEventsBound) {
             this._restoreMixerSliderState();
@@ -2139,6 +2141,7 @@ class PetriNote extends HTMLElement {
         this._activeNetId = Object.keys(this._project.nets)[0] || null;
         this._renderNet();
         this._renderMixer();
+        this._reapplyChannelRoutings();
         this._sendWs({ type: 'project-load', project: proj });
 
         // Restore mix slider state after mixer is rendered
@@ -3368,7 +3371,6 @@ class PetriNote extends HTMLElement {
         // Refresh mixer display
         this._renderMixer();
         this._reapplyChannelRoutings();
-        this._populateAudioOutputs();
     }
 
     /**

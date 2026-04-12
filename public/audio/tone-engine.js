@@ -1197,6 +1197,7 @@ class ToneEngine {
         this._sustainedNotes = new Map(); // channel -> Set of note names
         this._masterVolume = null;
         this._channelSinks = new Map(); // channel -> { streamDest, audioEl, deviceId }
+        this._channelFx = new Map(); // channel -> { reverb, delay, delaySend }
         this._reverb = null;
         this._delay = null;
         this._distortion = null;
@@ -1346,6 +1347,7 @@ class ToneEngine {
                 existing.audioEl.srcObject = null;
                 existing.audioEl.remove();
                 this._channelSinks.delete(channel);
+                this._teardownChannelFx(channel, strip);
                 strip.panner.connect(this._reverb);
                 strip.panner.connect(strip.delaySend);
             }
@@ -1370,11 +1372,81 @@ class ToneEngine {
 
             try { strip.panner.disconnect(this._reverb); } catch {}
             try { strip.panner.disconnect(strip.delaySend); } catch {}
-            strip.panner.connect(streamDest);
+            this._buildChannelFx(channel, strip, streamDest);
         }
 
         await sink.audioEl.setSinkId(deviceId);
         sink.deviceId = deviceId;
+    }
+
+    _buildChannelFx(channel, strip, streamDest) {
+        if (this._channelFx.has(channel)) return;
+        // Per-channel master chain mirrors the global master chain so every FX
+        // panel slider affects channels routed to a secondary output device.
+        const comp = new Tone.Compressor(-12, 3).connect(streamDest);
+        const distortion = new Tone.Distortion({
+            distortion: this._distortion.distortion,
+            wet: this._distortion.wet.value,
+        }).connect(comp);
+        const crusher = new Tone.BitCrusher({
+            bits: this._crusher.bits.value,
+            wet: this._crusher.wet.value,
+        }).connect(distortion);
+        const lpFilter = new Tone.Filter({
+            frequency: this._lpFilter.frequency.value,
+            type: 'lowpass',
+            rolloff: -12,
+        }).connect(crusher);
+        const phaser = new Tone.Phaser({
+            frequency: this._phaser.frequency.value,
+            octaves: this._phaser.octaves,
+            baseFrequency: 350,
+            wet: this._phaser.wet.value,
+        }).connect(lpFilter);
+        const hpFilter = new Tone.Filter({
+            frequency: this._hpFilter.frequency.value,
+            type: 'highpass',
+            rolloff: -12,
+        }).connect(phaser);
+        const masterVol = new Tone.Volume(this._masterVolume.volume.value).connect(hpFilter);
+
+        const reverb = new Tone.Freeverb({
+            roomSize: this._reverb.roomSize.value,
+            dampening: this._reverbDampValue,
+            wet: this._reverb.wet.value,
+        }).connect(masterVol);
+        const delay = new Tone.FeedbackDelay({
+            delayTime: this._delay.delayTime.value,
+            feedback: this._delay.feedback.value,
+            wet: this._delay.wet.value,
+        }).connect(masterVol);
+        const delaySend = new Tone.Volume(-12).connect(delay);
+
+        strip.panner.connect(reverb);
+        strip.panner.connect(delaySend);
+
+        this._channelFx.set(channel, {
+            reverb, delay, delaySend,
+            masterVol, hpFilter, phaser, lpFilter, crusher, distortion, comp,
+        });
+    }
+
+    _teardownChannelFx(channel, strip) {
+        const fx = this._channelFx.get(channel);
+        if (!fx) return;
+        try { strip.panner.disconnect(fx.reverb); } catch {}
+        try { strip.panner.disconnect(fx.delaySend); } catch {}
+        fx.delaySend.dispose();
+        fx.delay.dispose();
+        fx.reverb.dispose();
+        fx.masterVol.dispose();
+        fx.hpFilter.dispose();
+        fx.phaser.dispose();
+        fx.lpFilter.dispose();
+        fx.crusher.dispose();
+        fx.distortion.dispose();
+        fx.comp.dispose();
+        this._channelFx.delete(channel);
     }
 
     getChannelOutputDevice(channel) {
@@ -1398,9 +1470,10 @@ class ToneEngine {
     }
 
     setMasterVolume(db) {
-        if (this._masterVolume) {
-            this._masterVolume.volume.value = Math.max(-60, Math.min(0, db));
-        }
+        if (!this._masterVolume) return;
+        const v = Math.max(-60, Math.min(0, db));
+        this._masterVolume.volume.value = v;
+        for (const fx of this._channelFx.values()) fx.masterVol.volume.value = v;
     }
 
     async loadInstrument(channel, instrumentName) {
@@ -1830,9 +1903,10 @@ class ToneEngine {
     }
 
     setReverbSize(value) {
-        if (this._reverb) {
-            this._reverb.roomSize.rampTo(Math.max(0, Math.min(1, value)), 0.05);
-        }
+        if (!this._reverb) return;
+        const v = Math.max(0, Math.min(1, value));
+        this._reverb.roomSize.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.reverb.roomSize.rampTo(v, 0.05);
     }
 
     setReverbDampening(value) {
@@ -1844,78 +1918,97 @@ class ToneEngine {
     }
 
     setReverbWet(value) {
-        if (this._reverb) {
-            this._reverb.wet.rampTo(Math.max(0, Math.min(1, value)), 0.05);
-        }
+        if (!this._reverb) return;
+        const v = Math.max(0, Math.min(1, value));
+        this._reverb.wet.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.reverb.wet.rampTo(v, 0.05);
     }
 
     setDelayTime(value) {
-        if (this._delay) {
-            this._delay.delayTime.rampTo(Math.max(0.01, Math.min(1, value)), 0.05);
-        }
+        if (!this._delay) return;
+        const v = Math.max(0.01, Math.min(1, value));
+        this._delay.delayTime.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.delay.delayTime.rampTo(v, 0.05);
     }
 
     setDelayFeedback(value) {
-        if (this._delay) {
-            this._delay.feedback.rampTo(Math.max(0, Math.min(0.9, value)), 0.05);
-        }
+        if (!this._delay) return;
+        const v = Math.max(0, Math.min(0.9, value));
+        this._delay.feedback.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.delay.feedback.rampTo(v, 0.05);
     }
 
     setDelayWet(value) {
-        if (this._delay) {
-            this._delay.wet.rampTo(Math.max(0, Math.min(1, value)), 0.05);
-        }
+        if (!this._delay) return;
+        const v = Math.max(0, Math.min(1, value));
+        this._delay.wet.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.delay.wet.rampTo(v, 0.05);
     }
 
     setDistortion(amount) {
-        if (this._distortion) {
-            this._distortion.distortion = Math.max(0, Math.min(1, amount));
-            this._distortion.wet.rampTo(amount > 0 ? 1 : 0, 0.05);
+        if (!this._distortion) return;
+        const a = Math.max(0, Math.min(1, amount));
+        const wet = a > 0 ? 1 : 0;
+        this._distortion.distortion = a;
+        this._distortion.wet.rampTo(wet, 0.05);
+        for (const fx of this._channelFx.values()) {
+            fx.distortion.distortion = a;
+            fx.distortion.wet.rampTo(wet, 0.05);
         }
     }
 
     setLowpassFreq(freq) {
-        if (this._lpFilter) {
-            const f = Math.max(100, Math.min(20000, freq));
-            this._lpFilter.frequency.cancelScheduledValues(Tone.now());
-            this._lpFilter.frequency.rampTo(f, 0.1);
+        if (!this._lpFilter) return;
+        const f = Math.max(100, Math.min(20000, freq));
+        this._lpFilter.frequency.cancelScheduledValues(Tone.now());
+        this._lpFilter.frequency.rampTo(f, 0.1);
+        for (const fx of this._channelFx.values()) {
+            fx.lpFilter.frequency.cancelScheduledValues(Tone.now());
+            fx.lpFilter.frequency.rampTo(f, 0.1);
         }
     }
 
     setHighpassFreq(freq) {
-        if (this._hpFilter) {
-            const f = Math.max(20, Math.min(5000, freq));
-            this._hpFilter.frequency.cancelScheduledValues(Tone.now());
-            this._hpFilter.frequency.rampTo(f, 0.1);
+        if (!this._hpFilter) return;
+        const f = Math.max(20, Math.min(5000, freq));
+        this._hpFilter.frequency.cancelScheduledValues(Tone.now());
+        this._hpFilter.frequency.rampTo(f, 0.1);
+        for (const fx of this._channelFx.values()) {
+            fx.hpFilter.frequency.cancelScheduledValues(Tone.now());
+            fx.hpFilter.frequency.rampTo(f, 0.1);
         }
     }
 
     setPhaserFreq(rate) {
-        if (this._phaser) {
-            this._phaser.frequency.rampTo(Math.max(0.1, Math.min(10, rate)), 0.1);
-        }
+        if (!this._phaser) return;
+        const r = Math.max(0.1, Math.min(10, rate));
+        this._phaser.frequency.rampTo(r, 0.1);
+        for (const fx of this._channelFx.values()) fx.phaser.frequency.rampTo(r, 0.1);
     }
 
     setPhaserDepth(depth) {
-        if (this._phaser) {
-            this._phaser.octaves = Math.max(0.5, depth * 6);
-        }
+        if (!this._phaser) return;
+        const oct = Math.max(0.5, depth * 6);
+        this._phaser.octaves = oct;
+        for (const fx of this._channelFx.values()) fx.phaser.octaves = oct;
     }
 
     setPhaserWet(value) {
-        if (this._phaser) {
-            this._phaser.wet.rampTo(Math.max(0, Math.min(1, value)), 0.05);
-        }
+        if (!this._phaser) return;
+        const v = Math.max(0, Math.min(1, value));
+        this._phaser.wet.rampTo(v, 0.05);
+        for (const fx of this._channelFx.values()) fx.phaser.wet.rampTo(v, 0.05);
     }
 
     setCrush(amount) {
-        if (this._crusher) {
-            if (amount <= 0) {
-                this._crusher.wet.rampTo(0, 0.05);
-            } else {
-                this._crusher.wet.rampTo(1, 0.05);
-                this._crusher.bits.value = Math.max(1, Math.round(16 - amount * 15));
-            }
+        if (!this._crusher) return;
+        const wet = amount <= 0 ? 0 : 1;
+        const bits = amount <= 0 ? this._crusher.bits.value : Math.max(1, Math.round(16 - amount * 15));
+        this._crusher.wet.rampTo(wet, 0.05);
+        if (amount > 0) this._crusher.bits.value = bits;
+        for (const fx of this._channelFx.values()) {
+            fx.crusher.wet.rampTo(wet, 0.05);
+            if (amount > 0) fx.crusher.bits.value = bits;
         }
     }
 
@@ -1927,6 +2020,12 @@ class ToneEngine {
         if (this._drumVoiceFilters) {
             this._drumVoiceFilters.clear();
         }
+        for (const fx of this._channelFx.values()) {
+            fx.delaySend.dispose();
+            fx.delay.dispose();
+            fx.reverb.dispose();
+        }
+        this._channelFx.clear();
         for (const strip of this._channelStrips.values()) {
             strip.volume.dispose();
             strip.filter?.dispose();
