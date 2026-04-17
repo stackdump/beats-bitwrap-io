@@ -48,8 +48,15 @@ Each genre defines BPM, scale type, root note, Euclidean drum parameters, melody
 - **Call and response** — 32-step melodies with mirrored answering phrases
 - **Dual-ring melodies** — interlocking theme/variation rings with crossover transitions
 - **Per-channel mixer** — volume, pan, HP/LP filters, resonance, decay
+- **Dynamic ring size / hits** — resize any track's Euclidean or melodic ring live (2–32 steps) while playing; the subnet rebuilds and swaps in at the next bar boundary
+- **Tone presets** — save a track's full mixer panel (vol, pan, filters, decay) as a named preset per channel; apply to any track in that family (★ button)
 - **Master FX** — reverb, delay, distortion, phaser, bit crusher, filters
-- **Web MIDI output** — send to external DAWs via IAC/ALSA virtual ports
+- **Live-performance macros** — one-tap tricks that inject transient control nets for tick-locked restores: Drop, Breakdown, Solo Drums, Cut, Beat Repeat, Double Drop, Sweep LP/HP, Reverb Wash, Delay Throw, Riser, Bit Crush, Phaser Drone, Half Time, Tape Stop. Macros queue serially with visible depth badges.
+- **MIDI CC + pad learn** — hover any slider + move a CC knob to bind; hover a macro button + press a pad to bind. Bindings persist for the session.
+- **Web MIDI output** — send to external DAWs via IAC/ALSA virtual ports; per-channel audio-output routing when MIDI is enabled
+- **Trait editor** — click any genre trait chip (Ghosts, Syncopation, Fills…) to tune amount or toggle; next Generate uses the new traits
+- **Transition MIDI editor** — click any note badge to edit note/channel/velocity/duration; bidirectional integer ↔ C4 note-name sync
+- **Universal hover-scroll** — every slider, dropdown, and number input nudges by 1 on mouse wheel
 - **Instrument shuffle** — randomize synth patches per track from genre-curated sets
 - **Download/upload** — export projects as JSON-LD, re-import later
 
