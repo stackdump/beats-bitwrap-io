@@ -2042,21 +2042,55 @@ class ToneEngine {
         };
 
         if (name === 'airhorn') {
-            addClick(900, 0.32, 0.04);   // brassy attack transient
+            // Aggressive attack: two coherent saw-wave bursts at the onset
+            // (much louder than noise bursts), piercing top-end tick, and a
+            // sharp pitch-drop "squawk" into the horn body.
+
+            // 1) Coherent attack burst — saw wave at 880 Hz (A5) for 25 ms
+            //    gives a piercing brass "BWAA" crack. Squared envelope.
+            const attack1 = new Tone.Oscillator({ type: 'sawtooth', frequency: 880 });
+            const attack1Env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.045, sustain: 0, release: 0.01 });
+            attack1.connect(attack1Env);
+            const attack1Gain = new Tone.Gain(0.55).connect(dest);
+            attack1Env.connect(attack1Gain);
+            attack1.start(now);
+            attack1.frequency.setValueAtTime(880, now);
+            attack1.frequency.exponentialRampToValueAtTime(440, now + 0.04);   // pitch-drop bleat
+            attack1Env.triggerAttackRelease(0.05, now);
+
+            // 2) High tick for bite — square wave at 2.2 kHz for 15 ms
+            const attack2 = new Tone.Oscillator({ type: 'square', frequency: 2200 });
+            const attack2Env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.025, sustain: 0, release: 0.005 });
+            attack2.connect(attack2Env);
+            const attack2Gain = new Tone.Gain(0.22).connect(dest);
+            attack2Env.connect(attack2Gain);
+            attack2.start(now);
+            attack2Env.triggerAttackRelease(0.03, now);
+
+            // 3) Horn body — 4 layers, lower sustain so attack stays dominant
             const lead = new Tone.Oscillator({ type: 'sawtooth', frequency: 110 });
             const harmony = new Tone.Oscillator({ type: 'sawtooth', frequency: 138.59 });
             const shout = new Tone.Oscillator({ type: 'square', frequency: 82.4 });
             const sub = new Tone.Oscillator({ type: 'sine', frequency: 55 });
-            const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.08, sustain: 0.85, release: 0.35 }).connect(dest);
-            const mix = new Tone.Gain(0.32).connect(env);
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.002, decay: 0.04, sustain: 0.58, release: 0.3 }).connect(dest);
+            const mix = new Tone.Gain(0.3).connect(env);
             lead.connect(mix); harmony.connect(mix); shout.connect(mix); sub.connect(mix);
             lead.start(now); harmony.start(now); shout.start(now); sub.start(now);
             env.triggerAttackRelease(0.8, now);
-            lead.frequency.setValueAtTime(110, now);
+            lead.frequency.setValueAtTime(148, now);
+            lead.frequency.exponentialRampToValueAtTime(110, now + 0.04);
             lead.frequency.linearRampToValueAtTime(116, now + 0.8);
-            harmony.frequency.setValueAtTime(138.59, now);
+            harmony.frequency.setValueAtTime(186, now);
+            harmony.frequency.exponentialRampToValueAtTime(138.59, now + 0.04);
             harmony.frequency.linearRampToValueAtTime(146, now + 0.8);
-            setTimeout(() => { lead.dispose(); harmony.dispose(); shout.dispose(); sub.dispose(); mix.dispose(); env.dispose(); }, 1400);
+            shout.frequency.setValueAtTime(110, now);
+            shout.frequency.exponentialRampToValueAtTime(82.4, now + 0.04);
+
+            setTimeout(() => {
+                attack1.dispose(); attack1Env.dispose(); attack1Gain.dispose();
+                attack2.dispose(); attack2Env.dispose(); attack2Gain.dispose();
+                lead.dispose(); harmony.dispose(); shout.dispose(); sub.dispose(); mix.dispose(); env.dispose();
+            }, 1400);
         } else if (name === 'laser') {
             addClick(2500, 0.35, 0.03);   // sharp metallic tick
             const oscA = new Tone.Oscillator({ type: 'sawtooth', frequency: 3200 });
