@@ -2082,47 +2082,58 @@ class ToneEngine {
             osc.frequency.exponentialRampToValueAtTime(35, now + 0.8);
             env.triggerAttackRelease(0.9, now);
             setTimeout(() => { osc.dispose(); gain.dispose(); env.dispose(); }, 1400);
-        } else if (name === 'boosh') {
-            // Cinematic bass slam — tight click + sub glide + saturated saw body.
-            // Click transient: lowpass-filtered noise burst for a tight "thump".
-            const noise = new Tone.Noise({ type: 'white' });
-            const noiseFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -24 });
-            const noiseEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.09, sustain: 0, release: 0.02 });
-            noise.connect(noiseFilter); noiseFilter.connect(noiseEnv);
-            const noiseGain = new Tone.Gain(0.38).connect(dest);
-            noiseEnv.connect(noiseGain);
-            noise.start(now);
-            noiseEnv.triggerAttackRelease(0.11, now);
+        } else if (name === 'booj') {
+            // Cinematic trailer bass drop — the "subwoofer-shaking low-frequency
+            // hit at the peak of catastrophe" as coined on 20k.org. NOT a wub/
+            // wobble. Elements: low-mid impact crash, deep pitch-falling sub,
+            // metallic high shimmer, long rumble tail.
 
-            // Sub sine glide — deep and heavy
-            const sub = new Tone.Oscillator({ type: 'sine', frequency: 120 });
-            const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 1.3, sustain: 0, release: 0.18 });
+            // 1) Impact crash — filtered noise, band-passed around 180 Hz for chest
+            const crashNoise = new Tone.Noise({ type: 'pink' });
+            const crashFilter = new Tone.Filter({ frequency: 180, type: 'bandpass', Q: 1.2 });
+            const crashEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.25, sustain: 0, release: 0.05 });
+            crashNoise.connect(crashFilter); crashFilter.connect(crashEnv);
+            const crashGain = new Tone.Gain(0.42).connect(dest);
+            crashEnv.connect(crashGain);
+            crashNoise.start(now);
+            crashEnv.triggerAttackRelease(0.3, now);
+
+            // 2) Sub — deep pitch-falling sine, long tail. Starts at 90 Hz,
+            // drops exponentially to 28 Hz over the first 400 ms (the catastrophic
+            // "falling" feel), then holds in sub territory until release.
+            const sub = new Tone.Oscillator({ type: 'sine', frequency: 90 });
+            const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 2.0, sustain: 0.3, release: 0.4 });
             sub.connect(subEnv);
-            const subGain = new Tone.Gain(0.95).connect(dest);
+            const subGain = new Tone.Gain(1.0).connect(dest);
             subEnv.connect(subGain);
             sub.start(now);
-            sub.frequency.setValueAtTime(120, now);
-            sub.frequency.exponentialRampToValueAtTime(28, now + 1.1);
-            subEnv.triggerAttackRelease(1.3, now);
+            sub.frequency.setValueAtTime(90, now);
+            sub.frequency.exponentialRampToValueAtTime(28, now + 0.4);
+            subEnv.triggerAttack(now);
+            subEnv.triggerRelease(now + 1.8);
 
-            // Saw body for harmonic grit — saturated through soft distortion
-            const saw = new Tone.Oscillator({ type: 'sawtooth', frequency: 80 });
-            const sawFilter = new Tone.Filter({ frequency: 300, type: 'lowpass', rolloff: -12 });
-            const sawDist = new Tone.Distortion({ distortion: 0.45, wet: 1 });
-            const sawEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.65, sustain: 0, release: 0.1 });
-            saw.connect(sawFilter); sawFilter.connect(sawDist); sawDist.connect(sawEnv);
-            const sawGain = new Tone.Gain(0.24).connect(dest);
-            sawEnv.connect(sawGain);
-            saw.start(now);
-            saw.frequency.setValueAtTime(80, now);
-            saw.frequency.exponentialRampToValueAtTime(35, now + 0.6);
-            sawEnv.triggerAttackRelease(0.65, now);
+            // 3) Metallic shimmer — two high sines ringing briefly over the impact,
+            // detuned for that cinematic "clang in the void" character
+            const shimmerA = new Tone.Oscillator({ type: 'sine', frequency: 1400 });
+            const shimmerB = new Tone.Oscillator({ type: 'sine', frequency: 1400, detune: 12 });
+            const shimmerFilter = new Tone.Filter({ frequency: 3000, type: 'lowpass' });
+            const shimmerEnv = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 0.6, sustain: 0, release: 0.15 });
+            shimmerA.connect(shimmerFilter); shimmerB.connect(shimmerFilter);
+            shimmerFilter.connect(shimmerEnv);
+            const shimmerGain = new Tone.Gain(0.12).connect(dest);
+            shimmerEnv.connect(shimmerGain);
+            shimmerA.start(now); shimmerB.start(now);
+            shimmerA.frequency.setValueAtTime(1400, now);
+            shimmerA.frequency.exponentialRampToValueAtTime(700, now + 0.6);
+            shimmerB.frequency.setValueAtTime(1400, now);
+            shimmerB.frequency.exponentialRampToValueAtTime(700, now + 0.6);
+            shimmerEnv.triggerAttackRelease(0.6, now);
 
             setTimeout(() => {
-                noise.dispose(); noiseFilter.dispose(); noiseEnv.dispose(); noiseGain.dispose();
+                crashNoise.dispose(); crashFilter.dispose(); crashEnv.dispose(); crashGain.dispose();
                 sub.dispose(); subEnv.dispose(); subGain.dispose();
-                saw.dispose(); sawFilter.dispose(); sawDist.dispose(); sawEnv.dispose(); sawGain.dispose();
-            }, 1800);
+                shimmerA.dispose(); shimmerB.dispose(); shimmerFilter.dispose(); shimmerEnv.dispose(); shimmerGain.dispose();
+            }, 2400);
         }
     }
 

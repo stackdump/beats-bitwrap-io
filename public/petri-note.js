@@ -115,7 +115,7 @@ const MACROS = [
     { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'airhorn' },
     { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'laser' },
     { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'subdrop' },
-    { id: 'boosh',    group: 'One-Shot', kind: 'one-shot', label: 'Boosh',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'boosh' },
+    { id: 'booj',     group: 'One-Shot', kind: 'one-shot', label: 'Booj',     defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj' },
 ];
 
 // Genre-specific instrument mappings (channel -> instrument name)
