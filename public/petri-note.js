@@ -109,10 +109,13 @@ const MACROS = [
     { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep', label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
 
     // --- One-shots ---
-    { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'airhorn' },
-    { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'laser' },
-    { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'subdrop' },
-    { id: 'boosh',    group: 'One-Shot', kind: 'one-shot', label: 'Boosh',    defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'boosh' },
+    // durationOpts is interpreted as hit-count (stutter repeats). Each hit fires
+    // a full one-shot at 16th-note spacing so rapid multi-fires overlap for
+    // that classic DJ stutter-horn feel.
+    { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'airhorn' },
+    { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'laser' },
+    { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'subdrop' },
+    { id: 'boosh',    group: 'One-Shot', kind: 'one-shot', label: 'Boosh',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'boosh' },
 ];
 
 // Genre-specific instrument mappings (channel -> instrument name)
@@ -1927,7 +1930,13 @@ class PetriNote extends HTMLElement {
         } else if (macro.kind === 'tempo-sweep') {
             this._tempoSweep(macro.finalBpm, durationMs);
         } else if (macro.kind === 'one-shot') {
-            this._ensureToneStarted().then(() => toneEngine.playOneShot(macro.sound));
+            const hits = Math.max(1, duration);    // duration dropdown = hit count for one-shots
+            const interval = this._msPerBar() / 16; // 16th-note stutter spacing
+            this._ensureToneStarted().then(() => {
+                for (let i = 0; i < hits; i++) {
+                    setTimeout(() => toneEngine.playOneShot(macro.sound), i * interval);
+                }
+            });
         }
 
         const btn = this.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
@@ -1935,8 +1944,11 @@ class PetriNote extends HTMLElement {
             btn.classList.add('firing');
             setTimeout(() => btn.classList.remove('firing'), 120);
         }
-        // One-shots finish fast — don't hog the serial queue for a full bar
-        const runTime = macro.kind === 'one-shot' ? 700 : durationMs;
+        // One-shots finish fast — budget ~700 ms per hit so the serial queue
+        // doesn't release while stutters are still firing.
+        const runTime = macro.kind === 'one-shot'
+            ? 700 + Math.max(0, duration - 1) * (this._msPerBar() / 16)
+            : durationMs;
         this._markMacroRunning(id, runTime);
     }
 
