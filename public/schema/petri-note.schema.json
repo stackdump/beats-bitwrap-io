@@ -131,7 +131,7 @@
 
     "Track": {
       "type": "object",
-      "description": "Track/channel assignment for a net",
+      "description": "Track/channel assignment for a net. Recipe fields (generator, ringSize, beats, rotation, note, generatorParams) describe how the net was originally constructed so it can be regenerated at a different size in place.",
       "properties": {
         "channel": {
           "type": "integer",
@@ -139,6 +139,13 @@
           "maximum": 16,
           "default": 1,
           "description": "MIDI channel (10 = drums by convention)"
+        },
+        "defaultVelocity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "default": 100,
+          "description": "Base velocity used when a binding omits its own"
         },
         "instrument": {
           "type": "string",
@@ -152,6 +159,38 @@
         "mix": {
           "$ref": "#/definitions/MixSettings",
           "description": "Mixer slider state (persisted on download)"
+        },
+        "generator": {
+          "type": "string",
+          "enum": ["euclidean", "euclidean-ghost", "euclidean-melodic", "markov", "walking-bass", "call-response"],
+          "description": "Which generator built this net. Needed to rebuild the ring when size/hits change."
+        },
+        "ringSize": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 32,
+          "description": "Number of places in the ring (n). The mixer Size dropdown edits this."
+        },
+        "beats": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "description": "Number of hits (k) for Euclidean generators, or count of non-rest steps for melodic ones. The mixer Hits dropdown edits this."
+        },
+        "rotation": {
+          "type": "integer",
+          "description": "Euclidean rotation offset; unused for melodic generators"
+        },
+        "note": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "description": "Base MIDI note for Euclidean drum bindings; unused for melodic generators"
+        },
+        "generatorParams": {
+          "type": "object",
+          "description": "Opaque bag of the generator's recipe inputs (scale, rootNote, chords, seed, duration, syncopation, durationVariation, ghostDensity, accent) — consumed by regenerateTrack() to rebuild an equivalent net at a new size",
+          "additionalProperties": true
         }
       }
     },
