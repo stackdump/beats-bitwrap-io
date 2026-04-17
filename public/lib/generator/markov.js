@@ -297,11 +297,26 @@ export function markovMelody(params) {
         };
     }
 
+    let noteCount = 0;
+    for (const d of seq) if (d >= 0) noteCount++;
     bundle.track = {
         channel: params.channel,
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'markov',
+        ringSize: steps,
+        beats: noteCount,
+        generatorParams: {
+            scale: notes.slice(),
+            rootNote: params.rootNote,
+            chords: params.chords,
+            seed: params.seed || 0,
+            duration: params.duration,
+            density: params.density,
+            durationVariation: params.durationVariation || 0,
+            syncopation: params.syncopation || 0,
+        },
     };
 
     bundle.buildArcIndex();

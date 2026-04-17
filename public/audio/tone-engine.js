@@ -1226,7 +1226,6 @@ class ToneEngine {
 
         this._initPromise = (async () => {
             await Tone.start();
-            console.log('Tone.js audio context started');
 
             // Master chain: volume -> HP -> phaser -> LP -> crusher -> distortion -> compressor -> dest
             this._masterComp = new Tone.Compressor(-12, 3).toDestination();
@@ -1548,7 +1547,6 @@ class ToneEngine {
             }
             this._instruments.set(channel, instrument);
             this._channelConfigs.set(channel, { name: instrumentName, config });
-            console.log(`Loaded ${instrumentName} on channel ${channel}`);
 
         } catch (err) {
             console.error(`Failed to load ${instrumentName}:`, err);

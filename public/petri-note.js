@@ -13,7 +13,7 @@ function qCurve(val) { return 0.5 + (Math.pow(val / 100, 2) * 49.5); }
 
 // Slider config: [css class, state key, apply function factory(ch, drumRole) => fn(val)]
 const MIXER_SLIDERS = [
-    ['pn-mixer-vol',    'vol',   (ch) => v => toneEngine.controlChange(ch, 7, v)],
+    ['pn-mixer-vol',    'vol',   (ch) => v => toneEngine.controlChange(ch, 7, Math.round(v * 127 / 100))],
     ['pn-mixer-pan',    'pan',   (ch) => v => toneEngine.controlChange(ch, 10, v)],
     ['pn-mixer-locut',  'locut', (ch, role) => v => {
         if (role && toneEngine.hasDrumVoiceFilters(ch)) toneEngine.setDrumVoiceLoCut(ch, role, hpFreq(v));
@@ -142,6 +142,7 @@ class PetriNote extends HTMLElement {
         this._loadProject();
         this._buildUI();
         this._setupEventListeners();
+        this._bindGlobalWheel();
         this._connectBackend();
         this._initAudio();
         this._renderNet();
@@ -149,6 +150,47 @@ class PetriNote extends HTMLElement {
         if (!localStorage.getItem('pn-quickstart-seen')) {
             this._showQuickstartModal();
         }
+    }
+
+    _bindGlobalWheel() {
+        // Universal hover-and-scroll adjustment on inputs and selects.
+        // Uses capture phase so it runs before any passive document listeners.
+        this.addEventListener('wheel', (e) => {
+            const t = e.target;
+            if (!t || !t.tagName) return;
+            if (t.disabled || t.readOnly) return;
+            if (t.closest('.pn-modal') == null && t.closest('petri-note') == null) return;
+
+            if (t.tagName === 'SELECT') {
+                e.preventDefault();
+                e.stopPropagation();
+                // Wheel up → next option (higher value for ascending-value selects).
+                const dir = e.deltaY < 0 ? 1 : -1;
+                const idx = t.selectedIndex + dir;
+                if (idx < 0 || idx >= t.options.length) return;
+                t.selectedIndex = idx;
+                t.dispatchEvent(new Event('input', { bubbles: true }));
+                t.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+            if (t.tagName === 'INPUT' && (t.type === 'number' || t.type === 'range')) {
+                e.preventDefault();
+                e.stopPropagation();
+                const stepAttr = parseFloat(t.step) || 1;
+                const dir = e.deltaY < 0 ? 1 : -1;
+                const min = parseFloat(t.min);
+                const max = parseFloat(t.max);
+                let v = parseFloat(t.value);
+                if (!Number.isFinite(v)) v = Number.isFinite(min) ? min : 0;
+                v = v + dir * stepAttr;
+                if (Number.isFinite(min) && v < min) v = min;
+                if (Number.isFinite(max) && v > max) v = max;
+                t.value = String(v);
+                t.dispatchEvent(new Event('input', { bubbles: true }));
+                t.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+        }, { passive: false, capture: true });
     }
 
     _watchAudioContextState() {
@@ -299,6 +341,7 @@ class PetriNote extends HTMLElement {
 
     _buildUI() {
         this.innerHTML = '';
+        this.classList.toggle('pn-midi-enabled', this._audioModes.has('web-midi'));
 
         // Header
         const header = document.createElement('div');
@@ -360,7 +403,6 @@ class PetriNote extends HTMLElement {
                 </select>
             </div>
             <div class="pn-audio-mode">
-                <button class="${this._audioModes.has('web-audio') ? 'active' : ''}" data-mode="web-audio">Synth</button>
                 <button class="${this._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>
                 <button class="pn-help-btn" title="Performance tips">?</button>
                 <a class="pn-gh-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener" title="View source on GitHub">
@@ -594,7 +636,6 @@ class PetriNote extends HTMLElement {
 
         fx.querySelector('.pn-cc-reset').addEventListener('click', () => {
             this._ccBindings.clear();
-            console.log('MIDI CC bindings cleared');
         });
 
         fx.querySelector('.pn-crop-bar-btn').addEventListener('click', () => {
@@ -716,7 +757,7 @@ class PetriNote extends HTMLElement {
             if (slider && slider === this._hoveredSlider) this._hoveredSlider = null;
         });
 
-        // FX scroll wheel support
+        // FX scroll wheel support (1% per tick)
         fx.addEventListener('wheel', (e) => {
             const control = e.target.closest('.pn-fx-control');
             if (!control) return;
@@ -725,7 +766,7 @@ class PetriNote extends HTMLElement {
             if (!slider) return;
             const min = parseInt(slider.min);
             const max = parseInt(slider.max);
-            const step = e.deltaY < 0 ? 2 : -2;
+            const step = e.deltaY < 0 ? 1 : -1;
             slider.value = Math.max(min, Math.min(max, parseInt(slider.value) + step));
             slider.dispatchEvent(new Event('input', { bubbles: true }));
         }, { passive: false });
@@ -910,41 +951,150 @@ class PetriNote extends HTMLElement {
         this._traitsEl.addEventListener('click', (e) => {
             const trait = e.target.closest('.pn-trait[data-param]');
             if (!trait) return;
+            this._openTraitEditor(trait.dataset.param);
+        });
+    }
 
-            const param = trait.dataset.param;
-            const genre = this.querySelector('.pn-genre-select')?.value || 'techno';
-            const g = this._genreData[genre];
-            if (!g) return;
+    _traitMeta() {
+        return {
+            'drum-fills':        { label: 'Fills',          type: 'bool',    tip: 'Add drum fills at section boundaries' },
+            'walking-bass':      { label: 'Walking Bass',   type: 'bool',    tip: 'Chromatic passing tones between chord roots' },
+            'polyrhythm':        { label: 'Polyrhythm',     type: 'int',     min: 2, max: 16, defaultOn: 6, tip: 'Odd-length hihat loop for cross-rhythm feel' },
+            'syncopation':       { label: 'Syncopation',    type: 'percent', defaultOn: 0.3, tip: 'Shift notes to offbeats for rhythmic tension' },
+            'call-response':     { label: 'Call/Response',  type: 'bool',    tip: 'Alternate between melodic phrases and answering riffs' },
+            'tension-curve':     { label: 'Tension',        type: 'bool',    tip: 'Scale energy up/down across song sections' },
+            'modal-interchange': { label: 'Modal',          type: 'percent', defaultOn: 0.3, tip: 'Borrow chords from parallel key for harmonic color' },
+            'ghost-notes':       { label: 'Ghosts',         type: 'percent', defaultOn: 0.3, tip: 'Add quiet ghost notes between hihat hits for groove' },
+        };
+    }
 
-            if (!this._traitOverrides) this._traitOverrides = {};
+    _genreTraitDefault(g, param) {
+        return {
+            'drum-fills': g.drumFills, 'walking-bass': g.walkingBass,
+            'polyrhythm': g.polyrhythm, 'syncopation': g.syncopation,
+            'call-response': g.callResponse, 'tension-curve': g.tensionCurve,
+            'modal-interchange': g.modalInterchange, 'ghost-notes': g.ghostNotes,
+        }[param];
+    }
 
-            // Determine current value and toggle
-            const genreDefaults = {
-                'drum-fills': g.drumFills, 'walking-bass': g.walkingBass,
-                'polyrhythm': g.polyrhythm, 'syncopation': g.syncopation,
-                'call-response': g.callResponse, 'tension-curve': g.tensionCurve,
-                'modal-interchange': g.modalInterchange, 'ghost-notes': g.ghostNotes,
-            };
-            const current = this._traitOverrides[param] !== undefined ? this._traitOverrides[param] : genreDefaults[param];
+    _openTraitEditor(param) {
+        const meta = this._traitMeta()[param];
+        if (!meta) return;
+        const genre = this.querySelector('.pn-genre-select')?.value || 'techno';
+        const g = this._genreData[genre];
+        if (!g) return;
 
-            if (typeof current === 'boolean') {
-                this._traitOverrides[param] = !current;
-            } else if (typeof current === 'number' && current > 0) {
-                // Turn off: set to 0 (or false for boolean-like traits)
-                this._traitOverrides[param] = param === 'polyrhythm' ? 0 : 0;
-            } else {
-                // Turn on: undefined, 0, or falsy — set to genre default or sensible fallback
-                const def = genreDefaults[param];
-                if (typeof def === 'boolean') {
-                    this._traitOverrides[param] = true;
-                } else {
-                    this._traitOverrides[param] = def > 0 ? def : (param === 'polyrhythm' ? 6 : 0.3);
-                }
+        if (!this._traitOverrides) this._traitOverrides = {};
+        const current = this._traitOverrides[param] !== undefined
+            ? this._traitOverrides[param]
+            : this._genreTraitDefault(g, param);
+
+        let enabled, numericValue;
+        if (meta.type === 'bool') {
+            enabled = !!current;
+        } else if (meta.type === 'percent') {
+            enabled = typeof current === 'number' && current > 0;
+            numericValue = enabled ? current : meta.defaultOn;
+        } else if (meta.type === 'int') {
+            enabled = typeof current === 'number' && current > 0;
+            numericValue = enabled ? current : meta.defaultOn;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'pn-modal-overlay';
+
+        let valueRow = '';
+        if (meta.type === 'percent') {
+            const pct = Math.round(numericValue * 100);
+            valueRow = `
+                <div class="pn-modal-row">
+                    <label>Amount</label>
+                    <input type="range" name="pct" min="0" max="100" step="1" value="${pct}"/>
+                    <span class="pn-trait-val">${pct}%</span>
+                </div>`;
+        } else if (meta.type === 'int') {
+            valueRow = `
+                <div class="pn-modal-row">
+                    <label>Steps</label>
+                    <input type="number" name="intval" min="${meta.min}" max="${meta.max}" step="1" value="${numericValue}"/>
+                </div>`;
+        }
+
+        overlay.innerHTML = `
+            <div class="pn-modal">
+                <h2>${meta.label}</h2>
+                <p class="pn-modal-desc">${meta.tip}</p>
+                <div class="pn-modal-row">
+                    <label>Enabled</label>
+                    <input type="checkbox" name="enabled" ${enabled ? 'checked' : ''}/>
+                </div>
+                ${valueRow}
+                <div class="pn-modal-actions">
+                    <button class="cancel">Cancel</button>
+                    <button class="save">Apply</button>
+                </div>
+            </div>
+        `;
+        this.appendChild(overlay);
+
+        const cb = overlay.querySelector('input[name="enabled"]');
+        const slider = overlay.querySelector('input[name="pct"]');
+        const valLabel = overlay.querySelector('.pn-trait-val');
+        const intIn = overlay.querySelector('input[name="intval"]');
+
+        const syncDisabled = () => {
+            if (slider) slider.disabled = !cb.checked;
+            if (intIn)  intIn.disabled  = !cb.checked;
+        };
+        syncDisabled();
+        cb.addEventListener('change', syncDisabled);
+
+        if (slider && valLabel) {
+            slider.addEventListener('input', () => {
+                valLabel.textContent = `${slider.value}%`;
+                if (parseInt(slider.value, 10) > 0) cb.checked = true;
+                else cb.checked = false;
+                syncDisabled();
+            });
+        }
+
+        // Wheel-to-adjust on any number/range input
+        overlay.addEventListener('wheel', (e) => {
+            const t = e.target;
+            if (t.tagName !== 'INPUT') return;
+            if (t.type !== 'number' && t.type !== 'range') return;
+            e.preventDefault();
+            const step = e.deltaY < 0 ? 1 : -1;
+            const min = parseInt(t.min, 10);
+            const max = parseInt(t.max, 10);
+            let v = parseInt(t.value, 10);
+            if (!Number.isFinite(v)) v = Number.isFinite(min) ? min : 0;
+            v += step;
+            if (Number.isFinite(min) && v < min) v = min;
+            if (Number.isFinite(max) && v > max) v = max;
+            t.value = v;
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+        }, { passive: false });
+
+        const close = () => overlay.remove();
+        overlay.querySelector('.cancel').addEventListener('click', close);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); close(); }
+            else if (e.key === 'Enter') { e.preventDefault(); overlay.querySelector('.save').click(); }
+        });
+
+        overlay.querySelector('.save').addEventListener('click', () => {
+            const on = cb.checked;
+            if (meta.type === 'bool') {
+                this._traitOverrides[param] = on;
+            } else if (meta.type === 'percent') {
+                this._traitOverrides[param] = on ? (parseInt(slider.value, 10) / 100) : 0;
+            } else if (meta.type === 'int') {
+                this._traitOverrides[param] = on ? parseInt(intIn.value, 10) : 0;
             }
-
+            close();
             this._updateTraits();
-
-            // Auto-regenerate with the new params
             toneEngine.resumeContext();
             this._ensureToneStarted();
             const params = { ...this._traitOverrides };
@@ -952,6 +1102,8 @@ class PetriNote extends HTMLElement {
             if (structure) params.structure = structure;
             this._sendWs({ type: 'generate', genre, params });
         });
+
+        (slider || intIn || cb).focus();
     }
 
     _renderMixer() {
@@ -1040,11 +1192,13 @@ class PetriNote extends HTMLElement {
                         </option>
                     `).join('')}
                 </select>
+                ${(firstNet.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${netIds[0]}" data-riff-group="${group}" title="Next genre instrument">&raquo;</button>` : ''}
                 <select class="pn-mixer-output" data-channel="${channel}" title="Audio output device">
                     <option value="">Master</option>
                 </select>
-                ${(firstNet.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${netIds[0]}" data-riff-group="${group}" title="Next genre instrument">&raquo;</button>` : ''}
+                ${this._patternSelectsHtml(this._project.nets[activeSlotId || netIds[0]], activeSlotId || netIds[0])}
                 ${this._mixerSlidersHtml(netIds[0], percOrder.includes(group))}
+                <button class="pn-mixer-save" data-net-id="${netIds[0]}" title="Manage presets">&#9733;</button>
                 <button class="pn-mixer-test" data-net-id="${netIds[0]}" title="Test note">&#9835;</button>
                 <button class="pn-mixer-tone-reset" data-net-id="${netIds[0]}" title="Reset tone">&#8634;</button>
                 <button class="pn-mixer-tone-prev" data-net-id="${netIds[0]}" title="Previous tone">&lsaquo;</button>
@@ -1127,6 +1281,12 @@ class PetriNote extends HTMLElement {
                 this._toneNav(toneNext.dataset.netId, 1);
                 return;
             }
+            const saveBtn = e.target.closest('.pn-mixer-save');
+            if (saveBtn) {
+                e.stopPropagation();
+                this._openPresetManager(saveBtn.dataset.netId);
+                return;
+            }
             const rotateBtn = e.target.closest('.pn-mixer-rotate');
             if (rotateBtn) {
                 e.stopPropagation();
@@ -1204,6 +1364,30 @@ class PetriNote extends HTMLElement {
                 sessionStorage.setItem(`pn-channel-routing-${channel}`, val);
                 return;
             }
+            const sizeSel = e.target.closest('.pn-mixer-size');
+            const hitsSel = e.target.closest('.pn-mixer-hits');
+            if (sizeSel || hitsSel) {
+                const row = e.target.closest('.pn-mixer-row');
+                if (!row) return;
+                const sizeEl = row.querySelector('.pn-mixer-size');
+                const hitsEl = row.querySelector('.pn-mixer-hits');
+                if (!sizeEl || !hitsEl) return;
+                const netId = (sizeSel || hitsSel).dataset.netId;
+                let size = parseInt(sizeEl.value, 10);
+                let hits = parseInt(hitsEl.value, 10);
+                if (!Number.isFinite(size) || size < 2) size = 2;
+                if (size > 32) size = 32;
+                if (!Number.isFinite(hits) || hits < 2) hits = 2;
+                if (hits > size) {
+                    hits = size;
+                    hitsEl.innerHTML = this._hitsOptionsHtml(hits, size);
+                } else if (sizeSel) {
+                    // Re-populate hits options to reflect new cap; preserve selection
+                    hitsEl.innerHTML = this._hitsOptionsHtml(hits, size);
+                }
+                this._sendWs({ type: 'update-track-pattern', netId, ringSize: size, beats: hits });
+                return;
+            }
             const instSelect = e.target.closest('.pn-mixer-instrument');
             if (instSelect) {
                 const netId = instSelect.dataset.netId;
@@ -1254,48 +1438,21 @@ class PetriNote extends HTMLElement {
             const group = e.target.closest('.pn-mixer-slider-group');
             if (!group) return;
             e.preventDefault();
-            const slider = group.querySelector('input[type="range"]');
+            const slider = group.querySelector('input[type="range"], select');
             if (!slider) return;
-            const step = e.deltaY < 0 ? 3 : -3;
-            const min = parseInt(slider.min) || 0;
-            const max = parseInt(slider.max) || 127;
-            slider.value = Math.max(min, Math.min(max, parseInt(slider.value) + step));
+            const dir = e.deltaY < 0 ? 1 : -1;
+            if (slider.tagName === 'SELECT') {
+                const idx = slider.selectedIndex + dir;
+                if (idx < 0 || idx >= slider.options.length) return;
+                slider.selectedIndex = idx;
+            } else {
+                const min = parseInt(slider.min) || 0;
+                const max = parseInt(slider.max) || 127;
+                slider.value = Math.max(min, Math.min(max, parseInt(slider.value) + dir));
+            }
             slider.dispatchEvent(new Event('input', { bubbles: true }));
+            slider.dispatchEvent(new Event('change', { bubbles: true }));
         }, { passive: false });
-
-        // Drag-to-reorder mixer rows
-        let dragRow = null;
-        this._mixerEl.addEventListener('mousedown', (e) => {
-            const name = e.target.closest('.pn-mixer-name');
-            if (!name) return;
-            const row = name.closest('.pn-mixer-row');
-            if (!row) return;
-            dragRow = row;
-            row.classList.add('dragging');
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (!dragRow) return;
-            const rows = [...this._mixerEl.querySelectorAll('.pn-mixer-row')];
-            for (const row of rows) {
-                if (row === dragRow) continue;
-                const rect = row.getBoundingClientRect();
-                if (e.clientY < rect.top + rect.height / 2 && dragRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                    this._mixerEl.insertBefore(dragRow, row);
-                    return;
-                }
-                if (e.clientY > rect.top + rect.height / 2 && dragRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING) {
-                    this._mixerEl.insertBefore(dragRow, row.nextSibling);
-                    return;
-                }
-            }
-        });
-        document.addEventListener('mouseup', () => {
-            if (dragRow) {
-                dragRow.classList.remove('dragging');
-                dragRow = null;
-            }
-        });
 
         // Track hovered slider for MIDI CC binding
         this._mixerEl.addEventListener('mouseover', (e) => {
@@ -1307,15 +1464,16 @@ class PetriNote extends HTMLElement {
             if (slider && slider === this._hoveredSlider) this._hoveredSlider = null;
         });
 
-        // Apply initial decay for non-percussion tracks
+        // Apply initial decay and volume per row
         for (const row of this._mixerEl.querySelectorAll('.pn-mixer-row')) {
-            const decSlider = row.querySelector('.pn-mixer-decay');
-            if (!decSlider) continue;
             const nid = row.dataset.netId;
             const net = this._project.nets[nid];
             if (!net) continue;
             const ch = net.track?.channel || 1;
-            toneEngine.setChannelDecay(ch, parseInt(decSlider.value) / 100);
+            const decSlider = row.querySelector('.pn-mixer-decay');
+            if (decSlider) toneEngine.setChannelDecay(ch, parseInt(decSlider.value) / 100);
+            const volSel = row.querySelector('.pn-mixer-vol');
+            if (volSel) toneEngine.controlChange(ch, 7, Math.round(parseInt(volSel.value, 10) * 127 / 100));
         }
 
         // Restore saved slider positions after DOM rebuild
@@ -1329,6 +1487,222 @@ class PetriNote extends HTMLElement {
         }));
     }
 
+    _patternSelectsHtml(net, targetId) {
+        if (!net || !net.track || !net.track.generator) return '';
+        const placeCount = Object.keys(net.places || {}).length;
+        let bindCount = 0;
+        if (net.bindings) {
+            bindCount = Object.keys(net.bindings).length;
+        } else if (net.transitions) {
+            for (const t of Object.values(net.transitions)) if (t && t.midi) bindCount++;
+        }
+        let size = Number.isFinite(net.track.ringSize) ? net.track.ringSize : placeCount;
+        let hits = Number.isFinite(net.track.beats) ? net.track.beats : bindCount;
+        if (size < 2) size = 2;
+        if (size > 32) size = 32;
+        if (hits < 2) hits = 2;
+        if (hits > size) hits = size;
+
+        let sizeOpts = '';
+        for (let v = 2; v <= 32; v++) {
+            sizeOpts += `<option value="${v}"${v === size ? ' selected' : ''}>${v}</option>`;
+        }
+        let hitsOpts = '';
+        const hitsMax = Math.min(32, size);
+        for (let v = 2; v <= hitsMax; v++) {
+            hitsOpts += `<option value="${v}"${v === hits ? ' selected' : ''}>${v}</option>`;
+        }
+        return `
+            <select class="pn-mixer-size" data-net-id="${targetId}" title="Ring size (steps)">${sizeOpts}</select>
+            <select class="pn-mixer-hits" data-net-id="${targetId}" title="Beats (hits)">${hitsOpts}</select>
+        `;
+    }
+
+    _loadPresets() {
+        if (this._presets) return this._presets;
+        try {
+            const raw = localStorage.getItem('pn-instrument-presets');
+            this._presets = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(this._presets)) this._presets = [];
+        } catch {
+            this._presets = [];
+        }
+        return this._presets;
+    }
+
+    _savePresets() {
+        localStorage.setItem('pn-instrument-presets', JSON.stringify(this._presets || []));
+    }
+
+    _generatePresetName(instrument) {
+        const adjectives = [
+            'Neon', 'Velvet', 'Crystal', 'Midnight', 'Golden', 'Electric', 'Cosmic',
+            'Faded', 'Phantom', 'Solar', 'Liquid', 'Frozen', 'Burning', 'Silent',
+            'Digital', 'Hollow', 'Iron', 'Violet', 'Crimson', 'Silver', 'Amber',
+            'Azure', 'Jade', 'Obsidian', 'Ivory', 'Rusted', 'Wired', 'Broken',
+            'Floating', 'Endless',
+        ];
+        const nouns = [
+            'Drift', 'Pulse', 'Echo', 'Haze', 'Bloom', 'Wave', 'Storm', 'Glow',
+            'Shade', 'Vibe', 'Circuit', 'Signal', 'Mirage', 'Orbit', 'Tide',
+            'Vapor', 'Ember', 'Fracture', 'Horizon', 'Spine', 'Flicker', 'Reverb',
+            'Cipher', 'Arc', 'Lattice', 'Prism', 'Rust', 'Grain', 'Thread', 'Void',
+        ];
+        const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+        const noun = nouns[Math.floor(Math.random() * nouns.length)];
+        const label = instrument.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        return `${label} \u00b7 ${adj} ${noun}`;
+    }
+
+    _captureRowSettings(row) {
+        const settings = {};
+        for (const [cls, key] of MIXER_SLIDERS) {
+            const el = row.querySelector(`.${cls}`);
+            if (el) settings[key] = el.value;
+        }
+        return settings;
+    }
+
+    _saveCurrentPreset(netId) {
+        const row = this._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${netId}"]`);
+        if (!row) return;
+        const net = this._project.nets[netId];
+        if (!net) return;
+        const ch = net.track?.channel || 1;
+        const instrument = net.track?.instrument || this._channelInstruments[ch] || 'piano';
+        this._loadPresets();
+        const preset = {
+            id: `${instrument}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            name: this._generatePresetName(instrument),
+            instrument,
+            channel: ch,
+            settings: this._captureRowSettings(row),
+            created: Date.now(),
+        };
+        this._presets.push(preset);
+        this._savePresets();
+        this._renderMixer();
+    }
+
+    _applyPreset(netId, presetId) {
+        this._loadPresets();
+        const preset = this._presets.find(p => p.id === presetId);
+        if (!preset) return;
+        const row = this._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${netId}"]`);
+        if (!row) return;
+        const net = this._project.nets[netId];
+        if (!net) return;
+        const ch = net.track?.channel || 1;
+        const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
+
+        for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
+            const el = row.querySelector(`.${cls}`);
+            const v = preset.settings[key];
+            if (el && v != null) {
+                el.value = v;
+                applyFactory(ch, drumRole)(parseInt(v, 10));
+            }
+        }
+        this._saveMixerSliderState(netId);
+    }
+
+    _deletePreset(presetId) {
+        this._loadPresets();
+        this._presets = this._presets.filter(p => p.id !== presetId);
+        this._savePresets();
+        this._renderMixer();
+    }
+
+    _openPresetManager(netId) {
+        const net = this._project.nets[netId];
+        if (!net) return;
+        const ch = net.track?.channel || 1;
+        const instrument = net.track?.instrument || this._channelInstruments[ch] || 'piano';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'pn-modal-overlay';
+
+        const render = () => {
+            const all = this._loadPresets();
+            const presets = all.filter(p => {
+                if (typeof p.channel === 'number') return p.channel === ch;
+                return p.instrument === instrument;
+            });
+            const list = presets.length === 0
+                ? `<p class="pn-modal-desc">No presets yet. Save the current mixer settings to create one.</p>`
+                : `<ul class="pn-preset-list">${presets.map(p => `
+                    <li class="pn-preset-item" data-preset-id="${p.id}">
+                        <span class="pn-preset-name">${p.name.replace(/[<&]/g, c => ({ '<': '&lt;', '&': '&amp;' }[c]))}</span>
+                        <button class="pn-preset-apply" data-preset-id="${p.id}">Apply</button>
+                        <button class="pn-preset-delete" data-preset-id="${p.id}" title="Delete">&times;</button>
+                    </li>`).join('')}</ul>`;
+
+            overlay.innerHTML = `
+                <div class="pn-modal">
+                    <h2>Presets &mdash; ${instrument}</h2>
+                    <p class="pn-modal-desc">Save the current mixer panel (volume, pan, filters, decay) and restore it later on any track sharing this channel.</p>
+                    ${list}
+                    <div class="pn-modal-actions">
+                        <button class="close">Close</button>
+                        <button class="save">Save current as preset</button>
+                    </div>
+                </div>
+            `;
+        };
+        render();
+        this.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay || e.target.classList.contains('close')) {
+                overlay.remove();
+                return;
+            }
+            if (e.target.classList.contains('save')) {
+                this._saveCurrentPreset(netId);
+                render();
+                return;
+            }
+            const applyBtn = e.target.closest('.pn-preset-apply');
+            if (applyBtn) {
+                this._applyPreset(netId, applyBtn.dataset.presetId);
+                overlay.remove();
+                return;
+            }
+            const delBtn = e.target.closest('.pn-preset-delete');
+            if (delBtn) {
+                this._deletePreset(delBtn.dataset.presetId);
+                render();
+                return;
+            }
+        });
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+        });
+    }
+
+    _presetSelectHtml(instrument, channel) {
+        const all = this._loadPresets();
+        // Match by channel when available (covers legacy presets that only stored instrument)
+        const presets = all.filter(p => {
+            if (typeof p.channel === 'number' && typeof channel === 'number') return p.channel === channel;
+            return p.instrument === instrument;
+        });
+        const opts = [`<option value="">&mdash; preset &mdash;</option>`];
+        for (const p of presets) {
+            opts.push(`<option value="${p.id}">${p.name.replace(/"/g, '&quot;')}</option>`);
+        }
+        return `<select class="pn-mixer-preset" title="Load saved preset">${opts.join('')}</select>`;
+    }
+
+    _hitsOptionsHtml(selected, sizeCap) {
+        const cap = Math.min(32, Math.max(2, sizeCap));
+        let opts = '';
+        for (let v = 2; v <= cap; v++) {
+            opts += `<option value="${v}"${v === selected ? ' selected' : ''}>${v}</option>`;
+        }
+        return opts;
+    }
+
     _mixerSlidersHtml(netId, isPercussion) {
         const decDefault = isPercussion ? 100 : 5;
         return `
@@ -1338,7 +1712,11 @@ class PetriNote extends HTMLElement {
                 </div>
                 <div class="pn-mixer-slider-group">
                     <span>Vol</span>
-                    <input type="range" class="pn-mixer-slider pn-mixer-vol" data-net-id="${netId}" data-default="127" min="0" max="127" value="127">
+                    <select class="pn-mixer-slider pn-mixer-vol" data-net-id="${netId}" data-default="80">${
+                        Array.from({ length: 101 }, (_, v) =>
+                            `<option value="${v}"${v === 80 ? ' selected' : ''}>${v}</option>`
+                        ).join('')
+                    }</select>
                 </div>
                 <div class="pn-mixer-slider-group">
                     <span>HP</span>
@@ -1389,11 +1767,13 @@ class PetriNote extends HTMLElement {
                     </option>
                 `).join('')}
             </select>
+            ${(net.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${id}" title="Next genre instrument">&raquo;</button>` : ''}
             <select class="pn-mixer-output" data-channel="${channel}" title="Audio output device">
                 <option value="">Master</option>
             </select>
-            ${(net.track?.instrumentSet?.length > 1) ? `<button class="pn-mixer-rotate" data-net-id="${id}" title="Next genre instrument">&raquo;</button>` : ''}
+            ${this._patternSelectsHtml(net, id)}
             ${this._mixerSlidersHtml(id, channel === 10)}
+            <button class="pn-mixer-save" data-net-id="${id}" title="Manage presets">&#9733;</button>
             <button class="pn-mixer-test" data-net-id="${id}" title="Test note">&#9835;</button>
             <button class="pn-mixer-tone-reset" data-net-id="${id}" title="Reset tone">&#8634;</button>
             <button class="pn-mixer-tone-prev" data-net-id="${id}" title="Previous tone">&lsaquo;</button>
@@ -1800,7 +2180,7 @@ class PetriNote extends HTMLElement {
         this.querySelector('.pn-tempo').addEventListener('wheel', (e) => {
             e.preventDefault();
             const input = this.querySelector('.pn-tempo input');
-            const step = e.deltaY < 0 ? 2 : -2;
+            const step = e.deltaY < 0 ? 1 : -1;
             this._setTempo(parseInt(input.value, 10) + step);
         }, { passive: false });
 
@@ -2009,6 +2389,18 @@ class PetriNote extends HTMLElement {
         const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
         const octave = Math.floor(note / 12) - 1;
         return names[note % 12] + octave;
+    }
+
+    _nameToNote(name) {
+        if (typeof name !== 'string') return null;
+        const m = name.trim().match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
+        if (!m) return null;
+        const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
+        const accidental = m[2] === '#' ? 1 : (m[2] === 'b' ? -1 : 0);
+        const octave = parseInt(m[3], 10);
+        const note = base + accidental + (octave + 1) * 12;
+        if (note < 0 || note > 127) return null;
+        return note;
     }
 
     _draw() {
@@ -2579,7 +2971,15 @@ class PetriNote extends HTMLElement {
     _openMidiEditor(transitionId) {
         const net = this._getActiveNet();
         const trans = net.transitions[transitionId];
-        const midi = trans.midi || { note: 60, channel: net.track.channel, velocity: 100, duration: 100 };
+        const trackCh = net.track?.channel || 1;
+        const trackVel = net.track?.defaultVelocity || 100;
+        const src = trans.midi || {};
+        const midi = {
+            note: Number.isFinite(src.note) ? src.note : 60,
+            channel: Number.isFinite(src.channel) ? src.channel : trackCh,
+            velocity: Number.isFinite(src.velocity) ? src.velocity : trackVel,
+            duration: Number.isFinite(src.duration) ? src.duration : 100,
+        };
 
         const overlay = document.createElement('div');
         overlay.className = 'pn-modal-overlay';
@@ -2589,7 +2989,7 @@ class PetriNote extends HTMLElement {
                 <div class="pn-modal-row">
                     <label>Note</label>
                     <input type="number" name="note" value="${midi.note}" min="0" max="127"/>
-                    <span>${this._noteToName(midi.note)}</span>
+                    <input type="text" name="noteName" value="${this._noteToName(midi.note)}" size="4" title="Note name (e.g. C4, F#3, Bb5)"/>
                 </div>
                 <div class="pn-modal-row">
                     <label>Channel</label>
@@ -2614,12 +3014,49 @@ class PetriNote extends HTMLElement {
 
         this.appendChild(overlay);
 
-        // Update note name on change
+        // Bidirectional sync between note number and name
         const noteInput = overlay.querySelector('input[name="note"]');
-        const noteName = overlay.querySelector('.pn-modal-row span');
+        const noteName = overlay.querySelector('input[name="noteName"]');
         noteInput.addEventListener('input', () => {
-            noteName.textContent = this._noteToName(parseInt(noteInput.value, 10));
+            const n = parseInt(noteInput.value, 10);
+            if (Number.isFinite(n)) noteName.value = this._noteToName(n);
         });
+        noteName.addEventListener('input', () => {
+            const n = this._nameToNote(noteName.value);
+            if (n !== null) {
+                noteInput.value = n;
+                noteName.classList.remove('pn-invalid');
+            } else {
+                noteName.classList.add('pn-invalid');
+            }
+        });
+        noteName.addEventListener('blur', () => {
+            const n = parseInt(noteInput.value, 10);
+            if (Number.isFinite(n)) {
+                noteName.value = this._noteToName(n);
+                noteName.classList.remove('pn-invalid');
+            }
+        });
+
+        // Wheel on any value field bumps the value up/down (prevents page scroll)
+        overlay.addEventListener('wheel', (e) => {
+            const target = e.target;
+            let numInput = null;
+            if (target === noteName) numInput = noteInput;
+            else if (target.tagName === 'INPUT' && target.type === 'number') numInput = target;
+            if (!numInput) return;
+            e.preventDefault();
+            const step = e.deltaY < 0 ? 1 : -1;
+            const min = parseInt(numInput.min, 10);
+            const max = parseInt(numInput.max, 10);
+            let v = parseInt(numInput.value, 10);
+            if (!Number.isFinite(v)) v = Number.isFinite(min) ? min : 0;
+            v += step;
+            if (Number.isFinite(min) && v < min) v = min;
+            if (Number.isFinite(max) && v > max) v = max;
+            numInput.value = v;
+            numInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }, { passive: false });
 
         // Button handlers
         overlay.querySelector('.cancel').addEventListener('click', () => overlay.remove());
@@ -2735,7 +3172,6 @@ class PetriNote extends HTMLElement {
                 }
             };
             this._midiInputConnected = true;
-            console.log('MIDI inputs connected:', [...midi.inputs.values()].map(i => i.name).join(', '));
         } catch (e) {
             console.warn('MIDI input access denied:', e);
         }
@@ -2771,11 +3207,6 @@ class PetriNote extends HTMLElement {
             const binding = this._sliderBindingKey(this._hoveredSlider);
             if (binding) {
                 this._ccBindings.set(cc, binding);
-                const sliderGroup = this._hoveredSlider.closest('.pn-mixer-slider-group') || this._hoveredSlider.closest('.pn-fx-group');
-                const label = sliderGroup?.querySelector('span')?.textContent || this._hoveredSlider.dataset.fx || '?';
-                const row = this._hoveredSlider.closest('.pn-mixer-row');
-                const name = row?.querySelector('.pn-mixer-name')?.textContent || 'FX';
-                console.log(`CC ${cc} → ${name} ${label}`);
                 // Visual flash to confirm binding
                 this._hoveredSlider.style.outline = '2px solid #64ffda';
                 setTimeout(() => { if (this._hoveredSlider) this._hoveredSlider.style.outline = ''; }, 300);
@@ -2973,6 +3404,7 @@ class PetriNote extends HTMLElement {
         this.querySelectorAll('.pn-audio-mode button').forEach(btn => {
             btn.classList.toggle('active', this._audioModes.has(btn.dataset.mode));
         });
+        this.classList.toggle('pn-midi-enabled', this._audioModes.has('web-midi'));
 
         if (this._audioModes.has('web-midi')) {
             this._refreshMidiOutputs().then(() => this._populateAudioOutputs());
@@ -3601,7 +4033,6 @@ class PetriNote extends HTMLElement {
         this._worker.onmessage = (e) => {
             const msg = e.data;
             if (msg.type === 'ready') {
-                console.log('Sequencer worker ready');
                 this._updateWsStatus(true);
                 // Generate a techno track on first connect, otherwise reload current project
                 if (!this._hasInitialProject) {
@@ -3633,7 +4064,6 @@ class PetriNote extends HTMLElement {
             this._ws = new WebSocket(wsUrl);
 
             this._ws.onopen = () => {
-                console.log('WebSocket connected');
                 this._updateWsStatus(true);
                 if (!this._hasInitialProject) {
                     this._hasInitialProject = true;
@@ -3648,7 +4078,6 @@ class PetriNote extends HTMLElement {
             };
 
             this._ws.onclose = () => {
-                console.log('WebSocket disconnected');
                 this._updateWsStatus(false);
                 this._scheduleReconnect();
             };
@@ -3735,6 +4164,17 @@ class PetriNote extends HTMLElement {
                 } else {
                     this._applyProjectSync(msg.project, false);
                 }
+                break;
+            case 'track-pattern-updated':
+                if (this._project && this._project.nets && msg.netId && msg.net) {
+                    this._project.nets[msg.netId] = msg.net;
+                    this._normalizeNet(msg.net);
+                    this._renderMixer();
+                    if (msg.netId === this._activeNetId) this._renderNet();
+                }
+                break;
+            case 'track-pattern-error':
+                console.warn('[petri-note] track-pattern-error', msg.netId, msg.error);
                 break;
             case 'instruments-changed':
                 if (this._playing) {

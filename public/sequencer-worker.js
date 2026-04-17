@@ -6,6 +6,7 @@
 
 import { parseProject, projectToJSON } from './lib/pflow.js';
 import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js';
+import { regenerateTrack } from './lib/generator/regenerate.js';
 
 const DefaultTempo = 120;
 const DefaultPPQ = 4;
@@ -22,6 +23,7 @@ let stopRequested = false;
 let loopStart = -1;
 let loopEnd = -1;
 let pendingProject = null;
+let pendingNetUpdates = {}; // netId -> NetBundle (drained at bar boundary, preserves transport/mutes)
 let timerId = null;
 
 // Mute state
@@ -279,6 +281,17 @@ function tick() {
         return;
     }
 
+    // Bar-boundary per-track swap — preserves tickCount and mute state
+    if (tickCount % 16 === 0 && Object.keys(pendingNetUpdates).length > 0) {
+        for (const [nid, nb] of Object.entries(pendingNetUpdates)) {
+            if (project.nets[nid]) {
+                project.nets[nid] = nb;
+                post({ type: 'track-pattern-updated', netId: nid, net: projectToJSON(project).nets[nid] });
+            }
+        }
+        pendingNetUpdates = {};
+    }
+
     // Bar-boundary project swap (16 ticks = 1 bar)
     if (pendingProject && tickCount % 16 === 0) {
         project = pendingProject;
@@ -288,6 +301,7 @@ function tick() {
         mutedNets = {};
         mutedNotes = {};
         mutedGroups = {};
+        pendingNetUpdates = {}; // stale — belonged to the previous project
         if (project.initialMutes) {
             for (const netId of project.initialMutes) {
                 mutedNets[netId] = true;
@@ -595,6 +609,36 @@ self.onmessage = function(e) {
             deterministicLoop = !!msg.enabled;
             post({ type: 'deterministic-loop-changed', enabled: deterministicLoop });
             break;
+
+        case 'update-track-pattern': {
+            if (!project || !project.nets[msg.netId]) break;
+            const prev = project.nets[msg.netId];
+            if (!prev.track || !prev.track.generator) {
+                post({ type: 'track-pattern-error', netId: msg.netId,
+                    error: 'track has no generator recipe' });
+                break;
+            }
+            let newNb;
+            try {
+                newNb = regenerateTrack(prev, {
+                    ringSize: msg.ringSize,
+                    beats: msg.beats,
+                    rotation: msg.rotation,
+                    note: msg.note,
+                });
+            } catch (err) {
+                post({ type: 'track-pattern-error', netId: msg.netId, error: String(err) });
+                break;
+            }
+            if (!playing) {
+                project.nets[msg.netId] = newNb;
+                post({ type: 'track-pattern-updated', netId: msg.netId,
+                    net: projectToJSON(project).nets[msg.netId] });
+            } else {
+                pendingNetUpdates[msg.netId] = newNb;
+            }
+            break;
+        }
     }
 };
 

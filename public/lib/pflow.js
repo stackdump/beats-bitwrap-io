@@ -175,6 +175,15 @@ function parseNetBundle(data) {
     };
     // Mix settings passthrough
     if (t.mix) nb.track.mix = t.mix;
+    // Pattern recipe passthrough (for regenerateTrack)
+    if (typeof t.generator === 'string') nb.track.generator = t.generator;
+    if (typeof t.ringSize === 'number') nb.track.ringSize = t.ringSize;
+    if (typeof t.beats === 'number') nb.track.beats = t.beats;
+    if (typeof t.rotation === 'number') nb.track.rotation = t.rotation;
+    if (typeof t.note === 'number') nb.track.note = t.note;
+    if (t.generatorParams && typeof t.generatorParams === 'object') {
+        nb.track.generatorParams = t.generatorParams;
+    }
 
     // Places
     if (data.places && typeof data.places === 'object') {
@@ -331,6 +340,12 @@ function bundleToJSON(nb) {
         trackMap.instrumentSet = nb.track.instrumentSet;
     }
     if (nb.track.mix) trackMap.mix = nb.track.mix;
+    if (nb.track.generator) trackMap.generator = nb.track.generator;
+    if (typeof nb.track.ringSize === 'number') trackMap.ringSize = nb.track.ringSize;
+    if (typeof nb.track.beats === 'number') trackMap.beats = nb.track.beats;
+    if (typeof nb.track.rotation === 'number' && nb.track.rotation !== 0) trackMap.rotation = nb.track.rotation;
+    if (typeof nb.track.note === 'number') trackMap.note = nb.track.note;
+    if (nb.track.generatorParams) trackMap.generatorParams = nb.track.generatorParams;
 
     const result = { track: trackMap };
     if (nb.role && nb.role !== 'music') result.role = nb.role;

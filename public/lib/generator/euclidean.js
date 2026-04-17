@@ -139,6 +139,16 @@ export function euclidean(k, n, rotation, note, params) {
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'euclidean',
+        ringSize: n,
+        beats: k,
+        rotation,
+        note,
+        generatorParams: {
+            duration: params.duration,
+            seed: params.seed || 0,
+            accent: params.accent || 0,
+        },
     };
     nb.buildArcIndex();
     nb.resetState();
@@ -196,6 +206,14 @@ export function euclideanMelodic(notes, steps, seed, params) {
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'euclidean-melodic',
+        ringSize: steps,
+        beats: steps,
+        generatorParams: {
+            scale: notes.slice(),
+            seed: seed || 0,
+            duration: params.duration,
+        },
     };
     nb.buildArcIndex();
     nb.resetState();

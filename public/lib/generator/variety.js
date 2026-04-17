@@ -114,6 +114,17 @@ export function ghostNoteHihat(hits, steps, rotation, note, params, ghostDensity
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'euclidean-ghost',
+        ringSize: steps,
+        beats: hits,
+        rotation,
+        note,
+        generatorParams: {
+            duration: params.duration,
+            seed: params.seed || 0,
+            accent: params.accent || 0,
+            ghostDensity,
+        },
     };
 
     bundle.buildArcIndex();
@@ -291,11 +302,24 @@ export function walkingBassLine(params) {
         };
     }
 
+    const walkingBeats = steps - restPositions.size;
     bundle.track = {
         channel: params.channel,
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'walking-bass',
+        ringSize: steps,
+        beats: walkingBeats,
+        generatorParams: {
+            scale: notes.slice(),
+            rootNote: params.rootNote,
+            chords: params.chords,
+            seed: params.seed || 0,
+            duration: params.duration,
+            density: params.density,
+            durationVariation: params.durationVariation || 0,
+        },
     };
 
     bundle.buildArcIndex();
@@ -345,20 +369,26 @@ export function callResponseMelody(params) {
         }
     }
 
-    // Generate call phrase (16 steps)
-    const callSeq = composeSequence(16, n, chordToneSet, false, params.density, rng);
+    // Ring length: split into call / response halves
+    let totalSteps = params.steps;
+    if (!totalSteps || totalSteps < 4) totalSteps = 32;
+    const halfSteps = Math.floor(totalSteps / 2);
+    const resolveAt = Math.max(1, Math.floor(halfSteps * 0.75));
+
+    // Generate call phrase
+    const callSeq = composeSequence(halfSteps, n, chordToneSet, false, params.density, rng);
 
     // Generate response: same rhythm (rest positions), different notes resolving to tonic
-    const responseSeq = new Array(16);
+    const responseSeq = new Array(halfSteps);
     let current = callSeq[0]; // start from same place
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < halfSteps; i++) {
         if (callSeq[i] < 0) {
             responseSeq[i] = -1; // preserve rest positions
             continue;
         }
 
-        if (i >= 12) {
-            // Last 4 steps: resolve toward root
+        if (i >= resolveAt) {
+            // Final phase: resolve toward root
             const dist = current;
             if (dist > 0) {
                 current--;
@@ -373,15 +403,14 @@ export function callResponseMelody(params) {
         }
     }
     // Final note is always root
-    if (responseSeq[15] !== -1) {
-        responseSeq[15] = 0;
+    if (responseSeq[halfSteps - 1] !== -1) {
+        responseSeq[halfSteps - 1] = 0;
     }
 
-    // Combine into 32-step sequence
-    const totalSteps = 32;
-    const seq = new Array(totalSteps);
-    for (let i = 0; i < 16; i++) seq[i] = callSeq[i];
-    for (let i = 0; i < 16; i++) seq[16 + i] = responseSeq[i];
+    // Combine call + response (tail padded with rests if totalSteps is odd)
+    const seq = new Array(totalSteps).fill(-1);
+    for (let i = 0; i < halfSteps; i++) seq[i] = callSeq[i];
+    for (let i = 0; i < halfSteps; i++) seq[halfSteps + i] = responseSeq[i];
 
     // Build the ring net
     const bundle = new NetBundle();
@@ -420,11 +449,25 @@ export function callResponseMelody(params) {
         };
     }
 
+    let crBeats = 0;
+    for (const d of seq) if (d >= 0) crBeats++;
     bundle.track = {
         channel: params.channel,
         defaultVelocity: params.velocity,
         instrument: '',
         instrumentSet: [],
+        generator: 'call-response',
+        ringSize: totalSteps,
+        beats: crBeats,
+        generatorParams: {
+            scale: notes.slice(),
+            rootNote: params.rootNote,
+            chords: params.chords,
+            seed: params.seed || 0,
+            duration: params.duration,
+            density: params.density,
+            durationVariation: params.durationVariation || 0,
+        },
     };
 
     bundle.buildArcIndex();
