@@ -511,16 +511,20 @@ select.pn-mixer-slider:hover {
 }
 
 /* Default value notch mark on sliders */
-.pn-slider-notch {
-    position: absolute;
-    bottom: 2px;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.4);
-    pointer-events: none;
-    z-index: 1;
-    transform: translateX(-1.5px);
+/* Default-value tick: a 2px vertical sliver painted into the slider's
+ * own track at --default-pct. Percentage scales with slider width so the
+ * tick stays aligned on resize / re-render. Set --default-pct in JS once
+ * per slider — see _addDefaultNotches. */
+input[type="range"][data-default] {
+    background-image: linear-gradient(
+        to right,
+        transparent calc(var(--default-pct, 50%) - 1px),
+        rgba(255, 255, 255, 0.55) calc(var(--default-pct, 50%) - 1px),
+        rgba(255, 255, 255, 0.55) calc(var(--default-pct, 50%) + 1px),
+        transparent calc(var(--default-pct, 50%) + 1px)
+    );
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
 }
 
 .pn-mixer-test {

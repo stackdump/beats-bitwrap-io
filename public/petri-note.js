@@ -2464,29 +2464,21 @@ class PetriNote extends HTMLElement {
         this._savedFxValues = null;
     }
 
+    // Mark each range slider's default value with a CSS custom property so the
+    // stylesheet can paint a tick on the track via a linear-gradient background.
+    // No absolute pixel math, no DOM children — percentage scales naturally if
+    // the slider resizes and can't drift out of place on re-render.
     _addDefaultNotches(container) {
         container.querySelectorAll('input[type="range"][data-default]').forEach(slider => {
-            const group = slider.closest('.pn-mixer-slider-group, .pn-fx-control');
-            if (!group || group.querySelector('.pn-slider-notch')) return;
             const def = parseFloat(slider.dataset.default);
             const min = parseFloat(slider.min);
             const max = parseFloat(slider.max);
-            const pct = (def - min) / (max - min);
-            group.style.position = 'relative';
-            const notch = document.createElement('div');
-            notch.className = 'pn-slider-notch';
-            group.appendChild(notch);
-            // Position using slider's actual rect relative to group
-            requestAnimationFrame(() => {
-                const thumbHalf = 6;
-                const sliderRect = slider.getBoundingClientRect();
-                const groupRect = group.getBoundingClientRect();
-                if (sliderRect.width > 0) {
-                    const px = (sliderRect.left - groupRect.left) + thumbHalf + pct * (sliderRect.width - thumbHalf * 2);
-                    notch.style.left = `${px}px`;
-                }
-            });
+            if (!Number.isFinite(def) || max === min) return;
+            const pct = Math.max(0, Math.min(100, ((def - min) / (max - min)) * 100));
+            slider.style.setProperty('--default-pct', pct + '%');
         });
+        // Clean up any legacy DOM notches from earlier versions
+        container.querySelectorAll('.pn-slider-notch').forEach(n => n.remove());
     }
 
     _toneReset(netId) {
