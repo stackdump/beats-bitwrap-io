@@ -892,6 +892,29 @@ petri-note {
     display: flex;
     align-items: center;
     justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.pn-midi-badge:hover {
+    background: rgba(155, 89, 182, 0.7);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+}
+.pn-midi-badge--empty {
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+}
+.pn-transition:hover .pn-midi-badge--empty {
+    opacity: 1;
+}
+.pn-midi-badge--empty:hover {
+    background: rgba(155, 89, 182, 0.25);
+    border-color: rgba(155, 89, 182, 0.8);
+    color: rgba(255, 255, 255, 0.9);
+    opacity: 1;
 }
 
 /* (Toolbar removed - diagram is read-only) */

@@ -1980,11 +1980,26 @@ class PetriNote extends HTMLElement {
         el.style.top = `${trans.y - 25}px`;
 
         const tLabel = trans.label && !/^t\d+/.test(trans.label) ? trans.label : '';
+        const isControl = !!trans.control && !trans.midi;
+        let badge = '';
+        if (trans.midi) {
+            badge = `<div class="pn-midi-badge" title="Click to edit note (${trans.midi.note})">${this._noteToName(trans.midi.note)}</div>`;
+        } else if (!isControl) {
+            badge = `<div class="pn-midi-badge pn-midi-badge--empty" title="Click to add MIDI note">+</div>`;
+        }
         el.innerHTML = `
             <div class="pn-transition-rect"></div>
-            ${trans.midi ? `<div class="pn-midi-badge" title="Note: ${trans.midi.note}">${this._noteToName(trans.midi.note)}</div>` : ''}
+            ${badge}
             ${tLabel ? `<div class="pn-label">${tLabel}</div>` : ''}
         `;
+
+        const badgeEl = el.querySelector('.pn-midi-badge');
+        if (badgeEl) {
+            badgeEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._openMidiEditor(id);
+            });
+        }
 
         this._stage.appendChild(el);
         this._nodes[id] = el;
@@ -2617,18 +2632,28 @@ class PetriNote extends HTMLElement {
             };
             this._playNote(testMidi);
         });
-        overlay.querySelector('.save').addEventListener('click', () => {
+        const save = () => {
+            this._pushHistory();
             trans.midi = {
                 note: parseInt(overlay.querySelector('input[name="note"]').value, 10),
                 channel: parseInt(overlay.querySelector('input[name="channel"]').value, 10),
                 velocity: parseInt(overlay.querySelector('input[name="velocity"]').value, 10),
                 duration: parseInt(overlay.querySelector('input[name="duration"]').value, 10)
             };
-            this._pushHistory();
             overlay.remove();
             this._renderNet();
             this._syncProject();
+            this._sendWs({ type: 'project-load', project: this._project });
+        };
+        overlay.querySelector('.save').addEventListener('click', save);
+
+        // Keyboard: Enter saves, Escape cancels
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            else if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
         });
+        noteInput.focus();
+        noteInput.select();
 
         // Click outside to close
         overlay.addEventListener('click', (e) => {
