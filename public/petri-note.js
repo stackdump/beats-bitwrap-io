@@ -81,7 +81,7 @@ const MACROS = [
     { id: 'sweep-hp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep HP',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'hp-freq', toValue: 80 }] },
     { id: 'reverb-wash',  group: 'FX', kind: 'fx-hold',  label: 'Reverb Wash',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
-      ops: [{ fxKey: 'reverb-wet', toValue: 75 }, { fxKey: 'reverb-size', toValue: 75 }, { fxKey: 'master-vol', toValue: 52 }] },
+      ops: [{ fxKey: 'reverb-wet', toValue: 90 }, { fxKey: 'reverb-size', toValue: 85 }, { fxKey: 'master-vol', toValue: 65 }] },
     { id: 'delay-throw',  group: 'FX', kind: 'fx-hold',  label: 'Delay Throw',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       tailFrac: 0.35,
       ops: [{ fxKey: 'delay-wet', toValue: 100 }, { fxKey: 'delay-feedback', toValue: 72 }, { fxKey: 'delay-time', toValue: 38 }] },
