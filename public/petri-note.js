@@ -81,9 +81,10 @@ const MACROS = [
     { id: 'sweep-hp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep HP',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'hp-freq', toValue: 80 }] },
     { id: 'reverb-wash',  group: 'FX', kind: 'fx-hold',  label: 'Reverb Wash',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
-      ops: [{ fxKey: 'reverb-wet', toValue: 100 }, { fxKey: 'reverb-size', toValue: 90 }] },
+      ops: [{ fxKey: 'reverb-wet', toValue: 85 }, { fxKey: 'reverb-size', toValue: 80 }, { fxKey: 'master-vol', toValue: 68 }] },
     { id: 'delay-throw',  group: 'FX', kind: 'fx-hold',  label: 'Delay Throw',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
-      ops: [{ fxKey: 'delay-wet', toValue: 75 }, { fxKey: 'delay-feedback', toValue: 55 }] },
+      tailFrac: 0.35,
+      ops: [{ fxKey: 'delay-wet', toValue: 100 }, { fxKey: 'delay-feedback', toValue: 72 }, { fxKey: 'delay-time', toValue: 38 }] },
     { id: 'riser',        group: 'FX', kind: 'fx-sweep', label: 'Riser',        defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'hp-freq', toValue: 70 }, { fxKey: 'reverb-wet', toValue: 80 }, { fxKey: 'phaser-wet', toValue: 60 }] },
     { id: 'build-crush',  group: 'FX', kind: 'fx-sweep', label: 'Bit Crush',    defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
@@ -1878,7 +1879,7 @@ class PetriNote extends HTMLElement {
             const ops = macro.ops || [{ fxKey: macro.fxKey, toValue: macro.toValue }];
             for (const op of ops) {
                 if (macro.kind === 'fx-sweep') this._fxSweep(op.fxKey, op.toValue, durationMs);
-                else                          this._fxHold (op.fxKey, op.toValue, durationMs);
+                else                          this._fxHold (op.fxKey, op.toValue, durationMs, macro.tailFrac);
             }
         } else if (macro.kind === 'beat-repeat') {
             this._runBeatRepeat(macro, durationMs);
