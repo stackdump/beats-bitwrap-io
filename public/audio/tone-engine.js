@@ -2021,12 +2021,16 @@ class ToneEngine {
         this._pitchShift.pitch = p;
     }
 
-    // Fire a transient synth one-shot by name — airhorn / laser / subdrop.
+    // Fire a transient synth one-shot by name — airhorn / laser / subdrop / booj.
     // Shares the master chain so all FX (reverb/delay/filters/pitch) apply.
-    playOneShot(name) {
+    // `semitones` transposes every pitched oscillator via detune; filters and
+    // frequency sweeps remain relative to the detuned pitch.
+    playOneShot(name, semitones = 0) {
         if (!this._masterVolume) return;
         const dest = this._masterVolume;
         const now = Tone.now();
+        const cents = (Number.isFinite(semitones) ? semitones : 0) * 100;
+        const tune = (osc) => { if (cents !== 0) osc.detune.value = cents; return osc; };
         // Tight noise-burst click used as an onset transient on all one-shots —
         // the "crack" that makes a hit feel punchy instead of a soft fade-in.
         const addClick = (centerHz, gain = 0.28, decayS = 0.05) => {
@@ -2048,7 +2052,7 @@ class ToneEngine {
 
             // 1) Coherent attack burst — saw wave at 880 Hz (A5) for 25 ms
             //    gives a piercing brass "BWAA" crack. Squared envelope.
-            const attack1 = new Tone.Oscillator({ type: 'sawtooth', frequency: 880 });
+            const attack1 = tune(new Tone.Oscillator({ type: 'sawtooth', frequency: 880 }));
             const attack1Env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.045, sustain: 0, release: 0.01 });
             attack1.connect(attack1Env);
             const attack1Gain = new Tone.Gain(0.55).connect(dest);
@@ -2059,7 +2063,7 @@ class ToneEngine {
             attack1Env.triggerAttackRelease(0.05, now);
 
             // 2) High tick for bite — square wave at 2.2 kHz for 15 ms
-            const attack2 = new Tone.Oscillator({ type: 'square', frequency: 2200 });
+            const attack2 = tune(new Tone.Oscillator({ type: 'square', frequency: 2200 }));
             const attack2Env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.025, sustain: 0, release: 0.005 });
             attack2.connect(attack2Env);
             const attack2Gain = new Tone.Gain(0.22).connect(dest);
@@ -2068,10 +2072,10 @@ class ToneEngine {
             attack2Env.triggerAttackRelease(0.03, now);
 
             // 3) Horn body — 4 layers, lower sustain so attack stays dominant
-            const lead = new Tone.Oscillator({ type: 'sawtooth', frequency: 110 });
-            const harmony = new Tone.Oscillator({ type: 'sawtooth', frequency: 138.59 });
-            const shout = new Tone.Oscillator({ type: 'square', frequency: 82.4 });
-            const sub = new Tone.Oscillator({ type: 'sine', frequency: 55 });
+            const lead = tune(new Tone.Oscillator({ type: 'sawtooth', frequency: 110 }));
+            const harmony = tune(new Tone.Oscillator({ type: 'sawtooth', frequency: 138.59 }));
+            const shout = tune(new Tone.Oscillator({ type: 'square', frequency: 82.4 }));
+            const sub = tune(new Tone.Oscillator({ type: 'sine', frequency: 55 }));
             const env = new Tone.AmplitudeEnvelope({ attack: 0.002, decay: 0.04, sustain: 0.58, release: 0.3 }).connect(dest);
             const mix = new Tone.Gain(0.3).connect(env);
             lead.connect(mix); harmony.connect(mix); shout.connect(mix); sub.connect(mix);
@@ -2093,8 +2097,10 @@ class ToneEngine {
             }, 1400);
         } else if (name === 'laser') {
             addClick(2500, 0.35, 0.03);   // sharp metallic tick
-            const oscA = new Tone.Oscillator({ type: 'sawtooth', frequency: 3200 });
-            const oscB = new Tone.Oscillator({ type: 'square', frequency: 3200, detune: -6 });
+            // Laser's own oscB detune (-6) is preserved when stacked with the
+            // per-shot pitch offset — detune adds cents.
+            const oscA = tune(new Tone.Oscillator({ type: 'sawtooth', frequency: 3200 }));
+            const oscB = new Tone.Oscillator({ type: 'square', frequency: 3200, detune: -6 + cents });
             const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.45, sustain: 0, release: 0.04 }).connect(dest);
             const gain = new Tone.Gain(0.65).connect(env);
             oscA.connect(gain); oscB.connect(gain);
@@ -2107,7 +2113,7 @@ class ToneEngine {
             setTimeout(() => { oscA.dispose(); oscB.dispose(); gain.dispose(); env.dispose(); }, 900);
         } else if (name === 'subdrop') {
             addClick(150, 0.35, 0.06);   // low thump on attack
-            const osc = new Tone.Oscillator({ type: 'sine', frequency: 220 });
+            const osc = tune(new Tone.Oscillator({ type: 'sine', frequency: 220 }));
             const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.9, sustain: 0, release: 0.1 }).connect(dest);
             const gain = new Tone.Gain(0.7).connect(env);
             osc.connect(gain);
@@ -2135,7 +2141,7 @@ class ToneEngine {
             // 2) Sub — deep pitch-falling sine, long tail. Starts at 90 Hz,
             // drops exponentially to 28 Hz over the first 400 ms (the catastrophic
             // "falling" feel), then holds in sub territory until release.
-            const sub = new Tone.Oscillator({ type: 'sine', frequency: 90 });
+            const sub = tune(new Tone.Oscillator({ type: 'sine', frequency: 90 }));
             const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 2.0, sustain: 0.3, release: 0.4 });
             sub.connect(subEnv);
             const subGain = new Tone.Gain(1.0).connect(dest);
@@ -2148,8 +2154,8 @@ class ToneEngine {
 
             // 3) Metallic shimmer — two high sines ringing briefly over the impact,
             // detuned for that cinematic "clang in the void" character
-            const shimmerA = new Tone.Oscillator({ type: 'sine', frequency: 1400 });
-            const shimmerB = new Tone.Oscillator({ type: 'sine', frequency: 1400, detune: 12 });
+            const shimmerA = tune(new Tone.Oscillator({ type: 'sine', frequency: 1400 }));
+            const shimmerB = new Tone.Oscillator({ type: 'sine', frequency: 1400, detune: 12 + cents });
             const shimmerFilter = new Tone.Filter({ frequency: 3000, type: 'lowpass' });
             const shimmerEnv = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 0.6, sustain: 0, release: 0.15 });
             shimmerA.connect(shimmerFilter); shimmerB.connect(shimmerFilter);

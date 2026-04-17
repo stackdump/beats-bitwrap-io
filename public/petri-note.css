@@ -769,6 +769,21 @@ select.pn-mixer-slider:hover {
     border-color: #1a4a7a;
 }
 
+.pn-macro-pitch {
+    padding: 4px 4px;
+    background: #1a1a2e;
+    color: #c3a6ff;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    min-width: 48px;
+}
+
+.pn-macro-pitch:hover {
+    border-color: #6e4adf;
+}
+
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {
     background: transparent;
     border: 1px solid #0f3460;

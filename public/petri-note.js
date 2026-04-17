@@ -80,8 +80,20 @@ const MACROS = [
       ops: [{ fxKey: 'lp-freq', toValue: 5 }] },
     { id: 'sweep-hp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep HP',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'hp-freq', toValue: 80 }] },
+    // Reverb Wash: don't duck master-vol (that also ducks the wet signal —
+    // "just gets quiet"). Instead, shape the reverb itself:
+    //   - wet 95, size 90 — dramatic wet-to-dry ratio
+    //   - damp → 15  (low damp = bright sparkly tail instead of muffled blanket)
+    //   - HP → 30    (rolls off low mud so the wash doesn't clash with bass)
+    // tailFrac 0.55 balances a sustained peak with a smooth fade.
     { id: 'reverb-wash',  group: 'FX', kind: 'fx-hold',  label: 'Reverb Wash',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
-      ops: [{ fxKey: 'reverb-wet', toValue: 90 }, { fxKey: 'reverb-size', toValue: 85 }, { fxKey: 'master-vol', toValue: 65 }] },
+      tailFrac: 0.55,
+      ops: [
+          { fxKey: 'reverb-wet',  toValue: 95 },
+          { fxKey: 'reverb-size', toValue: 90 },
+          { fxKey: 'reverb-damp', toValue: 15 },
+          { fxKey: 'hp-freq',     toValue: 30 },
+      ] },
     { id: 'delay-throw',  group: 'FX', kind: 'fx-hold',  label: 'Delay Throw',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       tailFrac: 0.35,
       ops: [{ fxKey: 'delay-wet', toValue: 100 }, { fxKey: 'delay-feedback', toValue: 72 }, { fxKey: 'delay-time', toValue: 38 }] },
@@ -109,13 +121,13 @@ const MACROS = [
     { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep', label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
 
     // --- One-shots ---
-    // durationOpts is interpreted as hit-count (stutter repeats). Each hit fires
-    // a full one-shot at 16th-note spacing so rapid multi-fires overlap for
-    // that classic DJ stutter-horn feel.
-    { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'airhorn' },
-    { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'laser' },
-    { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'subdrop' },
-    { id: 'booj',     group: 'One-Shot', kind: 'one-shot', label: 'Booj',     defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj' },
+    // durationOpts = stutter repeat count. pitchOpts = per-hit transpose in
+    // semitones; applied via oscillator detune so frequency sweeps stay
+    // relative.
+    { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'airhorn', pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
+    { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'laser',   pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
+    { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'subdrop', pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
+    { id: 'booj',     group: 'One-Shot', kind: 'one-shot', label: 'Booj',     defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj',    pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
 ];
 
 // Genre-specific instrument mappings (channel -> instrument name)
@@ -580,9 +592,15 @@ class PetriNote extends HTMLElement {
                                            ${m.durationOpts.map(v => `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`).join('')}
                                        </select>`
                                     : '';
+                                const pitchHtml = m.pitchOpts
+                                    ? `<select class="pn-macro-pitch" data-macro="${m.id}" title="Pitch (semitones)">
+                                           ${m.pitchOpts.map(v => `<option value="${v}"${v===(m.defaultPitch ?? 0)?' selected':''}>${v > 0 ? '+'+v : v} st</option>`).join('')}
+                                       </select>`
+                                    : '';
                                 return `<div class="pn-macro-item">
                                             <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
                                             ${selectHtml}
+                                            ${pitchHtml}
                                         </div>`;
                             }).join('')}
                         </div>
@@ -1932,9 +1950,11 @@ class PetriNote extends HTMLElement {
         } else if (macro.kind === 'one-shot') {
             const hits = Math.max(1, duration);    // duration dropdown = hit count for one-shots
             const interval = this._msPerBar() / 16; // 16th-note stutter spacing
+            const pitchSel = this.querySelector(`.pn-macro-pitch[data-macro="${id}"]`);
+            const pitch = parseInt(pitchSel?.value, 10) || 0;
             this._ensureToneStarted().then(() => {
                 for (let i = 0; i < hits; i++) {
-                    setTimeout(() => toneEngine.playOneShot(macro.sound), i * interval);
+                    setTimeout(() => toneEngine.playOneShot(macro.sound, pitch), i * interval);
                 }
             });
         }
