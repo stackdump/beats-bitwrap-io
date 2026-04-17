@@ -2027,14 +2027,28 @@ class ToneEngine {
         if (!this._masterVolume) return;
         const dest = this._masterVolume;
         const now = Tone.now();
+        // Tight noise-burst click used as an onset transient on all one-shots —
+        // the "crack" that makes a hit feel punchy instead of a soft fade-in.
+        const addClick = (centerHz, gain = 0.28, decayS = 0.05) => {
+            const noise = new Tone.Noise({ type: 'white' });
+            const filt = new Tone.Filter({ frequency: centerHz, type: 'bandpass', Q: 1.5 });
+            const clickEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: decayS, sustain: 0, release: 0.01 });
+            noise.connect(filt); filt.connect(clickEnv);
+            const clickGain = new Tone.Gain(gain).connect(dest);
+            clickEnv.connect(clickGain);
+            noise.start(now);
+            clickEnv.triggerAttackRelease(decayS + 0.01, now);
+            setTimeout(() => { noise.dispose(); filt.dispose(); clickEnv.dispose(); clickGain.dispose(); }, 500);
+        };
+
         if (name === 'airhorn') {
-            // Deep "BWOMP" — low octave, sub layer, modest gain
+            addClick(900, 0.32, 0.04);   // brassy attack transient
             const lead = new Tone.Oscillator({ type: 'sawtooth', frequency: 110 });
             const harmony = new Tone.Oscillator({ type: 'sawtooth', frequency: 138.59 });
             const shout = new Tone.Oscillator({ type: 'square', frequency: 82.4 });
             const sub = new Tone.Oscillator({ type: 'sine', frequency: 55 });
-            const env = new Tone.AmplitudeEnvelope({ attack: 0.03, decay: 0.15, sustain: 0.75, release: 0.35 }).connect(dest);
-            const mix = new Tone.Gain(0.22).connect(env);
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.08, sustain: 0.85, release: 0.35 }).connect(dest);
+            const mix = new Tone.Gain(0.32).connect(env);
             lead.connect(mix); harmony.connect(mix); shout.connect(mix); sub.connect(mix);
             lead.start(now); harmony.start(now); shout.start(now); sub.start(now);
             env.triggerAttackRelease(0.8, now);
@@ -2044,65 +2058,65 @@ class ToneEngine {
             harmony.frequency.linearRampToValueAtTime(146, now + 0.8);
             setTimeout(() => { lead.dispose(); harmony.dispose(); shout.dispose(); sub.dispose(); mix.dispose(); env.dispose(); }, 1400);
         } else if (name === 'laser') {
-            // Doubled saw + slightly slower sweep for more presence
-            const oscA = new Tone.Oscillator({ type: 'sawtooth', frequency: 3000 });
-            const oscB = new Tone.Oscillator({ type: 'square', frequency: 3000, detune: -6 });
-            const env = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 0.45, sustain: 0, release: 0.05 }).connect(dest);
-            const gain = new Tone.Gain(0.5).connect(env);
+            addClick(2500, 0.35, 0.03);   // sharp metallic tick
+            const oscA = new Tone.Oscillator({ type: 'sawtooth', frequency: 3200 });
+            const oscB = new Tone.Oscillator({ type: 'square', frequency: 3200, detune: -6 });
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.45, sustain: 0, release: 0.04 }).connect(dest);
+            const gain = new Tone.Gain(0.65).connect(env);
             oscA.connect(gain); oscB.connect(gain);
             oscA.start(now); oscB.start(now);
-            oscA.frequency.setValueAtTime(3000, now);
-            oscA.frequency.exponentialRampToValueAtTime(120, now + 0.4);
-            oscB.frequency.setValueAtTime(3000, now);
-            oscB.frequency.exponentialRampToValueAtTime(120, now + 0.4);
+            oscA.frequency.setValueAtTime(3200, now);
+            oscA.frequency.exponentialRampToValueAtTime(110, now + 0.4);
+            oscB.frequency.setValueAtTime(3200, now);
+            oscB.frequency.exponentialRampToValueAtTime(110, now + 0.4);
             env.triggerAttackRelease(0.45, now);
             setTimeout(() => { oscA.dispose(); oscB.dispose(); gain.dispose(); env.dispose(); }, 900);
         } else if (name === 'subdrop') {
+            addClick(150, 0.35, 0.06);   // low thump on attack
             const osc = new Tone.Oscillator({ type: 'sine', frequency: 220 });
-            const env = new Tone.AmplitudeEnvelope({ attack: 0.02, decay: 0.9, sustain: 0, release: 0.1 }).connect(dest);
-            const gain = new Tone.Gain(0.5).connect(env);
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.9, sustain: 0, release: 0.1 }).connect(dest);
+            const gain = new Tone.Gain(0.7).connect(env);
             osc.connect(gain);
             osc.start(now);
-            // Glide from mid A3 down to sub territory over ~700 ms
             osc.frequency.setValueAtTime(220, now);
             osc.frequency.exponentialRampToValueAtTime(35, now + 0.8);
             env.triggerAttackRelease(0.9, now);
             setTimeout(() => { osc.dispose(); gain.dispose(); env.dispose(); }, 1400);
         } else if (name === 'boosh') {
-            // Cinematic bass slam — transient click + saturated sub layer + saw body.
-            // 1) Click transient: tight filtered noise burst at t=0 for the "attack"
+            // Cinematic bass slam — tight click + sub glide + saturated saw body.
+            // Click transient: lowpass-filtered noise burst for a tight "thump".
             const noise = new Tone.Noise({ type: 'white' });
             const noiseFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -24 });
-            const noiseEnv = new Tone.AmplitudeEnvelope({ attack: 0.002, decay: 0.08, sustain: 0, release: 0.02 });
+            const noiseEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.09, sustain: 0, release: 0.02 });
             noise.connect(noiseFilter); noiseFilter.connect(noiseEnv);
-            const noiseGain = new Tone.Gain(0.25).connect(dest);
+            const noiseGain = new Tone.Gain(0.38).connect(dest);
             noiseEnv.connect(noiseGain);
             noise.start(now);
-            noiseEnv.triggerAttackRelease(0.1, now);
+            noiseEnv.triggerAttackRelease(0.11, now);
 
-            // 2) Sub sine glide down deeper than subdrop
+            // Sub sine glide — deep and heavy
             const sub = new Tone.Oscillator({ type: 'sine', frequency: 120 });
-            const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 1.1, sustain: 0, release: 0.15 });
+            const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 1.3, sustain: 0, release: 0.18 });
             sub.connect(subEnv);
-            const subGain = new Tone.Gain(0.7).connect(dest);
+            const subGain = new Tone.Gain(0.95).connect(dest);
             subEnv.connect(subGain);
             sub.start(now);
             sub.frequency.setValueAtTime(120, now);
-            sub.frequency.exponentialRampToValueAtTime(28, now + 1.0);
-            subEnv.triggerAttackRelease(1.1, now);
+            sub.frequency.exponentialRampToValueAtTime(28, now + 1.1);
+            subEnv.triggerAttackRelease(1.3, now);
 
-            // 3) Saw body for harmonic grit — saturated through soft distortion
+            // Saw body for harmonic grit — saturated through soft distortion
             const saw = new Tone.Oscillator({ type: 'sawtooth', frequency: 80 });
             const sawFilter = new Tone.Filter({ frequency: 300, type: 'lowpass', rolloff: -12 });
-            const sawDist = new Tone.Distortion({ distortion: 0.4, wet: 1 });
-            const sawEnv = new Tone.AmplitudeEnvelope({ attack: 0.01, decay: 0.6, sustain: 0, release: 0.1 });
+            const sawDist = new Tone.Distortion({ distortion: 0.45, wet: 1 });
+            const sawEnv = new Tone.AmplitudeEnvelope({ attack: 0.001, decay: 0.65, sustain: 0, release: 0.1 });
             saw.connect(sawFilter); sawFilter.connect(sawDist); sawDist.connect(sawEnv);
-            const sawGain = new Tone.Gain(0.18).connect(dest);
+            const sawGain = new Tone.Gain(0.24).connect(dest);
             sawEnv.connect(sawGain);
             saw.start(now);
             saw.frequency.setValueAtTime(80, now);
             saw.frequency.exponentialRampToValueAtTime(35, now + 0.6);
-            sawEnv.triggerAttackRelease(0.6, now);
+            sawEnv.triggerAttackRelease(0.65, now);
 
             setTimeout(() => {
                 noise.dispose(); noiseFilter.dispose(); noiseEnv.dispose(); noiseGain.dispose();
