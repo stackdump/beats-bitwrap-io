@@ -7,6 +7,7 @@
 import { parseProject, projectToJSON } from './lib/pflow.js';
 import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js';
 import { regenerateTrack } from './lib/generator/regenerate.js';
+import { buildMacroRestoreNet, MACRO_NET_PREFIX, pruneMacroNets } from './lib/generator/macros.js';
 
 const DefaultTempo = 120;
 const DefaultPPQ = 4;
@@ -275,6 +276,7 @@ function tick() {
     // Loop wrap
     if (loopEnd > 0 && loopStart >= 0 && tickCount >= loopEnd) {
         loopIteration++;
+        pruneMacroNets(project);   // macros are one-shot; don't replay on loop wrap
         fastForwardTo(loopStart);
         if (!deterministicLoop) applyPhaseDrift();
         broadcastState();
@@ -315,6 +317,10 @@ function tick() {
         return;
     }
 
+    // Collect macro nets whose token reached the terminal place this tick so
+    // we can prune them after iteration (can't mutate project.nets mid-loop).
+    const exhaustedMacroNets = [];
+
     for (const [netId, bundle] of Object.entries(project.nets)) {
         const transLabels = bundle.transitionLabels();
         let enabled = [];
@@ -339,7 +345,19 @@ function tick() {
                 }
             }
         }
+
+        // A macro control net is a linear chain whose last transition carries
+        // the restore action. Once the token reaches the terminal place no
+        // further transitions are enabled — the net's work is done.
+        if (netId.startsWith(MACRO_NET_PREFIX)) {
+            let stillLive = false;
+            for (const tLabel of transLabels) {
+                if (bundle.isEnabled(tLabel)) { stillLive = true; break; }
+            }
+            if (!stillLive) exhaustedMacroNets.push(netId);
+        }
     }
+    for (const id of exhaustedMacroNets) delete project.nets[id];
 
     // Throttle state broadcasts to every 6 ticks
     if (tickCount % 6 === 0) {
@@ -391,6 +409,7 @@ function doStop() {
     mutedNotes = {};
 
     if (project) {
+        pruneMacroNets(project);   // drop any in-flight macro control nets
         for (const bundle of Object.values(project.nets)) {
             bundle.resetState();
         }
@@ -609,6 +628,31 @@ self.onmessage = function(e) {
             deterministicLoop = !!msg.enabled;
             post({ type: 'deterministic-loop-changed', enabled: deterministicLoop });
             break;
+
+        case 'fire-macro': {
+            if (!project) break;
+            const targets = Array.isArray(msg.targets) ? msg.targets : [];
+            const durationTicks = Math.max(1, Math.round(msg.durationTicks || 16));
+            const macroId = msg.macroId || `m${Date.now()}`;
+            const muteAction = msg.muteAction || 'mute-track';
+            const restoreAction = msg.restoreAction || 'unmute-track';
+            for (const target of targets) {
+                if (!project.nets[target]) continue;
+                // Apply the immediate side of the macro so there is zero tick latency.
+                if (muteAction === 'mute-track') mutedNets[target] = true;
+                else if (muteAction === 'unmute-track') mutedNets[target] = false;
+                // Inject a linear-chain control net that fires the restore after N ticks.
+                const netId = `${MACRO_NET_PREFIX}${macroId}:${target}`;
+                project.nets[netId] = buildMacroRestoreNet(netId, target, durationTicks, restoreAction);
+            }
+            broadcastMuteState();
+            break;
+        }
+
+        case 'cancel-macros': {
+            pruneMacroNets(project);
+            break;
+        }
 
         case 'update-track-pattern': {
             if (!project || !project.nets[msg.netId]) break;

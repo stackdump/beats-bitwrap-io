@@ -1231,9 +1231,9 @@ class ToneEngine {
             this._masterComp = new Tone.Compressor(-12, 3).toDestination();
             this._distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this._masterComp);
             this._crusher = new Tone.BitCrusher({ bits: 16, wet: 0 }).connect(this._distortion);
-            this._lpFilter = new Tone.Filter({ frequency: 20000, type: 'lowpass', rolloff: -12 }).connect(this._crusher);
+            this._lpFilter = new Tone.Filter({ frequency: 20000, type: 'lowpass', rolloff: -48 }).connect(this._crusher);
             this._phaser = new Tone.Phaser({ frequency: 1, octaves: 3, baseFrequency: 350, wet: 0 }).connect(this._lpFilter);
-            this._hpFilter = new Tone.Filter({ frequency: 20, type: 'highpass', rolloff: -12 }).connect(this._phaser);
+            this._hpFilter = new Tone.Filter({ frequency: 20, type: 'highpass', rolloff: -48 }).connect(this._phaser);
             this._masterVolume = new Tone.Volume(0).connect(this._hpFilter);
 
             // Send effects buses
@@ -1394,7 +1394,7 @@ class ToneEngine {
         const lpFilter = new Tone.Filter({
             frequency: this._lpFilter.frequency.value,
             type: 'lowpass',
-            rolloff: -12,
+            rolloff: -48,
         }).connect(crusher);
         const phaser = new Tone.Phaser({
             frequency: this._phaser.frequency.value,
@@ -1405,7 +1405,7 @@ class ToneEngine {
         const hpFilter = new Tone.Filter({
             frequency: this._hpFilter.frequency.value,
             type: 'highpass',
-            rolloff: -12,
+            rolloff: -48,
         }).connect(phaser);
         const masterVol = new Tone.Volume(this._masterVolume.volume.value).connect(hpFilter);
 

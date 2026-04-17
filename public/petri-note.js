@@ -34,6 +34,67 @@ const MIXER_SLIDERS = [
     ['pn-mixer-decay',  'dec',   (ch) => v => toneEngine.setChannelDecay(ch, v / 100)],
 ];
 
+// --- Live-performance macros ---
+//
+// Each macro computes a set of target netIds to affect, picks how long the
+// affected state should last (in ticks), and sends a single `fire-macro`
+// message to the worker. The worker applies the immediate side effect
+// (e.g. mute) synchronously, then injects a small linear-chain control net
+// that fires the restore action on its final transition — tick-locked.
+//
+// Target selection uses the current mutedNets snapshot to skip anything the
+// user has already muted, so the restore never unmutes a user-intended mute.
+
+function collectMacroTargets(host, predicate) {
+    const out = [];
+    for (const [id, net] of host._musicNets()) {
+        if (host._mutedNets.has(id)) continue;
+        if (!predicate(id, net)) continue;
+        out.push(id);
+    }
+    return out;
+}
+
+const MACRO_TARGETS = {
+    nonDrums:  (host) => collectMacroTargets(host, (_id, net) => net.track?.channel !== 10),
+    drumsOnly: (host) => collectMacroTargets(host, (_id, net) => net.track?.channel === 10),
+    everything:(host) => collectMacroTargets(host, () => true),
+};
+
+// Kind 'mute' uses worker-side control nets (tick-locked restore).
+// Kind 'fx-sweep' linearly ramps a master FX slider to `toValue` over most of
+// the duration, then ramps back over the tail — for filter breakdowns.
+// Kind 'fx-hold' jumps an FX slider to `toValue`, holds, and snaps back — for
+// washes / throws.
+const MACROS = [
+    // --- Mute ---
+    { id: 'drop',         group: 'Mute', kind: 'mute', label: 'Drop',        defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar',  durationUnit: 'bar',  targets: MACRO_TARGETS.nonDrums  },
+    { id: 'breakdown',    group: 'Mute', kind: 'mute', label: 'Breakdown',   defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar',  durationUnit: 'bar',  targets: MACRO_TARGETS.drumsOnly },
+    { id: 'solo-drums',   group: 'Mute', kind: 'mute', label: 'Solo Drums',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar',  durationUnit: 'bar',  targets: MACRO_TARGETS.nonDrums  },
+    { id: 'cut',          group: 'Mute', kind: 'mute', label: 'Cut',         defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'tick', durationUnit: 'tick', targets: MACRO_TARGETS.everything },
+    { id: 'beat-repeat',  group: 'Mute', kind: 'beat-repeat', label: 'Beat Repeat', defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar', stepTicks: 2, burstTicks: 1 },
+    { id: 'double-drop',  group: 'Mute', kind: 'compound',    label: 'Double Drop', defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
+      steps: [{ macroId: 'cut', durationTicks: 2, offsetMs: 0 }, { macroId: 'drop', offsetMs: 260 }] },
+    // --- FX ---
+    { id: 'sweep-lp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep LP',     defaultDuration: 4, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'lp-freq', toValue: 5 }] },
+    { id: 'sweep-hp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep HP',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'hp-freq', toValue: 80 }] },
+    { id: 'reverb-wash',  group: 'FX', kind: 'fx-hold',  label: 'Reverb Wash',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'reverb-wet', toValue: 100 }, { fxKey: 'reverb-size', toValue: 90 }] },
+    { id: 'delay-throw',  group: 'FX', kind: 'fx-hold',  label: 'Delay Throw',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'delay-wet', toValue: 75 }, { fxKey: 'delay-feedback', toValue: 55 }] },
+    { id: 'riser',        group: 'FX', kind: 'fx-sweep', label: 'Riser',        defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'hp-freq', toValue: 70 }, { fxKey: 'reverb-wet', toValue: 80 }, { fxKey: 'phaser-wet', toValue: 60 }] },
+    { id: 'build-crush',  group: 'FX', kind: 'fx-sweep', label: 'Bit Crush',    defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'crush-bits', toValue: 80 }, { fxKey: 'distortion', toValue: 20 }] },
+    { id: 'phaser-drone', group: 'FX', kind: 'fx-hold',  label: 'Phaser Drone', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'phaser-wet', toValue: 90 }, { fxKey: 'phaser-depth', toValue: 100 }, { fxKey: 'phaser-freq', toValue: 40 }] },
+    // --- Tempo ---
+    { id: 'half-time',    group: 'Tempo', kind: 'tempo-hold',  label: 'Half Time',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', factor: 0.5 },
+    { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep', label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
+];
+
 // Genre-specific instrument mappings (channel -> instrument name)
 const GENRE_INSTRUMENTS = {
     'techno': { 4: 'supersaw', 5: 'pluck', 6: 'acid', 10: 'drums' },
@@ -135,6 +196,11 @@ class PetriNote extends HTMLElement {
         this._ccBindings = new Map();   // cc# -> { key, selector }
         this._hoveredSlider = null;     // slider currently under cursor
         this._midiInputConnected = false;
+
+        // MIDI pad → macro bindings
+        this._padBindings = new Map();   // note# -> macroId
+        this._hoveredMacro = null;       // macro button currently under cursor
+        this._loadPadBindings();
     }
 
     connectedCallback() {
@@ -462,7 +528,8 @@ class PetriNote extends HTMLElement {
         fx.className = 'pn-effects';
         fx.innerHTML = `
             <div class="pn-effects-toggle">
-                <button class="pn-effects-btn active">FX</button>
+                <button class="pn-effects-btn ${this._showMacros ? '' : 'active'}">FX</button>
+                <button class="pn-macros-btn ${this._showMacros ? 'active' : ''}" title="Live performance macros">Macros</button>
                 <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
                 <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
                 <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
@@ -472,7 +539,30 @@ class PetriNote extends HTMLElement {
                     <option value="deterministic">Deterministic</option>
                 </select>
             </div>
-            <div class="pn-effects-panel" style="display:flex">
+            <div class="pn-macros-panel" style="display:${this._showMacros ? 'flex' : 'none'}">
+                ${(() => {
+                    const byGroup = new Map();
+                    for (const m of MACROS) {
+                        const g = m.group || 'Other';
+                        if (!byGroup.has(g)) byGroup.set(g, []);
+                        byGroup.get(g).push(m);
+                    }
+                    return [...byGroup.entries()].map(([label, items]) => `
+                        <div class="pn-macro-group">
+                            <div class="pn-macro-group-label">${label}</div>
+                            ${items.map(m => `
+                                <div class="pn-macro-item">
+                                    <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
+                                    <select class="pn-macro-bars" data-macro="${m.id}" title="Duration">
+                                        ${m.durationOpts.map(v => `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`).join('')}
+                                    </select>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `).join('');
+                })()}
+            </div>
+            <div class="pn-effects-panel" style="display:${this._showMacros ? 'none' : 'flex'}">
                 <div class="pn-fx-group">
                     <span class="pn-fx-label">Master</span>
                     <div class="pn-fx-control">
@@ -573,6 +663,42 @@ class PetriNote extends HTMLElement {
 
         // FX panel always open (toggle removed)
 
+        // Macros toggle: show/hide macros panel; mutually exclusive with FX panel
+        const macrosBtn = fx.querySelector('.pn-macros-btn');
+        const fxBtn     = fx.querySelector('.pn-effects-btn');
+        const fxPanel   = fx.querySelector('.pn-effects-panel');
+        const mxPanel   = fx.querySelector('.pn-macros-panel');
+        macrosBtn.addEventListener('click', () => {
+            this._showMacros = !this._showMacros;
+            mxPanel.style.display = this._showMacros ? 'flex' : 'none';
+            fxPanel.style.display = this._showMacros ? 'none' : 'flex';
+            macrosBtn.classList.toggle('active', this._showMacros);
+            fxBtn.classList.toggle('active', !this._showMacros);
+        });
+        fxBtn.addEventListener('click', () => {
+            this._showMacros = false;
+            mxPanel.style.display = 'none';
+            fxPanel.style.display = 'flex';
+            macrosBtn.classList.remove('active');
+            fxBtn.classList.add('active');
+        });
+
+        // Macro button clicks → fire the macro
+        mxPanel.addEventListener('click', (e) => {
+            const btn = e.target.closest('.pn-macro-btn');
+            if (!btn) return;
+            this._fireMacro(btn.dataset.macro);
+        });
+        // Track hovered macro button for MIDI pad binding
+        mxPanel.addEventListener('mouseover', (e) => {
+            const btn = e.target.closest('.pn-macro-btn');
+            if (btn) this._hoveredMacro = btn;
+        });
+        mxPanel.addEventListener('mouseout', (e) => {
+            const btn = e.target.closest('.pn-macro-btn');
+            if (btn && btn === this._hoveredMacro) this._hoveredMacro = null;
+        });
+
         // FX bypass toggle
         this._fxBypassed = false;
         this._fxSavedValues = null;
@@ -650,7 +776,7 @@ class PetriNote extends HTMLElement {
 
         // FX slider events - throttled to avoid audio thread overload
         let _fxThrottleId = null;
-        let _fxPending = null;
+        const _fxPending = new Map();   // fxKey -> latest value awaiting engine dispatch
         const applyFx = (fxName, val) => {
             const valEl = this.querySelector(`[data-fx-val="${fxName}"]`);
             switch (fxName) {
@@ -724,24 +850,27 @@ class PetriNote extends HTMLElement {
         fx.addEventListener('input', (e) => {
             const slider = e.target.closest('.pn-fx-slider');
             if (!slider) return;
-            _fxPending = { fx: slider.dataset.fx, val: parseInt(slider.value) };
+            const key = slider.dataset.fx;
+            const val = parseInt(slider.value);
+            // Queue this key's latest value; other keys stay pending independently
+            // so a multi-slider dispatch (e.g. a macro touching wet + size in the
+            // same rAF tick) can't silently drop one value by overwriting another.
+            _fxPending.set(key, val);
             // Update label immediately for responsiveness
-            const valEl = this.querySelector(`[data-fx-val="${_fxPending.fx}"]`);
-            if (valEl && _fxPending.fx === 'delay-time') {
-                valEl.textContent = (_fxPending.val / 100).toFixed(2) + 's';
-            } else if (valEl && (_fxPending.fx === 'hp-freq' || _fxPending.fx === 'lp-freq')) {
-                const freq = _fxPending.fx === 'hp-freq'
-                    ? hpFreq(_fxPending.val)
-                    : lpFreq(_fxPending.val);
+            const valEl = this.querySelector(`[data-fx-val="${key}"]`);
+            if (valEl && key === 'delay-time') {
+                valEl.textContent = (val / 100).toFixed(2) + 's';
+            } else if (valEl && (key === 'hp-freq' || key === 'lp-freq')) {
+                const freq = key === 'hp-freq' ? hpFreq(val) : lpFreq(val);
                 valEl.textContent = freq < 1000 ? Math.round(freq) + 'Hz' : (freq / 1000).toFixed(1) + 'kHz';
             } else if (valEl) {
-                valEl.textContent = _fxPending.val + '%';
+                valEl.textContent = val + '%';
             }
-            // Throttle engine calls to ~30fps
+            // Throttle engine calls to ~30fps — but flush every pending key
             if (!_fxThrottleId) {
                 _fxThrottleId = setTimeout(() => {
-                    if (_fxPending) applyFx(_fxPending.fx, _fxPending.val);
-                    _fxPending = null;
+                    for (const [k, v] of _fxPending) applyFx(k, v);
+                    _fxPending.clear();
                     _fxThrottleId = null;
                 }, 33);
             }
@@ -1198,7 +1327,7 @@ class PetriNote extends HTMLElement {
                 </select>
                 ${this._patternSelectsHtml(this._project.nets[activeSlotId || netIds[0]], activeSlotId || netIds[0])}
                 ${this._mixerSlidersHtml(netIds[0], percOrder.includes(group))}
-                <button class="pn-mixer-save" data-net-id="${netIds[0]}" title="Manage presets">&#9733;</button>
+                <button class="pn-mixer-save" data-net-id="${netIds[0]}" title="Save / load tone presets for this track">&#9733;</button>
                 <button class="pn-mixer-test" data-net-id="${netIds[0]}" title="Test note">&#9835;</button>
                 <button class="pn-mixer-tone-reset" data-net-id="${netIds[0]}" title="Reset tone">&#8634;</button>
                 <button class="pn-mixer-tone-prev" data-net-id="${netIds[0]}" title="Previous tone">&lsaquo;</button>
@@ -1670,8 +1799,13 @@ class PetriNote extends HTMLElement {
             }
             const delBtn = e.target.closest('.pn-preset-delete');
             if (delBtn) {
-                this._deletePreset(delBtn.dataset.presetId);
-                render();
+                const presetId = delBtn.dataset.presetId;
+                const preset = this._loadPresets().find(p => p.id === presetId);
+                const name = preset?.name || 'this preset';
+                if (confirm(`Delete preset "${name}"?`)) {
+                    this._deletePreset(presetId);
+                    render();
+                }
                 return;
             }
         });
@@ -1692,6 +1826,408 @@ class PetriNote extends HTMLElement {
             opts.push(`<option value="${p.id}">${p.name.replace(/"/g, '&quot;')}</option>`);
         }
         return `<select class="pn-mixer-preset" title="Load saved preset">${opts.join('')}</select>`;
+    }
+
+    // --- Macros ---
+    //
+    // Fire-and-forget: main thread computes target set and duration, worker
+    // does the rest (immediate mute + transient control net for restore).
+
+    _musicNets() {
+        const out = [];
+        for (const [id, net] of Object.entries(this._project?.nets || {})) {
+            if (net.role === 'control') continue;
+            out.push([id, net]);
+        }
+        return out;
+    }
+
+    _fireMacro(id) {
+        // Serial execution: if anything is running, push onto the FIFO queue.
+        this._macroQueue ||= [];
+        if (this._runningMacro) {
+            this._macroQueue.push(id);
+            this._updateQueuedBadges();
+            return;
+        }
+        this._executeMacro(id);
+    }
+
+    _executeMacro(id) {
+        const macro = MACROS.find(m => m.id === id);
+        if (!macro) return;
+        const sel = this.querySelector(`.pn-macro-bars[data-macro="${id}"]`);
+        const duration = parseInt(sel?.value, 10) || macro.defaultDuration;
+        const durationTicks = macro.durationUnit === 'tick' ? duration : duration * 16;
+        const msPerTick = this._msPerBar() / 16;
+        const durationMs = durationTicks * msPerTick;
+
+        if (macro.kind === 'mute') {
+            const targets = macro.targets(this);
+            if (targets.length > 0) {
+                this._sendWs({
+                    type: 'fire-macro',
+                    macroId: `${id}-${Date.now().toString(36)}`,
+                    targets,
+                    durationTicks,
+                    muteAction: 'mute-track',
+                    restoreAction: 'unmute-track',
+                });
+            }
+        } else if (macro.kind === 'fx-sweep' || macro.kind === 'fx-hold') {
+            const ops = macro.ops || [{ fxKey: macro.fxKey, toValue: macro.toValue }];
+            for (const op of ops) {
+                if (macro.kind === 'fx-sweep') this._fxSweep(op.fxKey, op.toValue, durationMs);
+                else                          this._fxHold (op.fxKey, op.toValue, durationMs);
+            }
+        } else if (macro.kind === 'beat-repeat') {
+            this._runBeatRepeat(macro, durationMs);
+        } else if (macro.kind === 'compound') {
+            this._runCompound(macro, duration, macro.durationUnit, msPerTick);
+        } else if (macro.kind === 'tempo-hold') {
+            this._tempoHold(macro.factor, durationMs);
+        } else if (macro.kind === 'tempo-sweep') {
+            this._tempoSweep(macro.finalBpm, durationMs);
+        }
+
+        const btn = this.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
+        if (btn) {
+            btn.classList.add('firing');
+            setTimeout(() => btn.classList.remove('firing'), 120);
+        }
+        this._markMacroRunning(id, durationMs);
+    }
+
+    _markMacroRunning(id, durationMs) {
+        this._runningMacro = id;
+        const btn = this.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
+        if (btn) btn.classList.add('running');
+        this._updateQueuedBadges();
+        this._runningTimer = setTimeout(() => {
+            const b = this.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
+            if (b) b.classList.remove('running');
+            this._runningMacro = null;
+            this._runningTimer = null;
+            const next = (this._macroQueue || []).shift();
+            if (next !== undefined) {
+                this._updateQueuedBadges();
+                this._executeMacro(next);
+            } else {
+                // Clear any stale 'queued' classes
+                this.querySelectorAll('.pn-macro-btn.queued').forEach(b => b.classList.remove('queued'));
+                this.querySelectorAll('.pn-macro-queue-badge').forEach(b => b.remove());
+            }
+        }, Math.max(100, durationMs + 40));
+    }
+
+    // Mark buttons for macros currently in the queue, with a "+N" badge for depth > 1.
+    _updateQueuedBadges() {
+        const counts = new Map();
+        for (const qid of (this._macroQueue || [])) counts.set(qid, (counts.get(qid) || 0) + 1);
+        for (const btn of this.querySelectorAll('.pn-macro-btn')) {
+            const qid = btn.dataset.macro;
+            const count = counts.get(qid) || 0;
+            btn.classList.toggle('queued', count > 0);
+            let badge = btn.querySelector('.pn-macro-queue-badge');
+            if (count > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'pn-macro-queue-badge';
+                    btn.appendChild(badge);
+                }
+                badge.textContent = count > 1 ? `+${count}` : '•';
+            } else if (badge) {
+                badge.remove();
+            }
+        }
+    }
+
+    _msPerBar() {
+        const ppq = 4;
+        const ticksPerBar = 16;
+        return (60000 / ((this._tempo || 120) * ppq)) * ticksPerBar;
+    }
+
+    _fxSlider(fxKey) {
+        return this.querySelector(`.pn-fx-slider[data-fx="${fxKey}"]`);
+    }
+
+    _setFxValue(slider, value) {
+        slider.value = Math.round(value);
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // fx-sweep: 80% of duration ramps from start → toValue, final 20% ramps back.
+    // Slider UI animates at rAF rate, but audio-engine dispatch is throttled to
+    // ~120 ms so the engine's built-in 100 ms `rampTo` smoothing doesn't get
+    // cancelled mid-ramp (which produces an oscillating, audibly flat filter).
+    _fxSweep(fxKey, toValue, durationMs) {
+        const slider = this._fxSlider(fxKey);
+        if (!slider) return;
+        if (this._fxAnim && this._fxAnim[fxKey]) this._fxAnim[fxKey].cancelled = true;
+        this._fxAnim = this._fxAnim || {};
+        const token = { cancelled: false };
+        this._fxAnim[fxKey] = token;
+
+        const start = parseFloat(slider.value);
+        const t0 = performance.now();
+        const rampDown = durationMs * 0.8;
+        const DISPATCH_INTERVAL = 120;
+        let lastDispatch = -DISPATCH_INTERVAL;
+
+        const step = (now) => {
+            if (token.cancelled) return;
+            const elapsed = now - t0;
+            let v;
+            let done = false;
+            if (elapsed < rampDown) {
+                v = start + (toValue - start) * (elapsed / rampDown);
+            } else if (elapsed < durationMs) {
+                v = toValue + (start - toValue) * ((elapsed - rampDown) / (durationMs - rampDown));
+            } else {
+                v = start;
+                done = true;
+            }
+            const dispatch = done || (now - lastDispatch >= DISPATCH_INTERVAL);
+            if (dispatch) {
+                this._setFxValue(slider, v);
+                lastDispatch = now;
+            } else {
+                // Visual-only update — no input event, no engine dispatch
+                slider.value = Math.round(v);
+            }
+            if (done) { this._fxAnim[fxKey] = null; return; }
+            requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    // Beat Repeat: fire short Cut-like bursts every `stepTicks` for the full duration.
+    _runBeatRepeat(macro, durationMs) {
+        const msPerTick = this._msPerBar() / 16;
+        const stepMs = (macro.stepTicks || 2) * msPerTick;
+        const burstTicks = macro.burstTicks || 1;
+        this._beatRepeatRuns = (this._beatRepeatRuns || 0) + 1;
+        const myRun = this._beatRepeatRuns;
+        let elapsed = 0;
+        const fire = () => {
+            if (myRun !== this._beatRepeatRuns) return;   // cancelled
+            if (elapsed >= durationMs) return;
+            const targets = [];
+            for (const [id, net] of this._musicNets()) {
+                // Keep kick alive so there's still a pulse under the stutter
+                if (net.track?.channel === 10 && (net.riffGroup === 'kick' || id === 'kick' || id.startsWith('kick:'))) continue;
+                if (this._mutedNets.has(id)) continue;
+                targets.push(id);
+            }
+            if (targets.length > 0) {
+                this._sendWs({
+                    type: 'fire-macro',
+                    macroId: `beat-repeat-${Date.now().toString(36)}-${elapsed}`,
+                    targets,
+                    durationTicks: burstTicks,
+                    muteAction: 'mute-track',
+                    restoreAction: 'unmute-track',
+                });
+            }
+            elapsed += stepMs;
+            if (elapsed < durationMs) setTimeout(fire, stepMs);
+        };
+        fire();
+    }
+
+    // Compound: fire a sequence of sub-macros by ID at timed offsets. Bypasses
+    // the queue because the parent macro already owns the single running slot.
+    _runCompound(macro, duration, durationUnit, msPerTick) {
+        for (const step of macro.steps || []) {
+            const delay = step.offsetMs || 0;
+            setTimeout(() => {
+                const sub = MACROS.find(m => m.id === step.macroId);
+                if (!sub) return;
+                // Push the sub-macro directly (ignore queue, don't mark as running)
+                if (sub.kind === 'mute') {
+                    const targets = sub.targets(this);
+                    if (targets.length === 0) return;
+                    const durationTicks = step.durationTicks
+                        || (sub.durationUnit === 'tick' ? sub.defaultDuration : sub.defaultDuration * 16);
+                    this._sendWs({
+                        type: 'fire-macro',
+                        macroId: `${sub.id}-${Date.now().toString(36)}`,
+                        targets,
+                        durationTicks,
+                        muteAction: 'mute-track',
+                        restoreAction: 'unmute-track',
+                    });
+                } else if (sub.kind === 'fx-sweep' || sub.kind === 'fx-hold') {
+                    const subMs = (step.durationTicks || sub.defaultDuration *
+                                   (sub.durationUnit === 'tick' ? 1 : 16)) * msPerTick;
+                    const ops = sub.ops || [{ fxKey: sub.fxKey, toValue: sub.toValue }];
+                    for (const op of ops) {
+                        if (sub.kind === 'fx-sweep') this._fxSweep(op.fxKey, op.toValue, subMs);
+                        else                         this._fxHold (op.fxKey, op.toValue, subMs);
+                    }
+                }
+            }, delay);
+        }
+    }
+
+    // Transient tempo set used during animations — skips localStorage/syncProject
+    // to keep a 60fps ramp cheap. Final resting value must use _setTempo so
+    // the project JSON and storage stay consistent.
+    _setTempoTransient(bpm) {
+        const clamped = Math.max(20, Math.min(300, Math.round(bpm)));
+        if (this._tempo === clamped) return;
+        this._tempo = clamped;
+        if (this._project) this._project.tempo = clamped;
+        const input = this.querySelector('.pn-tempo input');
+        if (input) input.value = clamped;
+        this._sendWs({ type: 'tempo', bpm: clamped });
+    }
+
+    // Tempo Hold: multiply tempo by factor, hold for duration, restore.
+    _tempoHold(factor, durationMs) {
+        const startBpm = this._tempo || 120;
+        const targetBpm = Math.max(20, Math.round(startBpm * factor));
+        this._setTempo(targetBpm);
+        setTimeout(() => this._setTempo(startBpm), durationMs);
+    }
+
+    // Tape Stop: ease-out ramp down to finalBpm, then snap back.
+    //
+    // Each tempo message makes the worker restartTimer() (clears + resets
+    // setInterval), so dispatching every rAF frame (~60 Hz) thrashes the tick
+    // scheduler and can drop ticks. Throttle to ~12 Hz (80 ms) — still plenty
+    // smooth for a tape-stop gesture, and 5× kinder to the worker.
+    _tempoSweep(finalBpm, durationMs) {
+        const startBpm = this._tempo || 120;
+        const target = Math.max(20, finalBpm);
+        const t0 = performance.now();
+        const DISPATCH_INTERVAL = 80;
+        let lastDispatch = -DISPATCH_INTERVAL;
+        if (this._tempoAnim) this._tempoAnim.cancelled = true;
+        const token = { cancelled: false };
+        this._tempoAnim = token;
+        const step = (now) => {
+            if (token.cancelled) return;
+            const elapsed = now - t0;
+            if (elapsed >= durationMs) {
+                this._setTempo(startBpm);   // authoritative final set (also writes localStorage)
+                this._tempoAnim = null;
+                return;
+            }
+            if (now - lastDispatch >= DISPATCH_INTERVAL) {
+                const t = Math.min(1, elapsed / durationMs);
+                const eased = 1 - Math.pow(1 - t, 2);
+                const bpm = startBpm + (target - startBpm) * eased;
+                this._setTempoTransient(bpm);
+                lastDispatch = now;
+            }
+            requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    // fx-hold: jump to toValue, hold, then gradually fade back over the tail.
+    // `tailFrac` controls what portion of the duration is release (default 0.6
+    // gives a ringing tail after the initial peak).
+    //
+    // Visual slider updates every rAF but audio-engine dispatch is throttled to
+    // ~120 ms so rapid cancelScheduledValues + rampTo(0.1) collisions don't
+    // turn the release into a flat / oscillating no-op on the actual filter.
+    _fxHold(fxKey, toValue, durationMs, tailFrac = 0.6) {
+        const slider = this._fxSlider(fxKey);
+        if (!slider) return;
+        if (this._fxAnim && this._fxAnim[fxKey]) this._fxAnim[fxKey].cancelled = true;
+        this._fxAnim = this._fxAnim || {};
+        const token = { cancelled: false };
+        this._fxAnim[fxKey] = token;
+
+        const start = parseFloat(slider.value);
+        const tailMs = Math.max(50, durationMs * tailFrac);
+        const sustainMs = Math.max(0, durationMs - tailMs);
+
+        this._setFxValue(slider, toValue);
+
+        const t0 = performance.now();
+        const beginRelease = t0 + sustainMs;
+        const endRelease   = t0 + durationMs;
+        const DISPATCH_INTERVAL = 120;
+        let lastDispatch = t0;   // the initial setFxValue counts as a dispatch
+
+        const step = (now) => {
+            if (token.cancelled) return;
+            if (now < beginRelease) {
+                requestAnimationFrame(step);
+                return;
+            }
+            if (now >= endRelease) {
+                this._setFxValue(slider, start);
+                this._fxAnim[fxKey] = null;
+                return;
+            }
+            const t = (now - beginRelease) / tailMs;
+            const v = toValue + (start - toValue) * t;
+            if (now - lastDispatch >= DISPATCH_INTERVAL) {
+                this._setFxValue(slider, v);
+                lastDispatch = now;
+            } else {
+                slider.value = Math.round(v);   // visual-only
+            }
+            requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    _cancelAllMacros() {
+        this._sendWs({ type: 'cancel-macros' });
+        if (this._runningTimer) {
+            clearTimeout(this._runningTimer);
+            this._runningTimer = null;
+        }
+        this._runningMacro = null;
+        this._macroQueue = [];
+        this.querySelectorAll?.('.pn-macro-btn.running, .pn-macro-btn.queued').forEach(b => {
+            b.classList.remove('running');
+            b.classList.remove('queued');
+        });
+        this.querySelectorAll?.('.pn-macro-queue-badge').forEach(b => b.remove());
+        if (this._fxAnim) {
+            for (const token of Object.values(this._fxAnim)) if (token) token.cancelled = true;
+            this._fxAnim = {};
+        }
+    }
+
+    // Push every mixer row's current slider/select values onto the tone engine.
+    // Needed after instruments load (strips are just created with defaults).
+    _applyMixerStateToEngine() {
+        if (!this._mixerEl) return;
+        for (const row of this._mixerEl.querySelectorAll('.pn-mixer-row')) {
+            const netId = row.dataset.netId;
+            const net = this._project?.nets?.[netId];
+            if (!net) continue;
+            const ch = net.track?.channel || 1;
+            const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
+            for (const [cls, , applyFactory] of MIXER_SLIDERS) {
+                const ctrl = row.querySelector(`.${cls}`);
+                if (!ctrl) continue;
+                const v = parseInt(ctrl.value, 10);
+                if (!Number.isFinite(v)) continue;
+                try { applyFactory(ch, drumRole)(v); } catch {}
+            }
+        }
+    }
+
+    _loadPadBindings() {
+        try {
+            const raw = sessionStorage.getItem('pn-pad-bindings');
+            if (raw) this._padBindings = new Map(JSON.parse(raw));
+        } catch {}
+    }
+
+    _savePadBindings() {
+        try {
+            sessionStorage.setItem('pn-pad-bindings', JSON.stringify([...this._padBindings]));
+        } catch {}
     }
 
     _hitsOptionsHtml(selected, sizeCap) {
@@ -1773,7 +2309,7 @@ class PetriNote extends HTMLElement {
             </select>
             ${this._patternSelectsHtml(net, id)}
             ${this._mixerSlidersHtml(id, channel === 10)}
-            <button class="pn-mixer-save" data-net-id="${id}" title="Manage presets">&#9733;</button>
+            <button class="pn-mixer-save" data-net-id="${id}" title="Save / load tone presets for this track">&#9733;</button>
             <button class="pn-mixer-test" data-net-id="${id}" title="Test note">&#9835;</button>
             <button class="pn-mixer-tone-reset" data-net-id="${id}" title="Reset tone">&#8634;</button>
             <button class="pn-mixer-tone-prev" data-net-id="${id}" title="Previous tone">&lsaquo;</button>
@@ -2130,6 +2666,14 @@ class PetriNote extends HTMLElement {
     // === Event Listeners ===
 
     async _populateAudioOutputs() {
+        const audioEnabled = this._audioModes.has('web-audio');
+        const midiEnabled = this._audioModes.has('web-midi');
+
+        // Skip device enumeration (and its mic-permission prompt) unless the
+        // user has opted into MIDI routing — the output dropdowns are hidden
+        // until then.
+        if (!midiEnabled) return;
+
         const devices = await toneEngine.listOutputDevices();
 
         // Lazy-load MIDI outputs (requires user permission) — only if browser supports it
@@ -2137,9 +2681,6 @@ class PetriNote extends HTMLElement {
         if (this._midiAccess) {
             midiOutputs = [...this._midiAccess.outputs.values()];
         }
-
-        const audioEnabled = this._audioModes.has('web-audio');
-        const midiEnabled = this._audioModes.has('web-midi');
 
         const audioOpts = audioEnabled
             ? devices.map((d, i) => `<option value="audio:${d.deviceId}">${d.label || `Output ${i + 1}`}</option>`).join('')
@@ -2189,8 +2730,13 @@ class PetriNote extends HTMLElement {
         this.querySelector('.pn-track-next').addEventListener('click', () => this._navTrack(1));
         this._updateTrackLabel();
 
-        // Generate: triggered by button, genre change, or structure change
+        // Generate: triggered by button, genre change, or structure change.
+        // Debounce so rapid clicks don't queue duplicate worker generations.
+        let _lastGenerateAt = 0;
         const doGenerate = () => {
+            const now = performance.now();
+            if (now - _lastGenerateAt < 350) return;
+            _lastGenerateAt = now;
             toneEngine.resumeContext();
             this._ensureToneStarted();
             const genre = this.querySelector('.pn-genre-select').value;
@@ -3161,13 +3707,13 @@ class PetriNote extends HTMLElement {
         try {
             const midi = await navigator.requestMIDIAccess({ sysex: false });
             for (const input of midi.inputs.values()) {
-                input.onmidimessage = (e) => this._handleMidiCC(e);
+                input.onmidimessage = (e) => this._handleMidiMessage(e);
             }
             // Listen for new devices plugged in
             midi.onstatechange = () => {
                 for (const input of midi.inputs.values()) {
                     if (!input.onmidimessage) {
-                        input.onmidimessage = (e) => this._handleMidiCC(e);
+                        input.onmidimessage = (e) => this._handleMidiMessage(e);
                     }
                 }
             };
@@ -3197,11 +3743,15 @@ class PetriNote extends HTMLElement {
         return this.querySelector(binding.selector);
     }
 
-    _handleMidiCC(event) {
-        const [status, cc, value] = event.data;
+    _handleMidiMessage(event) {
+        const [status, data1, data2] = event.data;
         const type = status & 0xF0;
-        if (type !== 0xB0) return; // Only handle Control Change
+        if (type === 0xB0) return this._handleMidiCC(data1, data2);
+        if (type === 0x90 && data2 > 0) return this._handleMidiNoteOn(data1);
+        // Ignore Note Off (0x80) and velocity-0 Note On (release) — macros are one-shot
+    }
 
+    _handleMidiCC(cc, value) {
         // If hovering over a slider, bind this CC to it
         if (this._hoveredSlider && !this._ccBindings.has(cc)) {
             const binding = this._sliderBindingKey(this._hoveredSlider);
@@ -3224,6 +3774,21 @@ class PetriNote extends HTMLElement {
         const max = parseFloat(slider.max);
         slider.value = Math.round(min + (value / 127) * (max - min));
         slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    _handleMidiNoteOn(note) {
+        // Bind on hover
+        if (this._hoveredMacro && !this._padBindings.has(note)) {
+            const macroId = this._hoveredMacro.dataset.macro;
+            this._padBindings.set(note, macroId);
+            this._savePadBindings();
+            const btn = this._hoveredMacro;
+            btn.style.outline = '2px solid #64ffda';
+            setTimeout(() => { btn.style.outline = ''; }, 300);
+            return;
+        }
+        const macroId = this._padBindings.get(note);
+        if (macroId) this._fireMacro(macroId);
     }
 
     async _ensureToneStarted() {
@@ -3254,6 +3819,9 @@ class PetriNote extends HTMLElement {
                     ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
                 );
                 await Promise.all(loads);
+                // Channel strips now exist — push the current mixer state onto them
+                // (initial vol/pan was silently dropped before strips were created).
+                this._applyMixerStateToEngine();
                 await this._reapplyChannelRoutings();
                 this._populateAudioOutputs();
             } catch (e) {
@@ -3277,9 +3845,9 @@ class PetriNote extends HTMLElement {
                 <ol style="line-height:1.7">
                     <li>Pick a <b>Genre</b> and hit <b>Generate</b></li>
                     <li>Press <b>Play</b> (Space) to listen</li>
-                    <li>Enable <b>Shuffle</b> mode for a continuous stream of new tracks</li>
-                    <li>Tweak <b>volume, filters, FX</b> — everything is live</li>
-                    <li>Click the <b>?</b> button any time for the full performance guide</li>
+                    <li>Open the <b>Macros</b> panel next to FX for live tricks: Drop, Sweep LP, Reverb Wash, Tape Stop &hellip;</li>
+                    <li>Every slider and dropdown: hover + scroll to fine-tune</li>
+                    <li>Click <b>?</b> any time for the full guide</li>
                 </ol>
                 <div style="display:flex;gap:10px;margin-top:18px">
                     <button class="pn-quickstart-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Get Started</button>
@@ -3299,83 +3867,102 @@ class PetriNote extends HTMLElement {
                 this._showHelpModal();
             }
         });
-        this.appendChild(overlay);
+        // Attach to body so _buildUI's innerHTML reset doesn't wipe it
+        document.body.appendChild(overlay);
     }
 
     _showHelpModal() {
-        // Remove existing modal if any
         this.querySelector('.pn-help-overlay')?.remove();
         const overlay = document.createElement('div');
         overlay.className = 'pn-help-overlay';
+        overlay.tabIndex = -1;
         overlay.innerHTML = `
             <div class="pn-help-modal">
-                <button class="pn-help-close">&times;</button>
+                <button class="pn-help-close" title="Close (Esc)">&times;</button>
                 <h2>Performance Guide</h2>
 
                 <h3>Getting Started</h3>
                 <ul>
                     <li><b>Generate</b> a track, then hit <b>Play</b></li>
-                    <li>Use <b>Shuffle</b> mode (click 1x until you see the shuffle icon) for continuous new tracks</li>
-                    <li>Choose a <b>Structure</b> (Standard, Drop, etc.) for tracks with sections and a timeline</li>
+                    <li>Click the arrow next to Play to cycle playback modes: once &rarr; repeat &rarr; shuffle</li>
+                    <li>Pick a <b>Structure</b> (Standard, Drop, etc.) for tracks with sections and a timeline</li>
+                    <li><b>&star;</b> on any mixer row opens its Preset Manager to save / apply / delete tone presets (pan, vol, filters, decay) &mdash; saved to browser storage, scoped by channel</li>
                 </ul>
 
-                <h3>Filter Moves</h3>
+                <h3>Macros (live tricks)</h3>
+                <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Click <b>Macros</b> next to <b>FX</b> to reveal a performance panel. Macros queue serially &mdash; tapping while another runs adds it to the queue (orange badge shows depth). Click again on the same one to extend.</p>
                 <ul>
-                    <li><b>LP sweep down</b> &mdash; close the low-pass to darken the mix, then open for the drop</li>
-                    <li><b>HP sweep up</b> &mdash; thin out the low end for a breakdown, release for impact</li>
-                    <li><b>Both at once</b> &mdash; sweep HP up and LP down to isolate mids, then release both</li>
-                    <li><b>Resonance spike</b> &mdash; boost LPR or HPR while sweeping for acid squelch</li>
-                    <li><b>Safety filter</b> &mdash; pull LP or HP to hide a track while you change its instrument</li>
+                    <li><b>Drop</b> &mdash; strips to kick only for N bars, restores on downbeat</li>
+                    <li><b>Breakdown</b> &mdash; mutes the drum kit, leaves melody &amp; bass</li>
+                    <li><b>Solo Drums</b> &mdash; mutes everything tonal</li>
+                    <li><b>Cut</b> &mdash; instant mute-all stutter (tick-length)</li>
+                    <li><b>Beat Repeat</b> &mdash; rapid stuttering non-kick tracks for N bars</li>
+                    <li><b>Double Drop</b> &mdash; Cut + Drop back-to-back (rebound beat)</li>
+                    <li><b>Sweep LP / HP</b> &mdash; smooth filter sweeps, snap back at end</li>
+                    <li><b>Reverb Wash / Delay Throw</b> &mdash; wet bump with ringing tail</li>
+                    <li><b>Riser / Bit Crush / Phaser Drone</b> &mdash; multi-slider build-up effects</li>
+                    <li><b>Half Time / Tape Stop</b> &mdash; tempo halves or decays to a stop, then snaps back</li>
                 </ul>
 
-                <h3>Mixer Moves</h3>
+                <h3>MIDI Pad &amp; CC Learn</h3>
                 <ul>
-                    <li><b>Volume kills</b> &mdash; drop kick or snare volume to zero for instant breakdowns</li>
-                    <li><b>Decay sweep</b> &mdash; crank Dec up on melody to pad-like, bring back for staccato</li>
-                    <li><b>Mute groups</b> &mdash; click track names to mute/unmute for live arrangement</li>
-                    <li><b>Instrument swap</b> &mdash; change an instrument mid-loop (use LP to mask the switch)</li>
+                    <li>Toggle <b>MIDI</b> (top right) to enable Web MIDI and per-track audio-output routing</li>
+                    <li><b>CC</b>: hover a slider, move a MIDI CC knob &rarr; binds it. Use <b>CC Reset</b> to clear</li>
+                    <li><b>Pads</b>: hover a Macro button, press a pad (Note On) &rarr; binds it. Subsequent presses fire the macro</li>
                 </ul>
 
-                <h3>FX Moves</h3>
+                <h3>Per-Track Controls</h3>
                 <ul>
-                    <li><b>Reverb wash</b> &mdash; crank reverb Mix to 100% then cut it (freeze effect)</li>
-                    <li><b>Delay throw</b> &mdash; bump delay Mix up briefly on a hit, then cut back</li>
-                    <li><b>Distortion rise</b> &mdash; slowly bring up Drive for tension, kill for release</li>
-                    <li><b>Bypass toggle</b> &mdash; instant wet/dry comparison or dramatic cuts</li>
-                    <li><b>Phaser sweep</b> &mdash; bring up Mix and adjust Rate for swirling motion</li>
-                    <li><b>Bit crush</b> &mdash; push Bits slider up for lo-fi degradation, great on drums</li>
+                    <li><b>Size / Hits</b> dropdowns (2&ndash;32) live-regenerate the Petri subnet for that track. Change on the active variant only.</li>
+                    <li><b>Instrument</b> dropdown swaps the synth mid-loop</li>
+                    <li><b>&raquo;</b> rotates through the current genre's instrument set</li>
+                    <li>Slider group: Pan / Vol / HP / HPR / LP / LPR / Dec &mdash; hover and scroll to fine-tune (1% per tick)</li>
+                    <li><b>&#9835;</b> test note, <b>&#8634;</b> reset, <b>&lsaquo; &rsaquo;</b> prev/next tone variation</li>
                 </ul>
 
-                <h3>Loop & Timeline</h3>
+                <h3>Filter &amp; FX</h3>
                 <ul>
-                    <li><b>Right-click</b> timeline to snap the nearest loop marker to that position</li>
-                    <li><b>Drag</b> the orange markers to set a loop region (snaps to bars)</li>
-                    <li><b>Crop</b> (scissors icon) &mdash; trim the track to just the looped section</li>
-                    <li><b>Click</b> the timeline to seek to any position</li>
+                    <li><b>LP sweep down</b> / <b>HP sweep up</b> &mdash; darken or thin the mix; release for impact</li>
+                    <li><b>Reverb wash</b> / <b>Delay throw</b> &mdash; crank wet Mix, then cut for freeze/echo tail</li>
+                    <li><b>Distortion rise</b> &mdash; slowly bring up Drive, kill for release</li>
+                    <li><b>Bypass</b> &mdash; instant wet/dry comparison</li>
+                    <li><b>Phaser / Bit crush</b> &mdash; motion and lo-fi degradation</li>
                 </ul>
 
-                <h3>Keyboard Shortcuts</h3>
+                <h3>Loop &amp; Timeline</h3>
+                <ul>
+                    <li><b>Click</b> the timeline to seek</li>
+                    <li><b>Right-click</b> to snap the nearest loop marker</li>
+                    <li><b>Drag</b> the orange markers (snaps to bars)</li>
+                    <li><b>Crop</b> (scissors) &mdash; trim the track to just the loop</li>
+                </ul>
+
+                <h3>Traits &amp; Genre</h3>
+                <ul>
+                    <li>Click any genre trait chip (Fills, Syncopation, Ghosts, etc.) to open its editor &mdash; toggle on/off or tune percentages</li>
+                    <li>Traits reshape the next Generate</li>
+                </ul>
+
+                <h3>MIDI Note Editor</h3>
+                <ul>
+                    <li>Click any note badge on a transition (the small <b>C4</b>-style chip) to open the binding editor</li>
+                    <li>Edit note as integer <i>or</i> name (C4, F#3, Bb5) &mdash; they stay in sync</li>
+                    <li>Scroll over any field to nudge by 1</li>
+                </ul>
+
+                <h3>Keyboard</h3>
                 <ul>
                     <li><b>Space</b> &mdash; Play / Stop</li>
-                    <li><b>Scroll</b> over any slider to adjust it</li>
-                </ul>
-
-                <h3>MIDI CC</h3>
-                <ul>
-                    <li>Hover a slider and move a MIDI CC knob to bind it</li>
-                    <li>Use <b>CC Reset</b> in the FX panel to clear all bindings</li>
-                </ul>
-
-                <h3>Tools</h3>
-                <ul>
-                    <li><b><a href="/debug.html" target="_blank" style="color:#c3a6ff">Instrument Debugger</a></b> &mdash; test and audition all 71 synth instruments</li>
+                    <li><b>Esc</b> &mdash; close any open modal</li>
+                    <li><b>Arrow keys</b> &mdash; nudge sliders when focused</li>
+                    <li><b>Scroll</b> &mdash; fine-tune any slider, number, or dropdown under the cursor</li>
                 </ul>
 
                 <h3>Built With</h3>
-                <p style="margin:0 0 8px;color:#aaa;font-size:0.95em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Carl Adam Petri's 1962 formalism is the runtime.</p>
+                <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Macros inject transient control nets that fire their restore action on a tick-locked terminal transition.</p>
                 <ul>
-                    <li><b><a href="https://tonejs.github.io/" target="_blank" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
-                    <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms that become token rings in the net</li>
+                    <li><b><a href="https://tonejs.github.io/" target="_blank" rel="noopener" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
+                    <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms as token rings</li>
                 </ul>
             </div>
         `;
@@ -3384,7 +3971,11 @@ class PetriNote extends HTMLElement {
                 overlay.remove();
             }
         });
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+        });
         this.appendChild(overlay);
+        overlay.focus();
     }
 
     async _toggleAudioMode(mode) {
@@ -3891,6 +4482,8 @@ class PetriNote extends HTMLElement {
             this._setupMediaSession();
         } else {
             this._vizStopLoop();
+            // Cancel any pending macro restores — worker will reset mute state anyway
+            this._cancelAllMacros();
             // Reset playhead to loop start (or beginning if no loop)
             this._tick = this._loopStart > 0 ? this._loopStart : 0;
             this._lastPlayheadPct = null;
@@ -4018,6 +4611,22 @@ class PetriNote extends HTMLElement {
     }
 
     // === Backend: Worker (default) or WebSocket (data-backend="ws") ===
+    //
+    // The WS path is a client-side stub for a planned feature: a remote
+    // conductor (separate service / repo) driving the front-end by streaming
+    // sequencer messages over `/ws`. All worker message types
+    // (`generate`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`,
+    // `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`,
+    // `loop`, `seek`, `crop`, `deterministic-loop`, `shuffle-instruments`) must
+    // be proxied verbatim by any WS implementation so the client needs no
+    // backend-specific branches beyond connection management.
+    // Responses the client expects: `ready`, `project-sync`, `state-sync`,
+    // `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`,
+    // `instruments-changed`, `track-pattern-updated`, `track-pattern-error`,
+    // `preview-ready`, `playback-complete`.
+    // The Go server in this repo does NOT implement /ws today — it's a pure
+    // static file server. The remote-conductor service lives (or will live)
+    // in a separate repo and is exercised via end-to-end tests there.
 
     _connectBackend() {
         if (this.dataset.backend === 'ws') {
@@ -4028,7 +4637,7 @@ class PetriNote extends HTMLElement {
     }
 
     _connectWorker() {
-        this._worker = new Worker('./sequencer-worker.js', { type: 'module' });
+        this._worker = new Worker('./sequencer-worker.js?v=5', { type: 'module' });
 
         this._worker.onmessage = (e) => {
             const msg = e.data;
