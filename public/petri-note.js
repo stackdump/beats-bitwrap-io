@@ -81,7 +81,7 @@ const MACROS = [
     { id: 'sweep-hp',     group: 'FX', kind: 'fx-sweep', label: 'Sweep HP',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'hp-freq', toValue: 80 }] },
     { id: 'reverb-wash',  group: 'FX', kind: 'fx-hold',  label: 'Reverb Wash',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
-      ops: [{ fxKey: 'reverb-wet', toValue: 85 }, { fxKey: 'reverb-size', toValue: 80 }, { fxKey: 'master-vol', toValue: 68 }] },
+      ops: [{ fxKey: 'reverb-wet', toValue: 75 }, { fxKey: 'reverb-size', toValue: 75 }, { fxKey: 'master-vol', toValue: 52 }] },
     { id: 'delay-throw',  group: 'FX', kind: 'fx-hold',  label: 'Delay Throw',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       tailFrac: 0.35,
       ops: [{ fxKey: 'delay-wet', toValue: 100 }, { fxKey: 'delay-feedback', toValue: 72 }, { fxKey: 'delay-time', toValue: 38 }] },
@@ -91,9 +91,28 @@ const MACROS = [
       ops: [{ fxKey: 'crush-bits', toValue: 80 }, { fxKey: 'distortion', toValue: 20 }] },
     { id: 'phaser-drone', group: 'FX', kind: 'fx-hold',  label: 'Phaser Drone', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar',
       ops: [{ fxKey: 'phaser-wet', toValue: 90 }, { fxKey: 'phaser-depth', toValue: 100 }, { fxKey: 'phaser-freq', toValue: 40 }] },
+    // --- Pitch ---
+    { id: 'octave-up',    group: 'Pitch', kind: 'fx-hold',  label: 'Octave Up',   defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
+      tailFrac: 0.3, ops: [{ fxKey: 'master-pitch', toValue: 12 }] },
+    { id: 'octave-down',  group: 'Pitch', kind: 'fx-hold',  label: 'Octave Down', defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
+      tailFrac: 0.3, ops: [{ fxKey: 'master-pitch', toValue: -12 }] },
+    { id: 'pitch-bend',   group: 'Pitch', kind: 'fx-sweep', label: 'Pitch Bend',  defaultDuration: 2, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
+      ops: [{ fxKey: 'master-pitch', toValue: 7 }] },
+    { id: 'vinyl-brake',  group: 'Pitch', kind: 'compound', label: 'Vinyl Brake', defaultDuration: 1, durationOpts: [1, 2], durationLabel: 'bar', durationUnit: 'bar',
+      steps: [
+          { macroId: 'tape-stop', offsetMs: 0 },
+          { macroId: 'octave-down', offsetMs: 60 },
+      ] },
+
     // --- Tempo ---
     { id: 'half-time',    group: 'Tempo', kind: 'tempo-hold',  label: 'Half Time',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', factor: 0.5 },
     { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep', label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
+
+    // --- One-shots ---
+    { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'airhorn' },
+    { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'laser' },
+    { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'subdrop' },
+    { id: 'boosh',    group: 'One-Shot', kind: 'one-shot', label: 'Boosh',    defaultDuration: 1, durationOpts: [1], durationLabel: '', durationUnit: 'bar', sound: 'boosh' },
 ];
 
 // Genre-specific instrument mappings (channel -> instrument name)
@@ -551,14 +570,18 @@ class PetriNote extends HTMLElement {
                     return [...byGroup.entries()].map(([label, items]) => `
                         <div class="pn-macro-group">
                             <div class="pn-macro-group-label">${label}</div>
-                            ${items.map(m => `
-                                <div class="pn-macro-item">
-                                    <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
-                                    <select class="pn-macro-bars" data-macro="${m.id}" title="Duration">
-                                        ${m.durationOpts.map(v => `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`).join('')}
-                                    </select>
-                                </div>
-                            `).join('')}
+                            ${items.map(m => {
+                                const needsDuration = m.durationOpts.length > 1 || (m.durationLabel && m.durationLabel.length > 0);
+                                const selectHtml = needsDuration
+                                    ? `<select class="pn-macro-bars" data-macro="${m.id}" title="Duration">
+                                           ${m.durationOpts.map(v => `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`).join('')}
+                                       </select>`
+                                    : '';
+                                return `<div class="pn-macro-item">
+                                            <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
+                                            ${selectHtml}
+                                        </div>`;
+                            }).join('')}
                         </div>
                     `).join('');
                 })()}
@@ -614,6 +637,14 @@ class PetriNote extends HTMLElement {
                         <span>Drive</span>
                         <input type="range" class="pn-fx-slider" data-fx="distortion" data-default="0" min="0" max="100" value="0">
                         <span class="pn-fx-value" data-fx-val="distortion">0%</span>
+                    </div>
+                </div>
+                <div class="pn-fx-group">
+                    <span class="pn-fx-label">Pitch</span>
+                    <div class="pn-fx-control">
+                        <span>Semi</span>
+                        <input type="range" class="pn-fx-slider" data-fx="master-pitch" data-default="0" min="-12" max="12" step="1" value="0">
+                        <span class="pn-fx-value" data-fx-val="master-pitch">0</span>
                     </div>
                 </div>
                 <div class="pn-fx-group">
@@ -746,7 +777,7 @@ class PetriNote extends HTMLElement {
             'delay-time': 25, 'delay-feedback': 25, 'delay-wet': 15,
             'master-vol': 80, 'distortion': 0, 'hp-freq': 0, 'lp-freq': 100,
             'phaser-freq': 0, 'phaser-depth': 50, 'phaser-wet': 0,
-            'crush-bits': 0,
+            'crush-bits': 0, 'master-pitch': 0,
         };
         fx.querySelector('.pn-fx-reset').addEventListener('click', () => {
             this._fxBypassed = false;
@@ -815,6 +846,10 @@ class PetriNote extends HTMLElement {
                     toneEngine.setDistortion(val / 100);
                     valEl.textContent = val + '%';
                     break;
+                case 'master-pitch':
+                    toneEngine.setMasterPitch(val);
+                    valEl.textContent = (val > 0 ? '+' : '') + val + ' st';
+                    break;
                 case 'hp-freq': {
                     const freq = hpFreq(val);
                     toneEngine.setHighpassFreq(freq);
@@ -864,6 +899,8 @@ class PetriNote extends HTMLElement {
             } else if (valEl && (key === 'hp-freq' || key === 'lp-freq')) {
                 const freq = key === 'hp-freq' ? hpFreq(val) : lpFreq(val);
                 valEl.textContent = freq < 1000 ? Math.round(freq) + 'Hz' : (freq / 1000).toFixed(1) + 'kHz';
+            } else if (valEl && key === 'master-pitch') {
+                valEl.textContent = (val > 0 ? '+' : '') + val + ' st';
             } else if (valEl) {
                 valEl.textContent = val + '%';
             }
@@ -1889,6 +1926,8 @@ class PetriNote extends HTMLElement {
             this._tempoHold(macro.factor, durationMs);
         } else if (macro.kind === 'tempo-sweep') {
             this._tempoSweep(macro.finalBpm, durationMs);
+        } else if (macro.kind === 'one-shot') {
+            this._ensureToneStarted().then(() => toneEngine.playOneShot(macro.sound));
         }
 
         const btn = this.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
@@ -1896,7 +1935,9 @@ class PetriNote extends HTMLElement {
             btn.classList.add('firing');
             setTimeout(() => btn.classList.remove('firing'), 120);
         }
-        this._markMacroRunning(id, durationMs);
+        // One-shots finish fast — don't hog the serial queue for a full bar
+        const runTime = macro.kind === 'one-shot' ? 700 : durationMs;
+        this._markMacroRunning(id, runTime);
     }
 
     _markMacroRunning(id, durationMs) {
@@ -3080,6 +3121,7 @@ class PetriNote extends HTMLElement {
             setFx('phaser-depth', proj.fx.phaserDepth);
             setFx('phaser-wet', proj.fx.phaserWet);
             setFx('crush-bits', proj.fx.crushBits);
+            setFx('master-pitch', proj.fx.masterPitch);
         }
 
         // Extract mix settings before they get lost in project load
@@ -3195,6 +3237,7 @@ class PetriNote extends HTMLElement {
             phaserDepth: fxVal('phaser-depth'),
             phaserWet: fxVal('phaser-wet'),
             crushBits: fxVal('crush-bits'),
+            masterPitch: fxVal('master-pitch'),
         };
         return proj;
     }

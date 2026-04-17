@@ -1227,9 +1227,12 @@ class ToneEngine {
         this._initPromise = (async () => {
             await Tone.start();
 
-            // Master chain: volume -> HP -> phaser -> LP -> crusher -> distortion -> compressor -> dest
+            // Master chain: volume -> HP -> phaser -> LP -> crusher -> distortion -> pitch -> compressor -> dest
             this._masterComp = new Tone.Compressor(-12, 3).toDestination();
-            this._distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this._masterComp);
+            // PitchShift is a phase-vocoder — some warble under fast sweeps, fine for static offsets.
+            // windowSize 0.03 trades a bit of transient smear for lower latency than the default 0.1.
+            this._pitchShift = new Tone.PitchShift({ pitch: 0, windowSize: 0.03, feedback: 0 }).connect(this._masterComp);
+            this._distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this._pitchShift);
             this._crusher = new Tone.BitCrusher({ bits: 16, wet: 0 }).connect(this._distortion);
             this._lpFilter = new Tone.Filter({ frequency: 20000, type: 'lowpass', rolloff: -48 }).connect(this._crusher);
             this._phaser = new Tone.Phaser({ frequency: 1, octaves: 3, baseFrequency: 350, wet: 0 }).connect(this._lpFilter);
@@ -2010,6 +2013,105 @@ class ToneEngine {
         }
     }
 
+    // Master pitch shift in semitones (-24..+24). 0 = bypass. Uses the master
+    // PitchShift node inserted between distortion and compressor.
+    setMasterPitch(semitones) {
+        if (!this._pitchShift) return;
+        const p = Math.max(-24, Math.min(24, semitones));
+        this._pitchShift.pitch = p;
+    }
+
+    // Fire a transient synth one-shot by name — airhorn / laser / subdrop.
+    // Shares the master chain so all FX (reverb/delay/filters/pitch) apply.
+    playOneShot(name) {
+        if (!this._masterVolume) return;
+        const dest = this._masterVolume;
+        const now = Tone.now();
+        if (name === 'airhorn') {
+            // Deep "BWOMP" — low octave, sub layer, modest gain
+            const lead = new Tone.Oscillator({ type: 'sawtooth', frequency: 110 });
+            const harmony = new Tone.Oscillator({ type: 'sawtooth', frequency: 138.59 });
+            const shout = new Tone.Oscillator({ type: 'square', frequency: 82.4 });
+            const sub = new Tone.Oscillator({ type: 'sine', frequency: 55 });
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.03, decay: 0.15, sustain: 0.75, release: 0.35 }).connect(dest);
+            const mix = new Tone.Gain(0.22).connect(env);
+            lead.connect(mix); harmony.connect(mix); shout.connect(mix); sub.connect(mix);
+            lead.start(now); harmony.start(now); shout.start(now); sub.start(now);
+            env.triggerAttackRelease(0.8, now);
+            lead.frequency.setValueAtTime(110, now);
+            lead.frequency.linearRampToValueAtTime(116, now + 0.8);
+            harmony.frequency.setValueAtTime(138.59, now);
+            harmony.frequency.linearRampToValueAtTime(146, now + 0.8);
+            setTimeout(() => { lead.dispose(); harmony.dispose(); shout.dispose(); sub.dispose(); mix.dispose(); env.dispose(); }, 1400);
+        } else if (name === 'laser') {
+            // Doubled saw + slightly slower sweep for more presence
+            const oscA = new Tone.Oscillator({ type: 'sawtooth', frequency: 3000 });
+            const oscB = new Tone.Oscillator({ type: 'square', frequency: 3000, detune: -6 });
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 0.45, sustain: 0, release: 0.05 }).connect(dest);
+            const gain = new Tone.Gain(0.5).connect(env);
+            oscA.connect(gain); oscB.connect(gain);
+            oscA.start(now); oscB.start(now);
+            oscA.frequency.setValueAtTime(3000, now);
+            oscA.frequency.exponentialRampToValueAtTime(120, now + 0.4);
+            oscB.frequency.setValueAtTime(3000, now);
+            oscB.frequency.exponentialRampToValueAtTime(120, now + 0.4);
+            env.triggerAttackRelease(0.45, now);
+            setTimeout(() => { oscA.dispose(); oscB.dispose(); gain.dispose(); env.dispose(); }, 900);
+        } else if (name === 'subdrop') {
+            const osc = new Tone.Oscillator({ type: 'sine', frequency: 220 });
+            const env = new Tone.AmplitudeEnvelope({ attack: 0.02, decay: 0.9, sustain: 0, release: 0.1 }).connect(dest);
+            const gain = new Tone.Gain(0.5).connect(env);
+            osc.connect(gain);
+            osc.start(now);
+            // Glide from mid A3 down to sub territory over ~700 ms
+            osc.frequency.setValueAtTime(220, now);
+            osc.frequency.exponentialRampToValueAtTime(35, now + 0.8);
+            env.triggerAttackRelease(0.9, now);
+            setTimeout(() => { osc.dispose(); gain.dispose(); env.dispose(); }, 1400);
+        } else if (name === 'boosh') {
+            // Cinematic bass slam — transient click + saturated sub layer + saw body.
+            // 1) Click transient: tight filtered noise burst at t=0 for the "attack"
+            const noise = new Tone.Noise({ type: 'white' });
+            const noiseFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -24 });
+            const noiseEnv = new Tone.AmplitudeEnvelope({ attack: 0.002, decay: 0.08, sustain: 0, release: 0.02 });
+            noise.connect(noiseFilter); noiseFilter.connect(noiseEnv);
+            const noiseGain = new Tone.Gain(0.25).connect(dest);
+            noiseEnv.connect(noiseGain);
+            noise.start(now);
+            noiseEnv.triggerAttackRelease(0.1, now);
+
+            // 2) Sub sine glide down deeper than subdrop
+            const sub = new Tone.Oscillator({ type: 'sine', frequency: 120 });
+            const subEnv = new Tone.AmplitudeEnvelope({ attack: 0.005, decay: 1.1, sustain: 0, release: 0.15 });
+            sub.connect(subEnv);
+            const subGain = new Tone.Gain(0.7).connect(dest);
+            subEnv.connect(subGain);
+            sub.start(now);
+            sub.frequency.setValueAtTime(120, now);
+            sub.frequency.exponentialRampToValueAtTime(28, now + 1.0);
+            subEnv.triggerAttackRelease(1.1, now);
+
+            // 3) Saw body for harmonic grit — saturated through soft distortion
+            const saw = new Tone.Oscillator({ type: 'sawtooth', frequency: 80 });
+            const sawFilter = new Tone.Filter({ frequency: 300, type: 'lowpass', rolloff: -12 });
+            const sawDist = new Tone.Distortion({ distortion: 0.4, wet: 1 });
+            const sawEnv = new Tone.AmplitudeEnvelope({ attack: 0.01, decay: 0.6, sustain: 0, release: 0.1 });
+            saw.connect(sawFilter); sawFilter.connect(sawDist); sawDist.connect(sawEnv);
+            const sawGain = new Tone.Gain(0.18).connect(dest);
+            sawEnv.connect(sawGain);
+            saw.start(now);
+            saw.frequency.setValueAtTime(80, now);
+            saw.frequency.exponentialRampToValueAtTime(35, now + 0.6);
+            sawEnv.triggerAttackRelease(0.6, now);
+
+            setTimeout(() => {
+                noise.dispose(); noiseFilter.dispose(); noiseEnv.dispose(); noiseGain.dispose();
+                sub.dispose(); subEnv.dispose(); subGain.dispose();
+                saw.dispose(); sawFilter.dispose(); sawDist.dispose(); sawEnv.dispose(); sawGain.dispose();
+            }, 1800);
+        }
+    }
+
     dispose() {
         for (const instrument of this._instruments.values()) {
             instrument.dispose();
@@ -2036,6 +2138,7 @@ class ToneEngine {
         this._delay?.dispose();
         this._reverb?.dispose();
         this._distortion?.dispose();
+        this._pitchShift?.dispose();
         this._lpFilter?.dispose();
         this._hpFilter?.dispose();
         this._masterComp?.dispose();
