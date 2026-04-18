@@ -705,6 +705,7 @@ export function compose(genreName, overrides = {}) {
 
             const musicNets = Object.keys(proj.nets);
             proj.initialMutes = songStructure(proj, tmpl, musicNets);
+            addStingerTracks(proj, rng.nextInt63());
             return proj;
         }
     }
@@ -726,7 +727,65 @@ export function compose(genreName, overrides = {}) {
         drumBreak(proj, breakTargets, 64, 8, rng.nextInt63());
     }
 
+    addStingerTracks(proj, rng.nextInt63());
+
     return proj;
+}
+
+// Stinger tracks — airhorn / laser / subdrop / booj as real tracks that
+// fire on every beat (4 hits over 16 sixteenth-steps via euclidean). They
+// start muted so new projects don't blast stingers on first play; the user
+// unmutes via the mixer's mute checkbox or triggers manually via the Fire
+// pad in the Stingers panel.
+// Stinger track ids follow the reserved `hit` schema prefix so the project
+// JSON can carry any number of stinger slots without their names colliding
+// with standard track roles (kick/snare/…) or the instrument they happen to
+// be loaded with. Defaults assign distinct stinger synths to each slot; the
+// user can swap any slot to any instrument (or "hit" = no bound instrument)
+// via the mixer row.
+const STINGER_SPECS = [
+    { id: 'hit1', channel: 20, defaultInstrument: 'airhorn' },
+    { id: 'hit2', channel: 21, defaultInstrument: 'laser' },
+    { id: 'hit3', channel: 22, defaultInstrument: 'subdrop' },
+    { id: 'hit4', channel: 23, defaultInstrument: 'booj' },
+];
+
+// Curated non-percussion instruments suitable as stinger voices — the »
+// rotate button on each stinger row cycles through this list. Excludes
+// everything in the drum kit family; prioritises transient / stabby
+// timbres that read as a "hit" rather than sustained melody.
+const STINGER_INSTRUMENT_SET = [
+    // Reserved — no bound instrument (silent slot, still fires paired macros)
+    'unbound',
+    // Custom stingers
+    'airhorn', 'laser', 'subdrop', 'booj',
+    // Bells / perc
+    'fm-bell', 'am-bell', 'marimba', 'vibes', 'kalimba', 'steel-drum',
+    'music-box', 'metallic', 'noise-hit',
+    // Stabs / plucks
+    'rave-stab', 'edm-stab', 'hoover', 'pluck', 'bright-pluck',
+    'muted-pluck', 'edm-pluck', 'chiptune',
+    // Bass hits
+    '808-bass', 'sub-bass', 'drop-bass', 'fm-bass',
+    // Short leads
+    'square-lead', 'sync-lead', 'scream-lead',
+];
+
+export function addStingerTracks(proj, seed) {
+    for (const spec of STINGER_SPECS) {
+        if (proj.nets[spec.id]) continue;    // don't clobber manual additions
+        const params = {
+            channel: spec.channel, velocity: 95, duration: 80,
+            seed, accent: AccentNone,
+        };
+        // 4 hits / 16 steps — token fires on the downbeat of every beat (quarter notes)
+        const bundle = euclidean(4, 16, 0, 60, params).bundle;
+        bundle.track = bundle.track || {};
+        bundle.track.instrument = spec.defaultInstrument;
+        bundle.track.instrumentSet = STINGER_INSTRUMENT_SET;
+        proj.nets[spec.id] = bundle;
+        if (!proj.initialMutes.includes(spec.id)) proj.initialMutes.push(spec.id);
+    }
 }
 
 // Re-export for convenience

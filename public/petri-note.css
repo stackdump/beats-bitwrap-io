@@ -204,6 +204,35 @@ petri-note {
     transition: background 0.15s;
 }
 
+/* Divider strip between standard Petri-net tracks and augmented tracks
+ * (stingers and any other non-standard names). Shows a label + list so users
+ * see at a glance what's been injected beyond the core kick/snare/hihat/etc. */
+.pn-mixer-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 16px;
+    background: rgba(15, 52, 96, 0.35);
+    border-top: 1px solid #0f3460;
+    border-bottom: 1px solid #0f3460;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #9aa;
+}
+
+.pn-mixer-divider-label {
+    font-weight: 700;
+    color: #e94560;
+}
+
+.pn-mixer-divider-list {
+    color: #6aa;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: none;
+}
+
 .pn-mixer-row:hover {
     background: rgba(255, 255, 255, 0.03);
 }
@@ -493,6 +522,29 @@ petri-note.pn-midi-enabled .pn-mixer-output {
     border: none;
 }
 
+/* Chase-pulse indicator: every element touched by a live macro gets
+ * `.pn-pulsing` (dim glow), and one at a time rotates through `.pn-pulsing-hot`
+ * for a "running light" effect. Visual only — values don't change. Applied
+ * to mixer sliders (pan/decay), FX sliders (fx-sweep/hold), and mute buttons
+ * (mute macros). */
+.pn-pulsing {
+    box-shadow: 0 0 4px 1px rgba(233, 69, 96, 0.35);
+    transition: box-shadow 0.12s ease-out;
+}
+
+.pn-pulsing-hot {
+    box-shadow: 0 0 10px 3px rgba(233, 69, 96, 0.95);
+}
+
+.pn-mixer-slider.pn-pulsing::-webkit-slider-thumb,
+.pn-fx-slider.pn-pulsing::-webkit-slider-thumb {
+    background: #e94560;
+}
+.pn-mixer-slider.pn-pulsing::-moz-range-thumb,
+.pn-fx-slider.pn-pulsing::-moz-range-thumb {
+    background: #e94560;
+}
+
 select.pn-mixer-slider {
     width: 54px;
     height: auto;
@@ -618,11 +670,13 @@ input[type="range"][data-default] {
     flex-direction: column;
 }
 
-/* Stacking order when both panels are open: toggle bar (0), FX (1), macros (2).
- * Keeps FX pinned above macros regardless of DOM order. */
-.pn-effects-toggle { order: 0; }
-.pn-effects-panel  { order: 1; }
-.pn-macros-panel   { order: 2; }
+/* Stacking order when panels are open: toggle bar (0), FX (1), Macros (2),
+ * Beats (3), Auto-DJ (4). Matches the toggle button order. */
+.pn-effects-toggle  { order: 0; }
+.pn-effects-panel   { order: 1; }
+.pn-macros-panel    { order: 2; }
+.pn-oneshots-panel  { order: 3; }
+.pn-autodj-panel    { order: 4; }
 
 .pn-effects-toggle {
     display: flex;
@@ -666,6 +720,131 @@ input[type="range"][data-default] {
 .pn-macros-btn.active {
     background: #0f3460;
     color: #e94560;
+}
+
+.pn-oneshots-btn {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.pn-oneshots-btn:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.pn-oneshots-btn.active {
+    background: #0f3460;
+    color: #e94560;
+}
+
+.pn-oneshots-panel {
+    display: flex;
+    flex-direction: column;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+}
+
+.pn-autodj-btn {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.pn-autodj-btn:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.pn-autodj-btn.active {
+    background: #0f3460;
+    color: #e94560;
+}
+
+.pn-autodj-panel {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 14px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+    font-size: 11px;
+    color: #ccc;
+}
+
+.pn-autodj-toggle,
+.pn-autodj-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pn-autodj-field select {
+    padding: 3px 6px;
+    background: #1a1a2e;
+    color: #eee;
+    border: 1px solid #0f3460;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.pn-autodj-field select:hover {
+    border-color: #1a4a7a;
+}
+
+.pn-autodj-pools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 2px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: rgba(15, 52, 96, 0.2);
+}
+
+.pn-autodj-pools legend {
+    padding: 0 4px;
+    font-size: 10px;
+    color: #6aa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.pn-autodj-pools label {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: #ccc;
+    cursor: pointer;
+}
+
+.pn-autodj-pools input[type="checkbox"] {
+    accent-color: #e94560;
+    cursor: pointer;
+}
+
+.pn-autodj-status {
+    margin-left: auto;
+    color: #6aa;
+    font-style: italic;
+    font-size: 10px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .pn-macros-panel {
@@ -739,6 +918,18 @@ input[type="range"][data-default] {
     50%      { box-shadow: 0 0 10px 3px rgba(233, 69, 96, 0.95); }
 }
 
+.pn-macro-btn.pn-macro-disabled {
+    opacity: 0.4;
+    text-decoration: line-through;
+    color: #888;
+    border-color: #444;
+}
+
+.pn-macro-btn.pn-macro-disabled:hover {
+    border-color: #e94560;
+    color: #aaa;
+}
+
 .pn-macro-btn.queued {
     border-color: #f5a623;
     color: #f5a623;
@@ -796,73 +987,71 @@ input[type="range"][data-default] {
     border-color: #6e4adf;
 }
 
-/* One-shot mini-panel: wide card styled like .pn-fx-group. Header row carries
- * Fire + Instrument, then all shaping dropdowns flow in a single wide row
- * (wraps only when the macros panel is very narrow). */
-.pn-oneshot-group {
-    border: 1px solid #0f3460;
-    border-radius: 4px;
-    padding: 5px 8px 6px;
-    background: #0d1b2a;
-    min-width: 560px;
+/* One-shot rows occupy their own top strip in the macros panel and match the
+ * per-track mixer row styling: full-width horizontal layout with a Fire button,
+ * instrument dropdown, Hits/Pit selects, and Vol/HP/HPR/LP/LPR/Atk/Dec sliders.
+ * Everything below flows as the existing macro columns. */
+.pn-os-rows {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid #0f3460;
 }
 
-.pn-os-header {
+.pn-os-pad {
     display: flex;
     align-items: center;
     gap: 6px;
-    border-bottom: 1px solid #0f3460;
-    padding-bottom: 3px;
-    margin-bottom: 4px;
+    padding: 4px 6px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #0d1b2a;
 }
 
-.pn-os-fire {
-    flex: 0 0 auto;
-    min-width: 52px;
-    padding: 3px 10px;
-    font-size: 11px;
-}
-
-.pn-os-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 6px;
-    align-items: center;
-}
-
-.pn-os-grid select,
-.pn-os-header .pn-os-inst {
-    padding: 3px 6px;
+.pn-os-pair {
+    padding: 3px 4px;
     background: #1a1a2e;
-    color: #9ad0ff;
+    color: #c3a6ff;
     border: 1px solid #0f3460;
     border-radius: 3px;
     font-size: 10px;
     cursor: pointer;
+    max-width: 110px;
 }
 
-.pn-os-grid select {
+.pn-os-pair:hover {
+    border-color: #6e4adf;
+}
+
+.pn-os-fire {
     flex: 0 0 auto;
-    min-width: 62px;
+    min-width: 130px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.3px;
 }
 
-.pn-os-grid select:hover,
-.pn-os-header .pn-os-inst:hover {
-    border-color: #1a4a7a;
+.pn-os-repeat {
+    width: 14px;
+    height: 14px;
+    margin: 0 2px 0 0;
+    cursor: pointer;
+    accent-color: #e94560;
+    flex-shrink: 0;
 }
 
-.pn-os-header .pn-os-inst {
-    color: #eee;
-    font-weight: 600;
-    flex: 1 1 160px;
-    min-width: 120px;
+.pn-os-inst {
+    /* Already inherits .pn-mixer-instrument styling */
 }
 
-/* When one-shots are on, let the macros panel's One-Shot column grow wider
- * than the Mute/FX/Tempo columns so the wide tiles don't get squished. */
-.pn-macro-group:has(.pn-oneshot-group) {
-    min-width: 580px;
-    flex: 1 1 auto;
+.pn-macro-columns {
+    display: flex;
+    gap: 28px;
+    padding: 4px 14px 10px;
+    align-items: flex-start;
 }
 
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {

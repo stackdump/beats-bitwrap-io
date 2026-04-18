@@ -199,7 +199,9 @@ const INSTRUMENT_GAIN = {
     'drop-bass': 3, 'chiptune': 1, 'rave-organ': 3, 'laser': -2,
     'wobble-lead': -3, 'screech': -1, 'fm-bass': 5,
     // Misc
-    'sine': 5
+    'sine': 5,
+    // Stingers (already loud internally — cut a bit)
+    'airhorn': -6, 'laser': -2, 'subdrop': -4, 'booj': -3,
 };
 
 const INSTRUMENT_CONFIGS = {
@@ -1181,8 +1183,51 @@ const INSTRUMENT_CONFIGS = {
             oscillator: { type: 'sine' },
             envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.3 }
         }
+    },
+
+    // === Stingers — transient one-shot synths (airhorn / laser / subdrop / booj)
+    // Each triggerAttackRelease reroutes the stinger body (_renderOneShot) into
+    // the channel strip's dest so track-level vol/pan/HP/HPR/LP/LPR/decay all
+    // apply. Velocity (0–1) from the note event scales stinger output; midi
+    // note semitone offsets transpose pitched layers. ===
+    ..._makeStingerConfigs(['airhorn', 'laser', 'subdrop', 'booj']),
+
+    // Reserved schema word — "unbound" means "no bound instrument". Assigning
+    // it to a stinger slot keeps the Petri net firing on every beat but
+    // produces silence, so the slot can still trigger paired macros (Fire FX
+    // pad) without any sound of its own.
+    'unbound': {
+        type: 'custom',
+        create: (_dest) => ({
+            triggerAttackRelease: () => {},
+            dispose: () => {}
+        })
     }
 };
+
+function _makeStingerConfigs(names) {
+    const out = {};
+    for (const name of names) {
+        out[name] = {
+            type: 'custom',
+            create: (dest) => ({
+                triggerAttackRelease: (note, _dur, time, velocity) => {
+                    const now = (typeof time === 'number') ? time : Tone.now();
+                    const midi = typeof note === 'string' ? Tone.Frequency(note).toMidi() : (note || 60);
+                    // Transpose relative to C4 so assigning these to a track
+                    // and shifting the track's note still changes pitch.
+                    const semitones = midi - 60;
+                    const vel = velocity ?? 0.9;
+                    const velGain = new Tone.Gain(vel).connect(dest);
+                    toneEngine._renderOneShot(name, velGain, now, semitones);
+                    setTimeout(() => velGain.dispose(), 4000);
+                },
+                dispose: () => {}
+            })
+        };
+    }
+    return out;
+}
 
 /**
  * ToneEngine - Main audio engine class
@@ -2030,9 +2075,11 @@ class ToneEngine {
         const lpHz = opts.lpHz ?? 20000;
         const attackMs = opts.attackMs || 0;
         const decayMs = opts.decayMs || 0;
-        if (hpHz <= 20 && lpHz >= 18000 && attackMs <= 2 && decayMs <= 2) return null;
+        const vol = opts.vol ?? 1;
+        if (hpHz <= 20 && lpHz >= 18000 && attackMs <= 2 && decayMs <= 2 && Math.abs(vol - 1) < 0.01) return null;
 
-        const envGain = new Tone.Gain(attackMs > 2 ? 0 : 1).connect(this._masterVolume);
+        const baseGain = attackMs > 2 ? 0 : vol;
+        const envGain = new Tone.Gain(baseGain).connect(this._masterVolume);
         let upstream = envGain;
         const nodes = [envGain];
 
@@ -2048,7 +2095,7 @@ class ToneEngine {
         if (attackMs > 2) {
             const attackS = attackMs / 1000;
             envGain.gain.setValueAtTime(0, now);
-            envGain.gain.linearRampToValueAtTime(1, now + attackS);
+            envGain.gain.linearRampToValueAtTime(vol, now + attackS);
         }
         // Decay gate: once we've ramped up, hold briefly, then ramp to silence
         // over decayMs. The shot's own internal envelope still runs below this
@@ -2058,7 +2105,7 @@ class ToneEngine {
             const attackS = Math.max(0.001, attackMs / 1000);
             const holdS = 0.1;
             const decayS = decayMs / 1000;
-            envGain.gain.setValueAtTime(1, now + attackS + holdS);
+            envGain.gain.setValueAtTime(vol, now + attackS + holdS);
             envGain.gain.linearRampToValueAtTime(0, now + attackS + holdS + decayS);
             tailAt = now + attackS + holdS + decayS + 0.2;
         }
@@ -2115,6 +2162,16 @@ class ToneEngine {
         if (!this._masterVolume) return;
         const now = Tone.now();
         const dest = this._buildOneShotChain(opts, now) || this._masterVolume;
+        this._renderOneShot(name, dest, now, semitones);
+    }
+
+    // Render the raw one-shot sound to a provided dest node at a given time.
+    // Used both by the Stingers panel (dest = master + filter chain) and by the
+    // custom INSTRUMENT_CONFIGS wrappers for airhorn/laser/subdrop/booj
+    // (dest = the track's channel strip), so the same synth code drives both
+    // the manual Fire pad and the auto-fire-every-beat track.
+    _renderOneShot(name, dest, now, semitones = 0) {
+        if (!dest) return;
         const cents = (Number.isFinite(semitones) ? semitones : 0) * 100;
         const tune = (osc) => { if (cents !== 0) osc.detune.value = cents; return osc; };
         // Tight noise-burst click used as an onset transient on all one-shots —

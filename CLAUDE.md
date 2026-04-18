@@ -49,7 +49,8 @@ tone-engine.js (Tone.js audio)         ├── pflow.js (Petri net engine)
 
 ## Front-end UI features
 
-- **Macros panel** (next to FX): 15 tricks in 3 groups — Mute / FX / Tempo. Serial queue with visible depth badge; hover + MIDI pad press binds pad-note to macro.
+- **Tabs** (toggle bar above the mixer, stack independently): **FX** (master chain sliders), **Macros** (live-performance tricks, see below), **Beats** (hit1–hit4 stinger Fire pads that mirror schema-reserved muted tracks), **Auto-DJ** (periodic random macro picker + optional timed regenerate + ring-flip indicator).
+- **Macros panel**: ~30 tricks across groups — Mute / FX / Pitch / Tempo / Pan (per-channel non-drum) / Shape (per-channel decay). Serial queue with visible depth badge. Right-click any tile to toggle its Auto-DJ-disabled mark (persists to `localStorage['pn-macro-disabled']`). Hover + MIDI pad press binds pad-note to macro. Every macro pulses its target UI (slider / mute button / FX slider) with a chase-light and restores the target to its pre-macro value on release.
 - **Per-track Preset Manager** (`★` button): save/apply/delete mixer panels (vol/pan/filters/decay) scoped by channel. Persists to `localStorage['pn-instrument-presets']`.
 - **Trait editor modal**: click any genre trait chip (Ghosts, Syncopation, etc.) to toggle on/off or tune percentage. Triggers regeneration with updated params.
 - **MIDI binding editor**: click any note badge on a transition to edit note / channel / velocity / duration. Bidirectional C4 ↔ integer sync. Scroll to nudge any field.

@@ -49,11 +49,19 @@ Each genre defines BPM, scale type, root note, Euclidean drum parameters, melody
 - **Polyrhythm** — odd-length hihat loops (e.g., 6-over-4)
 - **Call and response** — 32-step melodies with mirrored answering phrases
 - **Dual-ring melodies** — interlocking theme/variation rings with crossover transitions
-- **Per-channel mixer** — volume, pan, HP/LP filters, resonance, decay
+- **Per-channel mixer** — volume, pan, HP/LP filters, resonance, decay. Drum voices (kick/snare/hihat) live on independent channels so each gets its own strip, presets, and FX routing.
 - **Dynamic ring size / hits** — resize any track's Euclidean or melodic ring live (2–32 steps) while playing; the subnet rebuilds and swaps in at the next bar boundary
 - **Tone presets** — save a track's full mixer panel (vol, pan, filters, decay) as a named preset per channel; apply to any track in that family (★ button)
 - **Master FX** — reverb, delay, distortion, phaser, bit crusher, filters
-- **Live-performance macros** — one-tap tricks that inject transient control nets for tick-locked restores: Drop, Breakdown, Solo Drums, Cut, Beat Repeat, Double Drop, Sweep LP/HP, Reverb Wash, Delay Throw, Riser, Bit Crush, Phaser Drone, Half Time, Tape Stop. Macros queue serially with visible depth badges.
+- **Live-performance macros** — one-tap tricks organized by group, each pulsing the UI element it touches and restoring it on release:
+  - *Mute*: Drop, Breakdown, Solo Drums, Cut, Beat Repeat, Double Drop
+  - *FX*: Sweep LP / HP, Reverb Wash, Delay Throw, Riser, Bit Crush, Phaser Drone, Cathedral, Dub Delay, Res Ping
+  - *Pitch*: Octave Up / Down, Pitch Bend, Vinyl Brake
+  - *Tempo*: Half Time, Tape Stop
+  - *Pan* (per-channel, non-drum targets): Ping-Pong, Hard Left / Right, Auto-Pan, Mono
+  - *Shape*: Tighten (per-channel decay pull)
+- **Beats (stinger fire pads)** — four reserved `hit1`–`hit4` slots that live as real muted tracks in the mixer and fire on every beat via their own Petri nets. Each slot has a curated stinger instrument set (airhorn / laser / subdrop / booj + percussion / stabs / bells / bass hits / short leads) and a schema-reserved `unbound` option for silent placeholder. A Fire pad per slot routes through the track's channel strip (vol / pan / filter apply, bypasses mute). Optional FX-pair dropdown fires any macro alongside the sound.
+- **Auto-DJ** — hands-free performer: picks a random macro from checked pools (Mute / FX / Pan / Shape / Pitch / Tempo / Beats) every N bars. Stack control fires multiple macros at once. The petri-net ring visualization spins back and forth on each fire as a live indicator.
 - **MIDI CC + pad learn** — hover any slider + move a CC knob to bind; hover a macro button + press a pad to bind. Bindings persist for the session.
 - **Web MIDI output** — send to external DAWs via IAC/ALSA virtual ports; per-channel audio-output routing when MIDI is enabled
 - **Trait editor** — click any genre trait chip (Ghosts, Syncopation, Fills…) to tune amount or toggle; next Generate uses the new traits

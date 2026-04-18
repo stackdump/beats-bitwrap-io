@@ -1,4 +1,4 @@
-const CACHE = 'beats-v1';
+const CACHE = 'beats-v2';
 const ASSETS = [
   '/',
   '/index.html',
