@@ -663,6 +663,70 @@ input[type="range"][data-default] {
 }
 
 /* Effects panel */
+/* Feel bar — compact row of 4 abstract sliders above the traits chips.
+ * Drives master FX, Auto-DJ, and trait overrides deterministically. */
+.pn-feel-bar {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    padding: 4px 14px;
+    background: rgba(10, 22, 40, 0.6);
+    border-bottom: 1px solid #0f3460;
+    font-size: 11px;
+}
+
+.pn-feel-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #ccc;
+}
+
+.pn-feel-field > span:first-child {
+    font-size: 10px;
+    font-weight: 600;
+    color: #e94560;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    min-width: 46px;
+}
+
+.pn-feel-slider {
+    width: 110px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #0f3460;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.pn-feel-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e94560;
+    cursor: pointer;
+}
+
+.pn-feel-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e94560;
+    cursor: pointer;
+    border: none;
+}
+
+.pn-feel-val {
+    font-size: 10px;
+    color: #6aa;
+    min-width: 22px;
+    text-align: right;
+}
+
 .pn-effects {
     border-bottom: 1px solid #0f3460;
     margin-bottom: 4px;

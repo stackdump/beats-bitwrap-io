@@ -215,6 +215,55 @@ const ONESHOT_Q   = [[0.5, 'Q1'], [2, 'Q2'], [5, 'Q3'], [12, 'Q4'], [25, 'Q5']];
 const ONESHOT_ATK = [[0, 'A 0'], [30, 'A 30'], [80, 'A 80'], [200, 'A 200'], [500, 'A 500']];
 const ONESHOT_DEC = [[0, 'D Off'], [200, 'D 200'], [500, 'D 500'], [1200, 'D 1.2s'], [3000, 'D 3s']];
 
+// Feel bar — 4 abstract axes. Each slider is 0–100 (default 50). On change
+// we compute a deterministic mapping onto three surfaces:
+//   1) Master FX sliders (applied immediately via _setFxValue)
+//   2) Auto-DJ knobs (applied immediately to the panel form elements)
+//   3) Trait overrides (stashed on `this._traitOverrides`; applied on next
+//      Generate click — we don't auto-Generate on every slider wiggle).
+// Mapping is `lerp(min, max, v/100)` or a threshold — kept in data rather
+// than inline so users can see "what does Chop do" at a glance in source.
+const FEEL_AXES = [
+    { id: 'energy', label: 'Energy', tip: 'Tempo, drum fills, distortion, Auto-DJ cadence' },
+    { id: 'groove', label: 'Groove', tip: 'Swing, humanize, ghost notes, syncopation' },
+    { id: 'chop',   label: 'Chop',   tip: 'Stack size, bit-crush, delay feedback, Auto-DJ mute pool weight' },
+    { id: 'space',  label: 'Space',  tip: 'Reverb wet, delay wet, low-pass opening, decay tails' },
+];
+
+const FEEL_MAP = {
+    // v is 0..100
+    energy: (v, host) => {
+        const norm = v / 100;
+        host._setFxByKey('distortion',   Math.round(norm * 45));
+        // Auto-DJ faster as energy rises: 8 bars @ 0, 2 bars @ 50, 1 bar @ 100
+        const rateBars = v < 25 ? 8 : v < 50 ? 4 : v < 75 ? 2 : 1;
+        host._setAutoDjValue('rate', rateBars);
+        host._traitOverrides['drum-fills']    = v > 60;
+        host._traitOverrides['tension-curve'] = v > 40;
+    },
+    groove: (v, host) => {
+        const norm = v / 100;
+        host._traitOverrides['syncopation']  = +(norm * 0.6).toFixed(2);
+        host._traitOverrides['ghost-notes']  = +(norm * 0.8).toFixed(2);
+        host._traitOverrides['walking-bass'] = v > 55;
+    },
+    chop: (v, host) => {
+        const norm = v / 100;
+        host._setFxByKey('crush-bits',    Math.round(norm * 60));
+        host._setFxByKey('delay-feedback', Math.round(25 + norm * 50));
+        const stack = v < 33 ? 1 : v < 66 ? 2 : 3;
+        host._setAutoDjValue('stack', stack);
+    },
+    space: (v, host) => {
+        const norm = v / 100;
+        host._setFxByKey('reverb-wet',  Math.round(20 + norm * 60));
+        host._setFxByKey('reverb-size', Math.round(50 + norm * 45));
+        host._setFxByKey('delay-wet',   Math.round(15 + norm * 55));
+        // LP closes slightly at high Space to add atmosphere
+        host._setFxByKey('lp-freq',     Math.round(100 - norm * 15));
+    },
+};
+
 // Genre-specific instrument mappings (channel -> instrument name)
 const GENRE_INSTRUMENTS = {
     'techno': { 4: 'supersaw', 5: 'pluck', 6: 'acid', 10: 'drums' },
@@ -600,6 +649,22 @@ class PetriNote extends HTMLElement {
 
         this._genOptsEl = null;
 
+        // Feel bar — 4 abstract sliders (Energy / Groove / Chop / Space) that
+        // deterministically map to the granular generator params, master FX
+        // sliders, and Auto-DJ cadence. Intent is performance-centric: change
+        // the feel without tracking individual knob interactions.
+        const feel = document.createElement('div');
+        feel.className = 'pn-feel-bar';
+        feel.innerHTML = FEEL_AXES.map(a => `
+            <label class="pn-feel-field" title="${a.tip}">
+                <span>${a.label}</span>
+                <input type="range" class="pn-feel-slider" data-feel="${a.id}" min="0" max="100" value="50">
+                <span class="pn-feel-val" data-feel-val="${a.id}">50</span>
+            </label>
+        `).join('');
+        this.appendChild(feel);
+        this._feelEl = feel;
+
         // Genre traits display
         const traits = document.createElement('div');
         traits.className = 'pn-genre-traits';
@@ -948,6 +1013,20 @@ class PetriNote extends HTMLElement {
         autoDjPanel.addEventListener('change', () => this._saveAutoDjSettings());
         // Hydrate the panel from the last-saved settings (if any)
         this._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
+
+        // Feel bar: wire slider input + restore saved positions.
+        if (this._feelEl) {
+            this._feelEl.addEventListener('input', (e) => {
+                const s = e.target.closest('.pn-feel-slider');
+                if (!s) return;
+                const id = s.dataset.feel;
+                const v = parseInt(s.value, 10);
+                const valEl = this._feelEl.querySelector(`.pn-feel-val[data-feel-val="${id}"]`);
+                if (valEl) valEl.textContent = v;
+                this._applyFeel(id, v);
+            });
+            this._restoreFeelSettings();
+        }
         // Restore persisted "macro disabled" marks after the panels are built
         this._disabledMacros = this._loadDisabledMacros();
         this._refreshMacroDisabledMarks();
@@ -2729,6 +2808,61 @@ class PetriNote extends HTMLElement {
         const ppq = 4;
         const ticksPerBar = 16;
         return (60000 / ((this._tempo || 120) * ppq)) * ticksPerBar;
+    }
+
+    // Feel-bar surface helpers — let FEEL_MAP entries push values onto the
+    // real controls without knowing the internal structure.
+    _setFxByKey(fxKey, value) {
+        const slider = this._fxSlider(fxKey);
+        if (slider) this._setFxValue(slider, value);
+    }
+
+    _setAutoDjValue(key, value) {
+        const el = this.querySelector(`.pn-autodj-${key}`);
+        if (el) {
+            el.value = String(value);
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    _applyFeel(id, v) {
+        if (!this._traitOverrides) this._traitOverrides = {};
+        const fn = FEEL_MAP[id];
+        if (fn) fn(v, this);
+        // Trait overrides go into effect on the next Generate click; FX and
+        // Auto-DJ changes take effect immediately above.
+        this._updateTraits();
+        this._saveFeelSettings();
+    }
+
+    _saveFeelSettings() {
+        try {
+            const state = {};
+            for (const a of FEEL_AXES) {
+                const el = this.querySelector(`.pn-feel-slider[data-feel="${a.id}"]`);
+                if (el) state[a.id] = parseInt(el.value, 10);
+            }
+            localStorage.setItem('pn-feel-settings', JSON.stringify(state));
+        } catch {}
+    }
+
+    _restoreFeelSettings() {
+        try {
+            const raw = localStorage.getItem('pn-feel-settings');
+            if (!raw) return;
+            const state = JSON.parse(raw);
+            for (const a of FEEL_AXES) {
+                const v = state[a.id];
+                if (typeof v !== 'number') continue;
+                const el = this.querySelector(`.pn-feel-slider[data-feel="${a.id}"]`);
+                if (el) {
+                    el.value = v;
+                    const valEl = this.querySelector(`.pn-feel-val[data-feel-val="${a.id}"]`);
+                    if (valEl) valEl.textContent = v;
+                    this._applyFeel(a.id, v);
+                }
+            }
+        } catch {}
     }
 
     _fxSlider(fxKey) {
