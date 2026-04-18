@@ -788,39 +788,62 @@ input[type="range"][data-default] {
     border-color: #6e4adf;
 }
 
-/* One-shot row: compact dropdown-only tile — Fire button + instrument + hits
- * + pitch + HP/LP/Q/Q/Atk/Dec. Wraps across lines on narrow panels. */
-.pn-oneshot-row {
-    flex-wrap: wrap;
-    row-gap: 3px;
+/* One-shot mini-panel: styled like .pn-fx-group but compact. Header holds the
+ * Fire button + instrument dropdown; grid below packs the 8 shaping selects
+ * into a 2-col layout that wraps on narrow panels. */
+.pn-oneshot-group {
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    padding: 4px 6px 6px;
+    background: #0d1b2a;
+    min-width: 170px;
 }
 
-.pn-oneshot-row .pn-macro-btn {
+.pn-os-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 3px;
+    margin-bottom: 4px;
+}
+
+.pn-os-fire {
     flex: 0 0 auto;
-    min-width: 52px;
-    padding: 4px 10px;
-    text-align: center;
+    min-width: 44px;
+    padding: 3px 8px;
+    font-size: 10px;
 }
 
-.pn-oneshot-row select {
+.pn-os-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 4px;
+}
+
+.pn-os-grid select,
+.pn-os-header .pn-os-inst {
     padding: 3px 4px;
     background: #1a1a2e;
     color: #9ad0ff;
     border: 1px solid #0f3460;
-    border-radius: 4px;
+    border-radius: 3px;
     font-size: 10px;
     cursor: pointer;
-    min-width: 54px;
+    min-width: 0;
+    width: 100%;
 }
 
-.pn-oneshot-row select:hover {
+.pn-os-grid select:hover,
+.pn-os-header .pn-os-inst:hover {
     border-color: #1a4a7a;
 }
 
-.pn-oneshot-row .pn-os-inst {
+.pn-os-header .pn-os-inst {
     color: #eee;
     font-weight: 600;
-    min-width: 70px;
+    flex: 1 1 auto;
+    width: auto;
 }
 
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {

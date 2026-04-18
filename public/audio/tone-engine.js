@@ -2068,6 +2068,43 @@ class ToneEngine {
         return upstream;
     }
 
+    // Fire any INSTRUMENT_CONFIGS entry as a one-shot — spins up a throwaway
+    // instrument instance routed through the same shaping chain as custom
+    // one-shots, triggers a single note, then disposes once the tail decays.
+    // Used by the macro panel's instrument dropdown so users can fire drum
+    // kits, bells, stabs, bass hits, etc. with the same HP/LP/Atk/Dec controls.
+    playOneShotInstrument(instrumentName, midiNote = 60, opts = {}) {
+        if (!this._masterVolume) return;
+        const config = INSTRUMENT_CONFIGS[instrumentName];
+        if (!config) return;
+        const now = Tone.now();
+        const dest = this._buildOneShotChain(opts, now) || this._masterVolume;
+
+        let inst;
+        try {
+            switch (config.type) {
+                case 'synth':  inst = this._createSynth(config, dest); break;
+                case 'custom': inst = config.create(dest); break;
+                default: return;   // sampler/players need async load — skip
+            }
+        } catch (e) { return; }
+
+        const noteName = Tone.Frequency(midiNote, 'midi').toNote();
+        const vel = 0.9;
+        try {
+            if (inst.triggerAttackRelease) {
+                // NoiseSynth uses duration as first arg (no pitch); everything
+                // else takes note first.
+                if (inst instanceof Tone.NoiseSynth) {
+                    inst.triggerAttackRelease('8n', now, vel);
+                } else {
+                    inst.triggerAttackRelease(noteName, '8n', now, vel);
+                }
+            }
+        } catch {}
+        setTimeout(() => { try { inst.dispose?.(); } catch {} }, 3000);
+    }
+
     // Fire a transient synth one-shot by name — airhorn / laser / subdrop / booj.
     // Shares the master chain so all FX (reverb/delay/filters/pitch) apply.
     // `semitones` transposes every pitched oscillator via detune; filters and
