@@ -614,7 +614,15 @@ input[type="range"][data-default] {
 .pn-effects {
     border-bottom: 1px solid #0f3460;
     margin-bottom: 4px;
+    display: flex;
+    flex-direction: column;
 }
+
+/* Stacking order when both panels are open: toggle bar (0), FX (1), macros (2).
+ * Keeps FX pinned above macros regardless of DOM order. */
+.pn-effects-toggle { order: 0; }
+.pn-effects-panel  { order: 1; }
+.pn-macros-panel   { order: 2; }
 
 .pn-effects-toggle {
     display: flex;
@@ -788,21 +796,21 @@ input[type="range"][data-default] {
     border-color: #6e4adf;
 }
 
-/* One-shot mini-panel: styled like .pn-fx-group but compact. Header holds the
- * Fire button + instrument dropdown; grid below packs the 8 shaping selects
- * into a 2-col layout that wraps on narrow panels. */
+/* One-shot mini-panel: wide card styled like .pn-fx-group. Header row carries
+ * Fire + Instrument, then all shaping dropdowns flow in a single wide row
+ * (wraps only when the macros panel is very narrow). */
 .pn-oneshot-group {
     border: 1px solid #0f3460;
     border-radius: 4px;
-    padding: 4px 6px 6px;
+    padding: 5px 8px 6px;
     background: #0d1b2a;
-    min-width: 170px;
+    min-width: 560px;
 }
 
 .pn-os-header {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     border-bottom: 1px solid #0f3460;
     padding-bottom: 3px;
     margin-bottom: 4px;
@@ -810,28 +818,32 @@ input[type="range"][data-default] {
 
 .pn-os-fire {
     flex: 0 0 auto;
-    min-width: 44px;
-    padding: 3px 8px;
-    font-size: 10px;
+    min-width: 52px;
+    padding: 3px 10px;
+    font-size: 11px;
 }
 
 .pn-os-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 3px 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    align-items: center;
 }
 
 .pn-os-grid select,
 .pn-os-header .pn-os-inst {
-    padding: 3px 4px;
+    padding: 3px 6px;
     background: #1a1a2e;
     color: #9ad0ff;
     border: 1px solid #0f3460;
     border-radius: 3px;
     font-size: 10px;
     cursor: pointer;
-    min-width: 0;
-    width: 100%;
+}
+
+.pn-os-grid select {
+    flex: 0 0 auto;
+    min-width: 62px;
 }
 
 .pn-os-grid select:hover,
@@ -842,8 +854,15 @@ input[type="range"][data-default] {
 .pn-os-header .pn-os-inst {
     color: #eee;
     font-weight: 600;
+    flex: 1 1 160px;
+    min-width: 120px;
+}
+
+/* When one-shots are on, let the macros panel's One-Shot column grow wider
+ * than the Mute/FX/Tempo columns so the wide tiles don't get squished. */
+.pn-macro-group:has(.pn-oneshot-group) {
+    min-width: 580px;
     flex: 1 1 auto;
-    width: auto;
 }
 
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {
