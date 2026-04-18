@@ -941,7 +941,13 @@ class PetriNote extends HTMLElement {
             this._showAutoDj = !this._showAutoDj;
             autoDjPanel.style.display = this._showAutoDj ? 'flex' : 'none';
             autoDjBtn.classList.toggle('active', this._showAutoDj);
+            this._saveAutoDjSettings();
         });
+        // Persist every panel change so settings survive reload, auto-advance
+        // to shuffled / extended next tracks, Auto-DJ regens, etc.
+        autoDjPanel.addEventListener('change', () => this._saveAutoDjSettings());
+        // Hydrate the panel from the last-saved settings (if any)
+        this._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
         // Restore persisted "macro disabled" marks after the panels are built
         this._disabledMacros = this._loadDisabledMacros();
         this._refreshMacroDisabledMarks();
@@ -2428,6 +2434,62 @@ class PetriNote extends HTMLElement {
         else                              this._disabledMacros.add(id);
         this._saveDisabledMacros();
         this._refreshMacroDisabledMarks();
+    }
+
+    // Persist every Auto-DJ knob to localStorage so state survives browser
+    // reload AND any in-app transition that might otherwise clear it (shuffle
+    // auto-advance, regen, project upload, structure change). Read on panel
+    // build and apply to the existing DOM elements.
+    _saveAutoDjSettings() {
+        try {
+            const panel = this.querySelector('.pn-autodj-panel');
+            if (!panel) return;
+            const pools = {};
+            for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
+                pools[cb.value] = cb.checked;
+            }
+            const state = {
+                showAutoDj: !!this._showAutoDj,
+                run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
+                animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
+                rate:        panel.querySelector('.pn-autodj-rate')?.value,
+                regen:       panel.querySelector('.pn-autodj-regen')?.value,
+                stack:       panel.querySelector('.pn-autodj-stack')?.value,
+                pools,
+            };
+            localStorage.setItem('pn-autodj-settings', JSON.stringify(state));
+        } catch {}
+    }
+
+    _restoreAutoDjSettings(autoDjBtn, panel) {
+        let state;
+        try {
+            const raw = localStorage.getItem('pn-autodj-settings');
+            if (!raw) return;
+            state = JSON.parse(raw);
+        } catch { return; }
+        if (!state) return;
+        if (state.showAutoDj) {
+            this._showAutoDj = true;
+            panel.style.display = 'flex';
+            autoDjBtn.classList.add('active');
+        }
+        const set = (cls, val) => {
+            const el = panel.querySelector(`.${cls}`);
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else if (val != null) el.value = val;
+        };
+        set('pn-autodj-enable',        state.run);
+        set('pn-autodj-animate-only',  state.animateOnly);
+        set('pn-autodj-rate',          state.rate);
+        set('pn-autodj-regen',         state.regen);
+        set('pn-autodj-stack',         state.stack);
+        if (state.pools) {
+            for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
+                if (cb.value in state.pools) cb.checked = !!state.pools[cb.value];
+            }
+        }
     }
 
     _loadDisabledMacros() {
