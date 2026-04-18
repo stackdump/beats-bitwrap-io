@@ -2273,6 +2273,23 @@ class PetriNote extends HTMLElement {
         // 2. Break any beat-repeat loop — the token guard exits on next tick.
         this._beatRepeatRuns = (this._beatRepeatRuns || 0) + 1;
 
+        // 2b. Clear any compound-macro delayed sub-fires still pending.
+        if (this._compoundTimers) {
+            for (const t of this._compoundTimers) clearTimeout(t);
+            this._compoundTimers = [];
+        }
+
+        // 2c. Tempo: if a tempo-hold / tempo-sweep is running, cancel + snap
+        //     back to its captured start BPM instead of waiting for the
+        //     setTimeout / sweep to finish.
+        if (this._tempoAnim) {
+            const tok = this._tempoAnim;
+            tok.cancelled = true;
+            if (tok.timeout) clearTimeout(tok.timeout);
+            if (typeof tok.startBpm === 'number') this._setTempo(tok.startBpm);
+            this._tempoAnim = null;
+        }
+
         // 3. Cancel + restore every in-flight channel param animation
         //    (pan-move / decay-move). Calling hardStop fires the per-channel
         //    restore so pan and decay return to their pre-macro snapshots.
@@ -2314,19 +2331,34 @@ class PetriNote extends HTMLElement {
             el.classList.remove('pn-pulsing', 'pn-pulsing-hot');
         });
 
-        // 5. Cancel master-FX sweep/hold animations so their ramp-back loops
-        //    stop fighting new user-set values.
+        // 5. Cancel master-FX sweep/hold animations AND restore their slider
+        //    to the pre-macro start value. Without the restore, the slider
+        //    stays wherever the ramp was when we cancelled — "stranded
+        //    reverb" etc.
         if (this._fxAnim) {
             for (const key of Object.keys(this._fxAnim)) {
-                if (this._fxAnim[key]) this._fxAnim[key].cancelled = true;
+                const t = this._fxAnim[key];
+                if (!t) continue;
+                t.cancelled = true;
+                if (t.slider && typeof t.start === 'number') {
+                    this._setFxValue(t.slider, t.start);
+                }
             }
             this._fxAnim = {};
         }
 
-        // 6. Tell the worker to flush macro-injected control nets and clear
-        //    any programmatic mutes — user-held mutes are tracked separately
-        //    and remain untouched.
+        // 6. Tell the worker to prune in-flight macro control nets, then
+        //    iterate any currently-muted track that isn't in the user's
+        //    manual mute set and explicitly unmute it — the worker's
+        //    restore net is gone so tracks would otherwise stay muted.
         this._sendWs({ type: 'cancel-macros' });
+        const manual = this._manualMutedNets || new Set();
+        const muted = [...this._mutedNets];
+        for (const id of muted) {
+            if (manual.has(id)) continue;
+            this._mutedNets.delete(id);
+            this._sendWs({ type: 'mute', netId: id, muted: false });
+        }
 
         // 7. Visual book-keeping — drop queue badges, reset serial slot UI.
         this._updateQueuedBadges();
@@ -3211,12 +3243,19 @@ class PetriNote extends HTMLElement {
     _fxSweep(fxKey, toValue, durationMs) {
         const slider = this._fxSlider(fxKey);
         if (!slider) return;
-        if (this._fxAnim && this._fxAnim[fxKey]) this._fxAnim[fxKey].cancelled = true;
+        // Reuse the PRIOR animation's start value so a macro re-firing its
+        // own fxKey while already in flight doesn't capture the swept-up
+        // value (e.g. reverb-wet at 80) as the new equilibrium, stranding it
+        // there. Only the first fire of a given fxKey seeds start from the
+        // current slider.
+        const prev = this._fxAnim?.[fxKey];
+        const start = (prev && !prev.cancelled && typeof prev.start === 'number')
+            ? prev.start
+            : parseFloat(slider.value);
+        if (prev) prev.cancelled = true;
         this._fxAnim = this._fxAnim || {};
-        const token = { cancelled: false };
+        const token = { cancelled: false, fxKey, slider, start };
         this._fxAnim[fxKey] = token;
-
-        const start = parseFloat(slider.value);
         const t0 = performance.now();
         const rampDown = durationMs * 0.8;
         const DISPATCH_INTERVAL = 120;
@@ -3286,9 +3325,11 @@ class PetriNote extends HTMLElement {
     // Compound: fire a sequence of sub-macros by ID at timed offsets. Bypasses
     // the queue because the parent macro already owns the single running slot.
     _runCompound(macro, duration, durationUnit, msPerTick) {
+        // Track every pending sub-macro timer so Panic can clear them all.
+        this._compoundTimers = this._compoundTimers || [];
         for (const step of macro.steps || []) {
             const delay = step.offsetMs || 0;
-            setTimeout(() => {
+            const t = setTimeout(() => {
                 const sub = MACROS.find(m => m.id === step.macroId);
                 if (!sub) return;
                 // Push the sub-macro directly (ignore queue, don't mark as running)
@@ -3315,6 +3356,7 @@ class PetriNote extends HTMLElement {
                     }
                 }
             }, delay);
+            this._compoundTimers.push(t);
         }
     }
 
@@ -3335,8 +3377,20 @@ class PetriNote extends HTMLElement {
     _tempoHold(factor, durationMs) {
         const startBpm = this._tempo || 120;
         const targetBpm = Math.max(20, Math.round(startBpm * factor));
+        // Cancel any prior tempo-hold so Panic and stacked fires have a
+        // single token to reset. _tempoAnim is also used by _tempoSweep.
+        if (this._tempoAnim) {
+            this._tempoAnim.cancelled = true;
+            if (this._tempoAnim.timeout) clearTimeout(this._tempoAnim.timeout);
+        }
+        const token = { cancelled: false, startBpm };
+        this._tempoAnim = token;
         this._setTempo(targetBpm);
-        setTimeout(() => this._setTempo(startBpm), durationMs);
+        token.timeout = setTimeout(() => {
+            if (token.cancelled) return;
+            this._setTempo(startBpm);
+            if (this._tempoAnim === token) this._tempoAnim = null;
+        }, durationMs);
     }
 
     // Tape Stop: ease-out ramp down to finalBpm, then snap back.
@@ -3351,8 +3405,11 @@ class PetriNote extends HTMLElement {
         const t0 = performance.now();
         const DISPATCH_INTERVAL = 80;
         let lastDispatch = -DISPATCH_INTERVAL;
-        if (this._tempoAnim) this._tempoAnim.cancelled = true;
-        const token = { cancelled: false };
+        if (this._tempoAnim) {
+            this._tempoAnim.cancelled = true;
+            if (this._tempoAnim.timeout) clearTimeout(this._tempoAnim.timeout);
+        }
+        const token = { cancelled: false, startBpm };
         this._tempoAnim = token;
         const step = (now) => {
             if (token.cancelled) return;
@@ -3384,12 +3441,19 @@ class PetriNote extends HTMLElement {
     _fxHold(fxKey, toValue, durationMs, tailFrac = 0.6) {
         const slider = this._fxSlider(fxKey);
         if (!slider) return;
-        if (this._fxAnim && this._fxAnim[fxKey]) this._fxAnim[fxKey].cancelled = true;
+        // Same re-entrancy guard as _fxSweep — inherit the prior token's
+        // `start` so stacked fires don't capture the peak value. Without
+        // this, firing Reverb Wash twice could leave reverb-wet stranded
+        // high because the second fire's parseFloat(slider.value) reads the
+        // still-high value mid-animation.
+        const prev = this._fxAnim?.[fxKey];
+        const start = (prev && !prev.cancelled && typeof prev.start === 'number')
+            ? prev.start
+            : parseFloat(slider.value);
+        if (prev) prev.cancelled = true;
         this._fxAnim = this._fxAnim || {};
-        const token = { cancelled: false };
+        const token = { cancelled: false, fxKey, slider, start };
         this._fxAnim[fxKey] = token;
-
-        const start = parseFloat(slider.value);
         const tailMs = Math.max(50, durationMs * tailFrac);
         const sustainMs = Math.max(0, durationMs - tailMs);
 
@@ -5664,6 +5728,20 @@ class PetriNote extends HTMLElement {
         this.querySelectorAll('.pn-pulsing, .pn-pulsing-hot').forEach(el => {
             el.classList.remove('pn-pulsing', 'pn-pulsing-hot');
         });
+        // Master-FX sweep/hold in progress? Snap their sliders back to the
+        // pre-macro start BEFORE cancelling so the new project doesn't
+        // inherit a half-swept reverb / delay / filter.
+        if (this._fxAnim) {
+            for (const key of Object.keys(this._fxAnim)) {
+                const t = this._fxAnim[key];
+                if (!t) continue;
+                t.cancelled = true;
+                if (t.slider && typeof t.start === 'number') {
+                    this._setFxValue(t.slider, t.start);
+                }
+            }
+            this._fxAnim = {};
+        }
         // Auto-DJ preview bookkeeping resets with the project
         this._autoDjPreviewPending = false;
 
