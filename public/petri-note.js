@@ -2455,7 +2455,9 @@ class PetriNote extends HTMLElement {
     // Each fire kicks the petri-net canvas into rotation, alternating direction
     // so stacked effects accumulate into a visible spin-up.
     _autoDjTick(prevTick, curTick) {
-        if (!this._showAutoDj) return;
+        // Arm state is the Run checkbox, not tab visibility — Auto-DJ keeps
+        // running in the background while the user is in FX / Macros / Beats.
+        // The form controls stay in the DOM when the panel is display:none.
         const enableEl = this.querySelector('.pn-autodj-enable');
         if (!enableEl?.checked) return;
         if (curTick === prevTick) return;
