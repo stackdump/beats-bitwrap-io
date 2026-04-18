@@ -649,22 +649,6 @@ class PetriNote extends HTMLElement {
 
         this._genOptsEl = null;
 
-        // Feel bar — 4 abstract sliders (Energy / Groove / Chop / Space) that
-        // deterministically map to the granular generator params, master FX
-        // sliders, and Auto-DJ cadence. Intent is performance-centric: change
-        // the feel without tracking individual knob interactions.
-        const feel = document.createElement('div');
-        feel.className = 'pn-feel-bar';
-        feel.innerHTML = FEEL_AXES.map(a => `
-            <label class="pn-feel-field" title="${a.tip}">
-                <span>${a.label}</span>
-                <input type="range" class="pn-feel-slider" data-feel="${a.id}" min="0" max="100" value="50">
-                <span class="pn-feel-val" data-feel-val="${a.id}">50</span>
-            </label>
-        `).join('');
-        this.appendChild(feel);
-        this._feelEl = feel;
-
         // Genre traits display
         const traits = document.createElement('div');
         traits.className = 'pn-genre-traits';
@@ -722,6 +706,7 @@ class PetriNote extends HTMLElement {
                 <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
                 <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
                 <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
+                <button class="pn-macro-panic" title="Cancel all queued/running macros and animations">Panic</button>
                 <button class="pn-crop-bar-btn" title="Crop track to loop region" style="display:none">✂ Crop</button>
                 <select class="pn-loop-mode-select" title="Loop conflict resolution mode">
                     <option value="drift">Drift</option>
@@ -1014,19 +999,13 @@ class PetriNote extends HTMLElement {
         // Hydrate the panel from the last-saved settings (if any)
         this._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
 
-        // Feel bar: wire slider input + restore saved positions.
-        if (this._feelEl) {
-            this._feelEl.addEventListener('input', (e) => {
-                const s = e.target.closest('.pn-feel-slider');
-                if (!s) return;
-                const id = s.dataset.feel;
-                const v = parseInt(s.value, 10);
-                const valEl = this._feelEl.querySelector(`.pn-feel-val[data-feel-val="${id}"]`);
-                if (valEl) valEl.textContent = v;
-                this._applyFeel(id, v);
-            });
-            this._restoreFeelSettings();
-        }
+        // Feel icon (inside the traits row) opens a modal with the 4 sliders.
+        // Slider positions are persisted so even without opening the modal
+        // the last-saved feel is applied on boot.
+        this.addEventListener('click', (e) => {
+            if (e.target.closest('.pn-feel-open')) this._openFeelModal();
+        });
+        this._restoreFeelSettings();
         // Restore persisted "macro disabled" marks after the panels are built
         this._disabledMacros = this._loadDisabledMacros();
         this._refreshMacroDisabledMarks();
@@ -1149,6 +1128,13 @@ class PetriNote extends HTMLElement {
         fx.querySelector('.pn-cc-reset').addEventListener('click', () => {
             this._ccBindings.clear();
         });
+
+        // Panic: drop the macro queue, cancel every live animation token,
+        // strip the chase-pulse CSS everywhere, and nudge worker-side macro
+        // nets so any muted-by-macro tracks come back ASAP. Leaves user-held
+        // mutes, tempo changes, and manually-set FX values alone — only
+        // tears down macro side effects that were in flight.
+        fx.querySelector('.pn-macro-panic').addEventListener('click', () => this._panicMacros());
 
         fx.querySelector('.pn-crop-bar-btn').addEventListener('click', () => {
             if (this._loopStart >= 0 && this._loopEnd > this._loopStart) {
@@ -1456,6 +1442,7 @@ class PetriNote extends HTMLElement {
         };
 
         this._traitsEl.innerHTML =
+            `<button class="pn-feel-open" title="Feel — abstract performance sliders">&#9672;</button>` +
             tag('Fills', 'drum-fills', fills, fills) +
             tag('Walking Bass', 'walking-bass', walking, walking) +
             tag('Polyrhythm', 'polyrhythm', poly, poly > 0) +
@@ -2277,6 +2264,82 @@ class PetriNote extends HTMLElement {
         return out;
     }
 
+    _panicMacros() {
+        // 1. Drop queued macros; they never fire.
+        this._macroQueue = [];
+        this._runningMacro = null;
+        if (this._runningTimer) { clearTimeout(this._runningTimer); this._runningTimer = null; }
+
+        // 2. Break any beat-repeat loop — the token guard exits on next tick.
+        this._beatRepeatRuns = (this._beatRepeatRuns || 0) + 1;
+
+        // 3. Cancel + restore every in-flight channel param animation
+        //    (pan-move / decay-move). Calling hardStop fires the per-channel
+        //    restore so pan and decay return to their pre-macro snapshots.
+        if (this._chanAnim) {
+            for (const id of Object.keys(this._chanAnim)) {
+                const t = this._chanAnim[id];
+                if (!t) continue;
+                if (t.hardStop) { clearTimeout(t.hardStop); }
+                // Run restore manually via the stored snapshot
+                if (t.before) {
+                    for (const ch of Object.keys(t.before)) {
+                        const v = t.before[ch];
+                        const chNum = parseInt(ch, 10);
+                        // Snapshot format differs by kind — decay is a scalar
+                        // multiplier in roughly [0.05, 3.0]; pan is the raw
+                        // panner.pan.value in [-1, +1].
+                        if (v >= -1 && v <= 1) {
+                            const cc = Math.max(0, Math.min(127, Math.round((v + 1) * 63.5)));
+                            toneEngine.controlChange(chNum, 10, cc);
+                        } else {
+                            toneEngine.setChannelDecay(chNum, v);
+                        }
+                    }
+                }
+                t.cancelled = true;
+            }
+            this._chanAnim = {};
+        }
+
+        // 4. Cancel every pulse token and strip its CSS.
+        if (this._pulseAnim) {
+            for (const id of Object.keys(this._pulseAnim)) {
+                const t = this._pulseAnim[id];
+                if (t) t.cancelled = true;
+            }
+            this._pulseAnim = {};
+        }
+        this.querySelectorAll('.pn-pulsing, .pn-pulsing-hot').forEach(el => {
+            el.classList.remove('pn-pulsing', 'pn-pulsing-hot');
+        });
+
+        // 5. Cancel master-FX sweep/hold animations so their ramp-back loops
+        //    stop fighting new user-set values.
+        if (this._fxAnim) {
+            for (const key of Object.keys(this._fxAnim)) {
+                if (this._fxAnim[key]) this._fxAnim[key].cancelled = true;
+            }
+            this._fxAnim = {};
+        }
+
+        // 6. Tell the worker to flush macro-injected control nets and clear
+        //    any programmatic mutes — user-held mutes are tracked separately
+        //    and remain untouched.
+        this._sendWs({ type: 'cancel-macros' });
+
+        // 7. Visual book-keeping — drop queue badges, reset serial slot UI.
+        this._updateQueuedBadges();
+        this.querySelectorAll('.pn-macro-btn.running, .pn-macro-btn.queued, .pn-macro-btn.firing')
+            .forEach(b => b.classList.remove('running', 'queued', 'firing'));
+        this.querySelectorAll('.pn-macro-queue-badge').forEach(b => b.remove());
+
+        const statusEl = this.querySelector('.pn-autodj-status');
+        if (statusEl && this.querySelector('.pn-autodj-enable')?.checked) {
+            statusEl.textContent = '(panicked — cycle will resume)';
+        }
+    }
+
     _fireMacro(id) {
         // Serial execution: if anything is running, push onto the FIFO queue.
         this._macroQueue ||= [];
@@ -2836,33 +2899,119 @@ class PetriNote extends HTMLElement {
     }
 
     _saveFeelSettings() {
+        // During modal preview, suppress persistence so Cancel can fully roll
+        // back even after a reload. Apply (or implicit init restore) calls
+        // _saveFeelSettings with the flag off.
+        if (this._feelPreviewMode) return;
         try {
-            const state = {};
-            for (const a of FEEL_AXES) {
-                const el = this.querySelector(`.pn-feel-slider[data-feel="${a.id}"]`);
-                if (el) state[a.id] = parseInt(el.value, 10);
-            }
-            localStorage.setItem('pn-feel-settings', JSON.stringify(state));
+            this._feelState = this._feelState || {};
+            localStorage.setItem('pn-feel-settings', JSON.stringify(this._feelState));
         } catch {}
     }
 
     _restoreFeelSettings() {
+        // Apply saved values directly via _applyFeel even if no slider DOM
+        // exists yet (modal lazily builds on open). The state is cached on
+        // `_feelState` so the modal hydrates from it next time it opens.
         try {
             const raw = localStorage.getItem('pn-feel-settings');
-            if (!raw) return;
-            const state = JSON.parse(raw);
+            if (!raw) { this._feelState = {}; return; }
+            const state = JSON.parse(raw) || {};
+            this._feelState = state;
             for (const a of FEEL_AXES) {
                 const v = state[a.id];
-                if (typeof v !== 'number') continue;
-                const el = this.querySelector(`.pn-feel-slider[data-feel="${a.id}"]`);
-                if (el) {
-                    el.value = v;
-                    const valEl = this.querySelector(`.pn-feel-val[data-feel-val="${a.id}"]`);
-                    if (valEl) valEl.textContent = v;
-                    this._applyFeel(a.id, v);
-                }
+                if (typeof v === 'number') this._applyFeel(a.id, v);
             }
-        } catch {}
+        } catch { this._feelState = {}; }
+    }
+
+    _openFeelModal() {
+        this.querySelector('.pn-feel-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.className = 'pn-feel-overlay pn-modal-overlay';
+        overlay.tabIndex = -1;
+        const state = this._feelState || {};
+        // Snapshot the state at open — Cancel restores from this so a live
+        // preview session that misses the mark can be rolled all the way back.
+        // Also snapshot the current trait overrides so Cancel doesn't leak
+        // stale overrides into the next Generate.
+        const snapshotFeel = { ...state };
+        const snapshotTraits = { ...(this._traitOverrides || {}) };
+        let committed = false;
+        // Enter preview mode — in-session _applyFeel writes won't persist
+        // until Apply commits (or Enter-to-apply).
+        this._feelPreviewMode = true;
+
+        const row = (a) => {
+            const v = typeof state[a.id] === 'number' ? state[a.id] : 50;
+            return `<label class="pn-feel-field" title="${a.tip}">
+                <span>${a.label}</span>
+                <input type="range" class="pn-feel-slider" data-feel="${a.id}" min="0" max="100" value="${v}">
+                <span class="pn-feel-val" data-feel-val="${a.id}">${v}</span>
+            </label>`;
+        };
+        overlay.innerHTML = `
+            <div class="pn-modal pn-feel-modal">
+                <button class="pn-feel-close" title="Cancel (Esc)">&times;</button>
+                <h2>Feel</h2>
+                <p class="pn-modal-desc">Four abstract sliders that deterministically drive generator params, master FX, and Auto-DJ. Changes preview live; Apply commits, Cancel reverts to the state when you opened this panel.</p>
+                <div class="pn-feel-grid">${FEEL_AXES.map(row).join('')}</div>
+                <div class="pn-modal-actions">
+                    <button class="pn-feel-cancel">Cancel</button>
+                    <button class="pn-feel-apply">Apply</button>
+                    <button class="pn-feel-regen" title="Apply then generate a new track with these trait overrides">Save &amp; Regenerate</button>
+                </div>
+            </div>`;
+
+        const close = () => { this._feelPreviewMode = false; overlay.remove(); };
+        const revert = () => {
+            // Re-apply the pre-open feel values and restore trait overrides
+            this._feelState = { ...snapshotFeel };
+            this._traitOverrides = { ...snapshotTraits };
+            for (const a of FEEL_AXES) {
+                const v = typeof snapshotFeel[a.id] === 'number' ? snapshotFeel[a.id] : 50;
+                this._applyFeel(a.id, v);
+            }
+            this._saveFeelSettings();
+        };
+
+        overlay.addEventListener('input', (e) => {
+            const s = e.target.closest('.pn-feel-slider');
+            if (!s) return;
+            const id = s.dataset.feel;
+            const v = parseInt(s.value, 10);
+            const valEl = overlay.querySelector(`.pn-feel-val[data-feel-val="${id}"]`);
+            if (valEl) valEl.textContent = v;
+            this._feelState = this._feelState || {};
+            this._feelState[id] = v;
+            this._applyFeel(id, v);
+        });
+        const commit = () => {
+            committed = true;
+            this._feelPreviewMode = false;  // let the save go through
+            this._saveFeelSettings();
+            close();
+        };
+        overlay.addEventListener('click', (e) => {
+            if (e.target.closest('.pn-feel-regen')) {
+                commit();
+                // Fire a fresh Generate so the in-flight trait overrides
+                // (set by Groove/Energy/etc.) actually shape the next track.
+                this.querySelector('.pn-generate-btn')?.click();
+                return;
+            }
+            if (e.target.closest('.pn-feel-apply')) { commit(); return; }
+            if (e.target.closest('.pn-feel-cancel') || e.target.closest('.pn-feel-close')) {
+                revert(); close(); return;
+            }
+            if (e.target === overlay) { revert(); close(); }
+        });
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); revert(); close(); }
+            else if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        });
+        this.appendChild(overlay);
+        overlay.focus();
     }
 
     _fxSlider(fxKey) {

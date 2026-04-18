@@ -663,37 +663,67 @@ input[type="range"][data-default] {
 }
 
 /* Effects panel */
-/* Feel bar — compact row of 4 abstract sliders above the traits chips.
- * Drives master FX, Auto-DJ, and trait overrides deterministically. */
-.pn-feel-bar {
+/* Feel — icon button at the start of the traits row opens a modal with the
+ * 4 abstract sliders. The button is intentionally distinct from trait chips
+ * (diamond glyph on a circular purple well) so users can't confuse it with
+ * a trait toggle. */
+.pn-feel-open {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    margin: 0 8px 0 0;
+    border: 1px solid #6e4adf;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2a1a4a 0%, #4a2a7a 100%);
+    color: #c3a6ff;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.pn-feel-open:hover {
+    color: #fff;
+    border-color: #a58aff;
+    box-shadow: 0 0 6px 1px rgba(195, 166, 255, 0.55);
+}
+
+/* Feel modal — reuses pn-modal-overlay machinery; internal grid holds the
+ * 4 sliders stacked vertically for click-accurate fiddling. */
+.pn-feel-modal {
+    min-width: 340px;
+    max-width: 440px;
+}
+
+.pn-feel-grid {
     display: flex;
-    gap: 16px;
-    align-items: center;
-    padding: 4px 14px;
-    background: rgba(10, 22, 40, 0.6);
-    border-bottom: 1px solid #0f3460;
-    font-size: 11px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 8px 0;
 }
 
 .pn-feel-field {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
     color: #ccc;
+    font-size: 12px;
 }
 
 .pn-feel-field > span:first-child {
-    font-size: 10px;
-    font-weight: 600;
-    color: #e94560;
+    font-size: 11px;
+    font-weight: 700;
+    color: #c3a6ff;
     text-transform: uppercase;
     letter-spacing: 1px;
-    min-width: 46px;
+    min-width: 70px;
 }
 
 .pn-feel-slider {
-    width: 110px;
-    height: 4px;
+    flex: 1;
+    height: 5px;
     -webkit-appearance: none;
     appearance: none;
     background: #0f3460;
@@ -704,28 +734,83 @@ input[type="range"][data-default] {
 
 .pn-feel-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #e94560;
+    background: #a58aff;
     cursor: pointer;
 }
 
 .pn-feel-slider::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #e94560;
+    background: #a58aff;
     cursor: pointer;
     border: none;
 }
 
 .pn-feel-val {
-    font-size: 10px;
+    font-size: 11px;
     color: #6aa;
-    min-width: 22px;
+    min-width: 28px;
     text-align: right;
 }
+
+.pn-feel-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 22px;
+    cursor: pointer;
+}
+
+.pn-feel-close:hover { color: #e94560; }
+
+.pn-feel-modal .pn-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.pn-feel-cancel,
+.pn-feel-apply {
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid #0f3460;
+    background: transparent;
+    color: #ccc;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pn-feel-cancel:hover { border-color: #888; color: #fff; }
+
+.pn-feel-apply {
+    background: #6e4adf;
+    border-color: #6e4adf;
+    color: #fff;
+}
+
+.pn-feel-apply:hover { background: #7e5aef; border-color: #a58aff; }
+
+.pn-feel-regen {
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid #e94560;
+    background: #e94560;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pn-feel-regen:hover { background: #f45575; border-color: #ff7090; }
 
 .pn-effects {
     border-bottom: 1px solid #0f3460;
@@ -1116,6 +1201,25 @@ input[type="range"][data-default] {
     gap: 28px;
     padding: 4px 14px 10px;
     align-items: flex-start;
+}
+
+.pn-macro-panic {
+    background: transparent;
+    border: 1px solid #6a1020;
+    color: #e94560;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.pn-macro-panic:hover {
+    background: #4a0818;
+    border-color: #e94560;
+    color: #fff;
 }
 
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {
