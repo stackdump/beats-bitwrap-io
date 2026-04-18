@@ -1,3 +1,5 @@
+[![beats.bitwrap.io](docs/banner.png)](https://beats.bitwrap.io)
+
 # beats-btw
 
 A deterministic beat generator powered by Petri nets. No AI, no LLMs, no neural networks — just math, music theory, and token flow.

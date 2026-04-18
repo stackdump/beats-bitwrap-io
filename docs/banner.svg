@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" font-family="-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif">
+  <defs>
+    <radialGradient id="bg" cx="30%" cy="50%" r="80%">
+      <stop offset="0%" stop-color="#1e2a4a"/>
+      <stop offset="70%" stop-color="#16213e"/>
+      <stop offset="100%" stop-color="#0d1428"/>
+    </radialGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Reusable ring parts. Colored via `currentColor`; hits driven by wrapping groups. -->
+
+    <!-- A single "hit" transition (filled) -->
+    <symbol id="hit" overflow="visible">
+      <rect x="-6" y="-116" width="12" height="12" rx="2" fill="currentColor" filter="url(#glow)"/>
+    </symbol>
+    <!-- A single "rest" transition (outline only) -->
+    <symbol id="rest" overflow="visible">
+      <rect x="-5" y="-115" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>
+    </symbol>
+    <!-- A single place (inner ring dot) -->
+    <symbol id="place" overflow="visible">
+      <circle cx="0" cy="-77" r="3.5" fill="#0d1428" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.5"/>
+    </symbol>
+    <!-- Arc from inner place to outer transition at same angle -->
+    <symbol id="arc" overflow="visible">
+      <line x1="0" y1="-74" x2="0" y2="-106" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
+    </symbol>
+    <!-- Firing token (cyan glow) -->
+    <symbol id="token" overflow="visible">
+      <circle cx="0" cy="-77" r="6" fill="#6ff0ff" filter="url(#glow)"/>
+      <circle cx="0" cy="-77" r="3" fill="#ffffff"/>
+    </symbol>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- faint grid dots for texture -->
+  <g fill="#ffffff" fill-opacity="0.025">
+    <circle cx="120" cy="80" r="1"/><circle cx="300" cy="120" r="1"/><circle cx="520" cy="60" r="1"/>
+    <circle cx="780" cy="100" r="1"/><circle cx="960" cy="160" r="1"/><circle cx="1180" cy="80" r="1"/>
+    <circle cx="200" cy="560" r="1"/><circle cx="420" cy="600" r="1"/><circle cx="640" cy="540" r="1"/>
+    <circle cx="880" cy="580" r="1"/><circle cx="1080" cy="520" r="1"/><circle cx="1220" cy="600" r="1"/>
+  </g>
+
+  <!-- ============= RING 1 : KICK  E(4,16)  pattern 1000 1000 1000 1000 ============= -->
+  <g transform="translate(180,340)" color="#e94560">
+    <circle r="110" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.5"/>
+    <circle r="77"  fill="none" stroke="currentColor" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="2 3"/>
+
+    <!-- 16 places + 16 arcs -->
+    <g><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(22.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(45)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(67.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(90)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(112.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(135)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(157.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(180)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(202.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(225)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(247.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(270)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(292.5)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(315)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(337.5)"><use href="#place"/><use href="#arc"/></g>
+
+    <!-- Transitions: hits at 0, 4, 8, 12 -->
+    <g><use href="#hit"/></g>
+    <g transform="rotate(22.5)"><use href="#rest"/></g>
+    <g transform="rotate(45)"><use href="#rest"/></g>
+    <g transform="rotate(67.5)"><use href="#rest"/></g>
+    <g transform="rotate(90)"><use href="#hit"/></g>
+    <g transform="rotate(112.5)"><use href="#rest"/></g>
+    <g transform="rotate(135)"><use href="#rest"/></g>
+    <g transform="rotate(157.5)"><use href="#rest"/></g>
+    <g transform="rotate(180)"><use href="#hit"/></g>
+    <g transform="rotate(202.5)"><use href="#rest"/></g>
+    <g transform="rotate(225)"><use href="#rest"/></g>
+    <g transform="rotate(247.5)"><use href="#rest"/></g>
+    <g transform="rotate(270)"><use href="#hit"/></g>
+    <g transform="rotate(292.5)"><use href="#rest"/></g>
+    <g transform="rotate(315)"><use href="#rest"/></g>
+    <g transform="rotate(337.5)"><use href="#rest"/></g>
+
+    <!-- Firing token at step 0 -->
+    <g color="#6ff0ff"><use href="#token"/></g>
+
+    <text y="155" text-anchor="middle" fill="#eee" font-size="14" font-weight="600" letter-spacing="2">KICK</text>
+    <text y="175" text-anchor="middle" fill="#888" font-size="11" letter-spacing="1">E(4, 16)</text>
+  </g>
+
+  <!-- ============= RING 2 : SNARE  E(3,8)  pattern 10010010 ============= -->
+  <g transform="translate(420,340)" color="#4a90d9">
+    <circle r="110" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.5"/>
+    <circle r="77"  fill="none" stroke="currentColor" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="2 3"/>
+
+    <g><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(45)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(90)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(135)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(180)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(225)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(270)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(315)"><use href="#place"/><use href="#arc"/></g>
+
+    <!-- Hits at 0, 3, 6 -->
+    <g><use href="#hit"/></g>
+    <g transform="rotate(45)"><use href="#rest"/></g>
+    <g transform="rotate(90)"><use href="#rest"/></g>
+    <g transform="rotate(135)"><use href="#hit"/></g>
+    <g transform="rotate(180)"><use href="#rest"/></g>
+    <g transform="rotate(225)"><use href="#rest"/></g>
+    <g transform="rotate(270)"><use href="#hit"/></g>
+    <g transform="rotate(315)"><use href="#rest"/></g>
+
+    <!-- Token at step 3 (135°) -->
+    <g transform="rotate(135)" color="#6ff0ff"><use href="#token"/></g>
+
+    <text y="155" text-anchor="middle" fill="#eee" font-size="14" font-weight="600" letter-spacing="2">SNARE</text>
+    <text y="175" text-anchor="middle" fill="#888" font-size="11" letter-spacing="1">E(3, 8)</text>
+  </g>
+
+  <!-- ============= RING 3 : HIHAT  E(5,8)  pattern 10110110 ============= -->
+  <g transform="translate(660,340)" color="#2ecc71">
+    <circle r="110" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.5"/>
+    <circle r="77"  fill="none" stroke="currentColor" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="2 3"/>
+
+    <g><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(45)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(90)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(135)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(180)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(225)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(270)"><use href="#place"/><use href="#arc"/></g>
+    <g transform="rotate(315)"><use href="#place"/><use href="#arc"/></g>
+
+    <!-- Hits at 0, 2, 3, 5, 6 -->
+    <g><use href="#hit"/></g>
+    <g transform="rotate(45)"><use href="#rest"/></g>
+    <g transform="rotate(90)"><use href="#hit"/></g>
+    <g transform="rotate(135)"><use href="#hit"/></g>
+    <g transform="rotate(180)"><use href="#rest"/></g>
+    <g transform="rotate(225)"><use href="#hit"/></g>
+    <g transform="rotate(270)"><use href="#hit"/></g>
+    <g transform="rotate(315)"><use href="#rest"/></g>
+
+    <g transform="rotate(90)" color="#6ff0ff"><use href="#token"/></g>
+
+    <text y="155" text-anchor="middle" fill="#eee" font-size="14" font-weight="600" letter-spacing="2">HIHAT</text>
+    <text y="175" text-anchor="middle" fill="#888" font-size="11" letter-spacing="1">E(5, 8)</text>
+  </g>
+
+  <!-- Connector arrow from ring 3 into title -->
+  <g stroke="#0f3460" fill="none" stroke-width="1.5">
+    <path d="M 780 340 L 820 340" stroke-dasharray="4 4" stroke-opacity="0.6"/>
+    <path d="M 816 335 L 822 340 L 816 345" stroke-opacity="0.6"/>
+  </g>
+
+  <!-- ============= TITLE ============= -->
+  <g transform="translate(800, 260)">
+    <text x="0" y="0" fill="#eee" font-size="56" font-weight="800" letter-spacing="-1">beats<tspan fill="#e94560">.</tspan>bitwrap<tspan fill="#e94560">.</tspan>io</text>
+    <text x="2" y="38" fill="#8af" font-size="20" font-weight="500" letter-spacing="0.5">deterministic beats via petri nets</text>
+    <text x="2" y="82" fill="#888" font-size="14" letter-spacing="0.3">no AI · no LLMs · just math, music theory, and token flow</text>
+
+    <!-- Small legend of the three tracks -->
+    <g transform="translate(0, 130)" font-size="12" fill="#aaa">
+      <g>
+        <rect x="0" y="-9" width="10" height="10" rx="2" fill="#e94560"/>
+        <text x="18" y="0">kick — euclidean 4/16</text>
+      </g>
+      <g transform="translate(0, 22)">
+        <rect x="0" y="-9" width="10" height="10" rx="2" fill="#4a90d9"/>
+        <text x="18" y="0">snare — euclidean 3/8</text>
+      </g>
+      <g transform="translate(0, 44)">
+        <rect x="0" y="-9" width="10" height="10" rx="2" fill="#2ecc71"/>
+        <text x="18" y="0">hihat — euclidean 5/8</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Bottom-right URL tag -->
+  <text x="1240" y="608" text-anchor="end" fill="#556" font-size="12" letter-spacing="1">beats.bitwrap.io</text>
+</svg>

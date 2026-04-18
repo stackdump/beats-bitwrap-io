@@ -1,3 +1,4 @@
 beats-bitwrap-io
 *.png
+!docs/banner.png
 .playwright-mcp/
