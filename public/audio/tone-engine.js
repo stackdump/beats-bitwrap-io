@@ -1638,7 +1638,7 @@ class ToneEngine {
         const instrument = this._instruments.get(channel);
 
         if (!instrument) {
-            this.loadInstrument(channel, channel === 10 ? 'drums' : 'piano');
+            this.loadInstrument(channel, isDrumChannel(channel) ? 'drums' : 'piano');
             return;
         }
 
@@ -2021,14 +2021,63 @@ class ToneEngine {
         this._pitchShift.pitch = p;
     }
 
+    // Build a transient [HP → LP → Gain] chain for shaping a single one-shot.
+    // Returns the upstream node (oscillators connect here); null when opts are
+    // all-default so playOneShot can skip the wrapper and go straight to the
+    // master chain. Nodes self-dispose after the shot settles.
+    _buildOneShotChain(opts, now) {
+        const hpHz = opts.hpHz || 0;
+        const lpHz = opts.lpHz ?? 20000;
+        const attackMs = opts.attackMs || 0;
+        const decayMs = opts.decayMs || 0;
+        if (hpHz <= 20 && lpHz >= 18000 && attackMs <= 2 && decayMs <= 2) return null;
+
+        const envGain = new Tone.Gain(attackMs > 2 ? 0 : 1).connect(this._masterVolume);
+        let upstream = envGain;
+        const nodes = [envGain];
+
+        if (lpHz < 18000) {
+            const lp = new Tone.Filter({ frequency: lpHz, type: 'lowpass', Q: opts.lpQ ?? 0.5, rolloff: -12 }).connect(upstream);
+            nodes.push(lp); upstream = lp;
+        }
+        if (hpHz > 20) {
+            const hp = new Tone.Filter({ frequency: hpHz, type: 'highpass', Q: opts.hpQ ?? 0.5, rolloff: -12 }).connect(upstream);
+            nodes.push(hp); upstream = hp;
+        }
+
+        if (attackMs > 2) {
+            const attackS = attackMs / 1000;
+            envGain.gain.setValueAtTime(0, now);
+            envGain.gain.linearRampToValueAtTime(1, now + attackS);
+        }
+        // Decay gate: once we've ramped up, hold briefly, then ramp to silence
+        // over decayMs. The shot's own internal envelope still runs below this
+        // outer gate — shortest path wins.
+        let tailAt = now + 4;
+        if (decayMs > 2) {
+            const attackS = Math.max(0.001, attackMs / 1000);
+            const holdS = 0.1;
+            const decayS = decayMs / 1000;
+            envGain.gain.setValueAtTime(1, now + attackS + holdS);
+            envGain.gain.linearRampToValueAtTime(0, now + attackS + holdS + decayS);
+            tailAt = now + attackS + holdS + decayS + 0.2;
+        }
+
+        const disposeAfterMs = Math.max(1000, (tailAt - now) * 1000 + 200);
+        setTimeout(() => { for (const n of nodes) n.dispose(); }, disposeAfterMs);
+        return upstream;
+    }
+
     // Fire a transient synth one-shot by name — airhorn / laser / subdrop / booj.
     // Shares the master chain so all FX (reverb/delay/filters/pitch) apply.
     // `semitones` transposes every pitched oscillator via detune; filters and
-    // frequency sweeps remain relative to the detuned pitch.
-    playOneShot(name, semitones = 0) {
+    // frequency sweeps remain relative to the detuned pitch. `opts` may carry
+    // hpHz/hpQ/lpHz/lpQ/attackMs/decayMs for per-shot tone shaping (driven by
+    // the macro panel dropdowns).
+    playOneShot(name, semitones = 0, opts = {}) {
         if (!this._masterVolume) return;
-        const dest = this._masterVolume;
         const now = Tone.now();
+        const dest = this._buildOneShotChain(opts, now) || this._masterVolume;
         const cents = (Number.isFinite(semitones) ? semitones : 0) * 100;
         const tune = (osc) => { if (cents !== 0) osc.detune.value = cents; return osc; };
         // Tight noise-burst click used as an onset transient on all one-shots —
@@ -2214,4 +2263,12 @@ class ToneEngine {
 
 const toneEngine = new ToneEngine();
 
-export { toneEngine, ToneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN };
+// GM-style drum bus: channels 10–15 route through the synth drum kit factory
+// so each drum role (kick/snare/hihat/clap) can live on its own channel and
+// get an independent mixer strip while still dispatching by MIDI note within
+// a shared _synthDrumKit instance.
+function isDrumChannel(ch) {
+    return ch >= 10 && ch <= 15;
+}
+
+export { toneEngine, ToneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN, isDrumChannel };

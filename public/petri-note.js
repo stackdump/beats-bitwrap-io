@@ -4,7 +4,7 @@
  * A music sequencer where Petri net transitions trigger MIDI notes.
  */
 
-import { toneEngine, INSTRUMENT_CONFIGS } from './audio/tone-engine.js';
+import { toneEngine, INSTRUMENT_CONFIGS, isDrumChannel } from './audio/tone-engine.js';
 
 // Mixer math: maps 0–100 slider values to audio-engine frequencies/Q
 function hpFreq(val) { return 20 * Math.pow(250, val / 100); }
@@ -56,8 +56,8 @@ function collectMacroTargets(host, predicate) {
 }
 
 const MACRO_TARGETS = {
-    nonDrums:  (host) => collectMacroTargets(host, (_id, net) => net.track?.channel !== 10),
-    drumsOnly: (host) => collectMacroTargets(host, (_id, net) => net.track?.channel === 10),
+    nonDrums:  (host) => collectMacroTargets(host, (_id, net) => !isDrumChannel(net.track?.channel)),
+    drumsOnly: (host) => collectMacroTargets(host, (_id, net) => isDrumChannel(net.track?.channel)),
     everything:(host) => collectMacroTargets(host, () => true),
 };
 
@@ -123,12 +123,27 @@ const MACROS = [
     // --- One-shots ---
     // durationOpts = stutter repeat count. pitchOpts = per-hit transpose in
     // semitones; applied via oscillator detune so frequency sweeps stay
-    // relative.
+    // relative. Each tile also carries dropdowns for instrument swap, HP/LP
+    // filter freq + Q, attack, decay — all dropdown-only (no sliders).
     { id: 'airhorn',  group: 'One-Shot', kind: 'one-shot', label: 'Airhorn',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'airhorn', pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
     { id: 'laser',    group: 'One-Shot', kind: 'one-shot', label: 'Laser',    defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'laser',   pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
     { id: 'subdrop',  group: 'One-Shot', kind: 'one-shot', label: 'Subdrop',  defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'subdrop', pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
     { id: 'booj',     group: 'One-Shot', kind: 'one-shot', label: 'Booj',     defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj',    pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
 ];
+
+// One-shot tone-shaping dropdown tables. Values are raw engine params so they
+// can be forwarded to `playOneShot` without remapping.
+const ONESHOT_INSTRUMENTS = [
+    { id: 'airhorn', label: 'Airhorn' },
+    { id: 'laser',   label: 'Laser' },
+    { id: 'subdrop', label: 'Subdrop' },
+    { id: 'booj',    label: 'Booj' },
+];
+const ONESHOT_HP  = [[0, 'HP Off'], [80, 'HP 80'], [200, 'HP 200'], [500, 'HP 500'], [1500, 'HP 1.5k']];
+const ONESHOT_LP  = [[20000, 'LP Open'], [8000, 'LP 8k'], [3000, 'LP 3k'], [1000, 'LP 1k'], [400, 'LP 400']];
+const ONESHOT_Q   = [[0.5, 'Q1'], [2, 'Q2'], [5, 'Q3'], [12, 'Q4'], [25, 'Q5']];
+const ONESHOT_ATK = [[0, 'A 0'], [30, 'A 30'], [80, 'A 80'], [200, 'A 200'], [500, 'A 500']];
+const ONESHOT_DEC = [[0, 'D Off'], [200, 'D 200'], [500, 'D 500'], [1200, 'D 1.2s'], [3000, 'D 3s']];
 
 // Genre-specific instrument mappings (channel -> instrument name)
 const GENRE_INSTRUMENTS = {
@@ -559,11 +574,12 @@ class PetriNote extends HTMLElement {
         this._renderMixer();
 
         // Effects panel
+        if (this._showFx === undefined) this._showFx = true;
         const fx = document.createElement('div');
         fx.className = 'pn-effects';
         fx.innerHTML = `
             <div class="pn-effects-toggle">
-                <button class="pn-effects-btn ${this._showMacros ? '' : 'active'}">FX</button>
+                <button class="pn-effects-btn ${this._showFx ? 'active' : ''}">FX</button>
                 <button class="pn-macros-btn ${this._showMacros ? 'active' : ''}" title="Live performance macros">Macros</button>
                 <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
                 <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
@@ -597,6 +613,38 @@ class PetriNote extends HTMLElement {
                                            ${m.pitchOpts.map(v => `<option value="${v}"${v===(m.defaultPitch ?? 0)?' selected':''}>${v > 0 ? '+'+v : v} st</option>`).join('')}
                                        </select>`
                                     : '';
+                                if (m.kind === 'one-shot') {
+                                    const opt = (v, label, def) => `<option value="${v}"${v===def?' selected':''}>${label}</option>`;
+                                    const instHtml = `<select class="pn-os-inst" data-macro="${m.id}" title="Instrument">
+                                        ${ONESHOT_INSTRUMENTS.map(s => opt(s.id, s.label, m.sound)).join('')}
+                                    </select>`;
+                                    const toneRow = `
+                                        <select class="pn-os-hp"  data-macro="${m.id}" title="High-pass freq">
+                                            ${ONESHOT_HP.map(([v, l]) => opt(v, l, 0)).join('')}
+                                        </select>
+                                        <select class="pn-os-hpr" data-macro="${m.id}" title="HP resonance">
+                                            ${ONESHOT_Q.map(([v, l]) => opt(v, 'HPQ ' + l, 0.5)).join('')}
+                                        </select>
+                                        <select class="pn-os-lp"  data-macro="${m.id}" title="Low-pass freq">
+                                            ${ONESHOT_LP.map(([v, l]) => opt(v, l, 20000)).join('')}
+                                        </select>
+                                        <select class="pn-os-lpr" data-macro="${m.id}" title="LP resonance">
+                                            ${ONESHOT_Q.map(([v, l]) => opt(v, 'LPQ ' + l, 0.5)).join('')}
+                                        </select>
+                                        <select class="pn-os-atk" data-macro="${m.id}" title="Attack">
+                                            ${ONESHOT_ATK.map(([v, l]) => opt(v, l, 0)).join('')}
+                                        </select>
+                                        <select class="pn-os-dec" data-macro="${m.id}" title="Decay">
+                                            ${ONESHOT_DEC.map(([v, l]) => opt(v, l, 0)).join('')}
+                                        </select>`;
+                                    return `<div class="pn-macro-item pn-oneshot-row">
+                                                <button class="pn-macro-btn" data-macro="${m.id}" title="Fire">Fire</button>
+                                                ${instHtml}
+                                                ${selectHtml}
+                                                ${pitchHtml}
+                                                ${toneRow}
+                                            </div>`;
+                                }
                                 return `<div class="pn-macro-item">
                                             <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
                                             ${selectHtml}
@@ -607,7 +655,7 @@ class PetriNote extends HTMLElement {
                     `).join('');
                 })()}
             </div>
-            <div class="pn-effects-panel" style="display:${this._showMacros ? 'none' : 'flex'}">
+            <div class="pn-effects-panel" style="display:${this._showFx ? 'flex' : 'none'}">
                 <div class="pn-fx-group">
                     <span class="pn-fx-label">Master</span>
                     <div class="pn-fx-control">
@@ -714,9 +762,8 @@ class PetriNote extends HTMLElement {
         this._fxNotchesAdded = true;
         requestAnimationFrame(() => this._addDefaultNotches(fx));
 
-        // FX panel always open (toggle removed)
-
-        // Macros toggle: show/hide macros panel; mutually exclusive with FX panel
+        // FX and Macros toggle independently — panels stack in DOM order
+        // (macros above FX) so when both are open, FX sits beneath macros.
         const macrosBtn = fx.querySelector('.pn-macros-btn');
         const fxBtn     = fx.querySelector('.pn-effects-btn');
         const fxPanel   = fx.querySelector('.pn-effects-panel');
@@ -724,16 +771,12 @@ class PetriNote extends HTMLElement {
         macrosBtn.addEventListener('click', () => {
             this._showMacros = !this._showMacros;
             mxPanel.style.display = this._showMacros ? 'flex' : 'none';
-            fxPanel.style.display = this._showMacros ? 'none' : 'flex';
             macrosBtn.classList.toggle('active', this._showMacros);
-            fxBtn.classList.toggle('active', !this._showMacros);
         });
         fxBtn.addEventListener('click', () => {
-            this._showMacros = false;
-            mxPanel.style.display = 'none';
-            fxPanel.style.display = 'flex';
-            macrosBtn.classList.remove('active');
-            fxBtn.classList.add('active');
+            this._showFx = !this._showFx;
+            fxPanel.style.display = this._showFx ? 'flex' : 'none';
+            fxBtn.classList.toggle('active', this._showFx);
         });
 
         // Macro button clicks → fire the macro
@@ -1608,7 +1651,7 @@ class PetriNote extends HTMLElement {
             if (!net) return;
             const ch = net.track?.channel || 1;
             const row = slider.closest('.pn-mixer-row');
-            const drumRole = (ch === 10) ? (net.riffGroup || row?.dataset.riffGroup || netId) : null;
+            const drumRole = isDrumChannel(ch) ? (net.riffGroup || row?.dataset.riffGroup || netId) : null;
 
             // Save slider state for this net
             this._saveMixerSliderState(netId);
@@ -1781,7 +1824,7 @@ class PetriNote extends HTMLElement {
         const net = this._project.nets[netId];
         if (!net) return;
         const ch = net.track?.channel || 1;
-        const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
+        const drumRole = isDrumChannel(ch) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
 
         for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
             const el = row.querySelector(`.${cls}`);
@@ -1950,11 +1993,25 @@ class PetriNote extends HTMLElement {
         } else if (macro.kind === 'one-shot') {
             const hits = Math.max(1, duration);    // duration dropdown = hit count for one-shots
             const interval = this._msPerBar() / 16; // 16th-note stutter spacing
-            const pitchSel = this.querySelector(`.pn-macro-pitch[data-macro="${id}"]`);
-            const pitch = parseInt(pitchSel?.value, 10) || 0;
+            const readSel = (cls, fallback = 0) => {
+                const el = this.querySelector(`.${cls}[data-macro="${id}"]`);
+                const v = parseFloat(el?.value);
+                return Number.isFinite(v) ? v : fallback;
+            };
+            const pitch = readSel('pn-macro-pitch', 0);
+            const instSel = this.querySelector(`.pn-os-inst[data-macro="${id}"]`);
+            const sound = instSel?.value || macro.sound;
+            const opts = {
+                hpHz: readSel('pn-os-hp', 0),
+                hpQ:  readSel('pn-os-hpr', 0.5),
+                lpHz: readSel('pn-os-lp', 20000),
+                lpQ:  readSel('pn-os-lpr', 0.5),
+                attackMs: readSel('pn-os-atk', 0),
+                decayMs:  readSel('pn-os-dec', 0),
+            };
             this._ensureToneStarted().then(() => {
                 for (let i = 0; i < hits; i++) {
-                    setTimeout(() => toneEngine.playOneShot(macro.sound, pitch), i * interval);
+                    setTimeout(() => toneEngine.playOneShot(sound, pitch, opts), i * interval);
                 }
             });
         }
@@ -2090,7 +2147,7 @@ class PetriNote extends HTMLElement {
             const targets = [];
             for (const [id, net] of this._musicNets()) {
                 // Keep kick alive so there's still a pulse under the stutter
-                if (net.track?.channel === 10 && (net.riffGroup === 'kick' || id === 'kick' || id.startsWith('kick:'))) continue;
+                if (net.riffGroup === 'kick' || id === 'kick' || id.startsWith('kick:')) continue;
                 if (this._mutedNets.has(id)) continue;
                 targets.push(id);
             }
@@ -2280,7 +2337,7 @@ class PetriNote extends HTMLElement {
             const net = this._project?.nets?.[netId];
             if (!net) continue;
             const ch = net.track?.channel || 1;
-            const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
+            const drumRole = isDrumChannel(ch) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
             for (const [cls, , applyFactory] of MIXER_SLIDERS) {
                 const ctrl = row.querySelector(`.${cls}`);
                 if (!ctrl) continue;
@@ -2382,7 +2439,7 @@ class PetriNote extends HTMLElement {
                 <option value="">Master</option>
             </select>
             ${this._patternSelectsHtml(net, id)}
-            ${this._mixerSlidersHtml(id, channel === 10)}
+            ${this._mixerSlidersHtml(id, isDrumChannel(channel))}
             <button class="pn-mixer-save" data-net-id="${id}" title="Save / load tone presets for this track">&#9733;</button>
             <button class="pn-mixer-test" data-net-id="${id}" title="Test note">&#9835;</button>
             <button class="pn-mixer-tone-reset" data-net-id="${id}" title="Reset tone">&#8634;</button>
@@ -2410,7 +2467,7 @@ class PetriNote extends HTMLElement {
             const net = this._project.nets[netId];
             if (!net) continue;
             const ch = net.track?.channel || 1;
-            const drumRole = (ch === 10) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
+            const drumRole = isDrumChannel(ch) ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
 
             for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
                 const el = row.querySelector(`.${cls}`);
@@ -2487,7 +2544,7 @@ class PetriNote extends HTMLElement {
         const net = this._project.nets[netId];
         if (!net) return;
         const ch = net.track?.channel || 1;
-        const isPerc = ch === 10;
+        const isPerc = isDrumChannel(ch);
         const drumRole = isPerc ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
         const defaults = { locut: '0', lores: '5', cut: '100', res: '5', dec: isPerc ? '100' : '5' };
         for (const [cls, key, applyFactory] of MIXER_SLIDERS) {
@@ -2523,7 +2580,7 @@ class PetriNote extends HTMLElement {
         const net = this._project.nets[netId];
         if (!net) return;
         const ch = net.track?.channel || 1;
-        const isPerc = ch === 10;
+        const isPerc = isDrumChannel(ch);
         const drumRole = isPerc ? (net.riffGroup || row.dataset.riffGroup || netId) : null;
 
         const readCurrent = () => {
@@ -2576,12 +2633,12 @@ class PetriNote extends HTMLElement {
         const net = this._project.nets[netId];
         if (!net) return;
         const channel = net.track?.channel || 1;
-        await this._playNote({
-            note: channel === 10 ? 36 : 60,
-            velocity: 100,
-            duration: 200,
-            channel
-        });
+        let note = 60;
+        if (isDrumChannel(channel)) {
+            const roleNote = { kick: 36, snare: 38, hihat: 42, clap: 39 };
+            note = roleNote[net.riffGroup] ?? roleNote[netId] ?? 36;
+        }
+        await this._playNote({ note, velocity: 100, duration: 200, channel });
     }
 
     _renderTimeline() {

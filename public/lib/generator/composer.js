@@ -564,7 +564,7 @@ export function compose(genreName, overrides = {}) {
     const kickParams = { channel: 10, velocity: 100, duration: 50, seed: dSeed, accent: AccentKick };
     proj.nets.kick = euclidean(genre.kick[0], genre.kick[1], genre.kick[2], genre.kick[3], kickParams).bundle;
 
-    const snareParams = { channel: 10, velocity: 100, duration: 50, seed: dSeed + 1, accent: AccentSnare };
+    const snareParams = { channel: 11, velocity: 100, duration: 50, seed: dSeed + 1, accent: AccentSnare };
     proj.nets.snare = euclidean(genre.snare[0], genre.snare[1], genre.snare[2], genre.snare[3], snareParams).bundle;
 
     // Hihat
@@ -573,7 +573,7 @@ export function compose(genreName, overrides = {}) {
         hihatSteps = polySteps;
         hihatHits = Math.max(1, Math.floor(hihatHits * polySteps / genre.hihat[1]));
     }
-    const hihatParams = { channel: 10, velocity: 100, duration: 50, seed: dSeed + 2, accent: AccentHihat };
+    const hihatParams = { channel: 12, velocity: 100, duration: 50, seed: dSeed + 2, accent: AccentHihat };
     if (gn > 0) {
         proj.nets.hihat = ghostNoteHihat(hihatHits, hihatSteps, hihatRotation, hihatNote, hihatParams, gn).bundle;
     } else {

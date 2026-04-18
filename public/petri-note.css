@@ -788,6 +788,41 @@ input[type="range"][data-default] {
     border-color: #6e4adf;
 }
 
+/* One-shot row: compact dropdown-only tile — Fire button + instrument + hits
+ * + pitch + HP/LP/Q/Q/Atk/Dec. Wraps across lines on narrow panels. */
+.pn-oneshot-row {
+    flex-wrap: wrap;
+    row-gap: 3px;
+}
+
+.pn-oneshot-row .pn-macro-btn {
+    flex: 0 0 auto;
+    min-width: 52px;
+    padding: 4px 10px;
+    text-align: center;
+}
+
+.pn-oneshot-row select {
+    padding: 3px 4px;
+    background: #1a1a2e;
+    color: #9ad0ff;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    min-width: 54px;
+}
+
+.pn-oneshot-row select:hover {
+    border-color: #1a4a7a;
+}
+
+.pn-oneshot-row .pn-os-inst {
+    color: #eee;
+    font-weight: 600;
+    min-width: 70px;
+}
+
 .pn-fx-bypass, .pn-fx-reset, .pn-cc-reset {
     background: transparent;
     border: 1px solid #0f3460;
