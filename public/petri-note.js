@@ -118,7 +118,9 @@ const MACROS = [
     { id: 'mono',       group: 'Pan', kind: 'pan-move', label: 'Mono',       defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',     toValue:  0,   targets: MACRO_TARGETS.nonDrums },
 
     // --- Shape ---
-    { id: 'tighten',    group: 'Shape', kind: 'decay-move', label: 'Tighten', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold', toValue: 0.3, targets: MACRO_TARGETS.everything },
+    { id: 'tighten',    group: 'Shape', kind: 'decay-move', label: 'Tighten', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',  toValue: 0.3, targets: MACRO_TARGETS.everything },
+    { id: 'loosen',     group: 'Shape', kind: 'decay-move', label: 'Loosen',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',  toValue: 2.5, targets: MACRO_TARGETS.everything },
+    { id: 'pulse',      group: 'Shape', kind: 'decay-move', label: 'Pulse',   defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'sweep', rateBeats: 2, targets: MACRO_TARGETS.everything },
     // --- Pitch ---
     { id: 'octave-up',    group: 'Pitch', kind: 'fx-hold',  label: 'Octave Up',   defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
       tailFrac: 0.3, ops: [{ fxKey: 'master-pitch', toValue: 12 }] },
@@ -722,13 +724,16 @@ class PetriNote extends HTMLElement {
                     <input type="checkbox" class="pn-autodj-enable">
                     <span>Run</span>
                 </label>
+                <label class="pn-autodj-toggle" title="Spin the ring on cadence without firing any macros">
+                    <input type="checkbox" class="pn-autodj-animate-only">
+                    <span>Animate only</span>
+                </label>
                 <label class="pn-autodj-field">
                     <span>Every</span>
                     <select class="pn-autodj-rate">
-                        <option value="1">1 bar</option>
-                        <option value="2" selected>2 bars</option>
-                        <option value="4">4 bars</option>
-                        <option value="8">8 bars</option>
+                        ${[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].map(v =>
+                            `<option value="${v}"${v === 2 ? ' selected' : ''}>${v} bars · ${v * 4} beats</option>`
+                        ).join('')}
                     </select>
                 </label>
                 <fieldset class="pn-autodj-pools">
@@ -753,10 +758,9 @@ class PetriNote extends HTMLElement {
                     <span>Regen</span>
                     <select class="pn-autodj-regen" title="Regenerate the whole track every N bars (off = never)">
                         <option value="0" selected>Off</option>
-                        <option value="8">8 bars</option>
-                        <option value="16">16 bars</option>
-                        <option value="32">32 bars</option>
-                        <option value="64">64 bars</option>
+                        ${[8, 16, 32, 64, 128, 256, 512, 1024].map(v =>
+                            `<option value="${v}">${v} bars · ${v * 4} beats</option>`
+                        ).join('')}
                     </select>
                 </label>
                 <span class="pn-autodj-status">idle</span>
@@ -2455,18 +2459,47 @@ class PetriNote extends HTMLElement {
         const enableEl = this.querySelector('.pn-autodj-enable');
         if (!enableEl?.checked) return;
         if (curTick === prevTick) return;
+        // Tick wrap (loop wrap or freshly-regenerated project resets to 0) —
+        // skip this cycle to avoid re-triggering regen/macros on the reset.
+        if (curTick < prevTick) { this._autoDjPreviewPending = false; return; }
         const ticksPerBar = 16;
 
-        // Regen check runs independently of macro cadence so users can regen
-        // less-often or more-often than they fire macros. Crossing the N-bar
-        // boundary triggers a full Generate click.
+        // Regen check runs independently of macro cadence. At 1 bar before
+        // the boundary we kick a preview-generate to the worker; at the
+        // boundary we apply that pre-rendered project (falling back to a
+        // sync Generate click if the preview didn't arrive in time). Keeps
+        // the swap as seamless as shuffle mode.
         const regenBars = parseInt(this.querySelector('.pn-autodj-regen')?.value, 10) || 0;
         if (regenBars > 0) {
             const regenBoundary = regenBars * ticksPerBar;
+            const prefetchTick = regenBoundary - ticksPerBar; // 1 bar early
+            const prPf = ((prevTick) % regenBoundary) < prefetchTick;
+            const crPf = ((curTick)  % regenBoundary) >= prefetchTick;
+            if (prPf && crPf && !this._autoDjPreviewPending && curTick > 0) {
+                this._autoDjPreviewPending = true;
+                const genre = this.querySelector('.pn-genre-select')?.value || 'techno';
+                const params = { ...(this._traitOverrides || {}) };
+                const structure = this.querySelector('.pn-structure-select')?.value || '';
+                if (structure) params.structure = structure;
+                this._sendWs({ type: 'generate-preview', genre, params });
+                const statusEl = this.querySelector('.pn-autodj-status');
+                if (statusEl) statusEl.textContent = `pre-loading next…`;
+            }
+
             const pr = Math.floor(prevTick / regenBoundary);
             const cr = Math.floor(curTick  / regenBoundary);
             if (cr !== pr && curTick > 0) {
-                this.querySelector('.pn-generate-btn')?.click();
+                const preview = this._pendingNextTrack;
+                if (preview) {
+                    // Use pre-rendered project for a seamless swap
+                    this._pendingNextTrack = null;
+                    this._applyProjectSync(preview, true);
+                    this._sendWs({ type: 'project-load', project: preview });
+                } else {
+                    // Pre-load didn't land in time — fall back to a sync gen
+                    this.querySelector('.pn-generate-btn')?.click();
+                }
+                this._autoDjPreviewPending = false;
                 const statusEl = this.querySelector('.pn-autodj-status');
                 if (statusEl) statusEl.textContent = `regenerating…`;
             }
@@ -2478,32 +2511,51 @@ class PetriNote extends HTMLElement {
         const cur  = Math.floor(curTick / boundary);
         if (cur === prev) return;
 
+        const stack = parseInt(this.querySelector('.pn-autodj-stack')?.value, 10) || 1;
+        const animateOnly = !!this.querySelector('.pn-autodj-animate-only')?.checked;
+        const statusEl = this.querySelector('.pn-autodj-status');
+
+        // Animate-only: skip macro selection entirely, just spin the ring
+        // `stack` times so users can use Auto-DJ as a pure visualizer.
+        // Runs even when a user-fired macro is active since there's no
+        // firing conflict.
+        if (animateOnly) {
+            for (let i = 0; i < stack; i++) this._autoDjSpin();
+            if (statusEl) statusEl.textContent = `(animate only)`;
+            return;
+        }
+
         // Don't pile up — if any macro (user-fired or previous Auto-DJ pick)
         // is still running or has queued followers, skip this cycle entirely
         // rather than stacking into the serial queue.
         if (this._runningMacro || (this._macroQueue && this._macroQueue.length > 0)) {
-            const statusEl = this.querySelector('.pn-autodj-status');
             if (statusEl) statusEl.textContent = `(skipped — busy)`;
             return;
         }
 
         const poolBoxes = this.querySelectorAll('.pn-autodj-pool:checked');
         const enabled = new Set([...poolBoxes].map(cb => cb.value));
-        const stack = parseInt(this.querySelector('.pn-autodj-stack')?.value, 10) || 1;
-        if (enabled.size === 0) return;
 
         // "Beats" maps to the one-shot kind (Hit1..4 Fire pads); any other
         // entry matches `macro.group` directly. Compound macros are skipped
         // since they internally fire several others and the cadence is too
         // dense for auto-cycling.
         this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
-        const candidates = MACROS.filter(m => {
+        const candidates = enabled.size === 0 ? [] : MACROS.filter(m => {
             if (m.kind === 'compound') return false;
             if (this._disabledMacros.has(m.id)) return false;
             if (m.kind === 'one-shot') return enabled.has('Beats');
             return enabled.has(m.group);
         });
-        if (candidates.length === 0) return;
+
+        // No candidates (all pools unchecked / all macros disabled) — still
+        // spin the ring on cadence so the visual feedback persists even when
+        // there's nothing to fire. Avoids "is Auto-DJ broken?" moments.
+        if (candidates.length === 0) {
+            for (let i = 0; i < stack; i++) this._autoDjSpin();
+            if (statusEl) statusEl.textContent = `(no candidates)`;
+            return;
+        }
 
         const fired = [];
         // First stack item goes through the normal fire path so it claims the
@@ -2516,7 +2568,6 @@ class PetriNote extends HTMLElement {
             else         this._executeMacro(pick.id);
             this._autoDjSpin();
         }
-        const statusEl = this.querySelector('.pn-autodj-status');
         if (statusEl) statusEl.textContent = `→ ${fired.join(', ')}`;
     }
 
@@ -2779,7 +2830,17 @@ class PetriNote extends HTMLElement {
                 v = (beat % 2 === 0) ? -1 : 1;
             } else if (macro.pattern === 'sweep') {
                 const rateMs = (macro.rateBeats || 4) * msPerBeat;
-                v = Math.sin((elapsed / rateMs) * 2 * Math.PI);
+                const sine = Math.sin((elapsed / rateMs) * 2 * Math.PI);
+                if (kind === 'decay-move') {
+                    // Map sine -1..+1 to a musically useful decay range so the
+                    // sweep pulses between snappy and bloomy without ever
+                    // hitting the 0.05 clamp or the 3.0 ceiling.
+                    const lo = macro.sweepMin ?? 0.3;
+                    const hi = macro.sweepMax ?? 1.8;
+                    v = lo + (sine + 1) * 0.5 * (hi - lo);
+                } else {
+                    v = sine;
+                }
             } else {
                 v = macro.toValue ?? (kind === 'pan-move' ? 0 : 1.0);
             }
@@ -4765,7 +4826,7 @@ class PetriNote extends HTMLElement {
                     <li><b>Pitch</b>: Octave Up / Down, Pitch Bend, Vinyl Brake</li>
                     <li><b>Tempo</b>: Half Time, Tape Stop</li>
                     <li><b>Pan</b> (non-drum tracks only): <b>Ping-Pong</b> (hard L/R every beat), <b>Hard Left / Right</b> (hold to one side), <b>Auto-Pan</b> (slow sinusoidal LFO), <b>Mono</b> (force center). Each track restores to the pan you had set before firing.</li>
-                    <li><b>Shape</b>: <b>Tighten</b> &mdash; pulls every channel's decay multiplier down for N bars so tails snap shut; restores on release.</li>
+                    <li><b>Shape</b> (per-channel decay): <b>Tighten</b> snaps tails shut, <b>Loosen</b> blooms them out, <b>Pulse</b> breathes decay in/out on a 2-beat sine. All restore per-channel to the user's pre-macro decay on release.</li>
                 </ul>
 
                 <h3>Beats (stinger fire pads)</h3>
@@ -4780,12 +4841,15 @@ class PetriNote extends HTMLElement {
                 </ul>
 
                 <h3>Auto-DJ</h3>
-                <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Hands-free performer. Checks <b>Run</b> to arm; every N bars it picks a random macro from the checked pools and fires it. Stack dropdown fires multiple at once. The petri-net ring swings back and forth on every fire so you can see when it's working.</p>
+                <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Hands-free performer. Arm with <b>Run</b>; every N bars it picks a random macro from the checked pools and fires it. The petri-net ring swings ±90&deg; on every fire (arrowheads flip on CCW passes so tokens visually follow the spin).</p>
                 <ul>
-                    <li><b>Every</b> 1 / 2 / 4 / 8 bars &mdash; cadence</li>
-                    <li><b>Pools</b> checkboxes &mdash; restrict to Mute / FX / Pan / Shape / Pitch / Tempo / Beats</li>
-                    <li><b>Stack</b> 1 / 2 / 3 &mdash; fires that many simultaneously each cycle</li>
-                    <li>Status line shows the last macros it picked</li>
+                    <li><b>Every</b> — cadence of fires (1 / 2 / 4 / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 bars, each label shows its beat count)</li>
+                    <li><b>Animate only</b> — spin the ring on cadence without firing any macros (works even while another macro is running)</li>
+                    <li><b>Pools</b> checkboxes — Mute / FX / Pan / Shape / Pitch / Tempo / Beats. If every pool is unchecked the ring still spins with <code>(no candidates)</code> in the status line</li>
+                    <li><b>Stack</b> 1 / 2 / 3 — fires that many simultaneously each cycle (stack members bypass the serial queue; cycles are skipped entirely if a user-fired macro is already running)</li>
+                    <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap</li>
+                    <li>Status line shows the last picks, pre-load activity, or why a cycle was skipped</li>
+                    <li><b>Right-click any macro tile</b> to mark it disabled — Auto-DJ skips disabled macros (line-through mark, persisted)</li>
                 </ul>
 
                 <h3>MIDI Pad &amp; CC Learn</h3>
@@ -5230,6 +5294,32 @@ class PetriNote extends HTMLElement {
      * Apply a buffered project-sync (called immediately or at bar boundary)
      */
     _applyProjectSync(project, seamless = false) {
+        // Cancel any in-flight macro animations — their tokens reference DOM
+        // nodes about to be replaced and channels whose snapshots no longer
+        // apply. Without this, chase-pulse classes can stick on detached
+        // elements and pan/decay restores can fire against a fresh project's
+        // state with stale "before" values.
+        if (this._chanAnim) {
+            for (const id of Object.keys(this._chanAnim)) {
+                const t = this._chanAnim[id];
+                if (t) { t.cancelled = true; if (t.hardStop) clearTimeout(t.hardStop); }
+            }
+            this._chanAnim = {};
+        }
+        if (this._pulseAnim) {
+            for (const id of Object.keys(this._pulseAnim)) {
+                const t = this._pulseAnim[id];
+                if (t) t.cancelled = true;
+            }
+            this._pulseAnim = {};
+        }
+        // Clear any leftover pulse classes so the new mixer rows render clean.
+        this.querySelectorAll('.pn-pulsing, .pn-pulsing-hot').forEach(el => {
+            el.classList.remove('pn-pulsing', 'pn-pulsing-hot');
+        });
+        // Auto-DJ preview bookkeeping resets with the project
+        this._autoDjPreviewPending = false;
+
         this._project = project;
         this._normalizeProject();
         this._vizHistory = [];
