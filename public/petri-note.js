@@ -6351,12 +6351,19 @@ class PetriNote extends HTMLElement {
         this._project = project;
         this._normalizeProject();
         this._vizHistory = [];
-        // Save to track history (unless navigating back)
+        // Save to track history (unless navigating back). Capped at 30
+        // entries — each snapshot is a deep-cloned project (~50–200 KB)
+        // and Auto-DJ regen can push multiple per minute, so without a
+        // cap this grew unboundedly over a long session.
         if (!this._navingHistory) {
             if (this._trackIndex < this._trackHistory.length - 1) {
                 this._trackHistory.length = this._trackIndex + 1;
             }
             this._trackHistory.push(JSON.parse(JSON.stringify(project)));
+            const MAX_TRACK_HISTORY = 30;
+            while (this._trackHistory.length > MAX_TRACK_HISTORY) {
+                this._trackHistory.shift();
+            }
             this._trackIndex = this._trackHistory.length - 1;
         }
         this._navingHistory = false;
