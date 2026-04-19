@@ -153,6 +153,16 @@ const MACROS = [
     { id: 'hit4', group: 'One-Shot', kind: 'one-shot', label: 'Hit 4', defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj',    pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
 ];
 
+// Curated picks for "Transition" pool — fires only on Auto-DJ regen
+// boundaries. Chosen to resolve naturally on a downbeat (sweeps that
+// end open, washes that decay, risers that land) rather than random
+// Mute/Pan/Shape gestures which tend to feel disorienting across a
+// track change.
+const TRANSITION_MACRO_IDS = new Set([
+    'riser', 'sweep-hp', 'sweep-lp', 'reverb-wash', 'cathedral',
+    'delay-throw', 'dub-delay', 'tape-stop', 'phaser-drone',
+]);
+
 // One-shot tone-shaping dropdown tables. Values are raw engine params so they
 // can be forwarded to `playOneShot` without remapping.
 // kind='custom': routed to toneEngine.playOneShot (hardcoded airhorn/laser/…)
@@ -844,6 +854,7 @@ class PetriNote extends HTMLElement {
                     <label><input type="checkbox" class="pn-autodj-pool" value="Pitch">Pitch</label>
                     <label><input type="checkbox" class="pn-autodj-pool" value="Tempo">Tempo</label>
                     <label><input type="checkbox" class="pn-autodj-pool" value="Beats">Beats</label>
+                    <label title="Only fires on regen boundaries — curated sweeps/washes/risers for track transitions"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
                 </fieldset>
                 <label class="pn-autodj-field">
                     <span>Stack</span>
@@ -2837,25 +2848,15 @@ class PetriNote extends HTMLElement {
                     this._pendingNextTrack = null;
                     this._applyProjectSync(preview, true);
                     this._sendWs({ type: 'project-load', project: preview });
+                    this._fireTransitionMacro();
                 } else {
                     // Pre-load didn't land in time — fall back to a sync gen,
-                    // and bump the reqId so the late preview (which will still
-                    // arrive) gets dropped instead of triggering a second
-                    // regen at the next boundary. The new project arrives on
-                    // a later tick via project-sync, so defer any macro that
-                    // would have fired this tick to fire against the NEW
-                    // track (checked in _applyProjectSync).
+                    // bump reqId so the late preview gets dropped. The new
+                    // project arrives on a later tick via project-sync; the
+                    // transition macro fires there (deferred flag).
                     this._previewReqId++;
                     this.querySelector('.pn-generate-btn')?.click();
-                    const rateBarsLocal = parseInt(this.querySelector('.pn-autodj-rate')?.value, 10) || 2;
-                    const rateBoundary = rateBarsLocal * ticksPerBar;
-                    const rPrev = Math.floor(prevTick / rateBoundary);
-                    const rCur  = Math.floor(curTick  / rateBoundary);
-                    if (rCur !== rPrev) this._autoDjPendingMacroAfterSync = true;
-                    this._autoDjPreviewPending = false;
-                    const statusEl = this.querySelector('.pn-autodj-status');
-                    if (statusEl) statusEl.textContent = `regenerating…`;
-                    return;
+                    this._pendingTransitionAfterSync = true;
                 }
                 this._autoDjPreviewPending = false;
                 const statusEl = this.querySelector('.pn-autodj-status');
@@ -2872,10 +2873,28 @@ class PetriNote extends HTMLElement {
         this._autoDjFireMacros();
     }
 
-    // Macro-selection half of the Auto-DJ tick. Factored out so that when
-    // regen falls back to a cold generate (async), we can defer the macro
-    // until the new project has landed via _applyProjectSync — that way
-    // "change track, then fire macro" holds even in the fallback case.
+    // Track-boundary transition macro. Fires on Auto-DJ regen, shuffle-next,
+    // and repeat-loop restarts — independent of the rate-cadence macros
+    // (Mute/FX/Pan/…) that fire every N bars. Gated by the "Transition"
+    // pool checkbox so the user can opt out without disabling Auto-DJ.
+    _fireTransitionMacro() {
+        if (!this.querySelector('.pn-autodj-enable')?.checked) return;
+        const pools = this.querySelectorAll('.pn-autodj-pool:checked');
+        const enabled = new Set([...pools].map(cb => cb.value));
+        if (!enabled.has('Transition')) return;
+        if (this._runningMacro || (this._macroQueue && this._macroQueue.length > 0)) return;
+        this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
+        const candidates = MACROS.filter(m => TRANSITION_MACRO_IDS.has(m.id) && !this._disabledMacros.has(m.id));
+        if (candidates.length === 0) return;
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        this._fireMacro(pick.id);
+        const statusEl = this.querySelector('.pn-autodj-status');
+        if (statusEl) statusEl.textContent = `⟳ ${pick.label}`;
+    }
+
+    // Macro-selection half of the Auto-DJ tick. Factored out so that
+    // post-sync contexts (transitions fire from _applyProjectSync tail)
+    // share rendering logic cleanly.
     _autoDjFireMacros() {
         const stack = parseInt(this.querySelector('.pn-autodj-stack')?.value, 10) || 1;
         const animateOnly = !!this.querySelector('.pn-autodj-animate-only')?.checked;
@@ -6273,12 +6292,11 @@ class PetriNote extends HTMLElement {
         this._setupMediaSession();
         this._updateMediaSessionState();
 
-        // Deferred Auto-DJ macro from the cold-regen fallback path: the
-        // original boundary tick couldn't fire against the old track, so
-        // now that the new project is live, pick and fire here.
-        if (this._autoDjPendingMacroAfterSync) {
-            this._autoDjPendingMacroAfterSync = false;
-            this._autoDjFireMacros();
+        // Deferred transition macro from cold-regen fallback: fire here so
+        // the sweep/wash lands on the new track instead of the old one.
+        if (this._pendingTransitionAfterSync) {
+            this._pendingTransitionAfterSync = false;
+            this._fireTransitionMacro();
         }
     }
 
@@ -6734,6 +6752,7 @@ class PetriNote extends HTMLElement {
                     this._sendWs({ type: 'transport', action: 'play' });
                     this._playing = true;
                     this._vizStartLoop();
+                    this._fireTransitionMacro();
                 } else if (this._playbackMode === 'shuffle') {
                     this._prefetchSent = false;
                     if (this._pendingNextTrack) {
@@ -6742,8 +6761,10 @@ class PetriNote extends HTMLElement {
                         this._pendingNextTrack = null;
                         toneEngine.panic();
                         this._applyProjectSync(proj, false);
+                        this._fireTransitionMacro();
                     } else {
-                        // Fallback: generate on demand with current instruments
+                        // Fallback: generate on demand with current instruments.
+                        // Transition fires after the new project lands.
                         this._tick = 0; this._lastPlayheadPct = 0;
                         this._updatePlayhead();
                         const genre = this.querySelector('.pn-genre-select').value;
@@ -6751,6 +6772,7 @@ class PetriNote extends HTMLElement {
                         const params = { ...(this._traitOverrides || {}), instruments: this._getCurrentInstruments() };
                         if (structure) params.structure = structure;
                         this._sendWs({ type: 'generate', genre, params });
+                        this._pendingTransitionAfterSync = true;
                     }
                 } else {
                     // Single: stop
