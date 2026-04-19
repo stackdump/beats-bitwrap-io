@@ -1250,6 +1250,11 @@ class ToneEngine {
         this._hpFilter = null;
         this._masterComp = null;
         this._loading = new Set();
+        // Pre-warm pool: channel:instrumentName -> { instrument, gain } built
+        // ahead of the swap so a bar-boundary / shuffle transition is just a
+        // pointer promotion (no synth instantiation on the audio-scheduling
+        // thread, which was the main cause of playback stutter on regen).
+        this._pool = new Map();
         this._lastNoteTime = 0; // ensures strictly increasing times for Tone.js
     }
 
@@ -1603,6 +1608,98 @@ class ToneEngine {
         }
 
         this._loading.delete(loadKey);
+    }
+
+    // Build a synth for (channel, instrumentName) into a side pool so it can
+    // later be promoted onto the live channel without allocating on the audio
+    // thread. Safe to call during playback — the pooled synth is silent
+    // (notes route through this._instruments only). Skipped if the target is
+    // already live on that channel or already pooled.
+    async preloadInstrument(channel, instrumentName) {
+        if (!this._started) return;
+        const existing = this._channelConfigs.get(channel);
+        if (existing && existing.name === instrumentName) return;
+        const poolKey = `${channel}:${instrumentName}`;
+        if (this._pool.has(poolKey)) return;
+        const config = INSTRUMENT_CONFIGS[instrumentName];
+        if (!config) return;
+
+        const strip = this._getChannelStrip(channel);
+        const gainDb = INSTRUMENT_GAIN[instrumentName] || 0;
+        const normGain = new Tone.Gain(Tone.dbToGain(gainDb)).connect(strip.volume);
+
+        let instrument;
+        try {
+            switch (config.type) {
+                case 'sampler':
+                    instrument = await this._createSampler(config, normGain);
+                    break;
+                case 'synth':
+                    instrument = this._createSynth(config, normGain);
+                    break;
+                case 'players':
+                    instrument = await this._createPlayers(config, normGain);
+                    break;
+                case 'custom':
+                    instrument = config.create(normGain);
+                    break;
+                default:
+                    instrument = new Tone.Synth().connect(normGain);
+            }
+            if (instrument.maxPolyphony !== undefined) instrument.maxPolyphony = 64;
+        } catch (err) {
+            normGain.dispose();
+            console.error(`Failed to preload ${instrumentName}:`, err);
+            return;
+        }
+
+        // Same-channel races: if something else got pooled/promoted for this
+        // channel meanwhile, keep the newest preload and drop the older entry.
+        const prev = this._pool.get(poolKey);
+        if (prev) { prev.instrument.dispose(); prev.gain.dispose(); }
+        this._pool.set(poolKey, { instrument, gain: normGain, config, name: instrumentName });
+    }
+
+    // Atomically swap a pooled (channel, instrumentName) onto the live channel.
+    // Returns true if promoted, false if nothing was pooled (caller should
+    // fall back to loadInstrument). Disposes the previously-live instrument.
+    promotePooledInstrument(channel, instrumentName) {
+        const poolKey = `${channel}:${instrumentName}`;
+        const pooled = this._pool.get(poolKey);
+        if (!pooled) return false;
+        this._pool.delete(poolKey);
+
+        const oldInst = this._instruments.get(channel);
+        if (oldInst) oldInst.dispose();
+        const oldGain = this._instrumentGains?.get(channel);
+        if (oldGain) oldGain.dispose();
+
+        if (pooled.instrument._voiceFilters) {
+            if (!this._drumVoiceFilters) this._drumVoiceFilters = new Map();
+            const roleMap = new Map();
+            for (const [role, filters] of Object.entries(pooled.instrument._voiceFilters)) {
+                roleMap.set(role, filters);
+            }
+            this._drumVoiceFilters.set(channel, roleMap);
+        } else {
+            this._drumVoiceFilters?.delete(channel);
+        }
+
+        if (!this._instrumentGains) this._instrumentGains = new Map();
+        this._instrumentGains.set(channel, pooled.gain);
+        this._instruments.set(channel, pooled.instrument);
+        this._channelConfigs.set(channel, { name: pooled.name, config: pooled.config });
+        return true;
+    }
+
+    // Drop any remaining pool entries (e.g. a preview was prewarmed but then
+    // discarded). Prevents unbounded memory growth across many regens.
+    clearPool() {
+        for (const { instrument, gain } of this._pool.values()) {
+            instrument.dispose();
+            gain.dispose();
+        }
+        this._pool.clear();
     }
 
     async _createSampler(config, dest) {

@@ -6038,12 +6038,19 @@ class PetriNote extends HTMLElement {
         const nets = project.nets || {};
         let usedTrackInstruments = false;
 
-        // First try: use track.instrument from each net
+        // Try pooled promote first (preview pre-warmed the synth → pointer
+        // swap, no Tone allocation on the audio-scheduling thread). Fall
+        // through to loadInstrument only for channels that weren't prewarmed.
         for (const [, net] of Object.entries(nets)) {
             if (net.track?.instrument && net.role !== 'control') {
                 const ch = net.track.channel || 1;
-                this._channelInstruments[ch] = net.track.instrument;
-                if (this._toneStarted) toneEngine.loadInstrument(ch, net.track.instrument);
+                const inst = net.track.instrument;
+                this._channelInstruments[ch] = inst;
+                if (this._toneStarted) {
+                    if (!toneEngine.promotePooledInstrument(ch, inst)) {
+                        toneEngine.loadInstrument(ch, inst);
+                    }
+                }
                 usedTrackInstruments = true;
             }
         }
@@ -6053,15 +6060,44 @@ class PetriNote extends HTMLElement {
             const genreName = (project.name || '').split(' ')[0].toLowerCase();
             const genreInst = GENRE_INSTRUMENTS[genreName] || {};
             for (const [ch, inst] of Object.entries(genreInst)) {
-                this._channelInstruments[parseInt(ch)] = inst;
-                if (this._toneStarted) toneEngine.loadInstrument(parseInt(ch), inst);
+                const chNum = parseInt(ch);
+                this._channelInstruments[chNum] = inst;
+                if (this._toneStarted) {
+                    if (!toneEngine.promotePooledInstrument(chNum, inst)) {
+                        toneEngine.loadInstrument(chNum, inst);
+                    }
+                }
             }
         }
+        // Drop anything still pooled (preview channels we didn't end up
+        // using) so memory doesn't grow across regens.
+        if (this._toneStarted) toneEngine.clearPool();
 
         // Subtle default pan spread per track role so the Mono / Pan macros
         // have something to collapse/flip. Users can still override via the
         // mixer pan slider — these only paint the starting point.
         this._applyDefaultPans(nets);
+    }
+
+    // Build the next track's synths into the tone-engine pool one-at-a-time
+    // while the current track still plays. Awaiting each keeps Tone.js
+    // allocations serialized so each individual hitch is tiny and spread
+    // across multiple ticks; by the time the swap happens, every synth is
+    // already wired to its channel strip.
+    async _prewarmPreviewInstruments(project) {
+        if (!this._toneStarted || !project?.nets) return;
+        const seen = new Set();
+        for (const net of Object.values(project.nets)) {
+            if (net.role === 'control') continue;
+            const inst = net.track?.instrument;
+            const ch = net.track?.channel;
+            if (!inst || ch == null) continue;
+            const key = `${ch}:${inst}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            try { await toneEngine.preloadInstrument(ch, inst); }
+            catch (err) { console.warn('preloadInstrument failed:', err); }
+        }
     }
 
     _applyDefaultPans(nets) {
@@ -6236,7 +6272,11 @@ class PetriNote extends HTMLElement {
             // Update audio engine
             const ch = net.track.channel || 1;
             this._channelInstruments[ch] = instrumentName;
-            if (this._toneStarted) toneEngine.loadInstrument(ch, instrumentName);
+            if (this._toneStarted) {
+                if (!toneEngine.promotePooledInstrument(ch, instrumentName)) {
+                    toneEngine.loadInstrument(ch, instrumentName);
+                }
+            }
         }
 
         // Refresh mixer display
@@ -6478,6 +6518,7 @@ class PetriNote extends HTMLElement {
             if (msg.type === 'preview-ready') {
                 // Handle prefetch for shuffle mode
                 this._pendingNextTrack = msg.project;
+                this._prewarmPreviewInstruments(msg.project);
                 return;
             }
             this._handleWsMessage(msg);
