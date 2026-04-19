@@ -223,11 +223,20 @@ const ONESHOT_DEC = [[0, 'D Off'], [200, 'D 200'], [500, 'D 500'], [1200, 'D 1.2
 //      Generate click — we don't auto-Generate on every slider wiggle).
 // Mapping is `lerp(min, max, v/100)` or a threshold — kept in data rather
 // than inline so users can see "what does Chop do" at a glance in source.
+// Effect classification:
+//   live    = applies the moment you move the slider (FX, Auto-DJ, tempo)
+//   pending = takes effect only on the next Generate (trait overrides
+//             consumed by the composer). The modal surfaces these so users
+//             know which Feel changes need a regenerate to fully land.
 const FEEL_AXES = [
-    { id: 'energy', label: 'Energy', tip: 'Tempo, drum fills, distortion, Auto-DJ cadence' },
-    { id: 'groove', label: 'Groove', tip: 'Swing, humanize, ghost notes, syncopation' },
-    { id: 'chop',   label: 'Chop',   tip: 'Stack size, bit-crush, delay feedback, Auto-DJ mute pool weight' },
-    { id: 'space',  label: 'Space',  tip: 'Reverb wet, delay wet, low-pass opening, decay tails' },
+    { id: 'energy', label: 'Energy', tip: 'Tempo, drum fills, distortion, Auto-DJ cadence',
+      live: 'BPM, distortion, Auto-DJ rate', pending: 'drum-fills, tension-curve' },
+    { id: 'groove', label: 'Groove', tip: 'Swing, humanize, ghost notes, syncopation',
+      live: '',  pending: 'swing, humanize, syncopation, ghost-notes, walking-bass' },
+    { id: 'chop',   label: 'Chop',   tip: 'Stack size, bit-crush, delay feedback, Auto-DJ mute pool weight',
+      live: 'bit-crush, delay feedback, Auto-DJ stack+pools', pending: '' },
+    { id: 'space',  label: 'Space',  tip: 'Reverb wet, delay wet, low-pass opening, decay tails',
+      live: 'reverb, delay, LP cutoff, reverb damp', pending: '' },
 ];
 
 const FEEL_MAP = {
@@ -651,6 +660,7 @@ class PetriNote extends HTMLElement {
                     <option value="trance">Trance</option>
                     <option value="trap">Trap</option>
                 </select>
+                <button class="pn-feel-open" title="Feel — abstract performance sliders">&#9672;</button>
                 <button class="pn-generate-btn" title="Generate new track">Generate</button>
                 <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
                 <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
@@ -1155,6 +1165,11 @@ class PetriNote extends HTMLElement {
                 if (slider) slider.value = def;
                 applyFx(fxName, def);
             }
+            // FX sliders are back to defaults — Feel's live-half is no longer
+            // reflected on the master chain, so flip the engagement flag and
+            // drop the · feels genre marker. Slider positions in _feelState
+            // stay so re-engaging is a single nudge away.
+            this._disengageFeel();
         });
 
         fx.querySelector('.pn-cc-reset').addEventListener('click', () => {
@@ -1474,7 +1489,6 @@ class PetriNote extends HTMLElement {
         };
 
         this._traitsEl.innerHTML =
-            `<button class="pn-feel-open" title="Feel — abstract performance sliders">&#9672;</button>` +
             tag('Fills', 'drum-fills', fills, fills) +
             tag('Walking Bass', 'walking-bass', walking, walking) +
             tag('Polyrhythm', 'polyrhythm', poly, poly > 0) +
@@ -1633,6 +1647,11 @@ class PetriNote extends HTMLElement {
             } else if (meta.type === 'int') {
                 this._traitOverrides[param] = on ? parseInt(intIn.value, 10) : 0;
             }
+            // User just explicitly set this trait — lock it so Feel's mapping
+            // won't clobber it on the next slider nudge. Cleared on genre
+            // change (fresh baseline) or by opening + Applying Feel modal.
+            this._feelTraitLocks = this._feelTraitLocks || new Set();
+            this._feelTraitLocks.add(param);
             close();
             this._updateTraits();
             toneEngine.resumeContext();
@@ -2954,8 +2973,19 @@ class PetriNote extends HTMLElement {
 
     _applyFeel(id, v) {
         if (!this._traitOverrides) this._traitOverrides = {};
+        // Stash locked traits before Feel runs, restore after — cheap way to
+        // let Feel write whatever it wants while keeping the user's manual
+        // chip toggles intact. Avoids threading the lock set through every
+        // FEEL_MAP entry.
+        const locks = this._feelTraitLocks || new Set();
+        const locked = {};
+        for (const p of locks) locked[p] = this._traitOverrides[p];
         const fn = FEEL_MAP[id];
         if (fn) fn(v, this);
+        for (const p of locks) {
+            if (locked[p] === undefined) delete this._traitOverrides[p];
+            else this._traitOverrides[p] = locked[p];
+        }
         // Trait overrides go into effect on the next Generate click; FX and
         // Auto-DJ changes take effect immediately above.
         this._updateTraits();
@@ -2974,19 +3004,56 @@ class PetriNote extends HTMLElement {
     }
 
     _restoreFeelSettings() {
-        // Apply saved values directly via _applyFeel even if no slider DOM
-        // exists yet (modal lazily builds on open). The state is cached on
-        // `_feelState` so the modal hydrates from it next time it opens.
+        // Load saved slider positions into _feelState so the modal hydrates
+        // correctly on open — but DO NOT apply them here. Feel starts
+        // disengaged so the first generated track uses pure genre defaults.
+        // The user re-engages by opening the modal and nudging a slider.
         try {
             const raw = localStorage.getItem('pn-feel-settings');
-            if (!raw) { this._feelState = {}; return; }
-            const state = JSON.parse(raw) || {};
-            this._feelState = state;
-            for (const a of FEEL_AXES) {
-                const v = state[a.id];
-                if (typeof v === 'number') this._applyFeel(a.id, v);
-            }
+            this._feelState = raw ? (JSON.parse(raw) || {}) : {};
         } catch { this._feelState = {}; }
+        this._feelDisengaged = true;
+        this._updateFeelIconDisengaged();
+    }
+
+    // Mark the currently-selected genre option with a trailing `· feels`
+    // whenever Feel is engaged — the output isn't pure genre anymore. The
+    // original label is stashed on data-label-orig so toggling is lossless.
+    _markGenreTilde(on) {
+        const sel = this.querySelector('.pn-genre-select');
+        if (!sel) return;
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt) return;
+        if (on) {
+            if (!opt.dataset.labelOrig) opt.dataset.labelOrig = opt.textContent;
+            opt.textContent = `${opt.dataset.labelOrig} · feels`;
+        } else if (opt.dataset.labelOrig) {
+            opt.textContent = opt.dataset.labelOrig;
+            delete opt.dataset.labelOrig;
+        }
+    }
+
+    // Shared helper for all code paths that want Feel disengaged (FX Reset,
+    // genre change, fresh load, etc.) — keeps the icon, banner, and genre
+    // tilde consistent without every caller remembering three toggles.
+    _disengageFeel() {
+        this._feelDisengaged = true;
+        this._updateFeelIconDisengaged();
+        this._markGenreTilde(false);
+        this._updateProjectNameDisplay();
+    }
+
+    _updateFeelIconDisengaged() {
+        // The ◈ icon fades when Feel isn't engaged for the current genre —
+        // either at session start or right after a genre change. Nudging
+        // any slider re-engages (clears the flag + the dim). _updateTraits
+        // rebuilds the row so this state also gets re-applied there.
+        const btn = this.querySelector('.pn-feel-open');
+        if (!btn) return;
+        btn.classList.toggle('disengaged', !!this._feelDisengaged);
+        btn.title = this._feelDisengaged
+            ? 'Feel — disengaged (genre defaults in effect). Open to apply.'
+            : 'Feel — abstract performance sliders';
     }
 
     _openFeelModal() {
@@ -3000,6 +3067,7 @@ class PetriNote extends HTMLElement {
         // Also snapshot the current trait overrides so Cancel doesn't leak
         // stale overrides into the next Generate.
         const snapshotFeel = { ...state };
+        const snapshotDisengaged = !!this._feelDisengaged;
         const snapshotTraits = { ...(this._traitOverrides || {}) };
         let committed = false;
         // Enter preview mode — in-session _applyFeel writes won't persist
@@ -3008,18 +3076,27 @@ class PetriNote extends HTMLElement {
 
         const row = (a) => {
             const v = typeof state[a.id] === 'number' ? state[a.id] : 50;
+            const tags = [];
+            if (a.live)    tags.push(`<span class="pn-feel-tag live">LIVE · ${a.live}</span>`);
+            if (a.pending) tags.push(`<span class="pn-feel-tag pending">REGEN · ${a.pending}</span>`);
             return `<label class="pn-feel-field" title="${a.tip}">
                 <span>${a.label}</span>
                 <input type="range" class="pn-feel-slider" data-feel="${a.id}" min="0" max="100" value="${v}">
                 <span class="pn-feel-val" data-feel-val="${a.id}">${v}</span>
+                <span class="pn-feel-tags">${tags.join('')}</span>
             </label>`;
         };
+        const disengagedNote = this._feelDisengaged
+            ? `<p class="pn-feel-disengaged-note">Disengaged — genre defaults are in effect. Sliders re-engage as soon as you nudge one.</p>`
+            : '';
         overlay.innerHTML = `
-            <div class="pn-modal pn-feel-modal">
+            <div class="pn-modal pn-feel-modal ${this._feelDisengaged ? 'disengaged' : ''}">
                 <button class="pn-feel-close" title="Cancel (Esc)">&times;</button>
                 <h2>Feel</h2>
                 <p class="pn-modal-desc">Four abstract sliders that deterministically drive generator params, master FX, and Auto-DJ. Changes preview live; Apply commits, Cancel reverts to the state when you opened this panel.</p>
+                ${disengagedNote}
                 <div class="pn-feel-grid">${FEEL_AXES.map(row).join('')}</div>
+                <p class="pn-feel-pending-note" style="display:none">Some changes are pending — the current track keeps its rhythmic feel until you hit <b>Save &amp; Regenerate</b>.</p>
                 <div class="pn-modal-actions">
                     <button class="pn-feel-cancel">Cancel</button>
                     <button class="pn-feel-apply">Apply</button>
@@ -3029,19 +3106,36 @@ class PetriNote extends HTMLElement {
 
         const close = () => { this._feelPreviewMode = false; overlay.remove(); };
         const revert = () => {
-            // Re-apply the pre-open feel values and restore trait overrides
+            // Re-apply the pre-open feel values and restore trait overrides.
+            // Also restore the pre-open disengaged state + genre tilde so
+            // Cancel is a clean no-op relative to the open snapshot.
             this._feelState = { ...snapshotFeel };
             this._traitOverrides = { ...snapshotTraits };
             for (const a of FEEL_AXES) {
                 const v = typeof snapshotFeel[a.id] === 'number' ? snapshotFeel[a.id] : 50;
                 this._applyFeel(a.id, v);
             }
+            this._feelDisengaged = snapshotDisengaged;
+            this._updateFeelIconDisengaged();
+            this._markGenreTilde(!snapshotDisengaged);
+            this._updateProjectNameDisplay();
             this._saveFeelSettings();
         };
 
         overlay.addEventListener('input', (e) => {
             const s = e.target.closest('.pn-feel-slider');
             if (!s) return;
+            // Nudging any slider re-engages Feel against the current genre —
+            // drop the disengaged mark and stamp the genre dropdown with
+            // the `· feels` tail + name suffix.
+            if (this._feelDisengaged) {
+                this._feelDisengaged = false;
+                overlay.querySelector('.pn-feel-modal')?.classList.remove('disengaged');
+                overlay.querySelector('.pn-feel-disengaged-note')?.remove();
+                this._updateFeelIconDisengaged();
+                this._markGenreTilde(true);
+                this._updateProjectNameDisplay();
+            }
             const id = s.dataset.feel;
             const v = parseInt(s.value, 10);
             const valEl = overlay.querySelector(`.pn-feel-val[data-feel-val="${id}"]`);
@@ -3049,10 +3143,44 @@ class PetriNote extends HTMLElement {
             this._feelState = this._feelState || {};
             this._feelState[id] = v;
             this._applyFeel(id, v);
+
+            // Surface the regen banner if this axis has any pending-only
+            // parameters (trait overrides) AND the slider actually moved
+            // from its snapshot. Pure-live axes (Chop, Space) never need
+            // a regen — they mutate FX/Auto-DJ directly.
+            const axis = FEEL_AXES.find(a => a.id === id);
+            const movedFromOpen = (snapshotFeel[id] ?? 50) !== v;
+            const anyPending = FEEL_AXES.some(a =>
+                a.pending && (this._feelState[a.id] ?? 50) !== (snapshotFeel[a.id] ?? 50)
+            );
+            const banner = overlay.querySelector('.pn-feel-pending-note');
+            if (banner) banner.style.display = anyPending ? 'block' : 'none';
+            if (axis?.pending && movedFromOpen) {
+                // Highlight the Save & Regenerate button to pull the eye.
+                overlay.querySelector('.pn-feel-regen')?.classList.add('pn-feel-regen-dirty');
+            }
         });
         const commit = () => {
             committed = true;
-            this._feelPreviewMode = false;  // let the save go through
+            this._feelPreviewMode = false;   // let the save go through
+            // Apply from disengaged == engage. Re-apply every slider so the
+            // saved positions actually shape the output, then mark engaged +
+            // stamp the genre tilde.
+            if (this._feelDisengaged) {
+                for (const a of FEEL_AXES) {
+                    const v = typeof this._feelState?.[a.id] === 'number'
+                        ? this._feelState[a.id]
+                        : 50;
+                    this._applyFeel(a.id, v);
+                }
+                this._feelDisengaged = false;
+                this._updateFeelIconDisengaged();
+                this._markGenreTilde(true);
+                this._updateProjectNameDisplay();
+            }
+            // Apply commits the user's intent — release per-trait locks so
+            // Feel gets full authority again.
+            this._feelTraitLocks = new Set();
             this._saveFeelSettings();
             close();
         };
@@ -4087,10 +4215,32 @@ class PetriNote extends HTMLElement {
             const params = { ...(this._traitOverrides || {}) };
             const structure = this.querySelector('.pn-structure-select').value;
             if (structure) params.structure = structure;
+            // Snapshot whether Feel was engaged at generate time so the
+            // project name can carry "· feels" only when this specific
+            // track was produced with Feel overrides active. Cleared
+            // automatically when a fresh (non-feels) generate lands.
+            this._nextGenerateWithFeels = !this._feelDisengaged;
             this._sendWs({ type: 'generate', genre, params });
         };
         this.querySelector('.pn-generate-btn').addEventListener('click', doGenerate);
-        this.querySelector('.pn-genre-select').addEventListener('change', doGenerate);
+        // Genre change: drop any Feel-written trait overrides so the NEW
+        // genre's defaults (BPM, swing, humanize, drum-fills, walking-bass,
+        // tension-curve, etc.) take effect cleanly. Users can re-open the
+        // Feel modal to layer their sliders back on top.
+        this.querySelector('.pn-genre-select').addEventListener('change', () => {
+            this._traitOverrides = {};
+            // Drop any per-trait user locks — the new genre provides a fresh
+            // baseline so Feel gets full authority again until the user
+            // manually pins something.
+            this._feelTraitLocks = new Set();
+            const genreKey = this.querySelector('.pn-genre-select').value;
+            const baseBpm = this._genreData?.[genreKey]?.bpm;
+            if (baseBpm) this._setTempo(baseBpm);
+            this._feelDisengaged = true;
+            this._updateFeelIconDisengaged();
+            this._markGenreTilde(false);
+            doGenerate();
+        });
         this.querySelector('.pn-structure-select').addEventListener('change', doGenerate);
 
 
@@ -4879,6 +5029,21 @@ class PetriNote extends HTMLElement {
         const pos = this._trackIndex + 1;
         label.textContent = total > 0 ? `${pos}/${total}` : '—';
         label.title = name;
+        this._updateProjectNameDisplay();
+    }
+
+    // Shows "<genre · title>" normally, "<genre · title · feels>" only
+    // when the CURRENT project was generated with Feel overrides active
+    // (recorded on project._feelsApplied at generate time). Engaging Feel
+    // after the fact doesn't retroactively stamp the track — it only
+    // marks the dropdown tilde + icon glow until the user regenerates.
+    _updateProjectNameDisplay() {
+        const el = this.querySelector('.pn-project-name');
+        if (!el) return;
+        const name = this._project?.name || 'Untitled';
+        el.textContent = this._project?._feelsApplied
+            ? `${name} · feels`
+            : name;
     }
 
     // === MIDI ===
@@ -5777,6 +5942,15 @@ class PetriNote extends HTMLElement {
         // Auto-DJ preview bookkeeping resets with the project
         this._autoDjPreviewPending = false;
 
+        // Tag the incoming project with the Feel-engaged snapshot we made
+        // at doGenerate time. Project-load paths (upload / navTrack) set
+        // this directly on the incoming project. Track nav through history
+        // preserves each project's own flag via the deep-clone below.
+        if (typeof project._feelsApplied !== 'boolean') {
+            project._feelsApplied = !!this._nextGenerateWithFeels;
+        }
+        this._nextGenerateWithFeels = false;
+
         this._project = project;
         this._normalizeProject();
         this._vizHistory = [];
@@ -5827,6 +6001,13 @@ class PetriNote extends HTMLElement {
         }
         // Re-render traits now that genre dropdown is restored
         this._updateTraits();
+        // _buildUI rebuilt the header + genre dropdown, wiping the "· feels"
+        // suffix on the project name and the `· feels` tail on the selected
+        // genre option. Re-stamp both so the UI matches the surviving Feel
+        // state after regenerate / shuffle-advance / upload.
+        this._updateFeelIconDisengaged();
+        this._markGenreTilde(!this._feelDisengaged);
+        this._updateProjectNameDisplay();
         if (this._firstLoad) {
             // Initial page load — don't auto-play (browser blocks audio without a gesture)
             this._firstLoad = false;

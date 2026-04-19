@@ -140,7 +140,7 @@ petri-note {
 .pn-genre-traits {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 6px;
     padding: 4px 12px;
     background: #0d1b2a;
     border-bottom: 1px solid #0f3460;
@@ -150,7 +150,7 @@ petri-note {
 
 .pn-trait {
     font-size: 10px;
-    padding: 2px 6px;
+    padding: 2px 8px;
     border-radius: 3px;
     font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
     white-space: nowrap;
@@ -162,20 +162,38 @@ petri-note {
 }
 
 .pn-trait[data-param]:hover {
-    opacity: 0.8;
-    outline: 1px solid rgba(255,255,255,0.2);
+    opacity: 0.85;
+    outline: 1px solid rgba(255,255,255,0.25);
+}
+
+/* Zebra striping — odd/even chips get a different base background shade
+ * so the row reads as a rhythm of distinct items rather than a blur.
+ * `on` / `off` modifiers override with their own color scheme. */
+.pn-trait:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.05);
+}
+.pn-trait:nth-child(even) {
+    background: rgba(255, 255, 255, 0.10);
 }
 
 .pn-trait.on {
-    background: rgba(46, 204, 113, 0.2);
-    color: #2ecc71;
-    border: 1px solid rgba(46, 204, 113, 0.3);
+    background: rgba(46, 204, 113, 0.22);
+    color: #7ee2a6;
+    border: 1px solid rgba(46, 204, 113, 0.45);
+    font-weight: 700;
 }
 
+/* Keep zebra shading for off chips but bump the text legibility from #555
+ * to a readable neutral; borders sharpen the chip boundary vs neighbors. */
 .pn-trait.off {
-    background: rgba(255, 255, 255, 0.05);
-    color: #555;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #8a99ad;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pn-trait.off:nth-child(odd) {
+    background: rgba(15, 52, 96, 0.3);
+}
+.pn-trait.off:nth-child(even) {
+    background: rgba(15, 52, 96, 0.55);
 }
 
 .pn-trait-info {
@@ -690,6 +708,97 @@ input[type="range"][data-default] {
     box-shadow: 0 0 6px 1px rgba(195, 166, 255, 0.55);
 }
 
+/* Engaged state (Feel is shaping the track): the ◈ stays lit with a soft
+ * permanent glow, not just on hover. Disengaged state (`.disengaged`)
+ * overrides this below. */
+.pn-feel-open:not(.disengaged) {
+    color: #fff;
+    background: linear-gradient(135deg, #3a2a6a 0%, #6e4adf 100%);
+    border-color: #a58aff;
+    box-shadow: 0 0 6px 1px rgba(195, 166, 255, 0.45);
+}
+
+/* Disengaged: Feel values are stale relative to current genre defaults.
+ * The icon goes low-contrast / unfilled until the user reopens and nudges. */
+.pn-feel-open.disengaged {
+    background: transparent;
+    color: #5a3a8a;
+    border-color: #3a2a5a;
+    border-style: dashed;
+    box-shadow: none;
+}
+
+.pn-feel-open.disengaged:hover {
+    color: #c3a6ff;
+    border-color: #6e4adf;
+    border-style: solid;
+}
+
+/* Disengaged state leans on the yellow banner + dashed icon + missing
+ * genre-tilde instead of dimming the sliders — readability over redundant
+ * signals. No rules inside .pn-feel-modal.disengaged right now. */
+
+.pn-feel-disengaged-note {
+    font-size: 11px;
+    color: #f5a623;
+    background: rgba(245, 166, 35, 0.1);
+    border-left: 2px solid #f5a623;
+    padding: 6px 10px;
+    margin: 6px 0 10px;
+    border-radius: 3px;
+}
+
+.pn-feel-pending-note {
+    font-size: 11px;
+    color: #e94560;
+    background: rgba(233, 69, 96, 0.08);
+    border-left: 2px solid #e94560;
+    padding: 6px 10px;
+    margin: 8px 0 4px;
+    border-radius: 3px;
+}
+
+/* Per-axis live/pending tags — stacked under the slider in small caps so
+ * users know which part of the feel lands instantly vs needs a regen. */
+.pn-feel-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.pn-feel-tag {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    white-space: nowrap;
+}
+
+.pn-feel-tag.live {
+    background: rgba(46, 204, 113, 0.14);
+    color: #64d9a0;
+    border: 1px solid rgba(46, 204, 113, 0.35);
+}
+
+.pn-feel-tag.pending {
+    background: rgba(233, 69, 96, 0.12);
+    color: #f08aa0;
+    border: 1px solid rgba(233, 69, 96, 0.4);
+}
+
+/* Pull-the-eye styling on Save & Regenerate when a pending trait change
+ * was made but the user hasn't committed it yet. */
+.pn-feel-regen-dirty {
+    animation: pn-feel-regen-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pn-feel-regen-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0); }
+    50%      { box-shadow: 0 0 0 4px rgba(233, 69, 96, 0.4); }
+}
+
 /* Feel modal — reuses pn-modal-overlay machinery; internal grid holds the
  * 4 sliders stacked vertically for click-accurate fiddling. */
 .pn-feel-modal {
@@ -704,21 +813,52 @@ input[type="range"][data-default] {
     padding: 8px 0;
 }
 
+/* Grid layout so label / slider / value live on row 1, tag pills wrap
+ * neatly under the slider on row 2 — no more padding-left: 80px hack.
+ * Zebra background so each axis row reads as one grouped unit. */
 .pn-feel-field {
-    display: flex;
+    display: grid;
+    grid-template-columns: 70px 1fr 32px;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    row-gap: 4px;
     align-items: center;
-    gap: 10px;
     color: #ccc;
     font-size: 12px;
+    padding: 8px 10px;
+    border-radius: 4px;
+}
+
+.pn-feel-field:nth-child(odd) {
+    background: rgba(110, 74, 223, 0.08);
+}
+.pn-feel-field:nth-child(even) {
+    background: rgba(110, 74, 223, 0.16);
 }
 
 .pn-feel-field > span:first-child {
+    grid-row: 1;
+    grid-column: 1;
     font-size: 11px;
     font-weight: 700;
     color: #c3a6ff;
     text-transform: uppercase;
     letter-spacing: 1px;
-    min-width: 70px;
+}
+
+.pn-feel-field > .pn-feel-slider {
+    grid-row: 1;
+    grid-column: 2;
+}
+
+.pn-feel-field > .pn-feel-val {
+    grid-row: 1;
+    grid-column: 3;
+}
+
+.pn-feel-field > .pn-feel-tags {
+    grid-row: 2;
+    grid-column: 2 / 4;
 }
 
 .pn-feel-slider {
