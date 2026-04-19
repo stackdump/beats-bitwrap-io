@@ -667,6 +667,7 @@ class PetriNote extends HTMLElement {
                 <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
                 <button class="pn-download-btn" title="Download track as JSON-LD">&#x2B07;</button>
                 <button class="pn-upload-btn" title="Upload JSON-LD track">&#x2B06;</button>
+                <button class="pn-share-btn" title="Share this track"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="11.49"/></svg></button>
                 <input type="file" class="pn-upload-input" accept=".jsonld,.json" style="display:none">
                 <select class="pn-structure-select" title="Song structure">
                     <option value="">Loop</option>
@@ -4263,6 +4264,13 @@ class PetriNote extends HTMLElement {
             const params = { ...(this._traitOverrides || {}) };
             const structure = this.querySelector('.pn-structure-select').value;
             if (structure) params.structure = structure;
+            // Always tag the generation with a concrete seed so the current
+            // track is reproducible via Share. Without this, compose() falls
+            // back to Date.now() and the seed is effectively unknown.
+            if (typeof params.seed !== 'number') {
+                params.seed = Math.floor(Math.random() * 0x7fffffff);
+            }
+            this._currentGen = { genre, params: { ...params } };
             // Snapshot whether Feel was engaged at generate time so the
             // project name can carry "· feels" only when this specific
             // track was produced with Feel overrides active. Cleared
@@ -4310,6 +4318,10 @@ class PetriNote extends HTMLElement {
         // Download track button
         this.querySelector('.pn-download-btn').addEventListener('click', () => {
             this._downloadProject();
+        });
+
+        this.querySelector('.pn-share-btn')?.addEventListener('click', () => {
+            this._onShareClick();
         });
 
         // Upload track button
@@ -4491,32 +4503,43 @@ class PetriNote extends HTMLElement {
         return note;
     }
 
-    _draw() {
+    // Single canvas-paint pipeline. Called by both the viz rAF loop (during
+    // playback) and one-shot static paints (e.g. resize, initial render,
+    // Auto-DJ spin when viz is idle). Layers:
+    //   1. clear
+    //   2. timeline rolling dots  — only when viz loop is active
+    //   3. ring layer (arcs + arrowheads + optional weight labels), with
+    //      the Auto-DJ rotation applied around the ring centroid
+    // The old split between _draw() and _vizDrawFrame caused arcs to snap
+    // un-rotated between spin frames and clobbered the timeline during
+    // spins — this consolidates both paths.
+    _renderFrame() {
         const ctx = this._ctx;
         if (!ctx) return;
+        const w = this._canvas.width / this._dpr;
+        const h = this._canvas.height / this._dpr;
+        ctx.clearRect(0, 0, w, h);
 
-        const width = this._canvas.width / this._dpr;
-        const height = this._canvas.height / this._dpr;
+        const playing = !!this._vizRafId;
+        if (playing) this._vizDrawTimeline(ctx, w, h);
+        this._drawRing(ctx, playing);
+    }
 
-        ctx.clearRect(0, 0, width, height);
-
+    _drawRing(ctx, playing) {
         const net = this._getActiveNet();
         if (!net) return;
 
-        // Apply view transform to match stage
         ctx.save();
         ctx.translate(this._view.tx, this._view.ty);
         ctx.scale(this._view.scale, this._view.scale);
 
-        // Auto-DJ spin: rotate only the ring layer (arcs + places + transitions)
-        // around the average centroid of the active net's places. Anything
-        // drawn after ctx.restore() (particles, beat indicators, timeline)
-        // stays in world-space so the timeline / dots don't rotate with it.
+        // Auto-DJ spin: rotate arcs + arrowheads around the ring centroid.
+        // DOM place/transition nodes in this._stage stay put — only the
+        // canvas arc layer rotates under them.
         const spin = this._autoDjAngleDeg || 0;
         if (spin !== 0) {
-            const places = net.places || {};
             let sx = 0, sy = 0, n = 0;
-            for (const p of Object.values(places)) { sx += p.x; sy += p.y; n++; }
+            for (const p of Object.values(net.places || {})) { sx += p.x; sy += p.y; n++; }
             if (n > 0) {
                 const cx = sx / n, cy = sy / n;
                 ctx.translate(cx, cy);
@@ -4525,9 +4548,11 @@ class PetriNote extends HTMLElement {
             }
         }
 
-        // Draw arcs
+        // Dim the ring during playback so the rolling timeline reads as
+        // primary; full-strength in the static/editor view.
+        ctx.globalAlpha = playing ? 0.3 : 1;
         ctx.strokeStyle = '#4a90d9';
-        ctx.lineWidth = 2 / this._view.scale;
+        ctx.lineWidth = (playing ? 1 : 2) / this._view.scale;
 
         const reverseArrows = !!this._autoDjReverse;
         for (const arc of net.arcs) {
@@ -4540,34 +4565,38 @@ class PetriNote extends HTMLElement {
             ctx.lineTo(trgNode.x, trgNode.y);
             ctx.stroke();
 
-            // Draw arrowhead — flipped when Auto-DJ has spun the ring CCW, so
-            // arrow direction matches the visual rotation direction.
             if (reverseArrows) {
                 this._drawArrowhead(ctx, trgNode.x, trgNode.y, srcNode.x, srcNode.y);
             } else {
                 this._drawArrowhead(ctx, srcNode.x, srcNode.y, trgNode.x, trgNode.y);
             }
 
-            // Draw weight if > 1
-            const weight = arc.weight[0];
-            if (weight > 1) {
-                const mx = (srcNode.x + trgNode.x) / 2;
-                const my = (srcNode.y + trgNode.y) / 2;
-                ctx.fillStyle = '#1a1a2e';
-                ctx.beginPath();
-                ctx.arc(mx, my, 12, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#4a90d9';
-                ctx.font = '12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(weight.toString(), mx, my);
+            // Weight labels only in static view — they clutter the dimmed
+            // playback ring and rarely carry info during performance.
+            if (!playing) {
+                const weight = arc.weight[0];
+                if (weight > 1) {
+                    const mx = (srcNode.x + trgNode.x) / 2;
+                    const my = (srcNode.y + trgNode.y) / 2;
+                    ctx.fillStyle = '#1a1a2e';
+                    ctx.beginPath();
+                    ctx.arc(mx, my, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#4a90d9';
+                    ctx.font = '12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(weight.toString(), mx, my);
+                }
             }
         }
-
-        // Restore before drawing viewport-space elements
+        ctx.globalAlpha = 1;
         ctx.restore();
     }
+
+    // Back-compat entry used by non-rAF callers (resize, one-shot paints,
+    // editor interactions). Delegates to the unified pipeline.
+    _draw() { this._renderFrame(); }
 
     _drawArrowhead(ctx, x1, y1, x2, y2) {
         const headLen = 12;
@@ -5008,6 +5037,154 @@ class PetriNote extends HTMLElement {
     _getMusicNetIds() {
         if (!this._project?.nets) return [];
         return Object.keys(this._project.nets).filter(id => this._project.nets[id].role !== 'control');
+    }
+
+    // === Share URL (genre + seed + traits + structure) ===
+
+    // URL-safe base64 of a JSON payload. btoa + replace chars that need
+    // percent-encoding in a query string.
+    _b64urlEncode(obj) {
+        const s = JSON.stringify(obj);
+        const bytes = new TextEncoder().encode(s);
+        let bin = '';
+        for (const b of bytes) bin += String.fromCharCode(b);
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    _b64urlDecode(str) {
+        try {
+            const pad = '='.repeat((4 - str.length % 4) % 4);
+            const b64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return JSON.parse(new TextDecoder().decode(bytes));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Read genre/seed/structure/traits from the URL query string. Supports
+    // a compact `?p=<base64>` blob or explicit `?g=...&s=...&t=...` params.
+    _parseShareFromUrl() {
+        const q = new URLSearchParams(location.search);
+        const p = q.get('p');
+        if (p) {
+            const decoded = this._b64urlDecode(p);
+            if (decoded && decoded.genre) return decoded;
+        }
+        const g = q.get('g');
+        if (!g) return null;
+        const out = { genre: g, params: {} };
+        const s = q.get('s');
+        if (s !== null && !Number.isNaN(parseInt(s, 10))) out.params.seed = parseInt(s, 10);
+        const st = q.get('structure');
+        if (st) out.params.structure = st;
+        const t = q.get('t');
+        if (t) {
+            const traits = this._b64urlDecode(t);
+            if (traits && typeof traits === 'object') Object.assign(out.params, traits);
+        }
+        return out;
+    }
+
+    // Build `?g=...&s=...&structure=...&t=<base64>` from the active gen.
+    // Falls back to the genre dropdown when _currentGen isn't set yet (e.g.
+    // user hit Share before the first deterministic generate landed).
+    _buildShareUrl() {
+        const base = `${location.origin}${location.pathname}`;
+        const cur = this._currentGen;
+        if (!cur) {
+            const g = this.querySelector('.pn-genre-select')?.value || 'techno';
+            return `${base}?g=${encodeURIComponent(g)}`;
+        }
+        const { genre, params } = cur;
+        const q = new URLSearchParams();
+        q.set('g', genre);
+        if (typeof params.seed === 'number') q.set('s', String(params.seed));
+        if (params.structure) q.set('structure', String(params.structure));
+        const traits = {};
+        for (const [k, v] of Object.entries(params)) {
+            if (k === 'seed' || k === 'structure') continue;
+            traits[k] = v;
+        }
+        if (Object.keys(traits).length > 0) q.set('t', this._b64urlEncode(traits));
+        return `${base}?${q.toString()}`;
+    }
+
+    _onShareClick() {
+        const url = this._buildShareUrl();
+        const overlay = document.createElement('div');
+        overlay.className = 'pn-modal-overlay';
+        overlay.innerHTML = `
+            <div class="pn-modal pn-share-modal">
+                <h2>Share track</h2>
+                <p class="pn-modal-desc">Anyone opening this link gets the same genre, seed, structure, and trait overrides — the track regenerates deterministically.</p>
+                <div class="pn-modal-row">
+                    <input type="text" class="pn-share-url" readonly value="${url.replace(/"/g, '&quot;')}">
+                </div>
+                <div class="pn-modal-actions">
+                    <button class="cancel close">Close</button>
+                    <button class="save copy">Copy link</button>
+                </div>
+            </div>
+        `;
+        this.appendChild(overlay);
+        const input = overlay.querySelector('.pn-share-url');
+        input.focus();
+        input.select();
+        const copyBtn = overlay.querySelector('.copy');
+        const flash = (ok) => {
+            const prev = copyBtn.textContent;
+            copyBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+            setTimeout(() => { copyBtn.textContent = prev; }, 1200);
+        };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay || e.target.classList.contains('close')) {
+                overlay.remove();
+                return;
+            }
+            if (e.target.classList.contains('copy')) {
+                if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(url).then(() => flash(true), () => flash(false));
+                } else {
+                    input.select();
+                    try { document.execCommand('copy'); flash(true); }
+                    catch { flash(false); }
+                }
+            }
+        });
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+        });
+    }
+
+    // First generate after worker/WS ready. Honours a `?g=...&s=...` share
+    // URL if present so the linked track is reproduced on load, otherwise
+    // kicks the default techno generate with a fresh explicit seed.
+    _bootGenerate() {
+        const share = this._parseShareFromUrl();
+        if (share) {
+            const genreSelect = this.querySelector('.pn-genre-select');
+            if (genreSelect && [...genreSelect.options].some(o => o.value === share.genre)) {
+                genreSelect.value = share.genre;
+            }
+            const structSelect = this.querySelector('.pn-structure-select');
+            if (structSelect && share.params.structure) structSelect.value = share.params.structure;
+            // Hydrate trait overrides so the Feel/traits UI reflects the
+            // linked track; compose() consumes them via params either way.
+            this._traitOverrides = this._traitOverrides || {};
+            for (const [k, v] of Object.entries(share.params)) {
+                if (k === 'seed' || k === 'structure') continue;
+                this._traitOverrides[k] = v;
+            }
+            this._currentGen = { genre: share.genre, params: { ...share.params } };
+            this._sendWs({ type: 'generate', genre: share.genre, params: share.params });
+            return;
+        }
+        const params = { seed: Math.floor(Math.random() * 0x7fffffff) };
+        this._currentGen = { genre: 'techno', params: { ...params } };
+        this._sendWs({ type: 'generate', genre: 'techno', params });
     }
 
     _navTrack(dir) {
@@ -5775,20 +5952,8 @@ class PetriNote extends HTMLElement {
     }
 
     _vizDrawFrame() {
-        const ctx = this._ctx;
-        if (!ctx) return;
-        const w = this._canvas.width / this._dpr;
-        const h = this._canvas.height / this._dpr;
-
-        ctx.clearRect(0, 0, w, h);
-
-        // Draw rolling timeline
-        this._vizDrawTimeline(ctx, w, h);
-
-        // Draw the petri net overlay
-        this._vizDrawPetriOverlay(ctx, w, h);
-
-        // Smooth playhead interpolation
+        this._renderFrame();
+        // Smooth playhead interpolation — DOM side, not canvas.
         this._updatePlayhead();
     }
 
@@ -5830,55 +5995,6 @@ class PetriNote extends HTMLElement {
             this._vizHistory.shift();
         }
         ctx.globalAlpha = 1;
-    }
-
-    _vizDrawPetriOverlay(ctx, w, h) {
-        // Draw arcs of the active net (dimmed, as context)
-        const net = this._getActiveNet();
-        if (!net) return;
-
-        ctx.save();
-        ctx.translate(this._view.tx, this._view.ty);
-        ctx.scale(this._view.scale, this._view.scale);
-
-        // Mirror the Auto-DJ spin applied in _draw so the viz rAF loop
-        // (which clears the canvas every frame) doesn't snap arcs back to
-        // their unrotated position between spin-animation frames.
-        const spin = this._autoDjAngleDeg || 0;
-        if (spin !== 0) {
-            let sx = 0, sy = 0, n = 0;
-            for (const p of Object.values(net.places || {})) { sx += p.x; sy += p.y; n++; }
-            if (n > 0) {
-                const cx = sx / n, cy = sy / n;
-                ctx.translate(cx, cy);
-                ctx.rotate(spin * Math.PI / 180);
-                ctx.translate(-cx, -cy);
-            }
-        }
-
-        ctx.globalAlpha = 0.3;
-        ctx.strokeStyle = '#4a90d9';
-        ctx.lineWidth = 1 / this._view.scale;
-
-        const reverseArrows = !!this._autoDjReverse;
-        for (const arc of net.arcs) {
-            const srcNode = net.places[arc.source] || net.transitions[arc.source];
-            const trgNode = net.places[arc.target] || net.transitions[arc.target];
-            if (!srcNode || !trgNode) continue;
-
-            ctx.beginPath();
-            ctx.moveTo(srcNode.x, srcNode.y);
-            ctx.lineTo(trgNode.x, trgNode.y);
-            ctx.stroke();
-
-            if (reverseArrows) {
-                this._drawArrowhead(ctx, trgNode.x, trgNode.y, srcNode.x, srcNode.y);
-            } else {
-                this._drawArrowhead(ctx, srcNode.x, srcNode.y, trgNode.x, trgNode.y);
-            }
-        }
-        ctx.globalAlpha = 1;
-        ctx.restore();
     }
 
     async _playWebMidi(midi, portIdOverride) {
@@ -6353,7 +6469,7 @@ class PetriNote extends HTMLElement {
                 // Generate a techno track on first connect, otherwise reload current project
                 if (!this._hasInitialProject) {
                     this._hasInitialProject = true;
-                    this._sendWs({ type: 'generate', genre: 'techno', params: {} });
+                    this._bootGenerate();
                 } else {
                     this._sendWs({ type: 'project-load', project: this._project });
                 }
@@ -6383,7 +6499,7 @@ class PetriNote extends HTMLElement {
                 this._updateWsStatus(true);
                 if (!this._hasInitialProject) {
                     this._hasInitialProject = true;
-                    this._sendWs({ type: 'generate', genre: 'techno', params: {} });
+                    this._bootGenerate();
                 } else {
                     this._sendWs({ type: 'project-load', project: this._project });
                 }

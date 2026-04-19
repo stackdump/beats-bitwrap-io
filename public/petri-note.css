@@ -1956,7 +1956,9 @@ input[type="range"][data-default] {
     color: #fff;
 }
 
-.pn-download-btn {
+.pn-download-btn,
+.pn-upload-btn,
+.pn-share-btn {
     padding: 4px 8px;
     border: 1px solid #0f3460;
     border-radius: 4px;
@@ -1968,9 +1970,21 @@ input[type="range"][data-default] {
 }
 
 .pn-download-btn:hover,
-.pn-upload-btn:hover {
+.pn-upload-btn:hover,
+.pn-share-btn:hover {
     background: #16213e;
     color: #64ffda;
+}
+
+.pn-share-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.pn-share-btn svg {
+    display: block;
 }
 
 .pn-upload-btn {
@@ -2187,9 +2201,10 @@ input[type="range"][data-default] {
         display: none;
     }
 
-    /* Download/upload: hide on tablets */
+    /* Download/upload/share: hide on tablets */
     .pn-download-btn,
     .pn-upload-btn,
+    .pn-share-btn,
     .pn-upload-input {
         display: none;
     }
