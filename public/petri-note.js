@@ -2841,9 +2841,21 @@ class PetriNote extends HTMLElement {
                     // Pre-load didn't land in time — fall back to a sync gen,
                     // and bump the reqId so the late preview (which will still
                     // arrive) gets dropped instead of triggering a second
-                    // regen at the next boundary.
+                    // regen at the next boundary. The new project arrives on
+                    // a later tick via project-sync, so defer any macro that
+                    // would have fired this tick to fire against the NEW
+                    // track (checked in _applyProjectSync).
                     this._previewReqId++;
                     this.querySelector('.pn-generate-btn')?.click();
+                    const rateBarsLocal = parseInt(this.querySelector('.pn-autodj-rate')?.value, 10) || 2;
+                    const rateBoundary = rateBarsLocal * ticksPerBar;
+                    const rPrev = Math.floor(prevTick / rateBoundary);
+                    const rCur  = Math.floor(curTick  / rateBoundary);
+                    if (rCur !== rPrev) this._autoDjPendingMacroAfterSync = true;
+                    this._autoDjPreviewPending = false;
+                    const statusEl = this.querySelector('.pn-autodj-status');
+                    if (statusEl) statusEl.textContent = `regenerating…`;
+                    return;
                 }
                 this._autoDjPreviewPending = false;
                 const statusEl = this.querySelector('.pn-autodj-status');
@@ -2857,23 +2869,27 @@ class PetriNote extends HTMLElement {
         const cur  = Math.floor(curTick / boundary);
         if (cur === prev) return;
 
+        this._autoDjFireMacros();
+    }
+
+    // Macro-selection half of the Auto-DJ tick. Factored out so that when
+    // regen falls back to a cold generate (async), we can defer the macro
+    // until the new project has landed via _applyProjectSync — that way
+    // "change track, then fire macro" holds even in the fallback case.
+    _autoDjFireMacros() {
         const stack = parseInt(this.querySelector('.pn-autodj-stack')?.value, 10) || 1;
         const animateOnly = !!this.querySelector('.pn-autodj-animate-only')?.checked;
         const statusEl = this.querySelector('.pn-autodj-status');
 
         // Animate-only: skip macro selection entirely, just spin the ring
         // `stack` times so users can use Auto-DJ as a pure visualizer.
-        // Runs even when a user-fired macro is active since there's no
-        // firing conflict.
         if (animateOnly) {
             this._autoDjSpin(stack);
             if (statusEl) statusEl.textContent = `(animate only)`;
             return;
         }
 
-        // Don't pile up — if any macro (user-fired or previous Auto-DJ pick)
-        // is still running or has queued followers, skip this cycle entirely
-        // rather than stacking into the serial queue.
+        // Don't pile up — if any macro is still running or queued, skip.
         if (this._runningMacro || (this._macroQueue && this._macroQueue.length > 0)) {
             if (statusEl) statusEl.textContent = `(skipped — busy)`;
             return;
@@ -2882,10 +2898,6 @@ class PetriNote extends HTMLElement {
         const poolBoxes = this.querySelectorAll('.pn-autodj-pool:checked');
         const enabled = new Set([...poolBoxes].map(cb => cb.value));
 
-        // "Beats" maps to the one-shot kind (Hit1..4 Fire pads); any other
-        // entry matches `macro.group` directly. Compound macros are skipped
-        // since they internally fire several others and the cadence is too
-        // dense for auto-cycling.
         this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
         const candidates = enabled.size === 0 ? [] : MACROS.filter(m => {
             if (m.kind === 'compound') return false;
@@ -2894,9 +2906,6 @@ class PetriNote extends HTMLElement {
             return enabled.has(m.group);
         });
 
-        // No candidates (all pools unchecked / all macros disabled) — still
-        // spin the ring on cadence so the visual feedback persists even when
-        // there's nothing to fire. Avoids "is Auto-DJ broken?" moments.
         if (candidates.length === 0) {
             this._autoDjSpin(stack);
             if (statusEl) statusEl.textContent = `(no candidates)`;
@@ -2904,9 +2913,6 @@ class PetriNote extends HTMLElement {
         }
 
         const fired = [];
-        // First stack item goes through the normal fire path so it claims the
-        // serial slot. Remaining stack items run directly via _executeMacro so
-        // they overlap with the first rather than queuing behind it.
         for (let i = 0; i < stack; i++) {
             const pick = candidates[Math.floor(Math.random() * candidates.length)];
             fired.push(pick.label);
@@ -6266,6 +6272,14 @@ class PetriNote extends HTMLElement {
         if (playBtn) playBtn.textContent = '⏹';
         this._setupMediaSession();
         this._updateMediaSessionState();
+
+        // Deferred Auto-DJ macro from the cold-regen fallback path: the
+        // original boundary tick couldn't fire against the old track, so
+        // now that the new project is live, pick and fire here.
+        if (this._autoDjPendingMacroAfterSync) {
+            this._autoDjPendingMacroAfterSync = false;
+            this._autoDjFireMacros();
+        }
     }
 
     /**
