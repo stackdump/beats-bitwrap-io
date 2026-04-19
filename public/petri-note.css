@@ -1125,6 +1125,20 @@ input[type="range"][data-default] {
     cursor: pointer;
 }
 
+.pn-autodj-test-transition {
+    border: 1px solid #64ffda;
+    background: transparent;
+    color: #64ffda;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.pn-autodj-test-transition:hover {
+    background: rgba(100, 255, 218, 0.1);
+}
+
 .pn-autodj-status {
     margin-left: auto;
     color: #6aa;

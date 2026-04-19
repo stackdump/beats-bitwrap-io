@@ -120,7 +120,7 @@ const MACROS = [
     // --- Shape ---
     { id: 'tighten',    group: 'Shape', kind: 'decay-move', label: 'Tighten', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',  toValue: 0.3, targets: MACRO_TARGETS.everything },
     { id: 'loosen',     group: 'Shape', kind: 'decay-move', label: 'Loosen',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',  toValue: 2.5, targets: MACRO_TARGETS.everything },
-    { id: 'pulse',      group: 'Shape', kind: 'decay-move', label: 'Pulse',   defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'sweep', rateBeats: 2, targets: MACRO_TARGETS.everything },
+    { id: 'pulse',      group: 'Shape', kind: 'decay-move', label: 'Pulse',   defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'sweep', rateBeats: 2, sweepMin: 0.2, sweepMax: 2.5, targets: MACRO_TARGETS.everything },
     // --- Pitch ---
     { id: 'octave-up',    group: 'Pitch', kind: 'fx-hold',  label: 'Octave Up',   defaultDuration: 1, durationOpts: [1, 2, 4], durationLabel: 'bar', durationUnit: 'bar',
       tailFrac: 0.3, ops: [{ fxKey: 'master-pitch', toValue: 12 }] },
@@ -873,6 +873,7 @@ class PetriNote extends HTMLElement {
                         ).join('')}
                     </select>
                 </label>
+                <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now so you can preview the sound. Ignores Auto-DJ arm state.">Test ⟳</button>
                 <span class="pn-autodj-status">idle</span>
             </div>
             <div class="pn-macros-panel" style="display:${this._showMacros ? 'flex' : 'none'}">
@@ -1059,6 +1060,23 @@ class PetriNote extends HTMLElement {
         // Persist every panel change so settings survive reload, auto-advance
         // to shuffled / extended next tracks, Auto-DJ regens, etc.
         autoDjPanel.addEventListener('change', () => this._saveAutoDjSettings());
+        // Test Transition button: fires a random transition-pool macro
+        // immediately, bypassing the Auto-DJ arm/Transition-pool gates so
+        // users can audition the sound without arming.
+        autoDjPanel.querySelector('.pn-autodj-test-transition')?.addEventListener('click', () => {
+            this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
+            const ids = [...TRANSITION_MACRO_IDS].filter(id => !this._disabledMacros.has(id));
+            if (ids.length === 0) {
+                const statusEl = this.querySelector('.pn-autodj-status');
+                if (statusEl) statusEl.textContent = '(no candidates — all disabled)';
+                return;
+            }
+            const id = ids[Math.floor(Math.random() * ids.length)];
+            const macro = MACROS.find(m => m.id === id);
+            this._fireMacro(id);
+            const statusEl = this.querySelector('.pn-autodj-status');
+            if (statusEl) statusEl.textContent = `⟳ ${macro?.label || id}`;
+        });
         // Hydrate the panel from the last-saved settings (if any)
         this._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
 
