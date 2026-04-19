@@ -899,8 +899,11 @@ class PetriNote extends HTMLElement {
                                            ${m.pitchOpts.map(v => `<option value="${v}"${v===(m.defaultPitch ?? 0)?' selected':''}>${v > 0 ? '+'+v : v} st</option>`).join('')}
                                        </select>`
                                     : '';
+                                const isTransition = TRANSITION_MACRO_IDS.has(m.id);
+                                const transClass = isTransition ? ' pn-macro-transition' : '';
+                                const transTitle = isTransition ? ` — also fires on Auto-DJ track transitions` : '';
                                 return `<div class="pn-macro-item">
-                                            <button class="pn-macro-btn" data-macro="${m.id}" title="${m.label}">${m.label}</button>
+                                            <button class="pn-macro-btn${transClass}" data-macro="${m.id}" title="${m.label}${transTitle}">${m.label}</button>
                                             ${selectHtml}
                                             ${pitchHtml}
                                         </div>`;
