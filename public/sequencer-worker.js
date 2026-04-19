@@ -505,7 +505,7 @@ self.onmessage = function(e) {
 
         case 'generate-preview': {
             const proj = compose(msg.genre, msg.params || {});
-            post({ type: 'preview-ready', project: projectToJSON(proj) });
+            post({ type: 'preview-ready', project: projectToJSON(proj), reqId: msg.reqId });
             break;
         }
 

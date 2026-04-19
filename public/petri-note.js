@@ -341,6 +341,12 @@ class PetriNote extends HTMLElement {
         this._playbackMode = 'single'; // 'single' | 'repeat' | 'shuffle'
         this._pendingNextTrack = null;  // pre-fetched project for shuffle
         this._prefetchSent = false;     // avoid duplicate prefetch requests
+        // Monotonic id for preview-generate requests so late `preview-ready`
+        // messages (the ones we gave up on and fell back from) can be dropped.
+        // Without this, a stale preview slides into _pendingNextTrack and
+        // triggers a second regen at the next boundary — the "regens twice"
+        // symptom in Auto-DJ.
+        this._previewReqId = 0;
         this._playing = false;
         this._tempo = 120;
         this._swing = 0;     // 0-100 swing percentage
@@ -2816,7 +2822,8 @@ class PetriNote extends HTMLElement {
                 const params = { ...(this._traitOverrides || {}) };
                 const structure = this.querySelector('.pn-structure-select')?.value || '';
                 if (structure) params.structure = structure;
-                this._sendWs({ type: 'generate-preview', genre, params });
+                const reqId = ++this._previewReqId;
+                this._sendWs({ type: 'generate-preview', genre, params, reqId });
                 const statusEl = this.querySelector('.pn-autodj-status');
                 if (statusEl) statusEl.textContent = `pre-loading next…`;
             }
@@ -2831,7 +2838,11 @@ class PetriNote extends HTMLElement {
                     this._applyProjectSync(preview, true);
                     this._sendWs({ type: 'project-load', project: preview });
                 } else {
-                    // Pre-load didn't land in time — fall back to a sync gen
+                    // Pre-load didn't land in time — fall back to a sync gen,
+                    // and bump the reqId so the late preview (which will still
+                    // arrive) gets dropped instead of triggering a second
+                    // regen at the next boundary.
+                    this._previewReqId++;
                     this.querySelector('.pn-generate-btn')?.click();
                 }
                 this._autoDjPreviewPending = false;
@@ -6516,7 +6527,10 @@ class PetriNote extends HTMLElement {
                 return;
             }
             if (msg.type === 'preview-ready') {
-                // Handle prefetch for shuffle mode
+                // Drop stale previews — if the boundary already fell back to
+                // a cold generate (or a newer prefetch superseded this one),
+                // the reqId won't match and we skip the project entirely.
+                if (msg.reqId !== undefined && msg.reqId !== this._previewReqId) return;
                 this._pendingNextTrack = msg.project;
                 this._prewarmPreviewInstruments(msg.project);
                 return;
@@ -6622,7 +6636,8 @@ class PetriNote extends HTMLElement {
                         const structure = this.querySelector('.pn-structure-select')?.value || '';
                         const body = { genre, params: {}, instruments: this._getCurrentInstruments() };
                         if (structure) body.params.structure = structure;
-                        this._sendWs({ type: 'generate-preview', genre: body.genre, params: body.params });
+                        const reqId = ++this._previewReqId;
+                        this._sendWs({ type: 'generate-preview', genre: body.genre, params: body.params, reqId });
                     }
                 }
                 break;
