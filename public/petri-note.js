@@ -4331,15 +4331,16 @@ class PetriNote extends HTMLElement {
     }
 
     _setupEventListeners() {
-        // Window resize
-        window.addEventListener('resize', () => this._resizeCanvas());
+        // Global (document / window / navigator) listeners attach exactly
+        // once per instance — _setupEventListeners gets called on every
+        // _buildUI rebuild, and re-adding these without removing the old
+        // ones piled up duplicates that GC couldn't reap because document
+        // and window outlive every DOM rebuild.
+        this._attachGlobalListeners();
 
         // Transport controls
         this.querySelector('.pn-play').addEventListener('click', () => this._togglePlay());
         this._populateAudioOutputs();
-        if (navigator.mediaDevices?.addEventListener) {
-            navigator.mediaDevices.addEventListener('devicechange', () => this._populateAudioOutputs());
-        }
         this.querySelector('.pn-playback-mode').addEventListener('click', () => this._cyclePlaybackMode());
         this.querySelector('.pn-tempo input').addEventListener('change', (e) => {
             this._setTempo(parseInt(e.target.value, 10));
@@ -4467,7 +4468,18 @@ class PetriNote extends HTMLElement {
         this._canvas.parentElement.addEventListener('pointerup', (e) => this._onPointerUp(e));
         // Wheel zoom disabled — let the page scroll naturally
 
-        // Keyboard shortcuts
+    }
+
+    _attachGlobalListeners() {
+        if (this._globalListenersAttached) return;
+        this._globalListenersAttached = true;
+
+        window.addEventListener('resize', () => this._resizeCanvas());
+
+        if (navigator.mediaDevices?.addEventListener) {
+            navigator.mediaDevices.addEventListener('devicechange', () => this._populateAudioOutputs());
+        }
+
         document.addEventListener('keydown', (e) => {
             if (e.key === ' ') this._spaceHeld = true;
             this._onKeyDown(e);
