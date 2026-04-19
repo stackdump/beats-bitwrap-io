@@ -114,8 +114,8 @@ const MACROS = [
     { id: 'ping-pong',  group: 'Pan', kind: 'pan-move', label: 'Ping-Pong',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'pingpong', stepBeats: 1,  targets: MACRO_TARGETS.nonDrums },
     { id: 'hard-left',  group: 'Pan', kind: 'pan-move', label: 'Hard Left',  defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',     toValue: -1,   targets: MACRO_TARGETS.nonDrums },
     { id: 'hard-right', group: 'Pan', kind: 'pan-move', label: 'Hard Right', defaultDuration: 1, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',     toValue:  1,   targets: MACRO_TARGETS.nonDrums },
-    { id: 'auto-pan',   group: 'Pan', kind: 'pan-move', label: 'Auto-Pan',   defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', pattern: 'sweep',    rateBeats: 4,  targets: MACRO_TARGETS.nonDrums },
-    { id: 'mono',       group: 'Pan', kind: 'pan-move', label: 'Mono',       defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',     toValue:  0,   targets: MACRO_TARGETS.nonDrums },
+    { id: 'auto-pan',   group: 'Pan', kind: 'pan-move', label: 'Auto-Pan',   defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', pattern: 'sweep',    rateBeats: 4,  targets: MACRO_TARGETS.everything },
+    { id: 'mono',       group: 'Pan', kind: 'pan-move', label: 'Mono',       defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',     toValue:  0,   targets: MACRO_TARGETS.everything },
 
     // --- Shape ---
     { id: 'tighten',    group: 'Shape', kind: 'decay-move', label: 'Tighten', defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', pattern: 'hold',  toValue: 0.3, targets: MACRO_TARGETS.everything },
@@ -5744,7 +5744,7 @@ class PetriNote extends HTMLElement {
                     <li><b>FX</b>: Sweep LP / HP, Reverb Wash, Delay Throw, Riser, Bit Crush, Phaser Drone, <b>Cathedral</b> (long bright reverb), <b>Dub Delay</b> (longer/heavier feedback), <b>Res Ping</b> (LP+drive slam)</li>
                     <li><b>Pitch</b>: Octave Up / Down, Pitch Bend, Vinyl Brake</li>
                     <li><b>Tempo</b>: Half Time, Tape Stop</li>
-                    <li><b>Pan</b> (non-drum tracks only): <b>Ping-Pong</b> (hard L/R every beat), <b>Hard Left / Right</b> (hold to one side), <b>Auto-Pan</b> (slow sinusoidal LFO), <b>Mono</b> (force center). Each track restores to the pan you had set before firing.</li>
+                    <li><b>Pan</b>: <b>Ping-Pong</b> (hard L/R every beat, non-drum tracks), <b>Hard Left / Right</b> (hold to one side, non-drum tracks), <b>Auto-Pan</b> (slow sinusoidal LFO on the whole mix), <b>Mono</b> (collapse everything to center). Each track restores to the pan you had set before firing.</li>
                     <li><b>Shape</b> (per-channel decay): <b>Tighten</b> snaps tails shut, <b>Loosen</b> blooms them out, <b>Pulse</b> breathes decay in/out on a 2-beat sine. All restore per-channel to the user's pre-macro decay on release.</li>
                 </ul>
 
