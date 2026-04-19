@@ -2847,11 +2847,16 @@ class PetriNote extends HTMLElement {
             if (cr !== pr && curTick > 0) {
                 const preview = this._pendingNextTrack;
                 if (preview) {
-                    // Use pre-rendered project for a seamless swap
+                    // Seamless regen: hand the pre-rendered project to the
+                    // worker via project-queue so the swap lands on a bar
+                    // boundary (resets tickCount). The transition macro is
+                    // baked into the project as a one-transition control
+                    // net that fires on tick 1 — no main/worker race.
                     this._pendingNextTrack = null;
-                    this._applyProjectSync(preview, true);
-                    this._sendWs({ type: 'project-load', project: preview });
-                    this._fireTransitionMacro();
+                    const label = this._injectTransitionNet(preview);
+                    this._sendWs({ type: 'project-queue', project: preview });
+                    const statusEl = this.querySelector('.pn-autodj-status');
+                    if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
                 } else {
                     // Pre-load didn't land in time — fall back to a sync gen,
                     // bump reqId so the late preview gets dropped. The new
@@ -2876,23 +2881,65 @@ class PetriNote extends HTMLElement {
         this._autoDjFireMacros();
     }
 
-    // Track-boundary transition macro. Fires on Auto-DJ regen, shuffle-next,
-    // and repeat-loop restarts — independent of the rate-cadence macros
-    // (Mute/FX/Pan/…) that fire every N bars. Gated by the "Transition"
-    // pool checkbox so the user can opt out without disabling Auto-DJ.
-    _fireTransitionMacro() {
-        if (!this.querySelector('.pn-autodj-enable')?.checked) return;
+    // Pick a random transition macro id (respecting Auto-DJ arm, Transition
+    // pool checkbox, and the user's disabled-macro list). Returns null when
+    // the feature is gated off or no candidates remain.
+    _pickTransitionMacroId() {
+        if (!this.querySelector('.pn-autodj-enable')?.checked) return null;
         const pools = this.querySelectorAll('.pn-autodj-pool:checked');
         const enabled = new Set([...pools].map(cb => cb.value));
-        if (!enabled.has('Transition')) return;
-        if (this._runningMacro || (this._macroQueue && this._macroQueue.length > 0)) return;
+        if (!enabled.has('Transition')) return null;
         this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
-        const candidates = MACROS.filter(m => TRANSITION_MACRO_IDS.has(m.id) && !this._disabledMacros.has(m.id));
-        if (candidates.length === 0) return;
-        const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        this._fireMacro(pick.id);
+        const ids = [...TRANSITION_MACRO_IDS].filter(id => !this._disabledMacros.has(id));
+        if (ids.length === 0) return null;
+        return ids[Math.floor(Math.random() * ids.length)];
+    }
+
+    // Fire a transition macro directly via the main-thread queue. Used when
+    // there's no project-swap race to worry about (repeat-restart, shuffle
+    // cold-fallback via project-sync). Does NOT short-circuit on a running
+    // macro — _fireMacro handles queueing.
+    _fireTransitionMacro() {
+        const id = this._pickTransitionMacroId();
+        if (!id) return;
+        const macro = MACROS.find(m => m.id === id);
+        this._fireMacro(id);
         const statusEl = this.querySelector('.pn-autodj-status');
-        if (statusEl) statusEl.textContent = `⟳ ${pick.label}`;
+        if (statusEl) statusEl.textContent = `⟳ ${macro?.label || id}`;
+    }
+
+    // Plain-JSON one-transition control net that fires a `fire-macro`
+    // control binding on its first tick. Injected into a preview project
+    // before the worker loads it, so the transition macro is triggered by
+    // the Petri-net executor at a natural tick boundary instead of racing
+    // against project-load from the main thread. macroId is stashed in
+    // targetNet — it's the only string field that survives serialization.
+    _transitionNetJson(macroId) {
+        return {
+            role: 'control',
+            track: { channel: 1 },
+            places: { p0: { initial: [1] }, p1: {} },
+            transitions: {
+                t0: {
+                    control: { action: 'fire-macro', targetNet: macroId },
+                },
+            },
+            arcs: [
+                { source: 'p0', target: 't0' },
+                { source: 't0', target: 'p1' },
+            ],
+        };
+    }
+
+    // If Auto-DJ + Transition pool are enabled, injects a transition-fire
+    // control net into the project. Returns the picked macro label (for
+    // status display) or null if no transition fired.
+    _injectTransitionNet(project) {
+        const id = this._pickTransitionMacroId();
+        if (!id || !project?.nets) return null;
+        const netId = `macro:transition:${id}:${Date.now().toString(36)}`;
+        project.nets[netId] = this._transitionNetJson(id);
+        return MACROS.find(m => m.id === id)?.label || id;
     }
 
     // Macro-selection half of the Auto-DJ tick. Factored out so that
@@ -6711,6 +6758,17 @@ class PetriNote extends HTMLElement {
                 }
                 break;
             case 'control-fired':
+                // Transition-fire control net triggered — dispatch the
+                // baked-in macro through the main-thread queue. macroId is
+                // stashed in targetNet because JSON serialization only
+                // preserves {action, targetNet, targetNote}.
+                if (msg.control?.action === 'fire-macro' && msg.control.targetNet) {
+                    const macroId = msg.control.targetNet;
+                    this._fireMacro(macroId);
+                    const label = MACROS.find(m => m.id === macroId)?.label || macroId;
+                    const statusEl = this.querySelector('.pn-autodj-status');
+                    if (statusEl) statusEl.textContent = `⟳ ${label}`;
+                }
                 // Visual feedback for control events
                 if (msg.netId === this._activeNetId) {
                     const el = this._nodes[msg.transitionId];
@@ -6760,12 +6818,16 @@ class PetriNote extends HTMLElement {
                 } else if (this._playbackMode === 'shuffle') {
                     this._prefetchSent = false;
                     if (this._pendingNextTrack) {
-                        // Use pre-fetched track — load and play
+                        // Use pre-fetched track — bake transition into its
+                        // control layer so the macro fires at tick 1 of the
+                        // new project instead of racing project-load.
                         const proj = this._pendingNextTrack;
                         this._pendingNextTrack = null;
+                        const label = this._injectTransitionNet(proj);
                         toneEngine.panic();
                         this._applyProjectSync(proj, false);
-                        this._fireTransitionMacro();
+                        const statusEl = this.querySelector('.pn-autodj-status');
+                        if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
                     } else {
                         // Fallback: generate on demand with current instruments.
                         // Transition fires after the new project lands.

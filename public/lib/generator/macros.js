@@ -46,6 +46,34 @@ export function buildMacroRestoreNet(netId, targetNetId, durationTicks, restoreA
     return nb;
 }
 
+/**
+ * Build a one-transition control net that fires a `fire-macro` binding on
+ * its very first tick. Used to bake Auto-DJ transition macros into a freshly
+ * generated project so the macro executes *as part of* normal net execution
+ * (synchronized to the worker's tick clock) rather than racing against
+ * project-load from the main thread. The MACRO_NET_PREFIX id ensures the
+ * net is pruned automatically on stop / loop-wrap.
+ */
+export function buildTransitionFireNet(netId, macroId) {
+    const nb = new NetBundle();
+    nb.places['p0'] = { initial: [1], x: 100, y: 100 };
+    nb.places['p1'] = { initial: [0], x: 140, y: 100 };
+    nb.transitions['t0'] = { x: 120, y: 100 };
+    nb.arcs.push({ source: 'p0', target: 't0', weight: [1], inhibit: false });
+    nb.arcs.push({ source: 't0', target: 'p1', weight: [1], inhibit: false });
+    nb.controlBindings['t0'] = {
+        action: 'fire-macro',
+        macroId,
+        targetNet: '',
+        targetNote: 0,
+    };
+    nb.role = 'control';
+    nb.track = { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] };
+    nb.buildArcIndex();
+    nb.resetState();
+    return nb;
+}
+
 /** Net IDs for macro-spawned control nets all share this prefix. */
 export const MACRO_NET_PREFIX = 'macro:';
 

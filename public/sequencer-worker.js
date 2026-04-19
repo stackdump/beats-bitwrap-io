@@ -497,6 +497,15 @@ self.onmessage = function(e) {
             loadProject(msg.project);
             break;
 
+        // Mid-playback swap of a pre-composed project. Routes through
+        // queueProject so it lands on a bar boundary with tickCount reset,
+        // avoiding the mid-tick replacement that project-load causes.
+        case 'project-queue': {
+            const proj = parseProject(msg.project);
+            queueProject(proj);
+            break;
+        }
+
         case 'generate': {
             const proj = compose(msg.genre, msg.params || {});
             queueProject(proj);
