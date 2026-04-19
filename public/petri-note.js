@@ -5838,10 +5838,26 @@ class PetriNote extends HTMLElement {
         ctx.translate(this._view.tx, this._view.ty);
         ctx.scale(this._view.scale, this._view.scale);
 
+        // Mirror the Auto-DJ spin applied in _draw so the viz rAF loop
+        // (which clears the canvas every frame) doesn't snap arcs back to
+        // their unrotated position between spin-animation frames.
+        const spin = this._autoDjAngleDeg || 0;
+        if (spin !== 0) {
+            let sx = 0, sy = 0, n = 0;
+            for (const p of Object.values(net.places || {})) { sx += p.x; sy += p.y; n++; }
+            if (n > 0) {
+                const cx = sx / n, cy = sy / n;
+                ctx.translate(cx, cy);
+                ctx.rotate(spin * Math.PI / 180);
+                ctx.translate(-cx, -cy);
+            }
+        }
+
         ctx.globalAlpha = 0.3;
         ctx.strokeStyle = '#4a90d9';
         ctx.lineWidth = 1 / this._view.scale;
 
+        const reverseArrows = !!this._autoDjReverse;
         for (const arc of net.arcs) {
             const srcNode = net.places[arc.source] || net.transitions[arc.source];
             const trgNode = net.places[arc.target] || net.transitions[arc.target];
@@ -5851,6 +5867,12 @@ class PetriNote extends HTMLElement {
             ctx.moveTo(srcNode.x, srcNode.y);
             ctx.lineTo(trgNode.x, trgNode.y);
             ctx.stroke();
+
+            if (reverseArrows) {
+                this._drawArrowhead(ctx, trgNode.x, trgNode.y, srcNode.x, srcNode.y);
+            } else {
+                this._drawArrowhead(ctx, srcNode.x, srcNode.y, trgNode.x, trgNode.y);
+            }
         }
         ctx.globalAlpha = 1;
         ctx.restore();
