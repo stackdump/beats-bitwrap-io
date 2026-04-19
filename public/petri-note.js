@@ -2854,7 +2854,7 @@ class PetriNote extends HTMLElement {
         // Runs even when a user-fired macro is active since there's no
         // firing conflict.
         if (animateOnly) {
-            for (let i = 0; i < stack; i++) this._autoDjSpin();
+            this._autoDjSpin(stack);
             if (statusEl) statusEl.textContent = `(animate only)`;
             return;
         }
@@ -2886,7 +2886,7 @@ class PetriNote extends HTMLElement {
         // spin the ring on cadence so the visual feedback persists even when
         // there's nothing to fire. Avoids "is Auto-DJ broken?" moments.
         if (candidates.length === 0) {
-            for (let i = 0; i < stack; i++) this._autoDjSpin();
+            this._autoDjSpin(stack);
             if (statusEl) statusEl.textContent = `(no candidates)`;
             return;
         }
@@ -2900,20 +2900,20 @@ class PetriNote extends HTMLElement {
             fired.push(pick.label);
             if (i === 0) this._fireMacro(pick.id);
             else         this._executeMacro(pick.id);
-            this._autoDjSpin();
         }
+        this._autoDjSpin(stack);
         if (statusEl) statusEl.textContent = `→ ${fired.join(', ')}`;
     }
 
-    // Nudge the ring-visualization rotation by ±90° each time Auto-DJ fires,
-    // alternating direction so consecutive fires visibly stack/swing. The
-    // rotation is applied inside _draw (around the ring center) rather than
-    // via CSS transform on the canvas element — that way the beat-timeline
-    // dots and particle bursts above the ring stay put while only the
-    // euclidean ring spins underneath.
-    _autoDjSpin() {
+    // Nudge the ring-visualization rotation by ±90° per step, alternating
+    // direction between cadences so consecutive fires visibly swing. `steps`
+    // lets a single tick request N quarter-turns in one direction — used by
+    // Stack > 1 so the N stacked fires accumulate into a bigger spin rather
+    // than canceling each other out by flipping direction mid-tick.
+    _autoDjSpin(steps = 1) {
+        if (steps <= 0) return;
         const dir = this._autoDjDir || 1;
-        this._autoDjTargetAngle = (this._autoDjTargetAngle || 0) + dir * 90;
+        this._autoDjTargetAngle = (this._autoDjTargetAngle || 0) + dir * 90 * steps;
         this._autoDjDir = -dir;
         this._autoDjSpinStart = performance.now();
         this._autoDjSpinFrom = this._autoDjAngleDeg || 0;
