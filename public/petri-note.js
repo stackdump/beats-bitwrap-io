@@ -698,6 +698,7 @@ class PetriNote extends HTMLElement {
             </div>
             <div class="pn-audio-mode">
                 <button class="${this._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>
+                <button class="pn-wakelock-btn ${this._wakeLock ? 'active' : ''}" title="Keep screen awake during playback (screen wake lock)" aria-pressed="${this._wakeLock ? 'true' : 'false'}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
                 <button class="pn-help-btn" title="Performance tips">?</button>
                 <a class="pn-gh-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener" title="View source on GitHub">
                     <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -4428,6 +4429,10 @@ class PetriNote extends HTMLElement {
             this._onShareClick();
         });
 
+        this.querySelector('.pn-wakelock-btn')?.addEventListener('click', () => {
+            this._toggleWakeLock();
+        });
+
         // Upload track button
         const uploadInput = this.querySelector('.pn-upload-input');
         this.querySelector('.pn-upload-btn').addEventListener('click', () => {
@@ -5261,6 +5266,59 @@ class PetriNote extends HTMLElement {
         overlay.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
         });
+    }
+
+    // Screen Wake Lock: prevent the OS screensaver / display sleep so a
+    // live set keeps running on laptops and tablets. Request is gated
+    // by a user gesture per spec; re-acquired automatically when the tab
+    // returns to visible if it was auto-released on tab-hide.
+    async _toggleWakeLock() {
+        if (!('wakeLock' in navigator)) {
+            const btn = this.querySelector('.pn-wakelock-btn');
+            if (btn) btn.title = 'Wake Lock not supported in this browser';
+            return;
+        }
+        if (this._wakeLock) {
+            this._wakeLockDesired = false;
+            try { await this._wakeLock.release(); } catch {}
+            this._wakeLock = null;
+            this._updateWakeLockUI();
+            return;
+        }
+        try {
+            const lock = await navigator.wakeLock.request('screen');
+            this._wakeLock = lock;
+            lock.addEventListener('release', () => {
+                if (this._wakeLock === lock) this._wakeLock = null;
+                this._updateWakeLockUI();
+            });
+            if (!this._wakeLockVisHandler) {
+                this._wakeLockVisHandler = async () => {
+                    if (document.visibilityState === 'visible' && this._wakeLockDesired && !this._wakeLock) {
+                        try {
+                            this._wakeLock = await navigator.wakeLock.request('screen');
+                        } catch {}
+                        this._updateWakeLockUI();
+                    }
+                };
+                document.addEventListener('visibilitychange', this._wakeLockVisHandler);
+            }
+            this._wakeLockDesired = true;
+            this._updateWakeLockUI();
+        } catch (err) {
+            console.warn('Wake lock request failed:', err);
+        }
+    }
+
+    _updateWakeLockUI() {
+        const btn = this.querySelector('.pn-wakelock-btn');
+        if (!btn) return;
+        const on = !!this._wakeLock;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.title = on
+            ? 'Screen wake lock ON — click to release'
+            : 'Keep screen awake during playback (screen wake lock)';
     }
 
     // First generate after worker/WS ready. Honours a `?g=...&s=...` share

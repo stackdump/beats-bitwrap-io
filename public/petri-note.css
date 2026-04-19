@@ -2190,6 +2190,17 @@ input[type="range"][data-default] {
     color: #e94560;
 }
 
+.pn-wakelock-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px !important;
+}
+
+.pn-wakelock-btn svg {
+    display: block;
+}
+
 .pn-midi-output {
     padding: 6px 8px;
     border: 1px solid #0f3460;
