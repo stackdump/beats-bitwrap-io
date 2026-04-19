@@ -1071,6 +1071,7 @@ class PetriNote extends HTMLElement {
             e.preventDefault();
             this._toggleMacroDisabled(btn.dataset.macro);
         });
+        this._bindLongPressToggle(osPanel);
         osPanel.addEventListener('change', (e) => {
             const sel = e.target.closest('.pn-os-inst');
             if (!sel) return;
@@ -1096,6 +1097,7 @@ class PetriNote extends HTMLElement {
             e.preventDefault();
             this._toggleMacroDisabled(btn.dataset.macro);
         });
+        this._bindLongPressToggle(mxPanel);
         // Track hovered macro button for MIDI pad binding
         mxPanel.addEventListener('mouseover', (e) => {
             const btn = e.target.closest('.pn-macro-btn');
@@ -2648,6 +2650,49 @@ class PetriNote extends HTMLElement {
         list.push({ name, snap: this._snapshotOneShot(macroId) });
         favs[macroId] = list;
         localStorage.setItem(storeKey, JSON.stringify(favs));
+    }
+
+    // Touch equivalent for right-click: long-press a macro tile (≥ 450 ms)
+    // to toggle its disabled flag. Click suppression is per-button via a
+    // data flag so the trailing tap doesn't also fire the macro; cleared on
+    // the next touchstart. Works for both Macros panel and Beats Fire pads.
+    _bindLongPressToggle(panel) {
+        const LONG_PRESS_MS = 450;
+        let timer = null;
+        let activeBtn = null;
+        const cancel = () => {
+            if (timer) { clearTimeout(timer); timer = null; }
+            activeBtn = null;
+        };
+        panel.addEventListener('touchstart', (e) => {
+            const btn = e.target.closest('.pn-macro-btn');
+            if (!btn) return;
+            // Fresh press → any prior suppression flag is stale; drop it.
+            delete btn.dataset.suppressClick;
+            cancel();
+            activeBtn = btn;
+            timer = setTimeout(() => {
+                if (!activeBtn) return;
+                activeBtn.dataset.suppressClick = '1';
+                this._toggleMacroDisabled(activeBtn.dataset.macro);
+                // Haptic nudge where supported (iOS Safari ignores, but OK)
+                if (navigator.vibrate) navigator.vibrate(15);
+                timer = null;
+            }, LONG_PRESS_MS);
+        }, { passive: true });
+        panel.addEventListener('touchmove', cancel,   { passive: true });
+        panel.addEventListener('touchend', cancel,    { passive: true });
+        panel.addEventListener('touchcancel', cancel, { passive: true });
+        // Capture-phase click filter: if the long-press timer flagged a
+        // button, swallow the resulting click so the macro doesn't fire.
+        panel.addEventListener('click', (e) => {
+            const btn = e.target.closest('.pn-macro-btn');
+            if (btn?.dataset.suppressClick) {
+                delete btn.dataset.suppressClick;
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }, true);
     }
 
     // Right-click toggle: mark a macro as Auto-DJ-disabled. Visual marker is
