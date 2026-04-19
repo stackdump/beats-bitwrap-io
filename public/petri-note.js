@@ -2934,7 +2934,10 @@ class PetriNote extends HTMLElement {
             // cubic-bezier-ish ease out
             const eased = 1 - Math.pow(1 - t, 3);
             this._autoDjAngleDeg = from + (to - from) * eased;
-            this._draw();
+            // When the viz loop is running (playback), it redraws the canvas
+            // every rAF with rotation applied — calling _draw() here would
+            // clear its timeline. Only paint ourselves when viz is idle.
+            if (!this._vizRafId) this._draw();
             if (t < 1) requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
