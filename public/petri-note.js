@@ -5717,11 +5717,12 @@ class PetriNote extends HTMLElement {
                 <ul>
                     <li><b>Every</b> — cadence of fires (1 / 2 / 4 / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 bars, each label shows its beat count)</li>
                     <li><b>Animate only</b> — spin the ring on cadence without firing any macros (works even while another macro is running)</li>
-                    <li><b>Pools</b> checkboxes — Mute / FX / Pan / Shape / Pitch / Tempo / Beats. If every pool is unchecked the ring still spins with <code>(no candidates)</code> in the status line</li>
+                    <li><b>Pools</b> checkboxes — Mute / FX / Pan / Shape / Pitch / Tempo / Beats / <span style="border-left:3px solid #64ffda;padding-left:6px"><b>Transition</b></span>. If every rate-pool is unchecked the ring still spins with <code>(no candidates)</code> in the status line</li>
+                    <li><b>Transition</b> pool is special — it fires only on <i>track-boundary events</i> (Auto-DJ regen, shuffle-next, repeat-restart), independent of the rate cadence. Pulls from a curated set of sweeps / washes / risers (Sweep LP/HP, Reverb Wash, Cathedral, Delay Throw, Dub Delay, Riser, Phaser Drone, Tape Stop) chosen to resolve on a downbeat. Tiles eligible for this pool carry a <span style="border-left:3px solid #64ffda;padding-left:6px">teal left stripe</span> in the Macros panel</li>
                     <li><b>Stack</b> 1 / 2 / 3 — fires that many simultaneously each cycle (stack members bypass the serial queue; cycles are skipped entirely if a user-fired macro is already running)</li>
-                    <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap</li>
-                    <li>Status line shows the last picks, pre-load activity, or why a cycle was skipped</li>
-                    <li><b>Right-click any macro tile</b> to mark it disabled — Auto-DJ skips disabled macros (line-through mark, persisted)</li>
+                    <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap, with Tone.js synths pre-warmed into a side pool so the swap is a pointer flip — no audio stutter</li>
+                    <li>Status line shows the last picks (→ for rate fires, ⟳ for transitions), pre-load activity, or why a cycle was skipped</li>
+                    <li><b>Right-click any macro tile</b> to mark it disabled (long-press on touch) — Auto-DJ and Transition both skip disabled macros (line-through mark, persisted)</li>
                 </ul>
 
                 <h3>MIDI Pad &amp; CC Learn</h3>
