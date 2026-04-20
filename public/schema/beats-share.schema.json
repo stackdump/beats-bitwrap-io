@@ -44,7 +44,10 @@
       "properties": {
         "mix":           { "type": "object" },
         "instrument":    { "type": "string" },
-        "instrumentSet": { "type": "string" }
+        "instrumentSet": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     },
     "FxState": {

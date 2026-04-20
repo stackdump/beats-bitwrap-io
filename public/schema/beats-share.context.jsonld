@@ -35,7 +35,7 @@
     "pools":       { "@id": "vocab:pools" },
 
     "mix":           { "@id": "vocab:mix"           },
-    "instrument":    { "@id": "vocab:instrument",    "@type": "xsd:string" },
-    "instrumentSet": { "@id": "vocab:instrumentSet", "@type": "xsd:string" }
+    "instrument":    { "@id": "vocab:instrument", "@type": "xsd:string" },
+    "instrumentSet": { "@id": "vocab:instrumentSet", "@container": "@list" }
   }
 }
