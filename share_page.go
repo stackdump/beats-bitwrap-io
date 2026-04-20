@@ -222,6 +222,9 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 			return
 		}
 		decorated := injectIntoHead(indexBytes, []byte(buf.String()))
+		if tag := googleAnalyticsTag(googleAnalyticsID); tag != "" {
+			decorated = injectIntoHead(decorated, []byte(tag))
+		}
 		decorated = replaceTitle(decorated, title)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// Cache briefly so link-unfurl bots don't thrash the store on
@@ -239,8 +242,30 @@ func serveIndexBytes(w http.ResponseWriter, read func() ([]byte, error)) {
 		http.Error(w, "index read failed", http.StatusInternalServerError)
 		return
 	}
+	if tag := googleAnalyticsTag(googleAnalyticsID); tag != "" {
+		b = injectIntoHead(b, []byte(tag))
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(b)
+}
+
+// googleAnalyticsID is set once from $GOOGLE_ANALYTICS_ID in main().
+// Empty string = analytics disabled, no snippet injected.
+var googleAnalyticsID string
+
+func googleAnalyticsTag(id string) string {
+	if id == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=%s"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '%s');
+</script>
+`, id, id)
 }
 
 // injectIntoHead slides `block` in just before the closing </head> tag.

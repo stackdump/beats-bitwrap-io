@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -43,6 +44,11 @@ func main() {
 	}
 	log.Printf("Share store: %s (cap %d bytes, %d PUT/min/IP, %d PUT/min global)",
 		*dataDir, *maxStoreBytes, *putPerMin, *globalPutPerMin)
+
+	googleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
+	if googleAnalyticsID != "" {
+		log.Printf("Google Analytics: %s", googleAnalyticsID)
+	}
 
 	// Root needs custom routing: a request like `/?cid=z…` gets served
 	// with OG/JSON-LD injected into <head> so link unfurlers see the
