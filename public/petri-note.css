@@ -734,167 +734,106 @@ input[type="range"][data-default] {
     border-style: solid;
 }
 
-/* Disengaged state leans on the yellow banner + dashed icon + missing
- * genre-tilde instead of dimming the sliders — readability over redundant
- * signals. No rules inside .pn-feel-modal.disengaged right now. */
-
-.pn-feel-disengaged-note {
-    font-size: 11px;
-    color: #f5a623;
-    background: rgba(245, 166, 35, 0.1);
-    border-left: 2px solid #f5a623;
-    padding: 6px 10px;
-    margin: 6px 0 10px;
-    border-radius: 3px;
-}
-
-.pn-feel-pending-note {
-    font-size: 11px;
-    color: #e94560;
-    background: rgba(233, 69, 96, 0.08);
-    border-left: 2px solid #e94560;
-    padding: 6px 10px;
-    margin: 8px 0 4px;
-    border-radius: 3px;
-}
-
-/* Per-axis live/pending tags — stacked under the slider in small caps so
- * users know which part of the feel lands instantly vs needs a regen. */
-.pn-feel-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-}
-
-.pn-feel-tag {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 1px 6px;
-    border-radius: 2px;
-    white-space: nowrap;
-}
-
-.pn-feel-tag.live {
-    background: rgba(46, 204, 113, 0.14);
-    color: #64d9a0;
-    border: 1px solid rgba(46, 204, 113, 0.35);
-}
-
-.pn-feel-tag.pending {
-    background: rgba(233, 69, 96, 0.12);
-    color: #f08aa0;
-    border: 1px solid rgba(233, 69, 96, 0.4);
-}
-
-/* Pull-the-eye styling on Save & Regenerate when a pending trait change
- * was made but the user hasn't committed it yet. */
-.pn-feel-regen-dirty {
-    animation: pn-feel-regen-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pn-feel-regen-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0); }
-    50%      { box-shadow: 0 0 0 4px rgba(233, 69, 96, 0.4); }
-}
-
-/* Feel modal — reuses pn-modal-overlay machinery; internal grid holds the
- * 4 sliders stacked vertically for click-accurate fiddling. */
+/* Feel modal — 2D vibe grid with a draggable triangle. */
 .pn-feel-modal {
-    min-width: 340px;
-    max-width: 440px;
+    min-width: 360px;
+    max-width: 420px;
 }
 
-.pn-feel-grid {
+.pn-feel-gridwrap {
+    padding: 8px 0 4px;
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 8px 0;
+    justify-content: center;
 }
 
-/* Grid layout so label / slider / value live on row 1, tag pills wrap
- * neatly under the slider on row 2 — no more padding-left: 80px hack.
- * Zebra background so each axis row reads as one grouped unit. */
-.pn-feel-field {
-    display: grid;
-    grid-template-columns: 70px 1fr 32px;
-    grid-template-rows: auto auto;
-    column-gap: 10px;
-    row-gap: 4px;
-    align-items: center;
-    color: #ccc;
-    font-size: 12px;
-    padding: 8px 10px;
-    border-radius: 4px;
+.pn-feel-grid-svg {
+    width: 100%;
+    max-width: 320px;
+    touch-action: none;
+    user-select: none;
+    display: block;
 }
 
-.pn-feel-field:nth-child(odd) {
-    background: rgba(110, 74, 223, 0.08);
-}
-.pn-feel-field:nth-child(even) {
-    background: rgba(110, 74, 223, 0.16);
+.pn-feel-grid-bg {
+    stroke: #0f3460;
+    stroke-width: 1;
 }
 
-.pn-feel-field > span:first-child {
-    grid-row: 1;
-    grid-column: 1;
+.pn-feel-grid-lines line {
+    stroke: rgba(110, 74, 223, 0.18);
+    stroke-width: 1;
+    stroke-dasharray: 3 4;
+}
+
+.pn-feel-corner-label {
+    fill: #c3a6ff;
     font-size: 11px;
     font-weight: 700;
-    color: #c3a6ff;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.8px;
+    pointer-events: none;
 }
 
-.pn-feel-field > .pn-feel-slider {
-    grid-row: 1;
-    grid-column: 2;
+.pn-feel-corner {
+    stroke-width: 2;
+    pointer-events: none;
+    filter: drop-shadow(0 0 4px currentColor);
 }
 
-.pn-feel-field > .pn-feel-val {
-    grid-row: 1;
-    grid-column: 3;
+.pn-feel-grid-svg {
+    cursor: crosshair;
 }
 
-.pn-feel-field > .pn-feel-tags {
-    grid-row: 2;
-    grid-column: 2 / 4;
+.pn-feel-puck {
+    fill: #e94560;
+    stroke: #fff;
+    stroke-width: 2;
+    pointer-events: none;
+    transition: r 120ms;
+    filter: drop-shadow(0 0 6px rgba(233, 69, 96, 0.8));
 }
 
-.pn-feel-slider {
-    flex: 1;
-    height: 5px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: #0f3460;
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
+.pn-feel-puck.dragging {
+    r: 13;
+    filter: drop-shadow(0 0 10px rgba(233, 69, 96, 1));
 }
 
-.pn-feel-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #a58aff;
-    cursor: pointer;
+.pn-feel-modal.disengaged .pn-feel-corner,
+.pn-feel-modal.disengaged .pn-feel-puck {
+    opacity: 0.55;
 }
 
-.pn-feel-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #a58aff;
-    cursor: pointer;
-    border: none;
+.pn-feel-constellation .pn-feel-star { cursor: pointer; }
+.pn-feel-constellation .pn-feel-star circle {
+    fill: rgba(255, 255, 255, 0.45);
+    stroke: rgba(255, 255, 255, 0.15);
+    stroke-width: 1;
+    transition: fill 120ms, r 120ms;
 }
-
-.pn-feel-val {
-    font-size: 11px;
-    color: #6aa;
-    min-width: 28px;
-    text-align: right;
+.pn-feel-constellation .pn-feel-star text {
+    fill: rgba(220, 210, 255, 0.55);
+    font-size: 8.5px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+}
+.pn-feel-constellation .pn-feel-star:hover circle {
+    fill: #fff;
+}
+.pn-feel-constellation .pn-feel-star:hover text {
+    fill: #fff;
+}
+.pn-feel-constellation .pn-feel-star.active circle {
+    fill: #ffd36a;
+    stroke: #fff;
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 5px rgba(255, 211, 106, 0.9));
+}
+.pn-feel-constellation .pn-feel-star.active text {
+    fill: #ffe59a;
+    font-weight: 700;
 }
 
 .pn-feel-close {
@@ -918,6 +857,7 @@ input[type="range"][data-default] {
 }
 
 .pn-feel-cancel,
+.pn-feel-reset,
 .pn-feel-apply {
     padding: 6px 14px;
     border-radius: 4px;
@@ -929,7 +869,8 @@ input[type="range"][data-default] {
     cursor: pointer;
 }
 
-.pn-feel-cancel:hover { border-color: #888; color: #fff; }
+.pn-feel-cancel:hover,
+.pn-feel-reset:hover { border-color: #888; color: #fff; }
 
 .pn-feel-apply {
     background: #6e4adf;
@@ -938,19 +879,6 @@ input[type="range"][data-default] {
 }
 
 .pn-feel-apply:hover { background: #7e5aef; border-color: #a58aff; }
-
-.pn-feel-regen {
-    padding: 6px 14px;
-    border-radius: 4px;
-    border: 1px solid #e94560;
-    background: #e94560;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.pn-feel-regen:hover { background: #f45575; border-color: #ff7090; }
 
 .pn-effects {
     border-bottom: 1px solid #0f3460;
@@ -2345,6 +2273,38 @@ input[type="range"][data-default] {
     z-index: 1100;
     display: flex;
 }
+.pn-stage-menu {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    display: flex;
+    gap: 4px;
+    z-index: 3;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 999px;
+    padding: 4px;
+}
+.pn-stage-menu button {
+    width: 32px; height: 32px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: rgba(255,255,255,0.55);
+    font-size: 18px; line-height: 1;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 120ms, background 120ms, border-color 120ms;
+}
+.pn-stage-menu button:hover { color: #fff; }
+.pn-stage-menu button.active {
+    color: #fff;
+    background: rgba(74,144,217,0.22);
+    border-color: rgba(74,144,217,0.55);
+}
+.pn-stage-grid {
+    transition: transform 220ms ease;
+    transform-style: preserve-3d;
+}
 .pn-stage-close {
     position: absolute; top: 10px; right: 14px;
     width: 32px; height: 32px;
@@ -2355,24 +2315,44 @@ input[type="range"][data-default] {
     z-index: 2;
 }
 .pn-stage-close:hover { background: rgba(255,255,255,0.12); }
+/* Ring-of-rings composition: each sub-net panel is a square placed
+   around a big circle. Positions are set inline from JS (stage.js
+   layoutRing) because they depend on panel count + viewport. */
 .pn-stage-grid {
+    position: relative;
     flex: 1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    grid-auto-rows: 1fr;
-    gap: 10px;
-    padding: 12px;
-    box-sizing: border-box;
     width: 100%;
     height: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 .pn-stage-panel {
-    position: relative;
+    position: absolute;
     background: radial-gradient(circle at center, #131a33 0%, #070712 100%);
     border: 1px solid rgba(74,144,217,0.18);
     border-radius: 10px;
     overflow: hidden;
-    min-height: 180px;
+    aspect-ratio: 1 / 1;
+    transition: opacity 280ms ease;
+}
+.pn-stage-panel.muted {
+    opacity: 0.25;
+}
+.pn-stage-meta {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+.pn-stage-flame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
 }
 .pn-stage-panel .pn-stage-canvas {
     position: absolute; inset: 0; width: 100%; height: 100%;

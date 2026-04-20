@@ -136,16 +136,12 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 	drawText(dc, false, 16, 70, 410, 0.53, 0.53, 0.53, "SEED")
 	drawText(dc, false, 24, 70, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%d", p.Seed))
 
-	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "KEY · BARS")
+	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "KEY · MODE")
 	keyStr := keyLabel(p.RootNote, p.ScaleName)
 	if keyStr == "" {
 		keyStr = "—"
 	}
-	barStr := "—"
-	if p.Bars > 0 {
-		barStr = fmt.Sprintf("%d", p.Bars)
-	}
-	drawText(dc, false, 24, 340, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%s · %s", keyStr, barStr))
+	drawText(dc, false, 24, 340, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%s · %s", keyStr, barLabel(p.Bars, p.Structure)))
 
 	// Ring + dots — same geometry as the SVG template.
 	dc.SetRGBA(cr, cg, cb, 0.4)

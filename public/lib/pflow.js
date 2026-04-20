@@ -257,11 +257,18 @@ export function parseProject(data) {
         tempo: getFloat(data, 'tempo', 120),
         swing: getFloat(data, 'swing', 0),
         humanize: getFloat(data, 'humanize', 0),
+        // Musical-key + bar-count summary. Preserved across worker
+        // round-trips so the share-card renderer can show KEY · BARS
+        // without having to re-derive them from genre+structure.
+        rootNote: data.rootNote == null ? null : Math.round(getFloat(data, 'rootNote', -1)),
+        scaleName: getString(data, 'scaleName', ''),
+        bars: data.bars == null ? null : Math.max(0, Math.round(getFloat(data, 'bars', 0))),
         nets: {},
         connections: [],
         initialMutes: [],
         structure: [],
     };
+    if (proj.rootNote != null && proj.rootNote < 0) proj.rootNote = null;
 
     if (data.nets && typeof data.nets === 'object') {
         for (const [netId, netData] of Object.entries(data.nets)) {
@@ -308,6 +315,9 @@ export function projectToJSON(proj) {
     };
     if (proj.swing > 0) result.swing = proj.swing;
     if (proj.humanize > 0) result.humanize = proj.humanize;
+    if (proj.rootNote != null) result.rootNote = proj.rootNote;
+    if (proj.scaleName) result.scaleName = proj.scaleName;
+    if (proj.bars != null && proj.bars > 0) result.bars = proj.bars;
 
     for (const [netId, nb] of Object.entries(proj.nets)) {
         result.nets[netId] = bundleToJSON(nb);

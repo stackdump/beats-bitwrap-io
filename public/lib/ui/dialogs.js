@@ -282,7 +282,7 @@ export function showHelpModal(el) {
     overlay.innerHTML = `
         <div class="pn-help-modal">
             <button class="pn-help-close" title="Close (Esc)">&times;</button>
-            <h2>Performance Guide</h2>
+            <h2>Performance Guide <span class="pn-help-version" style="font-size:0.55em;color:#777;font-weight:400;letter-spacing:0.04em;margin-left:6px">loading…</span></h2>
 
             <h3>Getting Started</h3>
             <ul>
@@ -406,4 +406,23 @@ export function showHelpModal(el) {
     });
     el.appendChild(overlay);
     overlay.focus();
+
+    // Populate the version chip next to the title. Cached between
+    // opens so the Help modal doesn't refetch every time. Failure
+    // (offline / air-gapped) just drops the chip silently.
+    const versionEl = overlay.querySelector('.pn-help-version');
+    if (versionEl) {
+        (async () => {
+            try {
+                if (!el._cachedVersion) {
+                    const res = await fetch('/version', { cache: 'no-store' });
+                    if (!res.ok) throw new Error(String(res.status));
+                    el._cachedVersion = (await res.text()).trim();
+                }
+                versionEl.textContent = el._cachedVersion || '';
+            } catch {
+                versionEl.remove();
+            }
+        })();
+    }
 }

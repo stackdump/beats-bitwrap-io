@@ -1,92 +1,159 @@
-// Feel bar — 4 abstract axes. Each slider is 0–100 (default 50). On change
-// we compute a deterministic mapping onto three surfaces:
-//   1) Master FX sliders (applied immediately via host._setFxValue)
-//   2) Auto-DJ knobs (applied immediately to the panel form elements)
-//   3) Trait overrides (stashed on host._traitOverrides; applied on next
-//      Generate click — we don't auto-Generate on every slider wiggle).
+// Feel — XY morph pad with four corner snapshots (Alchemy-style).
 //
-// Mapping is `lerp(min, max, v/100)` or a threshold — kept in data rather
-// than inline so users can see "what does Chop do" at a glance in source.
+// The user drags a single puck inside a [0..1] × [0..1] square. Its
+// position bilinearly blends four full parameter snapshots sitting at
+// the corners. The blended values drive tempo, master FX, Auto-DJ,
+// swing, and humanize in place — no regenerate. This mirrors the
+// Transform Pad / Morpher pattern from Logic Alchemy and NI Massive X.
 //
-// Effect classification:
-//   live    = applies the moment you move the slider (FX, Auto-DJ, tempo)
-//   pending = takes effect only on the next Generate (trait overrides
-//             consumed by the composer). The modal surfaces these so users
-//             know which Feel changes need a regenerate to fully land.
+//   TL (0,1) Ambient       TR (1,1) Euphoric
+//   ┌──────────────────────┐
+//   │                      │
+//   │        (puck)        │
+//   │                      │
+//   └──────────────────────┘
+//   BL (0,0) Chill         BR (1,0) Drive
+//
+// Each corner is a full snapshot — everything a live performance
+// surface can express at once. Moving the puck blends every parameter
+// simultaneously via bilinear weights.
 
-export const FEEL_AXES = [
-    { id: 'energy', label: 'Energy', tip: 'Tempo, drum fills, distortion, Auto-DJ cadence',
-      live: 'BPM, distortion, Auto-DJ rate', pending: 'drum-fills, tension-curve' },
-    { id: 'groove', label: 'Groove', tip: 'Swing, humanize, ghost notes, syncopation',
-      live: '',  pending: 'swing, humanize, syncopation, ghost-notes, walking-bass' },
-    { id: 'chop',   label: 'Chop',   tip: 'Stack size, bit-crush, delay feedback, Auto-DJ mute pool weight',
-      live: 'bit-crush, delay feedback, Auto-DJ stack+pools', pending: '' },
-    { id: 'space',  label: 'Space',  tip: 'Reverb wet, delay wet, low-pass opening, decay tails',
-      live: 'reverb, delay, LP cutoff, reverb damp', pending: '' },
+export const CORNERS = [
+    { id: 'chill',    name: 'Chill',    x: 0, y: 0,
+      bpmMult: 0.78, distortion: 0,  crushBits: 0,
+      reverbWet: 25, reverbSize: 55, reverbDamp: 65, delayWet: 15, delayFeedback: 25,
+      lpFreq: 95,
+      autoDjRate: 8, autoDjStack: 1,
+      swing: 35, humanize: 25 },
+    { id: 'drive',    name: 'Drive',    x: 1, y: 0,
+      bpmMult: 1.28, distortion: 45, crushBits: 45,
+      reverbWet: 20, reverbSize: 50, reverbDamp: 40, delayWet: 15, delayFeedback: 60,
+      lpFreq: 100,
+      autoDjRate: 1, autoDjStack: 3,
+      swing: 0,  humanize: 5 },
+    { id: 'ambient',  name: 'Ambient',  x: 0, y: 1,
+      bpmMult: 0.78, distortion: 0,  crushBits: 15,
+      reverbWet: 80, reverbSize: 95, reverbDamp: 78, delayWet: 70, delayFeedback: 55,
+      lpFreq: 60,
+      autoDjRate: 8, autoDjStack: 1,
+      swing: 55, humanize: 35 },
+    { id: 'euphoric', name: 'Euphoric', x: 1, y: 1,
+      bpmMult: 1.20, distortion: 35, crushBits: 50,
+      reverbWet: 70, reverbSize: 85, reverbDamp: 30, delayWet: 60, delayFeedback: 70,
+      lpFreq: 70,
+      autoDjRate: 1, autoDjStack: 3,
+      swing: 10, humanize: 15 },
 ];
 
-export const FEEL_MAP = {
-    // v is 0..100. Each axis also reads sibling axes via host._feelState for
-    // cross-axis synergy (e.g. high Energy + high Chop pushes Mute-group
-    // macros so the Auto-DJ actually chops rather than just stacks).
-    energy: (v, host) => {
-        const norm = v / 100;
-        host._setFxByKey('distortion', Math.round(norm * 45));
-        const rateBars = v < 25 ? 8 : v < 50 ? 4 : v < 75 ? 2 : 1;
-        host._setAutoDjValue('rate', rateBars);
-        host._traitOverrides['drum-fills']    = v > 60;
-        host._traitOverrides['tension-curve'] = v > 40;
-        // Tempo: scale genre's base BPM ±25% around Energy=50. Genre base is
-        // looked up live from the select so switching genres mid-set doesn't
-        // leave tempo locked to the old base.
-        const genreKey = host.querySelector('.pn-genre-select')?.value;
-        const baseBpm = host._genreData?.[genreKey]?.bpm || host._tempo || 120;
-        const bpm = Math.round(baseBpm * (0.75 + norm * 0.5));
-        host._setTempo(Math.max(40, Math.min(220, bpm)));
-    },
-    groove: (v, host) => {
-        const norm = v / 100;
-        host._traitOverrides['syncopation']  = +(norm * 0.6).toFixed(2);
-        host._traitOverrides['ghost-notes']  = +(norm * 0.8).toFixed(2);
-        host._traitOverrides['walking-bass'] = v > 55;
-        // Swing & humanize are the dominant groove levers at the generator
-        // level — without them Groove only changes rhythmic content, not
-        // timing feel. Generator reads swing as 0..60 and humanize as 0..40.
-        host._traitOverrides['swing']        = Math.round(norm * 55);
-        host._traitOverrides['humanize']     = Math.round(norm * 35);
-    },
-    chop: (v, host) => {
-        const norm = v / 100;
-        host._setFxByKey('crush-bits',    Math.round(norm * 60));
-        host._setFxByKey('delay-feedback', Math.round(25 + norm * 50));
-        const stack = v < 33 ? 1 : v < 66 ? 2 : 3;
-        host._setAutoDjValue('stack', stack);
-        // Bias the Auto-DJ pool set: at Chop > 50 force the Mute pool on so
-        // the performer reaches for Beat Repeat / Cut / Drop. At Chop > 75
-        // also pull in FX (bit-crush fires / delay throws).
-        const panel = host.querySelector('.pn-autodj-panel');
-        if (panel) {
-            const setPool = (name, on) => {
-                const cb = panel.querySelector(`.pn-autodj-pool[value="${name}"]`);
-                if (cb) cb.checked = on;
-            };
-            if (v > 50) setPool('Mute', true);
-            if (v > 75) setPool('FX', true);
-        }
-    },
-    space: (v, host) => {
-        const norm = v / 100;
-        host._setFxByKey('reverb-wet',  Math.round(20 + norm * 60));
-        host._setFxByKey('reverb-size', Math.round(50 + norm * 45));
-        host._setFxByKey('delay-wet',   Math.round(15 + norm * 55));
-        // Wider LP range so max Space audibly closes the mix into a
-        // muffled, distant room. Prior 15-point window was imperceptible.
-        host._setFxByKey('lp-freq',     Math.round(100 - norm * 40));
-        // Cross-axis: when Space is high AND Energy low, damp the reverb so
-        // it reads "ambient" rather than "cavernous wash". When Energy is
-        // also high, keep damping low for wet shimmer.
-        const energy = host._feelState?.energy ?? 50;
-        const damp = Math.round(30 + (1 - energy / 100) * norm * 50);
-        host._setFxByKey('reverb-damp', Math.max(10, Math.min(90, damp)));
-    },
+// Corner colors match the marker palette used by earlier triangle iteration
+// so the UI keeps a visual identity across revisions.
+export const CORNER_COLORS = ['#ff6b9d', '#6ad3ff', '#ffd36a', '#a58aff'];
+
+export const DEFAULT_PUCK = [0.5, 0.5];
+
+// Hand-curated genre "constellation" — where each genre's default vibe
+// lives inside the Feel square. X tracks tempo/drive (low BPM → left,
+// high BPM → right). Y tracks ambience (dry/tight → bottom,
+// wet/atmospheric → top). These are defaults, not constraints — the
+// user can still drag the puck anywhere.
+export const GENRE_FEEL_POSITIONS = {
+    ambient:   [0.10, 0.90],
+    lofi:      [0.20, 0.65],
+    reggae:    [0.15, 0.22],
+    bossa:     [0.22, 0.50],
+    blues:     [0.25, 0.38],
+    country:   [0.30, 0.20],
+    jazz:      [0.32, 0.55],
+    synthwave: [0.45, 0.72],
+    funk:      [0.50, 0.32],
+    house:     [0.55, 0.42],
+    techno:    [0.65, 0.25],
+    garage:    [0.62, 0.48],
+    edm:       [0.72, 0.62],
+    trap:      [0.78, 0.40],
+    trance:    [0.78, 0.82],
+    dubstep:   [0.82, 0.52],
+    dnb:       [0.90, 0.55],
+    metal:     [0.92, 0.18],
+    speedcore: [0.98, 0.08],
 };
+
+export function clampPuck([x, y]) {
+    const cx = Math.max(0, Math.min(1, Number.isFinite(+x) ? +x : 0.5));
+    const cy = Math.max(0, Math.min(1, Number.isFinite(+y) ? +y : 0.5));
+    return [cx, cy];
+}
+
+export function sanitizePuck(p) {
+    if (!Array.isArray(p) || p.length !== 2) return [...DEFAULT_PUCK];
+    return clampPuck(p);
+}
+
+// Bilinear corner weights. Corners indexed as in CORNERS above:
+// [Chill(BL), Drive(BR), Ambient(TL), Euphoric(TR)].
+export function cornerWeights([x, y]) {
+    return [
+        (1 - x) * (1 - y),
+        x       * (1 - y),
+        (1 - x) * y,
+        x       * y,
+    ];
+}
+
+// Blend every numeric snapshot field at the puck position.
+export function blendCorners(puck) {
+    const w = cornerWeights(puck);
+    const keys = ['bpmMult','distortion','crushBits','reverbWet','reverbSize','reverbDamp','delayWet','delayFeedback','lpFreq','swing','humanize','autoDjRate','autoDjStack'];
+    const out = {};
+    for (const k of keys) {
+        out[k] = CORNERS[0][k]*w[0] + CORNERS[1][k]*w[1] + CORNERS[2][k]*w[2] + CORNERS[3][k]*w[3];
+    }
+    // Snap Auto-DJ bar counts to valid discrete values (1, 2, 4, 8 bars).
+    out.autoDjRate  = out.autoDjRate  < 1.5 ? 1 : out.autoDjRate  < 3 ? 2 : out.autoDjRate  < 6 ? 4 : 8;
+    out.autoDjStack = out.autoDjStack < 1.5 ? 1 : out.autoDjStack < 2.5 ? 2 : 3;
+    // Auto-DJ pool enables follow the "driving" half of the pad —
+    // Mute pool on the right side, FX pool near the right/top corner.
+    out.autoDjMutePool = (w[1] + w[3]) > 0.5;
+    out.autoDjFxPool   = (w[1] + w[3]) > 0.7;
+    out.weights = w;
+    return out;
+}
+
+// Push every blended parameter onto the live surfaces. No regenerate.
+export function applyFeelGrid(el, puck) {
+    const p = sanitizePuck(puck);
+    const b = blendCorners(p);
+
+    const genreKey = el.querySelector('.pn-genre-select')?.value;
+    const baseBpm = el._genreData?.[genreKey]?.bpm || el._tempo || 120;
+    const bpm = Math.round(baseBpm * b.bpmMult);
+    el._setTempo(Math.max(40, Math.min(220, bpm)));
+
+    el._setFxByKey('distortion',     Math.round(b.distortion));
+    el._setFxByKey('crush-bits',     Math.round(b.crushBits));
+    el._setFxByKey('reverb-wet',     Math.round(b.reverbWet));
+    el._setFxByKey('reverb-size',    Math.round(b.reverbSize));
+    el._setFxByKey('reverb-damp',    Math.max(10, Math.min(90, Math.round(b.reverbDamp))));
+    el._setFxByKey('delay-wet',      Math.round(b.delayWet));
+    el._setFxByKey('delay-feedback', Math.round(b.delayFeedback));
+    el._setFxByKey('lp-freq',        Math.round(b.lpFreq));
+
+    el._setAutoDjValue('rate',  b.autoDjRate);
+    el._setAutoDjValue('stack', b.autoDjStack);
+    const panel = el.querySelector('.pn-autodj-panel');
+    if (panel) {
+        const setPool = (name, on) => {
+            const cb = panel.querySelector(`.pn-autodj-pool[value="${name}"]`);
+            if (cb) cb.checked = on;
+        };
+        setPool('Mute', b.autoDjMutePool);
+        setPool('FX',   b.autoDjFxPool);
+    }
+
+    el._swing    = Math.max(0, Math.min(100, Math.round(b.swing)));
+    el._humanize = Math.max(0, Math.min(100, Math.round(b.humanize)));
+    if (el._project) {
+        el._project.swing    = el._swing;
+        el._project.humanize = el._humanize;
+    }
+}

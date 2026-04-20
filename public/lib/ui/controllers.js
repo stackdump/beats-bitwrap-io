@@ -8,7 +8,14 @@
 //   - _channelParamMove for per-channel pan/decay animation
 
 import { toneEngine } from '../../audio/tone-engine.js';
-import { FEEL_AXES, FEEL_MAP } from '../feel/axes.js';
+import {
+    CORNERS,
+    CORNER_COLORS,
+    DEFAULT_PUCK,
+    GENRE_FEEL_POSITIONS,
+    sanitizePuck,
+    applyFeelGrid,
+} from '../feel/axes.js';
 
 // --- Trait chip row ---
 
@@ -224,7 +231,7 @@ export function openTraitEditor(el, param) {
     (slider || intIn || cb).focus();
 }
 
-// --- Feel-bar surface helpers (used by FEEL_MAP) ---
+// --- Feel surface helpers ---
 
 export function setFxByKey(el, fxKey, value) {
     const slider = fxSlider(el, fxKey);
@@ -241,19 +248,21 @@ export function setAutoDjValue(el, key, value) {
 
 // --- Feel state ---
 
-export function applyFeel(el, id, v) {
-    if (!el._traitOverrides) el._traitOverrides = {};
-    // Stash locked traits before Feel runs, restore after.
-    const locks = el._feelTraitLocks || new Set();
-    const locked = {};
-    for (const p of locks) locked[p] = el._traitOverrides[p];
-    const fn = FEEL_MAP[id];
-    if (fn) fn(v, el);
-    for (const p of locks) {
-        if (locked[p] === undefined) delete el._traitOverrides[p];
-        else el._traitOverrides[p] = locked[p];
+function ensurePuck(el) {
+    const s = el._feelState;
+    if (s && Array.isArray(s.puck) && s.puck.length === 2) {
+        s.puck = sanitizePuck(s.puck);
+        return s.puck;
     }
-    updateTraits(el);
+    el._feelState = { puck: [...DEFAULT_PUCK] };
+    return el._feelState.puck;
+}
+
+export function applyFeel(el, puck) {
+    const p = sanitizePuck(puck || ensurePuck(el));
+    el._feelState = el._feelState || {};
+    el._feelState.puck = p;
+    applyFeelGrid(el, p);
     saveFeelSettings(el);
 }
 
@@ -266,10 +275,27 @@ export function saveFeelSettings(el) {
 }
 
 export function restoreFeelSettings(el) {
-    try {
-        const raw = localStorage.getItem('pn-feel-settings');
-        el._feelState = raw ? (JSON.parse(raw) || {}) : {};
-    } catch { el._feelState = {}; }
+    let raw = null;
+    try { raw = localStorage.getItem('pn-feel-settings'); } catch {}
+    let state = {};
+    try { state = raw ? (JSON.parse(raw) || {}) : {}; } catch { state = {}; }
+    // One-shot migration: older stored blobs may carry {markers:[...]},
+    // {energy, groove, chop, space}, or nothing. Collapse onto a single
+    // puck position in [0,1]² so returning users keep roughly the same vibe.
+    if (!Array.isArray(state.puck)) {
+        let x = 0.5, y = 0.5;
+        if (Array.isArray(state.markers) && state.markers.length === 3) {
+            const sx = state.markers.reduce((s, m) => s + (+m?.[0] || 0), 0) / 3;
+            const sy = state.markers.reduce((s, m) => s + (+m?.[1] || 0), 0) / 3;
+            x = sx / 100; y = sy / 100;
+        } else if (typeof state.energy === 'number' || typeof state.space === 'number') {
+            x = (state.energy ?? 50) / 100;
+            y = (state.space  ?? 50) / 100;
+        }
+        state = { puck: [x, y] };
+    }
+    state.puck = sanitizePuck(state.puck);
+    el._feelState = state;
     el._feelDisengaged = true;
     updateFeelIconDisengaged(el);
 }
@@ -306,115 +332,214 @@ export function updateFeelIconDisengaged(el) {
         : 'Feel — abstract performance sliders';
 }
 
+// --- Feel modal — XY morph pad with four corner snapshots ---
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const PAD_VIEW = 340;           // SVG viewBox
+const PAD_INSET = 28;           // inner square inset for corner labels
+const PAD_SPAN = PAD_VIEW - PAD_INSET * 2;
+
+function puckToSvg([x, y]) {
+    return [
+        PAD_INSET + x * PAD_SPAN,
+        PAD_INSET + (1 - y) * PAD_SPAN,
+    ];
+}
+
+function svgToPuck(svg, clientX, clientY) {
+    const pt = svg.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return [0.5, 0.5];
+    const local = pt.matrixTransform(ctm.inverse());
+    const x = (local.x - PAD_INSET) / PAD_SPAN;
+    const y = 1 - (local.y - PAD_INSET) / PAD_SPAN;
+    return sanitizePuck([x, y]);
+}
+
+function constellationMarkup(el) {
+    const current = el.querySelector('.pn-genre-select')?.value || '';
+    return Object.entries(GENRE_FEEL_POSITIONS).map(([genre, [x, y]]) => {
+        const [sx, sy] = puckToSvg([x, y]);
+        const active = genre === current;
+        const labelX = sx + 6;
+        const labelY = sy - 5;
+        return `
+            <g class="pn-feel-star ${active ? 'active' : ''}" data-genre="${genre}" data-x="${x}" data-y="${y}">
+                <title>${genre}</title>
+                <circle cx="${sx}" cy="${sy}" r="${active ? 4.5 : 2.8}"/>
+                <text x="${labelX}" y="${labelY}">${genre}</text>
+            </g>`;
+    }).join('');
+}
+
+function cornerLabelEl(c) {
+    const [sx, sy] = puckToSvg([c.x, c.y]);
+    // Pull the label away from the square's edge so it reads as an
+    // external anchor rather than overlapping the corner swatch.
+    const off = 10;
+    const lx = sx + (c.x < 0.5 ? -off : off);
+    const ly = sy + (c.y < 0.5 ?  off + 14 : -off - 6);
+    const anchor = c.x < 0.5 ? 'start' : 'end';
+    return `<text class="pn-feel-corner-label" x="${lx}" y="${ly}" text-anchor="${anchor}">${c.name}</text>`;
+}
+
 export function openFeelModal(el) {
     el.querySelector('.pn-feel-overlay')?.remove();
+
+    let puck = [...sanitizePuck(el._feelState?.puck ?? DEFAULT_PUCK)];
+    const snapshotPuck = [...puck];
+    const snapshotDisengaged = !!el._feelDisengaged;
+    const snapshotSwing = el._swing;
+    const snapshotHumanize = el._humanize;
+    el._feelPreviewMode = true;
+
+    const cornerSwatches = CORNERS.map((c, i) => {
+        const [sx, sy] = puckToSvg([c.x, c.y]);
+        return `<circle class="pn-feel-corner" cx="${sx}" cy="${sy}" r="10" style="fill:${CORNER_COLORS[i]};stroke:${CORNER_COLORS[i]}"/>`;
+    }).join('');
+
     const overlay = document.createElement('div');
     overlay.className = 'pn-feel-overlay pn-modal-overlay';
     overlay.tabIndex = -1;
-    const state = el._feelState || {};
-    // Snapshot the state at open — Cancel restores from this.
-    const snapshotFeel = { ...state };
-    const snapshotDisengaged = !!el._feelDisengaged;
-    const snapshotTraits = { ...(el._traitOverrides || {}) };
-    el._feelPreviewMode = true;
-
-    const row = (a) => {
-        const v = typeof state[a.id] === 'number' ? state[a.id] : 50;
-        const tags = [];
-        if (a.live)    tags.push(`<span class="pn-feel-tag live">LIVE · ${a.live}</span>`);
-        if (a.pending) tags.push(`<span class="pn-feel-tag pending">REGEN · ${a.pending}</span>`);
-        return `<label class="pn-feel-field" title="${a.tip}">
-            <span>${a.label}</span>
-            <input type="range" class="pn-feel-slider" data-feel="${a.id}" min="0" max="100" value="${v}">
-            <span class="pn-feel-val" data-feel-val="${a.id}">${v}</span>
-            <span class="pn-feel-tags">${tags.join('')}</span>
-        </label>`;
-    };
-    const disengagedNote = el._feelDisengaged
-        ? `<p class="pn-feel-disengaged-note">Disengaged — genre defaults are in effect. Sliders re-engage as soon as you nudge one.</p>`
-        : '';
     overlay.innerHTML = `
         <div class="pn-modal pn-feel-modal ${el._feelDisengaged ? 'disengaged' : ''}">
             <button class="pn-feel-close" title="Cancel (Esc)">&times;</button>
             <h2>Feel</h2>
-            <p class="pn-modal-desc">Four abstract sliders that deterministically drive generator params, master FX, and Auto-DJ. Changes preview live; Apply commits, Cancel reverts to the state when you opened this panel.</p>
-            ${disengagedNote}
-            <div class="pn-feel-grid">${FEEL_AXES.map(row).join('')}</div>
-            <p class="pn-feel-pending-note" style="display:none">Some changes are pending — the current track keeps its rhythmic feel until you hit <b>Save &amp; Regenerate</b>.</p>
+            <p class="pn-modal-desc">Drag the puck. Each corner is a full vibe; the middle is the mix.</p>
+            <div class="pn-feel-gridwrap">
+                <svg class="pn-feel-grid-svg" viewBox="0 0 ${PAD_VIEW} ${PAD_VIEW}" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <radialGradient id="pn-feel-bg" cx="50%" cy="50%" r="75%">
+                            <stop offset="0%"  stop-color="rgba(110, 74, 223, 0.20)"/>
+                            <stop offset="100%" stop-color="rgba(110, 74, 223, 0.04)"/>
+                        </radialGradient>
+                    </defs>
+                    <rect class="pn-feel-grid-bg" x="${PAD_INSET}" y="${PAD_INSET}" width="${PAD_SPAN}" height="${PAD_SPAN}" fill="url(#pn-feel-bg)"/>
+                    <g class="pn-feel-grid-lines"></g>
+                    ${cornerSwatches}
+                    ${CORNERS.map(cornerLabelEl).join('')}
+                    <g class="pn-feel-constellation">${constellationMarkup(el)}</g>
+                    <circle class="pn-feel-puck" r="11"/>
+                </svg>
+            </div>
             <div class="pn-modal-actions">
                 <button class="pn-feel-cancel">Cancel</button>
+                <button class="pn-feel-reset" title="Center the puck">Center</button>
                 <button class="pn-feel-apply">Apply</button>
-                <button class="pn-feel-regen" title="Apply then generate a new track with these trait overrides">Save &amp; Regenerate</button>
             </div>
         </div>`;
 
+    el.appendChild(overlay);
+
+    const svg   = overlay.querySelector('.pn-feel-grid-svg');
+    const puckEl = overlay.querySelector('.pn-feel-puck');
+
+    // Faint quarter-grid behind the pad.
+    const lineGroup = overlay.querySelector('.pn-feel-grid-lines');
+    for (let i = 1; i < 4; i++) {
+        const t = PAD_INSET + (PAD_SPAN * i) / 4;
+        const v = document.createElementNS(SVG_NS, 'line');
+        v.setAttribute('x1', t); v.setAttribute('x2', t);
+        v.setAttribute('y1', PAD_INSET); v.setAttribute('y2', PAD_VIEW - PAD_INSET);
+        const h = document.createElementNS(SVG_NS, 'line');
+        h.setAttribute('x1', PAD_INSET); h.setAttribute('x2', PAD_VIEW - PAD_INSET);
+        h.setAttribute('y1', t); h.setAttribute('y2', t);
+        lineGroup.appendChild(v);
+        lineGroup.appendChild(h);
+    }
+
+    const redraw = () => {
+        const [sx, sy] = puckToSvg(puck);
+        puckEl.setAttribute('cx', sx);
+        puckEl.setAttribute('cy', sy);
+    };
+
+    const engageIfNeeded = () => {
+        if (!el._feelDisengaged) return;
+        el._feelDisengaged = false;
+        overlay.querySelector('.pn-feel-modal')?.classList.remove('disengaged');
+        updateFeelIconDisengaged(el);
+        markGenreTilde(el, true);
+        el._updateProjectNameDisplay();
+    };
+
+    const pushLive = () => {
+        el._feelState = el._feelState || {};
+        el._feelState.puck = [...puck];
+        applyFeelGrid(el, puck);
+    };
+
+    redraw();
+
+    let dragging = false;
+    const onDown = (e) => {
+        // Clicking anywhere inside the pad jumps the puck there and
+        // starts a drag — matches Alchemy / Massive X feel.
+        dragging = true;
+        puck = svgToPuck(svg, e.clientX, e.clientY);
+        puckEl.classList.add('dragging');
+        engageIfNeeded();
+        redraw();
+        pushLive();
+        svg.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+    };
+    const onMove = (e) => {
+        if (!dragging) return;
+        puck = svgToPuck(svg, e.clientX, e.clientY);
+        redraw();
+        pushLive();
+    };
+    const onUp = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        puckEl.classList.remove('dragging');
+        svg.releasePointerCapture?.(e.pointerId);
+    };
+    svg.addEventListener('pointerdown', onDown);
+    svg.addEventListener('pointermove', onMove);
+    svg.addEventListener('pointerup',   onUp);
+    svg.addEventListener('pointercancel', onUp);
+
     const close = () => { el._feelPreviewMode = false; overlay.remove(); };
     const revert = () => {
-        el._feelState = { ...snapshotFeel };
-        el._traitOverrides = { ...snapshotTraits };
-        for (const a of FEEL_AXES) {
-            const v = typeof snapshotFeel[a.id] === 'number' ? snapshotFeel[a.id] : 50;
-            applyFeel(el, a.id, v);
+        puck = [...snapshotPuck];
+        el._feelState = el._feelState || {};
+        el._feelState.puck = [...puck];
+        if (snapshotDisengaged) {
+            el._feelDisengaged = true;
+            updateFeelIconDisengaged(el);
+            markGenreTilde(el, false);
+            el._updateProjectNameDisplay();
+            el._swing    = snapshotSwing;
+            el._humanize = snapshotHumanize;
+            if (el._project) {
+                el._project.swing    = el._swing;
+                el._project.humanize = el._humanize;
+            }
+        } else {
+            applyFeelGrid(el, puck);
         }
-        el._feelDisengaged = snapshotDisengaged;
-        updateFeelIconDisengaged(el);
-        markGenreTilde(el, !snapshotDisengaged);
-        el._updateProjectNameDisplay();
         saveFeelSettings(el);
     };
 
-    overlay.addEventListener('input', (e) => {
-        const s = e.target.closest('.pn-feel-slider');
-        if (!s) return;
-        if (el._feelDisengaged) {
-            el._feelDisengaged = false;
-            overlay.querySelector('.pn-feel-modal')?.classList.remove('disengaged');
-            overlay.querySelector('.pn-feel-disengaged-note')?.remove();
-            updateFeelIconDisengaged(el);
-            markGenreTilde(el, true);
-            el._updateProjectNameDisplay();
-        }
-        const id = s.dataset.feel;
-        const v = parseInt(s.value, 10);
-        const valEl = overlay.querySelector(`.pn-feel-val[data-feel-val="${id}"]`);
-        if (valEl) valEl.textContent = v;
-        el._feelState = el._feelState || {};
-        el._feelState[id] = v;
-        applyFeel(el, id, v);
-
-        const axis = FEEL_AXES.find(a => a.id === id);
-        const movedFromOpen = (snapshotFeel[id] ?? 50) !== v;
-        const anyPending = FEEL_AXES.some(a =>
-            a.pending && (el._feelState[a.id] ?? 50) !== (snapshotFeel[a.id] ?? 50)
-        );
-        const banner = overlay.querySelector('.pn-feel-pending-note');
-        if (banner) banner.style.display = anyPending ? 'block' : 'none';
-        if (axis?.pending && movedFromOpen) {
-            overlay.querySelector('.pn-feel-regen')?.classList.add('pn-feel-regen-dirty');
-        }
-    });
     const commit = () => {
         el._feelPreviewMode = false;
-        if (el._feelDisengaged) {
-            for (const a of FEEL_AXES) {
-                const v = typeof el._feelState?.[a.id] === 'number'
-                    ? el._feelState[a.id]
-                    : 50;
-                applyFeel(el, a.id, v);
-            }
-            el._feelDisengaged = false;
-            updateFeelIconDisengaged(el);
-            markGenreTilde(el, true);
-            el._updateProjectNameDisplay();
-        }
-        el._feelTraitLocks = new Set();
+        engageIfNeeded();
+        el._feelState = el._feelState || {};
+        el._feelState.puck = [...puck];
+        applyFeelGrid(el, puck);
         saveFeelSettings(el);
         close();
     };
+
     overlay.addEventListener('click', (e) => {
-        if (e.target.closest('.pn-feel-regen')) {
-            commit();
-            el.querySelector('.pn-generate-btn')?.click();
+        if (e.target.closest('.pn-feel-reset')) {
+            puck = [...DEFAULT_PUCK];
+            engageIfNeeded();
+            redraw();
+            pushLive();
             return;
         }
         if (e.target.closest('.pn-feel-apply')) { commit(); return; }
@@ -427,7 +552,6 @@ export function openFeelModal(el) {
         if (e.key === 'Escape') { e.preventDefault(); revert(); close(); }
         else if (e.key === 'Enter') { e.preventDefault(); commit(); }
     });
-    el.appendChild(overlay);
     overlay.focus();
 }
 

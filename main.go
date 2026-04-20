@@ -14,6 +14,11 @@ import (
 //go:embed public/*
 var publicFS embed.FS
 
+// version is set via -ldflags "-X main.version=..." by the Makefile
+// (git describe --tags --always --dirty). Local `go run` without the
+// Makefile leaves it at "dev".
+var version = "dev"
+
 func main() {
 	addr := flag.String("addr", ":8089", "listen address")
 	dir := flag.String("public", "", "serve from disk instead of embedded files")
@@ -64,6 +69,11 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(version))
+	})
 	mux.Handle("/o/", store)
 	mux.HandleFunc("/schema/beats-share", handleBeatsShareSchema)
 	// Split by extension: .png for raster (Twitter/X, Mastodon,

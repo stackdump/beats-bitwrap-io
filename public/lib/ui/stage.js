@@ -10,7 +10,7 @@ const BG = '#0a0a1a';
 const ARC_COLOR = '#4a90d9';
 const PAD = 40;
 
-let session = null; // { overlay, panels, rafId, onKey, onResize }
+let session = null; // { overlay, panels, rafId, onKey, onResize, vizMode, pulses, tiltAngle, transitionByPanel }
 
 export function toggleStage(el) {
     if (session) closeStage(el);
@@ -23,28 +23,88 @@ export function openStage(el) {
 
     const overlay = document.createElement('div');
     overlay.className = 'pn-stage-overlay';
+    overlay.dataset.pnStage = '1';
     overlay.innerHTML = `
+        <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
+            <button data-viz="flow" class="active" aria-pressed="true" title="Flow — panels drift">&#9676;</button>
+            <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
+            <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
+            <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
+        </div>
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
-        <div class="pn-stage-grid"></div>
+        <div class="pn-stage-grid">
+            <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
+            <svg class="pn-stage-meta" aria-hidden="true"></svg>
+        </div>
     `;
-    el.appendChild(overlay);
+    // Append to document.body, not el. `buildUI()` wipes el.innerHTML
+    // on every project-sync (Auto-DJ "next" fires that path), which
+    // would otherwise take the overlay with it and break fullscreen.
+    document.body.appendChild(overlay);
 
     const grid = overlay.querySelector('.pn-stage-grid');
     const panels = [];
 
     for (const entry of buildPanels(el, grid)) panels.push(entry);
 
-    session = { overlay, panels, rafId: 0, onKey: null, onResize: null };
+    session = {
+        el, overlay, panels, rafId: 0, onKey: null, onResize: null,
+        // Multi-select viz modes. Flow is on by default; pulse and tilt
+        // layer on top independently.
+        vizModes: new Set(['flow']),
+        pulses: [],           // { x0, y0, cx, cy, born, life }  for pulse mode
+        tiltAngle: 0,         // accumulator for tilt mode
+        ringCenter: { x: 0, y: 0 },
+        flameBuckets: new Float32Array(64), // radial energy for flame mode
+        flameCanvas: null,
+        flameCtx: null,
+    };
 
     session.onKey = (e) => { if (e.key === 'Escape') closeStage(el); };
     document.addEventListener('keydown', session.onKey);
 
-    session.onResize = () => { for (const p of panels) layoutPanel(p); };
+    session.onResize = () => {
+        layoutRing(session);
+        for (const p of session.panels) layoutPanel(p);
+    };
     window.addEventListener('resize', session.onResize);
+    layoutRing(session);
 
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
+    overlay.querySelector('.pn-stage-menu').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-viz]');
+        if (!btn) return;
+        const mode = btn.dataset.viz;
+        const on = session.vizModes.has(mode);
+        if (on) session.vizModes.delete(mode);
+        else session.vizModes.add(mode);
+        btn.classList.toggle('active', !on);
+        btn.setAttribute('aria-pressed', String(!on));
+        // Clear mode-owned state when a mode turns off so stale
+        // transforms don't linger. Pulse particles are *not* cleared
+        // here — we stop spawning new ones, but existing particles
+        // finish their fade so the mode "trails off" gracefully.
+        if (mode === 'tilt' && on) {
+            const grid = overlay.querySelector('.pn-stage-grid');
+            grid.style.transform = '';
+            session.tiltAngle = 0;
+        }
+        if (mode === 'flame' && on) {
+            session.flameBuckets.fill(0);
+            if (session.flameCtx && session.flameCanvas) {
+                session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
+            }
+        }
+    });
 
-    // Relayout once after the grid has actually sized (needs a paint).
+    // Size panels immediately (getBoundingClientRect inside layoutPanel
+    // forces a synchronous layout pass) so the first rendered frame has
+    // a correct scale/center for every panel — no "scale(1) → correct"
+    // pop on the first tick.
+    for (const p of panels) layoutPanel(p);
+    // Re-layout once more after the next paint to settle any final
+    // grid-track sizing (aspect-ratio squares need the row to round to
+    // an integer height).
     requestAnimationFrame(() => { for (const p of panels) layoutPanel(p); });
 
     startLoop();
@@ -65,49 +125,205 @@ export function stageOnTransitionFired(el, netId, transitionId) {
     if (!session) return;
     const panel = session.panels.find(p => p.netId === netId);
     const node = panel?.nodes[transitionId];
-    if (!node) return;
-    node.classList.add('firing');
-    setTimeout(() => node.classList.remove('firing'), 100);
+    if (node) {
+        node.classList.add('firing');
+        setTimeout(() => node.classList.remove('firing'), 100);
+    }
+    // Pulse mode: spawn a particle at the panel's outer ring position
+    // and let it fade toward the ring center — "beat flying into the
+    // void". Cap the pulse list so a flurry of transitions doesn't
+    // accumulate unbounded SVG nodes.
+    if (session.vizModes.has('pulse') && panel?.ringX != null) {
+        if (session.pulses.length > 64) session.pulses.shift();
+        session.pulses.push({
+            x0: panel.ringX, y0: panel.ringY,
+            cx: session.ringCenter.x, cy: session.ringCenter.y,
+            born: performance.now(),
+            life: 700,
+        });
+    }
+    // Flame: bump the radial bar at the panel's angle (plus neighbours
+    // for a soft shoulder so the flame "licks" sideways, not a single
+    // spike).
+    if (session.vizModes.has('flame') && panel?.ringX != null) {
+        const dx = panel.ringX - session.ringCenter.x;
+        const dy = panel.ringY - session.ringCenter.y;
+        const theta = Math.atan2(dy, dx);        // -π … π
+        const N = session.flameBuckets.length;
+        const center = Math.floor(((theta + Math.PI) / (2 * Math.PI)) * N) % N;
+        const buckets = session.flameBuckets;
+        for (let k = -2; k <= 2; k++) {
+            const idx = ((center + k) % N + N) % N;
+            const w = Math.max(0, 1 - Math.abs(k) / 3);
+            buckets[idx] = Math.min(1, buckets[idx] + 0.9 * w);
+        }
+    }
 }
 
 // Mute-state reconcile — called when `mute-state` message arrives.
-// Add/remove panels without disturbing ones that stayed.
+// Panels are *not* torn down on mute: the ring geometry stays stable
+// (no reflow flash) and muted panels just dim via a `.muted` class.
+// Auto-DJ section boundaries flip mutes often, so any rebuild here
+// would strobe the whole composition.
 export function stageOnMuteStateChange(el) {
     if (!session) return;
-    const wanted = eligibleNetIds(el);
-    const have = new Set(session.panels.map(p => p.netId));
+    for (const p of session.panels) {
+        const muted = el._mutedNets?.has(p.netId) || el._manualMutedNets?.has(p.netId);
+        p.root.classList.toggle('muted', !!muted);
+    }
+}
 
-    // Remove panels for tracks that got muted.
-    for (const p of [...session.panels]) {
-        if (!wanted.includes(p.netId)) {
-            p.root.remove();
-            session.panels = session.panels.filter(x => x !== p);
-        }
+// Arrange sub-panels as squares (transitions) alternating with small
+// circles (places) around a big ring — the whole Stage reads as one
+// meta-Petri-net: N square transitions (each a live sub-ring) + N
+// place circles between them + 2N arcs closing the loop.
+function layoutRing(s) {
+    const grid = s.overlay.querySelector('.pn-stage-grid');
+    const meta = s.overlay.querySelector('.pn-stage-meta');
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    const n = s.panels.length;
+    if (n === 0) return;
+
+    if (n === 1) {
+        const side = Math.min(w, h) * 0.68;
+        const p = s.panels[0];
+        p.root.style.width = `${side}px`;
+        p.root.style.height = `${side}px`;
+        p.root.style.left = `${(w - side) / 2}px`;
+        p.root.style.top = `${(h - side) / 2}px`;
+        if (meta) meta.innerHTML = '';
+        return;
     }
 
-    // Add panels for tracks that became unmuted.
-    const grid = session.overlay.querySelector('.pn-stage-grid');
-    for (const id of wanted) {
-        if (have.has(id)) continue;
-        const entry = buildOnePanel(el, grid, id);
-        if (entry) {
-            session.panels.push(entry);
-            requestAnimationFrame(() => layoutPanel(entry));
-        }
+    // Size each panel so a ring of N squares fits comfortably. The
+    // fraction is tuned so 2 panels pair naturally, 3–5 form a tight
+    // pentagon, and 6+ still leave visible ring negative space.
+    const baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
+    const side = Math.max(140, Math.min(360, Math.min(w, h) * baseFrac));
+    const radius = Math.min(w, h) / 2 - side / 2 - 24;
+    const cx = w / 2, cy = h / 2;
+
+    s.ringCenter = { x: cx, y: cy };
+    // Size the flame canvas to match the grid — drawn from center out.
+    const flame = s.overlay.querySelector('.pn-stage-flame');
+    if (flame) {
+        const dpr = window.devicePixelRatio || 1;
+        flame.width = Math.round(w * dpr);
+        flame.height = Math.round(h * dpr);
+        flame.style.width = `${w}px`;
+        flame.style.height = `${h}px`;
+        s.flameCanvas = flame;
+        s.flameCtx = flame.getContext('2d');
+        s.flameCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+    const transitionCenters = [];
+    for (let i = 0; i < n; i++) {
+        const theta = (i / n) * Math.PI * 2 - Math.PI / 2;
+        const tx = cx + radius * Math.cos(theta);
+        const ty = cy + radius * Math.sin(theta);
+        transitionCenters.push({ x: tx, y: ty });
+        const p = s.panels[i];
+        p.ringX = tx;
+        p.ringY = ty;
+        p.root.style.width = `${side}px`;
+        p.root.style.height = `${side}px`;
+        p.root.style.left = `${tx - side / 2}px`;
+        p.root.style.top = `${ty - side / 2}px`;
+    }
+
+    // Inner-place ring: each place sits at the midpoint angle between
+    // two adjacent transitions, pulled toward the stage center so the
+    // composition reads as classic Petri net geometry (transitions on
+    // the outer ring, places on an inner ring).
+    const placeR = Math.max(22, side * 0.12);
+    const placeRadius = radius * 0.35;
+    const placeCenters = [];
+    for (let i = 0; i < n; i++) {
+        const theta = ((i + 0.5) / n) * Math.PI * 2 - Math.PI / 2;
+        placeCenters.push({
+            x: cx + placeRadius * Math.cos(theta),
+            y: cy + placeRadius * Math.sin(theta),
+        });
+    }
+
+    if (meta) renderMetaNet(meta, w, h, transitionCenters, placeCenters, side, placeR);
+}
+
+function renderMetaNet(svg, w, h, transitions, places, side, placeR) {
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    const arcColor = '#4a90d9';
+    const arcOpacity = 0.35;
+    const halfTransition = side / 2;
+
+    // Build arcs: for each place i, arc from transitions[i] → places[i]
+    // and from places[i] → transitions[i+1] (wrap). Arrowhead lands
+    // just shy of each target shape's edge so the line visually
+    // terminates inside the square/circle outline.
+    const lines = [];
+    for (let i = 0; i < places.length; i++) {
+        const a = transitions[i];
+        const p = places[i];
+        const b = transitions[(i + 1) % transitions.length];
+        lines.push(edge(a, p, halfTransition, placeR));
+        lines.push(edge(p, b, placeR, halfTransition));
+    }
+
+    const placeSvg = places.map(pc =>
+        `<circle cx="${pc.x.toFixed(1)}" cy="${pc.y.toFixed(1)}" r="${placeR.toFixed(1)}" fill="rgba(74,144,217,0.06)" stroke="${arcColor}" stroke-width="2" stroke-opacity="${arcOpacity + 0.1}"/>`,
+    ).join('');
+    svg.innerHTML =
+        `<g stroke="${arcColor}" stroke-width="2" fill="none" stroke-opacity="${arcOpacity}">${lines.join('')}</g>` +
+        placeSvg;
+}
+
+// Emit a single arrow-terminated line from (a) to (b), with a and b
+// insets equal to each shape's "radius" (halfSide for squares, r for
+// circles) so lines start and end on the shape's outline, not at its
+// center.
+function edge(a, b, aInset, bInset) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const x1 = a.x + ux * aInset;
+    const y1 = a.y + uy * aInset;
+    const x2 = b.x - ux * bInset;
+    const y2 = b.y - uy * bInset;
+    const headLen = 12;
+    const ang = Math.atan2(uy, ux);
+    const hx1 = x2 - headLen * Math.cos(ang - Math.PI / 6);
+    const hy1 = y2 - headLen * Math.sin(ang - Math.PI / 6);
+    const hx2 = x2 - headLen * Math.cos(ang + Math.PI / 6);
+    const hy2 = y2 - headLen * Math.sin(ang + Math.PI / 6);
+    return (
+        `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>` +
+        `<line x1="${x2.toFixed(1)}" y1="${y2.toFixed(1)}" x2="${hx1.toFixed(1)}" y2="${hy1.toFixed(1)}"/>` +
+        `<line x1="${x2.toFixed(1)}" y1="${y2.toFixed(1)}" x2="${hx2.toFixed(1)}" y2="${hy2.toFixed(1)}"/>`
+    );
 }
 
 // --- internals ---
 
+// All music nets with real content. Muted music panels stay in the
+// ring (dimmed) so the composition doesn't reflow when Auto-DJ flips
+// mutes mid-section. `hit*` Beats tracks are excluded unless they're
+// unmuted at open time — muted by default they'd just be dead dimmed
+// squares cluttering the composition.
 function eligibleNetIds(el) {
     const nets = el._project?.nets || {};
     const ids = [];
     for (const [id, net] of Object.entries(nets)) {
         if (!net || net.role === 'control') continue;
-        if (el._mutedNets?.has(id) || el._manualMutedNets?.has(id)) continue;
         const placeCount = Object.keys(net.places || {}).length;
         const transCount = Object.keys(net.transitions || {}).length;
         if (placeCount === 0 || transCount === 0) continue;
+        if (id.startsWith('hit')) {
+            const muted = el._mutedNets?.has(id) || el._manualMutedNets?.has(id);
+            if (muted) continue;
+        }
         ids.push(id);
     }
     ids.sort((a, b) => {
@@ -219,15 +435,23 @@ function layoutPanel(entry) {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
     entry.view = { scale, tx: w / 2 - cx * scale, ty: h / 2 - cy * scale, cx, cy };
-    entry.stage.style.transform = `translate(${entry.view.tx}px, ${entry.view.ty}px) scale(${scale})`;
+    // transform-origin stays at 0 0 so translate + scale behave like the
+    // canvas ctx.translate/scale pair in canvas.js::centerNet. Rotation is
+    // added by the rAF loop as an *inner* transform triplet
+    // (translate(cx,cy) rotate(angle) translate(-cx,-cy)) so the ring
+    // spins around its own centroid instead of the stage's corner.
     entry.stage.style.transformOrigin = '0 0';
+    entry.stage.style.transform =
+        `translate(${entry.view.tx}px, ${entry.view.ty}px) scale(${scale})`;
     drawPanel(entry);
 }
 
 function currentNet(entry) {
-    // Resolve the net fresh each paint — project can be rebuilt between frames.
-    const el = entry.root.closest('petri-note') || entry.root.getRootNode()?.host;
-    return el?._project?.nets?.[entry.netId] || null;
+    // Resolve the net fresh each paint — project can be rebuilt between
+    // frames (Auto-DJ regen, "next", manual generate). session.el is the
+    // durable handle; the overlay now lives on document.body so it can
+    // no longer reach the element via closest('petri-note').
+    return session?.el?._project?.nets?.[entry.netId] || null;
 }
 
 function drawPanel(entry) {
@@ -290,20 +514,130 @@ function startLoop() {
         if (!session) return;
         const dt = Math.min(100, now - lastTime) / 1000;
         lastTime = now;
+        const flowOn = session.vizModes.has('flow');
+        const tiltOn = session.vizModes.has('tilt');
+        const pulseOn = session.vizModes.has('pulse');
+        // Tilt: accumulate a slow rotation around X and drift Y so the
+        // whole composition feels 3D without becoming seasick.
+        if (tiltOn) {
+            session.tiltAngle += dt * 12; // deg/sec
+            const grid = session.overlay.querySelector('.pn-stage-grid');
+            const rx = 18 * Math.sin(session.tiltAngle * Math.PI / 180 * 0.6);
+            const ry = 22 * Math.cos(session.tiltAngle * Math.PI / 180 * 0.4);
+            grid.style.transform =
+                `perspective(1400px) rotateX(${rx}deg) rotateY(${ry}deg)`;
+        }
+        // Pulse: update the pulse-particle SVG layer. Keep rendering
+        // after the mode is toggled off so in-flight particles drain
+        // instead of freezing mid-flight on the screen.
+        if (pulseOn || session.pulses.length) renderPulses(now);
+        // Flame: decay buckets + draw the radial equalizer.
+        if (session.vizModes.has('flame')) renderFlame(dt);
+        else if (session.flameCtx && session.flameCanvas && session.flameBuckets.some(v => v > 0)) {
+            // One-shot clear when the mode is toggled off.
+            session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
+            session.flameBuckets.fill(0);
+        }
         for (const p of session.panels) {
-            p.angle += p.angleVelDps * dt;
+            if (flowOn) p.angle += p.angleVelDps * dt;
             if (p.angle > 360) p.angle -= 360;
             if (p.angle < -360) p.angle += 360;
-            // Also apply rotation to the DOM stage so place/transition
-            // nodes follow the arcs — keeps rings visually coherent.
+            // Keep transform-origin at 0,0 — same convention as canvas.js
+            // — and rotate around the net centroid via an inner
+            // translate/rotate/translate so the DOM nodes follow the
+            // canvas arcs perfectly (arrowheads stay seated on their
+            // transitions at every angle).
+            const { tx, ty, scale, cx, cy } = p.view;
             p.stage.style.transform =
-                `translate(${p.view.tx}px, ${p.view.ty}px) scale(${p.view.scale}) rotate(${p.angle}deg)`;
-            p.stage.style.transformOrigin = `${p.view.cx}px ${p.view.cy}px`;
+                `translate(${tx}px, ${ty}px) scale(${scale})` +
+                ` translate(${cx}px, ${cy}px) rotate(${p.angle}deg) translate(${-cx}px, ${-cy}px)`;
             drawPanel(p);
         }
         session.rafId = requestAnimationFrame(tick);
     };
     session.rafId = requestAnimationFrame(tick);
+}
+
+// Flame mode: a radial equalizer anchored at the ring center. Each
+// bucket is a bar shot outward at its angle, color gradient from hot
+// orange at the base to transparent at the tip. Energy decays every
+// frame so the flame "breathes".
+function renderFlame(dt) {
+    const ctx = session.flameCtx;
+    if (!ctx || !session.flameCanvas) return;
+    const w = session.flameCanvas.width / (window.devicePixelRatio || 1);
+    const h = session.flameCanvas.height / (window.devicePixelRatio || 1);
+    ctx.clearRect(0, 0, w, h);
+    const buckets = session.flameBuckets;
+    const N = buckets.length;
+    // Exponential decay — half-life ~180ms. Tweak if the flame is too
+    // twitchy or too sticky.
+    const decay = Math.exp(-dt * 4);
+    const cx = session.ringCenter.x;
+    const cy = session.ringCenter.y;
+    const maxLen = Math.min(cx, cy, w - cx, h - cy) * 0.6;
+    const innerR = Math.min(cx, cy) * 0.10;
+    for (let i = 0; i < N; i++) {
+        buckets[i] *= decay;
+        const v = buckets[i];
+        if (v < 0.01) continue;
+        const theta = (i / N) * Math.PI * 2 - Math.PI;
+        const barLen = innerR + maxLen * v;
+        const halfAng = (Math.PI / N) * 0.9; // bar width as angle
+        const x1 = cx + innerR * Math.cos(theta - halfAng);
+        const y1 = cy + innerR * Math.sin(theta - halfAng);
+        const x2 = cx + innerR * Math.cos(theta + halfAng);
+        const y2 = cy + innerR * Math.sin(theta + halfAng);
+        const x3 = cx + barLen * Math.cos(theta + halfAng * 0.4);
+        const y3 = cy + barLen * Math.sin(theta + halfAng * 0.4);
+        const x4 = cx + barLen * Math.cos(theta - halfAng * 0.4);
+        const y4 = cy + barLen * Math.sin(theta - halfAng * 0.4);
+        const tipX = cx + barLen * Math.cos(theta);
+        const tipY = cy + barLen * Math.sin(theta);
+        const grad = ctx.createLinearGradient(cx, cy, tipX, tipY);
+        grad.addColorStop(0.0, `rgba(255, 200, 64, ${(0.85 * v).toFixed(3)})`);
+        grad.addColorStop(0.5, `rgba(233, 69, 96, ${(0.7 * v).toFixed(3)})`);
+        grad.addColorStop(1.0, `rgba(74, 144, 217, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x3, y3);
+        ctx.lineTo(x4, y4);
+        ctx.closePath();
+        ctx.fill();
+    }
+}
+
+// Repaint active pulse particles as a top-layer overlay on the meta svg.
+// Reuses the same <svg> node; we just rewrite a dedicated <g class="pulses">
+// each frame so dead particles drop cleanly.
+function renderPulses(now) {
+    const meta = session.overlay.querySelector('.pn-stage-meta');
+    if (!meta) return;
+    // Evict dead particles first so the visible count matches state.
+    const alive = [];
+    const parts = [];
+    for (const q of session.pulses) {
+        const t = (now - q.born) / q.life;
+        if (t >= 1) continue;
+        alive.push(q);
+        // ease-in on position, linear fade on opacity, shrink toward center.
+        const e = 1 - Math.pow(1 - t, 2);
+        const x = q.x0 + (q.cx - q.x0) * e;
+        const y = q.y0 + (q.cy - q.y0) * e;
+        const r = Math.max(1.5, 10 * (1 - t));
+        const alpha = 0.7 * (1 - t);
+        parts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="#e94560" fill-opacity="${alpha.toFixed(3)}"/>`);
+    }
+    session.pulses = alive;
+    let layer = meta.querySelector('.pulses');
+    if (!layer) {
+        layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        layer.classList.add('pulses');
+        meta.appendChild(layer);
+    }
+    layer.innerHTML = parts.join('');
 }
 
 function escapeHtml(s) {

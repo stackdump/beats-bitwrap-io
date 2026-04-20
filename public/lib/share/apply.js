@@ -8,6 +8,7 @@
 // wrappers so any `el._applyFxState(fx)` call site still works.
 
 import { toneEngine } from '../../audio/tone-engine.js';
+import { sanitizePuck, applyFeelGrid } from '../feel/axes.js';
 
 export function applyFxState(el, fx) {
     if (!fx) return;
@@ -27,11 +28,30 @@ export function applyFxState(el, fx) {
 
 export function applyFeelState(el, feel) {
     if (!feel) return;
-    el._feelState = { ...(feel.sliders || {}) };
+    const sliders = feel.sliders || {};
+    let puck = sliders.puck;
+    if (!Array.isArray(puck)) {
+        if (Array.isArray(sliders.markers) && sliders.markers.length === 3) {
+            // Triangle era: centroid of three markers → puck in [0,1]².
+            const sx = sliders.markers.reduce((s, m) => s + (+m?.[0] || 0), 0) / 3;
+            const sy = sliders.markers.reduce((s, m) => s + (+m?.[1] || 0), 0) / 3;
+            puck = [sx / 100, sy / 100];
+        } else {
+            // Four-axis era: energy→x, space→y.
+            const oldX = typeof sliders.energy === 'number' ? sliders.energy : 50;
+            const oldY = typeof sliders.space  === 'number' ? sliders.space  : 50;
+            puck = [oldX / 100, oldY / 100];
+        }
+    }
+    puck = sanitizePuck(puck);
+    el._feelState = { puck };
     try { localStorage.setItem('pn-feel-settings', JSON.stringify(el._feelState)); } catch {}
     el._feelDisengaged = !feel.engaged;
     el._updateFeelIconDisengaged();
-    if (feel.engaged) el._markGenreTilde(true);
+    if (feel.engaged) {
+        el._markGenreTilde(true);
+        applyFeelGrid(el, puck);
+    }
 }
 
 export function applyAutoDjState(el, state) {

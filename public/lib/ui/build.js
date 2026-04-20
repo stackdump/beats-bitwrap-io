@@ -11,7 +11,6 @@
 import { toneEngine } from '../../audio/tone-engine.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
-import { FEEL_AXES } from '../feel/axes.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 
 export function buildUI(el) {

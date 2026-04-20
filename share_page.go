@@ -50,6 +50,7 @@ type sharePayload struct {
 	RootNote  *int   `json:"rootNote,omitempty"`
 	ScaleName string `json:"scaleName,omitempty"`
 	Bars      int    `json:"bars,omitempty"`
+	Structure string `json:"structure,omitempty"`
 }
 
 // keyLabel renders the musical key for the card. Mirrors the JS
@@ -76,6 +77,22 @@ func keyLabel(rootNote *int, scaleName string) string {
 		return note
 	}
 	return note + " " + tag
+}
+
+// barLabel mirrors the JS barLabel() — "LOOP" for loop mode, otherwise
+// "<MODE> <BARS>" when a structure is picked.
+func barLabel(bars int, structureMode string) string {
+	mode := strings.ToUpper(strings.TrimSpace(structureMode))
+	if bars <= 1 {
+		if mode != "" {
+			return mode
+		}
+		return "LOOP"
+	}
+	if mode != "" {
+		return fmt.Sprintf("%s %d", mode, bars)
+	}
+	return fmt.Sprintf("%d", bars)
 }
 
 // Genre → background color for the card. Same palette as the frontend
@@ -567,8 +584,7 @@ func handleShareCard(store *shareStore) http.Handler {
 			HasTitle                        bool
 			Tempo                           int
 			Seed                            int64
-			Key                             string
-			Bars                            int
+			Key, Mode                       string
 			CID                             string
 			Dots                            []ringDot
 			QRDataURL                       string
@@ -581,7 +597,7 @@ func handleShareCard(store *shareStore) http.Handler {
 			Tempo:      p.Tempo,
 			Seed:       p.Seed,
 			Key:        keyLabel(p.RootNote, p.ScaleName),
-			Bars:       p.Bars,
+			Mode:       barLabel(p.Bars, p.Structure),
 			CID:        name,
 			Dots:       dots,
 			QRDataURL:  qrDataURL,
@@ -667,8 +683,8 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">{{.Seed}}</text>
 
-      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
-      <text x="340" y="440" font-size="28" fill="#ccc">{{if .Key}}{{.Key}}{{else}}&#8212;{{end}} · {{if .Bars}}{{.Bars}}{{else}}&#8212;{{end}}</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · MODE</text>
+      <text x="340" y="440" font-size="28" fill="#ccc">{{if .Key}}{{.Key}}{{else}}&#8212;{{end}} · {{svgEscape .Mode}}</text>
     </g>
   </g>
 

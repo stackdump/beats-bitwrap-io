@@ -558,6 +558,9 @@ export function compose(genreName, overrides = {}) {
         // card renderers shorten to MAJ / MIN / DOR / etc.
         rootNote: genre.rootNote,
         scaleName: (genre.scale?.name || '').replace(/Scale$/, ''),
+        // Bars: default to the kick pattern length (loop mode). Song-mode
+        // generation replaces this below with the sum of structure steps.
+        bars: Math.max(1, Math.round((genre.kick?.[1] || 16) / 16)),
         nets: {},
         connections: [],
         initialMutes: [],
@@ -711,6 +714,9 @@ export function compose(genreName, overrides = {}) {
 
             const musicNets = Object.keys(proj.nets);
             proj.initialMutes = songStructure(proj, tmpl, musicNets);
+            // Song mode: bar count = sum of section steps / 16.
+            const totalSteps = (proj.structure || []).reduce((s, sec) => s + (sec?.steps || 0), 0);
+            if (totalSteps > 0) proj.bars = Math.max(1, Math.round(totalSteps / 16));
             addStingerTracks(proj, rng.nextInt63());
             return proj;
         }

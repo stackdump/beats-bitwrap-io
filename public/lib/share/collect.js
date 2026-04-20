@@ -111,12 +111,15 @@ export function buildSharePayload(el) {
     const cur = el._currentGen;
     const genre = cur?.genre || el.querySelector('.pn-genre-select')?.value || 'techno';
     const params = { ...(cur?.params || {}) };
-    // Bars — sum of section step-counts from the current structure,
-    // divided by the 16-steps-per-bar convention the generator uses.
-    // Missing structure → 0 (card renderer falls back to a dash).
-    const structureArr = Array.isArray(el._project?.structure) ? el._project.structure : [];
-    const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
-    const bars = Math.max(0, Math.round(totalSteps / 16));
+    // Bars is stamped on the project by the composer (1 for loop mode;
+    // sum(structure.steps)/16 for song mode). Fall back to the structure
+    // sum if the field is missing (older projects mid-migration).
+    let bars = el._project?.bars;
+    if (bars == null) {
+        const structureArr = Array.isArray(el._project?.structure) ? el._project.structure : [];
+        const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
+        bars = Math.max(0, Math.round(totalSteps / 16));
+    }
 
     const payload = {
         '@context': SHARE_CONTEXT,

@@ -18,7 +18,6 @@ import {
     ONESHOT_INSTRUMENTS, ONESHOT_HP, ONESHOT_LP, ONESHOT_Q, ONESHOT_ATK, ONESHOT_DEC,
     oneShotSpec, prettifyInstrumentName,
 } from './lib/audio/oneshots.js';
-import { FEEL_AXES, FEEL_MAP } from './lib/feel/axes.js';
 import { GENRE_INSTRUMENTS } from './lib/generator/genre-instruments.js';
 import {
     collectFxState, collectFeelState, collectAutoDjState,
@@ -476,13 +475,11 @@ class PetriNote extends HTMLElement {
         return (60000 / ((this._tempo || 120) * ppq)) * ticksPerBar;
     }
 
-    // Feel-bar surface helpers — let FEEL_MAP entries push values onto the
-    // real controls without knowing the internal structure.
     // --- Feel/FX surface helpers — thin wrappers around ./lib/ui/controllers.js ---
 
     _setFxByKey(fxKey, value) { return setFxByKey(this, fxKey, value); }
     _setAutoDjValue(key, value) { return setAutoDjValue(this, key, value); }
-    _applyFeel(id, v) { return applyFeel(this, id, v); }
+    _applyFeel(puck) { return applyFeel(this, puck); }
     _saveFeelSettings() { return saveFeelSettings(this); }
     _restoreFeelSettings() { return restoreFeelSettings(this); }
     _markGenreTilde(on) { return markGenreTilde(this, on); }

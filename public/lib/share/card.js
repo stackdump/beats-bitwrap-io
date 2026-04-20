@@ -116,6 +116,16 @@ const SCALE_SHORT = {
     HarmonicMin: 'H MIN',
 };
 
+// Structure + bars label. A plain "1" for loop mode reads as useless
+// noise (every loop track would show it), so show "LOOP". Song-mode
+// tracks include the template name so viewers can tell standard apart
+// from extended: "STANDARD 60" / "EXTENDED 96".
+export function barLabel(bars, structureMode) {
+    const mode = (structureMode || '').trim().toUpperCase();
+    if (!Number.isFinite(bars) || bars <= 1) return mode || 'LOOP';
+    return mode ? `${mode} ${Math.round(bars)}` : String(Math.round(bars));
+}
+
 export function keyLabel(rootNote, scaleName) {
     if (rootNote == null || rootNote < 0 || !Number.isFinite(rootNote)) return '';
     const note = NOTE_NAMES[((rootNote % 12) + 12) % 12];
@@ -128,6 +138,7 @@ export function renderShareCardSvg(opts) {
         genre = 'techno', seed = 0, tempo = 120,
         title = '', cid = '', qr = '',
         rootNote = null, scaleName = '', bars = 0,
+        structureMode = '',
     } = opts || {};
     const color = variantColor(colorForGenre(genre), Number(seed) || 0);
     const genreUpper = genre.toUpperCase();
@@ -170,8 +181,8 @@ export function renderShareCardSvg(opts) {
       <text x="70" y="340" font-size="56" font-weight="700" fill="#eee">${tempo}<tspan font-size="28" fill="#888"> BPM</tspan></text>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">${seed}</text>
-      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
-      <text x="340" y="440" font-size="28" fill="#ccc">${svgEscape(keyLabel(rootNote, scaleName) || '—')} · ${bars || '—'}</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · MODE</text>
+      <text x="340" y="440" font-size="28" fill="#ccc">${svgEscape(keyLabel(rootNote, scaleName) || '—')} · ${svgEscape(barLabel(bars, structureMode))}</text>
     </g>
   </g>
   <g stroke="${color}" stroke-width="2" fill="none" opacity="0.4">
@@ -198,9 +209,12 @@ export function renderCurrentCard(el, title = '') {
     const tempo = project.tempo || el._tempo || 120;
     const rootNote = project.rootNote ?? null;
     const scaleName = project.scaleName || '';
-    const structureArr = Array.isArray(project.structure) ? project.structure : [];
-    const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
-    const bars = Math.max(0, Math.round(totalSteps / 16));
+    let bars = project.bars;
+    if (bars == null) {
+        const structureArr = Array.isArray(project.structure) ? project.structure : [];
+        const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
+        bars = Math.max(0, Math.round(totalSteps / 16));
+    }
     const cid = new URLSearchParams(location.search).get('cid') || '';
     const qr = renderQrGroup(shortShareUrl({ cid, title }), {
         size: 200,
@@ -208,5 +222,8 @@ export function renderCurrentCard(el, title = '') {
         color: '#0d0d0d',
         bg: '#ffffff',
     });
-    return renderShareCardSvg({ genre, seed, tempo, rootNote, scaleName, bars, title, cid, qr });
+    const structureMode = el._currentGen?.params?.structure
+        || el.querySelector('.pn-structure-select')?.value
+        || '';
+    return renderShareCardSvg({ genre, seed, tempo, rootNote, scaleName, bars, structureMode, title, cid, qr });
 }
