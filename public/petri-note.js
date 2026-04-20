@@ -219,8 +219,14 @@ class PetriNote extends HTMLElement {
         this._watchAudioContextState();
         // Welcome card fires from _applyProjectSync once the first
         // project lands — we need genre/seed/tempo to render it.
-        this._showWelcomeOnSync = !localStorage.getItem('pn-welcome-seen')
-            && !localStorage.getItem('pn-quickstart-seen');
+        // Convention: ?title=… in the URL forces the card to show
+        // on every load (the title is the whole point of the link;
+        // the recipient should see it even on return visits). Plain
+        // visits gate on the first-visit flag as before.
+        const hasUrlTitle = new URLSearchParams(location.search).has('title');
+        this._showWelcomeOnSync = hasUrlTitle
+            || (!localStorage.getItem('pn-welcome-seen')
+                && !localStorage.getItem('pn-quickstart-seen'));
     }
 
     _bindGlobalWheel() {

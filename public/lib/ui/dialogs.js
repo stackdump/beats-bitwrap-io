@@ -223,9 +223,20 @@ export function showQuickstartModal(el) {
 // without sealing the payload to the store first — no CID required.
 // Dismisses on click anywhere; persists a flag so it only fires once.
 export function showWelcomeCard(el) {
-    if (localStorage.getItem('pn-welcome-seen')) return;
+    // Pull ?title=… from the URL — on shared links the title is the
+    // sender's projection label and should ride into the card. Clamp
+    // to 60 chars to mirror the server's sanitizeTitle cap.
+    const urlTitle = (new URLSearchParams(location.search).get('title') || '')
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, 60);
+    // Shared links with a title re-show the card every visit — the
+    // title is the whole point, and return visitors following a link
+    // still want that preview. Plain (no-title) first-visit behaves
+    // as before: one-shot, gated by pn-welcome-seen.
+    if (!urlTitle && localStorage.getItem('pn-welcome-seen')) return;
     el.querySelector('.pn-welcome-overlay')?.remove();
-    const svg = renderCurrentCard(el);
+    const svg = renderCurrentCard(el, urlTitle);
     const overlay = document.createElement('div');
     overlay.className = 'pn-help-overlay pn-welcome-overlay';
     overlay.innerHTML = `
