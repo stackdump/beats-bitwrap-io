@@ -15,6 +15,7 @@ package main
 // app behaviour is unchanged for everyone who isn't linking a share.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -203,7 +204,7 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 			CardURL:    cardURL,
 			ShareURL:   shareURL,
 			CID:        cid,
-			Payload:    template.JS(raw),
+			Payload:    template.JS(escapeJSONForScriptTag(raw)),
 			Projection: template.JS(projection),
 		}); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)
@@ -245,6 +246,25 @@ func injectIntoHead(doc, block []byte) []byte {
 	out = append(out, block...)
 	out = append(out, doc[idx:]...)
 	return out
+}
+
+// escapeJSONForScriptTag makes canonical-JSON bytes safe to embed
+// inside <script type="application/ld+json">…</script>. The stored
+// bytes are whatever the client PUT (any CID-matching byte sequence
+// wins the store), so a crafted payload can contain literal "</"
+// sequences inside a JSON string. Replacing <, >, &, U+2028, U+2029
+// with their \uXXXX escapes yields an equivalent JSON string value
+// (parsers treat them identically) without risk of breaking out of
+// the enclosing <script> block. CID verification on lookup still
+// operates on the original stored bytes, so nothing downstream
+// notices the transform.
+func escapeJSONForScriptTag(b []byte) []byte {
+	b = bytes.ReplaceAll(b, []byte("<"), []byte(`\u003c`))
+	b = bytes.ReplaceAll(b, []byte(">"), []byte(`\u003e`))
+	b = bytes.ReplaceAll(b, []byte("&"), []byte(`\u0026`))
+	b = bytes.ReplaceAll(b, []byte("\u2028"), []byte(`\u2028`))
+	b = bytes.ReplaceAll(b, []byte("\u2029"), []byte(`\u2029`))
+	return b
 }
 
 // replaceTitle swaps the first <title>…</title> in doc for the
@@ -485,10 +505,10 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   <g font-family="system-ui, -apple-system, sans-serif" fill="#eee">
     {{if .HasTitle -}}
     <text x="70" y="120" font-size="60" font-weight="800" fill="#eee" letter-spacing="-1.5">{{svgEscape .Title}}</text>
-    <text x="70" y="170" font-size="28" font-weight="700" fill="{{.Color}}" letter-spacing="2">{{.GenreUpper}}</text>
+    <text x="70" y="170" font-size="28" font-weight="700" fill="{{.Color}}" letter-spacing="2">{{svgEscape .GenreUpper}}</text>
     <text x="70" y="205" font-size="18" fill="#999" letter-spacing="4">BEATS · BITWRAP · IO</text>
     {{- else -}}
-    <text x="70" y="140" font-size="72" font-weight="800" fill="{{.Color}}" letter-spacing="-2">{{.GenreUpper}}</text>
+    <text x="70" y="140" font-size="72" font-weight="800" fill="{{.Color}}" letter-spacing="-2">{{svgEscape .GenreUpper}}</text>
     <text x="70" y="200" font-size="22" fill="#999" letter-spacing="4">BEATS · BITWRAP · IO</text>
     {{- end}}
 
