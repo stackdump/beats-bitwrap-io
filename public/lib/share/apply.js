@@ -1,0 +1,107 @@
+// State appliers (share payload → DOM / in-memory). Each exported
+// function takes the custom element (`el`) and applies a slice of a
+// share-v1 envelope onto live UI + project state. The high-level
+// `applyShareOverrides` is what `_applyProjectSync` calls when a
+// pending share is waiting.
+//
+// Extracted from petri-note.js (Phase A.3). The class keeps one-line
+// wrappers so any `el._applyFxState(fx)` call site still works.
+
+import { toneEngine } from '../../audio/tone-engine.js';
+
+export function applyFxState(el, fx) {
+    if (!fx) return;
+    for (const [name, val] of Object.entries(fx)) {
+        if (name === '_bypassed') continue;
+        const slider = el.querySelector(`.pn-fx-slider[data-fx="${name}"]`);
+        if (slider && val != null) {
+            slider.value = val;
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
+    if (fx._bypassed) {
+        const btn = el.querySelector('.pn-fx-bypass');
+        if (btn && !btn.classList.contains('active')) btn.click();
+    }
+}
+
+export function applyFeelState(el, feel) {
+    if (!feel) return;
+    el._feelState = { ...(feel.sliders || {}) };
+    try { localStorage.setItem('pn-feel-settings', JSON.stringify(el._feelState)); } catch {}
+    el._feelDisengaged = !feel.engaged;
+    el._updateFeelIconDisengaged();
+    if (feel.engaged) el._markGenreTilde(true);
+}
+
+export function applyAutoDjState(el, state) {
+    const panel = el.querySelector('.pn-autodj-panel');
+    const btn = el.querySelector('.pn-autodj-btn');
+    if (!panel || !state) return;
+    if (state.showAutoDj) {
+        el._showAutoDj = true;
+        panel.style.display = 'flex';
+        btn?.classList.add('active');
+    }
+    const set = (cls, val) => {
+        const node = panel.querySelector(`.${cls}`);
+        if (!node) return;
+        if (node.type === 'checkbox') node.checked = !!val;
+        else if (val != null) node.value = val;
+    };
+    set('pn-autodj-enable',       state.run);
+    set('pn-autodj-animate-only', state.animateOnly);
+    set('pn-autodj-rate',         state.rate);
+    set('pn-autodj-regen',        state.regen);
+    set('pn-autodj-stack',        state.stack);
+    if (state.pools) {
+        for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
+            if (cb.value in state.pools) cb.checked = !!state.pools[cb.value];
+        }
+    }
+    try { localStorage.setItem('pn-autodj-settings', JSON.stringify(state)); } catch {}
+}
+
+export function applyDisabledMacros(el, ids) {
+    if (!Array.isArray(ids)) return;
+    el._disabledMacros = new Set(ids);
+    el._saveDisabledMacros();
+    el._refreshMacroDisabledMarks();
+}
+
+export function applyTrackOverrides(el, tracksByChannel) {
+    if (!tracksByChannel || !el._project?.nets) return;
+    const nets = el._project.nets;
+    for (const [ch, ov] of Object.entries(tracksByChannel)) {
+        const chNum = parseInt(ch);
+        for (const [, net] of Object.entries(nets)) {
+            if (net.role === 'control' || net.track?.channel !== chNum) continue;
+            if (ov.mix) net.track.mix = { ...(net.track.mix || {}), ...ov.mix };
+            if (ov.instrument) {
+                net.track.instrument = ov.instrument;
+                el._channelInstruments[chNum] = ov.instrument;
+                if (el._toneStarted) toneEngine.loadInstrument(chNum, ov.instrument);
+            }
+            if (ov.instrumentSet) net.track.instrumentSet = ov.instrumentSet;
+        }
+    }
+}
+
+// Apply every override block onto the just-synced project + DOM.
+// Called at the tail of _applyProjectSync when a pending share payload
+// is waiting — one-shot: cleared after application.
+export function applyShareOverrides(el, ov) {
+    if (!ov) return;
+    if (ov.tracks) applyTrackOverrides(el, ov.tracks);
+    // Re-render mixer so mix values land on the sliders. The mixer reads
+    // from track.mix; applying after applyTrackOverrides is important.
+    if (ov.tracks) el._renderMixer?.();
+    if (ov.fx) applyFxState(el, ov.fx);
+    if (ov.feel) applyFeelState(el, ov.feel);
+    if (ov.autoDj) applyAutoDjState(el, ov.autoDj);
+    if (ov.macrosDisabled) applyDisabledMacros(el, ov.macrosDisabled);
+    if (ov.initialMutes && el._project) {
+        el._project.initialMutes = [...ov.initialMutes];
+        el._sendWs({ type: 'mute-state', mutes: ov.initialMutes });
+    }
+}

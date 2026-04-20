@@ -20,6 +20,20 @@ import {
 } from './lib/audio/oneshots.js';
 import { FEEL_AXES, FEEL_MAP } from './lib/feel/axes.js';
 import { GENRE_INSTRUMENTS } from './lib/generator/genre-instruments.js';
+import {
+    collectFxState, collectFeelState, collectAutoDjState,
+    collectDisabledMacros, collectTrackOverrides, collectInitialMutes,
+    buildSharePayload,
+} from './lib/share/collect.js';
+import {
+    applyFxState, applyFeelState, applyAutoDjState,
+    applyDisabledMacros, applyTrackOverrides, applyShareOverrides,
+} from './lib/share/apply.js';
+import {
+    parseShareFromUrl, shareFromPayload,
+    buildShareUrlForms, buildShareUrl,
+    uploadShare, fetchShare, onShareClick,
+} from './lib/share/url.js';
 
 
 // Diagram is read-only — all changes come from generator/shuffle
@@ -4873,451 +4887,34 @@ class PetriNote extends HTMLElement {
     _gzipToB64Url(str) { return gzipToB64Url(str); }
     _b64UrlToGunzip(str) { return b64UrlToGunzip(str); }
 
-    // --- State collectors (DOM / in-memory → plain objects) ---
+    // --- State collectors — thin wrappers around ./lib/share/collect.js ---
 
-    _collectFxState() {
-        const fx = {};
-        this.querySelectorAll('.pn-effects-panel .pn-fx-slider').forEach(s => {
-            fx[s.dataset.fx] = parseInt(s.value);
-        });
-        if (this._fxBypassed) fx._bypassed = true;
-        return fx;
-    }
+    _collectFxState() { return collectFxState(this); }
+    _collectFeelState() { return collectFeelState(this); }
+    _collectAutoDjState() { return collectAutoDjState(this); }
+    _collectDisabledMacros() { return collectDisabledMacros(this); }
+    _collectTrackOverrides() { return collectTrackOverrides(this); }
+    _collectInitialMutes() { return collectInitialMutes(this); }
+    _buildSharePayload() { return buildSharePayload(this); }
 
-    _collectFeelState() {
-        return {
-            engaged: !this._feelDisengaged,
-            sliders: this._feelState ? { ...this._feelState } : {},
-        };
-    }
+    // --- State appliers — thin wrappers around ./lib/share/apply.js ---
 
-    _collectAutoDjState() {
-        const panel = this.querySelector('.pn-autodj-panel');
-        if (!panel) return null;
-        const pools = {};
-        for (const cb of panel.querySelectorAll('.pn-autodj-pool')) pools[cb.value] = cb.checked;
-        // Coerce the <select>.value strings to ints so the share payload hits
-        // the schema's integer typing (and keeps CIDs stable across sessions —
-        // "2" vs 2 would otherwise hash to different bytes).
-        const intOr = (el, fallback) => {
-            const n = parseInt(el?.value, 10);
-            return Number.isFinite(n) ? n : fallback;
-        };
-        return {
-            showAutoDj:  !!this._showAutoDj,
-            run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
-            animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
-            rate:        intOr(panel.querySelector('.pn-autodj-rate'),  2),
-            regen:       intOr(panel.querySelector('.pn-autodj-regen'), 0),
-            stack:       intOr(panel.querySelector('.pn-autodj-stack'), 1),
-            pools,
-        };
-    }
+    _applyFxState(fx) { return applyFxState(this, fx); }
+    _applyFeelState(feel) { return applyFeelState(this, feel); }
+    _applyAutoDjState(state) { return applyAutoDjState(this, state); }
+    _applyDisabledMacros(ids) { return applyDisabledMacros(this, ids); }
+    _applyTrackOverrides(tracksByChannel) { return applyTrackOverrides(this, tracksByChannel); }
+    _applyShareOverrides(ov) { return applyShareOverrides(this, ov); }
 
-    _collectDisabledMacros() {
-        this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
-        return [...this._disabledMacros];
-    }
+    // --- Share URL — thin wrappers around ./lib/share/url.js ---
 
-    // Per-channel track overrides (mix + instrument + generator recipe).
-    // Keyed by channel number — stable across regens even when netIds shift.
-    _collectTrackOverrides() {
-        const out = {};
-        const nets = this._project?.nets || {};
-        for (const [, net] of Object.entries(nets)) {
-            if (net.role === 'control') continue;
-            const ch = net.track?.channel;
-            if (ch == null) continue;
-            let mixRow = null;
-            const rows = this._mixerEl?.querySelectorAll('.pn-mixer-row');
-            if (rows) {
-                for (const r of rows) {
-                    const nid = r.dataset.netId;
-                    if (nid && nets[nid]?.track?.channel === ch) { mixRow = r; break; }
-                }
-            }
-            const mix = {};
-            if (mixRow) {
-                const v = (cls) => mixRow.querySelector(`.${cls}`)?.value;
-                const parse = (x) => (x == null ? null : parseInt(x));
-                const pairs = [
-                    ['volume', 'pn-mixer-vol'],
-                    ['pan',    'pn-mixer-pan'],
-                    ['loCut',  'pn-mixer-locut'],
-                    ['loResonance', 'pn-mixer-loreso'],
-                    ['cutoff', 'pn-mixer-cutoff'],
-                    ['resonance', 'pn-mixer-reso'],
-                    ['decay',  'pn-mixer-decay'],
-                ];
-                for (const [k, cls] of pairs) {
-                    const n = parse(v(cls));
-                    if (n != null && !Number.isNaN(n)) mix[k] = n;
-                }
-            } else if (net.track?.mix) {
-                Object.assign(mix, net.track.mix);
-            }
-            const entry = {};
-            if (Object.keys(mix).length) entry.mix = mix;
-            if (net.track?.instrument) entry.instrument = net.track.instrument;
-            if (net.track?.instrumentSet) entry.instrumentSet = net.track.instrumentSet;
-            if (net.track?.generator) entry.generator = net.track.generator;
-            if (net.track?.generatorParams) entry.generatorParams = net.track.generatorParams;
-            if (Object.keys(entry).length) out[String(ch)] = entry;
-        }
-        return out;
-    }
-
-    _collectInitialMutes() {
-        return Array.isArray(this._project?.initialMutes) ? [...this._project.initialMutes] : [];
-    }
-
-    // Build the `share-v1` JSON-LD payload from the live UI + project.
-    // Reproducibility contract: genre + params regenerate nets; overrides
-    // carry everything not reconstructible from the recipe alone.
-    _buildSharePayload() {
-        const cur = this._currentGen;
-        const genre = cur?.genre || this.querySelector('.pn-genre-select')?.value || 'techno';
-        const params = { ...(cur?.params || {}) };
-        const payload = {
-            '@context': 'https://beats.bitwrap.io/schema/beats-share.context.jsonld',
-            '@type': 'BeatsShare',
-            v: 1,
-            genre,
-            seed: typeof params.seed === 'number' ? params.seed : null,
-            tempo: this._project?.tempo ?? this._tempo ?? 120,
-            swing: this._project?.swing ?? 0,
-            humanize: this._project?.humanize ?? 0,
-            structure: params.structure || this.querySelector('.pn-structure-select')?.value || null,
-        };
-        const traits = {};
-        for (const [k, v] of Object.entries(params)) {
-            if (k === 'seed' || k === 'structure') continue;
-            traits[k] = v;
-        }
-        if (Object.keys(traits).length) payload.traits = traits;
-        const tracks = this._collectTrackOverrides();
-        if (Object.keys(tracks).length) payload.tracks = tracks;
-        const fx = this._collectFxState();
-        if (Object.keys(fx).length) payload.fx = fx;
-        const feel = this._collectFeelState();
-        if (feel.engaged || Object.keys(feel.sliders).length) payload.feel = feel;
-        const autoDj = this._collectAutoDjState();
-        if (autoDj) payload.autoDj = autoDj;
-        const disabled = this._collectDisabledMacros();
-        if (disabled.length) payload.macrosDisabled = disabled;
-        const mutes = this._collectInitialMutes();
-        if (mutes.length) payload.initialMutes = mutes;
-        return payload;
-    }
-
-    // --- State appliers (payload → DOM / in-memory) ---
-
-    _applyFxState(fx) {
-        if (!fx) return;
-        for (const [name, val] of Object.entries(fx)) {
-            if (name === '_bypassed') continue;
-            const slider = this.querySelector(`.pn-fx-slider[data-fx="${name}"]`);
-            if (slider && val != null) {
-                slider.value = val;
-                slider.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-        }
-        if (fx._bypassed) {
-            const btn = this.querySelector('.pn-fx-bypass');
-            if (btn && !btn.classList.contains('active')) btn.click();
-        }
-    }
-
-    _applyFeelState(feel) {
-        if (!feel) return;
-        this._feelState = { ...(feel.sliders || {}) };
-        try { localStorage.setItem('pn-feel-settings', JSON.stringify(this._feelState)); } catch {}
-        this._feelDisengaged = !feel.engaged;
-        this._updateFeelIconDisengaged();
-        if (feel.engaged) this._markGenreTilde(true);
-    }
-
-    _applyAutoDjState(state) {
-        const panel = this.querySelector('.pn-autodj-panel');
-        const btn = this.querySelector('.pn-autodj-btn');
-        if (!panel || !state) return;
-        if (state.showAutoDj) {
-            this._showAutoDj = true;
-            panel.style.display = 'flex';
-            btn?.classList.add('active');
-        }
-        const set = (cls, val) => {
-            const el = panel.querySelector(`.${cls}`);
-            if (!el) return;
-            if (el.type === 'checkbox') el.checked = !!val;
-            else if (val != null) el.value = val;
-        };
-        set('pn-autodj-enable',       state.run);
-        set('pn-autodj-animate-only', state.animateOnly);
-        set('pn-autodj-rate',         state.rate);
-        set('pn-autodj-regen',        state.regen);
-        set('pn-autodj-stack',        state.stack);
-        if (state.pools) {
-            for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
-                if (cb.value in state.pools) cb.checked = !!state.pools[cb.value];
-            }
-        }
-        try { localStorage.setItem('pn-autodj-settings', JSON.stringify(state)); } catch {}
-    }
-
-    _applyDisabledMacros(ids) {
-        if (!Array.isArray(ids)) return;
-        this._disabledMacros = new Set(ids);
-        this._saveDisabledMacros();
-        this._refreshMacroDisabledMarks();
-    }
-
-    _applyTrackOverrides(tracksByChannel) {
-        if (!tracksByChannel || !this._project?.nets) return;
-        const nets = this._project.nets;
-        for (const [ch, ov] of Object.entries(tracksByChannel)) {
-            const chNum = parseInt(ch);
-            for (const [, net] of Object.entries(nets)) {
-                if (net.role === 'control' || net.track?.channel !== chNum) continue;
-                if (ov.mix) net.track.mix = { ...(net.track.mix || {}), ...ov.mix };
-                if (ov.instrument) {
-                    net.track.instrument = ov.instrument;
-                    this._channelInstruments[chNum] = ov.instrument;
-                    if (this._toneStarted) toneEngine.loadInstrument(chNum, ov.instrument);
-                }
-                if (ov.instrumentSet) net.track.instrumentSet = ov.instrumentSet;
-            }
-        }
-    }
-
-    // Apply every override block onto the just-synced project + DOM.
-    // Called at the tail of _applyProjectSync when a pending share payload
-    // is waiting — one-shot: cleared after application.
-    _applyShareOverrides(ov) {
-        if (!ov) return;
-        if (ov.tracks) this._applyTrackOverrides(ov.tracks);
-        // Re-render mixer so mix values land on the sliders. The mixer reads
-        // from track.mix; applying after _applyTrackOverrides is important.
-        if (ov.tracks) this._renderMixer?.();
-        if (ov.fx) this._applyFxState(ov.fx);
-        if (ov.feel) this._applyFeelState(ov.feel);
-        if (ov.autoDj) this._applyAutoDjState(ov.autoDj);
-        if (ov.macrosDisabled) this._applyDisabledMacros(ov.macrosDisabled);
-        if (ov.initialMutes && this._project) {
-            this._project.initialMutes = [...ov.initialMutes];
-            this._sendWs({ type: 'mute-state', mutes: ov.initialMutes });
-        }
-    }
-
-    // --- Share URL build/parse ---
-
-    // URL: `?cid=z<base58>&z=<base64url-gzip>`. Self-contained — no
-    // server lookup. Legacy `?p=` / `?g/s/structure/t` still parse.
-    async _parseShareFromUrl() {
-        const q = new URLSearchParams(location.search);
-        const cid = q.get('cid');
-        const z = q.get('z');
-        if (cid) {
-            try {
-                let json = null;
-                if (z) {
-                    json = await this._b64UrlToGunzip(z);
-                } else {
-                    // cid-only link — pull payload from the content-addressed
-                    // server store. Never trust what the server returns
-                    // blindly; re-hash it and match against the URL's CID.
-                    json = await this._fetchShare(cid);
-                }
-                if (json) {
-                    const payload = JSON.parse(json);
-                    const expectedCid = await this._computeCidForJsonLd(payload);
-                    if (expectedCid !== cid) {
-                        console.warn('share CID mismatch', { url: cid, computed: expectedCid });
-                    } else {
-                        return this._shareFromPayload(payload);
-                    }
-                }
-            } catch (err) {
-                console.warn('share decode failed:', err);
-            }
-        }
-        // Legacy full-project payload.
-        const p = q.get('p');
-        if (p) {
-            const decoded = this._b64urlDecode(p);
-            if (decoded && decoded.genre) return decoded;
-        }
-        const g = q.get('g');
-        if (!g) return null;
-        const out = { genre: g, params: {} };
-        const s = q.get('s');
-        if (s !== null && !Number.isNaN(parseInt(s, 10))) out.params.seed = parseInt(s, 10);
-        const st = q.get('structure');
-        if (st) out.params.structure = st;
-        const t = q.get('t');
-        if (t) {
-            const traits = this._b64urlDecode(t);
-            if (traits && typeof traits === 'object') Object.assign(out.params, traits);
-        }
-        return out;
-    }
-
-    // Lower a `share-v1` payload to the `{ genre, params, overrides }`
-    // shape the boot path already consumes. Overrides are stashed and
-    // applied after the worker returns project-sync.
-    _shareFromPayload(payload) {
-        const params = {};
-        if (typeof payload.seed === 'number') params.seed = payload.seed;
-        if (payload.structure) params.structure = payload.structure;
-        if (payload.traits && typeof payload.traits === 'object') Object.assign(params, payload.traits);
-        const overrides = {};
-        if (payload.tracks) overrides.tracks = payload.tracks;
-        if (payload.fx) overrides.fx = payload.fx;
-        if (payload.feel) overrides.feel = payload.feel;
-        if (payload.autoDj) overrides.autoDj = payload.autoDj;
-        if (payload.macrosDisabled) overrides.macrosDisabled = payload.macrosDisabled;
-        if (payload.initialMutes) overrides.initialMutes = payload.initialMutes;
-        if (typeof payload.tempo === 'number') overrides.tempo = payload.tempo;
-        if (typeof payload.swing === 'number') overrides.swing = payload.swing;
-        if (typeof payload.humanize === 'number') overrides.humanize = payload.humanize;
-        return {
-            genre: payload.genre,
-            params,
-            overrides: Object.keys(overrides).length ? overrides : null,
-        };
-    }
-
-    // Returns an object describing both URL forms so the share modal can
-    // let the user toggle between them. `stored` reflects whether the
-    // canonical bytes were accepted by the server store — if false, only
-    // `fullUrl` actually resolves (shortUrl would 404 from a fresh tab).
-    async _buildShareUrlForms() {
-        const base = `${location.origin}${location.pathname}`;
-        const payload = this._buildSharePayload();
-        if (!payload.genre || payload.seed == null) {
-            const u = `${base}?g=${encodeURIComponent(payload.genre || 'techno')}`;
-            return { shortUrl: u, fullUrl: u, stored: false, fallback: true };
-        }
-        const canonical = this._canonicalizeJSON(payload);
-        const cid = await this._computeCidForJsonLd(payload);
-        const stored = await this._uploadShare(cid, canonical);
-        const shortUrl = `${base}?cid=${cid}`;
-        const z = await this._gzipToB64Url(canonical);
-        const fullUrl = `${base}?cid=${cid}&z=${z}`;
-        return { shortUrl, fullUrl, stored, fallback: false };
-    }
-
-    // Back-compat: keep the original return-a-string entry point for any
-    // callers that don't need the modal's toggle UX (e.g. future CLI paths).
-    async _buildShareUrl() {
-        const { shortUrl, fullUrl, stored } = await this._buildShareUrlForms();
-        return stored ? shortUrl : fullUrl;
-    }
-
-    async _uploadShare(cid, canonical) {
-        try {
-            const res = await fetch(`/o/${cid}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/ld+json' },
-                body: canonical,
-            });
-            return res.ok;
-        } catch (err) {
-            console.warn('share upload failed:', err);
-            return false;
-        }
-    }
-
-    async _fetchShare(cid) {
-        try {
-            const res = await fetch(`/o/${cid}`, { headers: { Accept: 'application/ld+json' } });
-            if (!res.ok) return null;
-            return await res.text();
-        } catch (err) {
-            console.warn('share fetch failed:', err);
-            return null;
-        }
-    }
-
-    async _onShareClick() {
-        const forms = await this._buildShareUrlForms();
-        const { shortUrl, fullUrl, stored, fallback } = forms;
-        // If the server store accepted the upload we default to the short
-        // CID-only URL; if not, the inline form is forced (and the toggle
-        // is locked on) because the short URL would 404 elsewhere.
-        const hasInlineChoice = stored && !fallback;
-        const overlay = document.createElement('div');
-        overlay.className = 'pn-modal-overlay';
-        const inlineSize = Math.round(fullUrl.length / 1024 * 10) / 10;
-        overlay.innerHTML = `
-            <div class="pn-modal pn-share-modal">
-                <h2>Share track</h2>
-                <p class="pn-modal-desc">Anyone opening this link gets the same track — genre, seed, mix, instruments, FX, Feel, Auto-DJ and macro toggles all reproduce exactly.</p>
-                <div class="pn-modal-row">
-                    <input type="text" class="pn-share-url" readonly value="">
-                </div>
-                ${hasInlineChoice ? `
-                <label class="pn-share-inline-toggle">
-                    <span>Store:</span>
-                    <select class="pn-share-storage">
-                        <option value="server" selected>Server (short link)</option>
-                        <option value="url">URL (self-contained, ~${inlineSize} KB)</option>
-                    </select>
-                </label>
-                <p class="pn-modal-hint pn-share-inline-why">
-                    <strong>Server</strong> (default): short link, the track lives in this site's share store. Best for chat, QR codes, and most everyday sharing.<br>
-                    <strong>URL</strong>: self-contained — every byte of the track travels in the URL itself. Opens offline, from a local copy of the page, or if the share store is ever purged. Good for archives and long-term preservation.
-                </p>
-                ` : (fallback ? '' : `
-                <p class="pn-modal-hint">
-                    Server store upload failed, so the track data is embedded in the link itself. It's long but self-contained — anyone opening it gets the exact track, no lookup required.
-                </p>
-                `)}
-                <div class="pn-modal-actions">
-                    <button class="cancel close">Close</button>
-                    <button class="save copy">Copy link</button>
-                </div>
-            </div>
-        `;
-        this.appendChild(overlay);
-        const input = overlay.querySelector('.pn-share-url');
-        const sel = overlay.querySelector('.pn-share-storage');
-        const render = () => {
-            const wantInline = sel?.value === 'url';
-            const url = (hasInlineChoice && wantInline) ? fullUrl : (stored ? shortUrl : fullUrl);
-            input.value = url;
-            input.select();
-            return url;
-        };
-        let currentUrl = render();
-        sel?.addEventListener('change', () => { currentUrl = render(); });
-        input.focus();
-        input.select();
-        const copyBtn = overlay.querySelector('.copy');
-        const flash = (ok) => {
-            const prev = copyBtn.textContent;
-            copyBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
-            setTimeout(() => { copyBtn.textContent = prev; }, 1200);
-        };
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay || e.target.classList.contains('close')) {
-                overlay.remove();
-                return;
-            }
-            if (e.target.classList.contains('copy')) {
-                if (navigator.clipboard?.writeText) {
-                    navigator.clipboard.writeText(currentUrl).then(() => flash(true), () => flash(false));
-                } else {
-                    input.select();
-                    try { document.execCommand('copy'); flash(true); }
-                    catch { flash(false); }
-                }
-            }
-        });
-        overlay.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
-        });
-    }
+    _parseShareFromUrl() { return parseShareFromUrl(this); }
+    _shareFromPayload(payload) { return shareFromPayload(payload); }
+    _buildShareUrlForms() { return buildShareUrlForms(this); }
+    _buildShareUrl() { return buildShareUrl(this); }
+    _uploadShare(cid, canonical) { return uploadShare(cid, canonical); }
+    _fetchShare(cid) { return fetchShare(cid); }
+    _onShareClick() { return onShareClick(this); }
 
     // Screen Wake Lock: prevent the OS screensaver / display sleep so a
     // live set keeps running on laptops and tablets. Request is gated
