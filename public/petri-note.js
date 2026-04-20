@@ -653,6 +653,15 @@ class PetriNote extends HTMLElement {
             // track was produced with Feel overrides active. Cleared
             // automatically when a fresh (non-feels) generate lands.
             this._nextGenerateWithFeels = !this._feelDisengaged;
+            // When Auto-DJ is armed, a manual Generate should cross-fade
+            // through a transition macro the same way the Regen timer
+            // does — otherwise the "live set" feeling breaks the
+            // instant the DJ taps Generate. Fire it before we ship the
+            // generate message so the whoosh lands while the worker is
+            // still composing.
+            if (this.querySelector('.pn-autodj-enable')?.checked) {
+                this._fireTransitionMacro();
+            }
             this._sendWs({ type: 'generate', genre, params });
         };
         this.querySelector('.pn-generate-btn').addEventListener('click', doGenerate);

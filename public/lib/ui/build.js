@@ -257,7 +257,7 @@ export function buildUI(el) {
                     ).join('')}
                 </select>
             </label>
-            <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now so you can preview the sound. Ignores Auto-DJ arm state.">Test ⟳</button>
+            <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now. Ignores Auto-DJ arm state.">Transition ⟳</button>
             <span class="pn-autodj-status">idle</span>
         </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
