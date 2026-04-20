@@ -5,6 +5,13 @@
  */
 
 import { toneEngine, INSTRUMENT_CONFIGS, isDrumChannel } from './audio/tone-engine.js';
+import {
+    b64urlEncode, b64urlDecode,
+    canonicalizeJSON, sha256,
+    encodeBase58, decodeBase58,
+    createCIDv1Bytes, computeCidForJsonLd,
+    gzipToB64Url, b64UrlToGunzip,
+} from './lib/share/codec.js';
 
 // Mixer math: maps 0–100 slider values to audio-engine frequencies/Q
 function hpFreq(val) { return 20 * Math.pow(250, val / 100); }
@@ -5161,124 +5168,22 @@ class PetriNote extends HTMLElement {
     }
 
     // === Share URL (genre + seed + traits + structure) ===
+    //
+    // The pure codec helpers (canonical JSON, base58, CID, base64url, gzip)
+    // live in ./lib/share/codec.js. Methods below are thin wrappers kept on
+    // the class so call sites like `el._canonicalizeJSON(x)` still work from
+    // tests and the browser console.
 
-    // URL-safe base64 of a JSON payload. btoa + replace chars that need
-    // percent-encoding in a query string.
-    _b64urlEncode(obj) {
-        const s = JSON.stringify(obj);
-        const bytes = new TextEncoder().encode(s);
-        let bin = '';
-        for (const b of bytes) bin += String.fromCharCode(b);
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-
-    _b64urlDecode(str) {
-        try {
-            const pad = '='.repeat((4 - str.length % 4) % 4);
-            const b64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
-            const bin = atob(b64);
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            return JSON.parse(new TextDecoder().decode(bytes));
-        } catch (e) {
-            return null;
-        }
-    }
-
-    // --- Canonical JSON + CIDv1 (dag-json / sha2-256 / base58btc) ---
-    // Ported from pflow-xyz/public/petri-view.js so share payloads are
-    // content-addressed with the same CID algorithm used across the
-    // Petri-net ecosystem. Deliberately not URDNA2015 — the simpler
-    // sorted-key canonical JSON keeps us dep-free and matches the
-    // pflow-xyz client-side path.
-    _canonicalizeJSON(doc) {
-        const canon = (obj) => {
-            if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-            if (Array.isArray(obj)) return '[' + obj.map(canon).join(',') + ']';
-            const keys = Object.keys(obj).sort();
-            return '{' + keys.map(k => JSON.stringify(k) + ':' + canon(obj[k])).join(',') + '}';
-        };
-        return canon(doc);
-    }
-
-    async _sha256(data) {
-        const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-        const h = await crypto.subtle.digest('SHA-256', bytes);
-        return new Uint8Array(h);
-    }
-
-    _encodeBase58(bytes) {
-        const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-        let num = 0n;
-        for (let i = 0; i < bytes.length; i++) num = num * 256n + BigInt(bytes[i]);
-        let out = '';
-        while (num > 0n) { out = alphabet[Number(num % 58n)] + out; num = num / 58n; }
-        for (let i = 0; i < bytes.length && bytes[i] === 0; i++) out = '1' + out;
-        return out;
-    }
-
-    _decodeBase58(str) {
-        const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-        let num = 0n;
-        for (const ch of str) {
-            const v = alphabet.indexOf(ch);
-            if (v < 0) return null;
-            num = num * 58n + BigInt(v);
-        }
-        const bytes = [];
-        while (num > 0n) { bytes.unshift(Number(num & 0xffn)); num >>= 8n; }
-        for (let i = 0; i < str.length && str[i] === '1'; i++) bytes.unshift(0);
-        return new Uint8Array(bytes);
-    }
-
-    // CIDv1 = <version=0x01><codec-varint><multihash>.
-    // dag-json codec 0x0129 = varint [0xa9, 0x02]; sha2-256 = 0x12 len 0x20.
-    _createCIDv1Bytes(hash) {
-        const codec = [0xa9, 0x02];
-        const out = new Uint8Array(1 + codec.length + 2 + hash.length);
-        let o = 0;
-        out[o++] = 0x01;
-        for (const b of codec) out[o++] = b;
-        out[o++] = 0x12;
-        out[o++] = hash.length;
-        for (let i = 0; i < hash.length; i++) out[o++] = hash[i];
-        return out;
-    }
-
-    async _computeCidForJsonLd(doc) {
-        const canonical = this._canonicalizeJSON(doc);
-        const hash = await this._sha256(canonical);
-        const cidBytes = this._createCIDv1Bytes(hash);
-        return 'z' + this._encodeBase58(cidBytes);
-    }
-
-    // gzip(canonical-json) → base64url. CompressionStream is native in
-    // all evergreen browsers; no pako dep.
-    async _gzipToB64Url(str) {
-        const cs = new CompressionStream('gzip');
-        const writer = cs.writable.getWriter();
-        writer.write(new TextEncoder().encode(str));
-        writer.close();
-        const buf = await new Response(cs.readable).arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        let bin = '';
-        for (const b of bytes) bin += String.fromCharCode(b);
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-
-    async _b64UrlToGunzip(str) {
-        const pad = '='.repeat((4 - str.length % 4) % 4);
-        const b64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const ds = new DecompressionStream('gzip');
-        const writer = ds.writable.getWriter();
-        writer.write(bytes);
-        writer.close();
-        const buf = await new Response(ds.readable).arrayBuffer();
-        return new TextDecoder().decode(buf);
-    }
+    _b64urlEncode(obj) { return b64urlEncode(obj); }
+    _b64urlDecode(str) { return b64urlDecode(str); }
+    _canonicalizeJSON(doc) { return canonicalizeJSON(doc); }
+    _sha256(data) { return sha256(data); }
+    _encodeBase58(bytes) { return encodeBase58(bytes); }
+    _decodeBase58(str) { return decodeBase58(str); }
+    _createCIDv1Bytes(hash) { return createCIDv1Bytes(hash); }
+    _computeCidForJsonLd(doc) { return computeCidForJsonLd(doc); }
+    _gzipToB64Url(str) { return gzipToB64Url(str); }
+    _b64UrlToGunzip(str) { return b64UrlToGunzip(str); }
 
     // --- State collectors (DOM / in-memory → plain objects) ---
 
