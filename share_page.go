@@ -175,10 +175,12 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
 		genreCap := titleCase(p.Genre)
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
-		cardURL := fmt.Sprintf("%s/share-card/%s.svg", origin, cid)
+		cardPNG := fmt.Sprintf("%s/share-card/%s.png", origin, cid)
+		cardSVG := fmt.Sprintf("%s/share-card/%s.svg", origin, cid)
 		if userTitle != "" {
 			shareURL += "&title=" + urlQueryEscape(userTitle)
-			cardURL += "?title=" + urlQueryEscape(userTitle)
+			cardPNG += "?title=" + urlQueryEscape(userTitle)
+			cardSVG += "?title=" + urlQueryEscape(userTitle)
 		}
 		title := fmt.Sprintf("%s · beats.bitwrap.io", genreCap)
 		if userTitle != "" {
@@ -197,14 +199,20 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 			http.Error(w, "projection render error", http.StatusInternalServerError)
 			return
 		}
+		imgAlt := fmt.Sprintf("%s track card · %d BPM · seed %d", genreCap, p.Tempo, p.Seed)
+		if userTitle != "" {
+			imgAlt = userTitle + " — " + imgAlt
+		}
 		var buf strings.Builder
 		if err := tpl.Execute(&buf, struct {
-			Title, Desc, CardURL, ShareURL, CID string
-			Payload, Projection                 template.JS
+			Title, Desc, CardPNG, CardSVG, ImgAlt, ShareURL, CID string
+			Payload, Projection                                  template.JS
 		}{
 			Title:      title,
 			Desc:       desc,
-			CardURL:    cardURL,
+			CardPNG:    cardPNG,
+			CardSVG:    cardSVG,
+			ImgAlt:     imgAlt,
 			ShareURL:   shareURL,
 			CID:        cid,
 			Payload:    template.JS(escapeJSONForScriptTag(raw)),
@@ -433,15 +441,20 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta property="og:title" content="{{.Title}}"/>
 <meta property="og:description" content="{{.Desc}}"/>
 <meta property="og:url" content="{{.ShareURL}}"/>
-<meta property="og:image" content="{{.CardURL}}"/>
-<meta property="og:image:type" content="image/svg+xml"/>
+<meta property="og:image" content="{{.CardPNG}}"/>
+<meta property="og:image:type" content="image/png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
+<meta property="og:image:alt" content="{{.ImgAlt}}"/>
+<meta property="og:image" content="{{.CardSVG}}"/>
+<meta property="og:image:type" content="image/svg+xml"/>
 <meta property="og:site_name" content="beats.bitwrap.io"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="{{.Title}}"/>
 <meta name="twitter:description" content="{{.Desc}}"/>
-<meta name="twitter:image" content="{{.CardURL}}"/>
+<meta name="twitter:image" content="{{.CardPNG}}"/>
+<meta name="twitter:image:alt" content="{{.ImgAlt}}"/>
+<meta name="twitter:site" content="@bitwrap_io"/>
 <meta name="description" content="{{.Desc}}"/>
 <link rel="canonical" href="{{.ShareURL}}"/>
 <script type="application/ld+json">{{.Projection}}</script>

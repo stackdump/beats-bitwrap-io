@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 )
 
 //go:embed public/*
@@ -59,7 +60,17 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/o/", store)
 	mux.HandleFunc("/schema/beats-share", handleBeatsShareSchema)
-	mux.Handle("/share-card/", handleShareCard(store))
+	// Split by extension: .png for raster (Twitter/X, Mastodon,
+	// Bluesky fallback), .svg for vector (Slack/Discord/iMessage).
+	svgCard := handleShareCard(store)
+	pngCard := handleShareCardPNG(store)
+	mux.Handle("/share-card/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".png") {
+			pngCard.ServeHTTP(w, r)
+			return
+		}
+		svgCard.ServeHTTP(w, r)
+	}))
 	mux.Handle("/qr", handleQRCode())
 	mux.Handle("/", rootHandler)
 
