@@ -28,28 +28,25 @@ export function renderQrGroup(text, { size = 200, ecl = 'M', color = '#000', bg 
     }
     const svg = host.querySelector('svg');
     if (!svg) return '';
-    // qrcode.js emits one <rect> per module plus background. Rebuild
-    // as a tight <g> so we can position it at an arbitrary origin
-    // inside the outer card SVG without depending on its viewBox.
-    const rects = svg.querySelectorAll('rect');
-    if (!rects.length) return '';
-    // Each rect has width/height = 1 module. Count modules on a row
-    // to derive the module size vs. our target `size`.
-    const first = rects[0];
-    const moduleSize = Number(first.getAttribute('width')) || 1;
-    const totalModules = Math.round(Number(svg.getAttribute('width')) / moduleSize);
-    const scale = size / (totalModules * moduleSize);
+    // davidshimjs/qrcodejs emits one <rect id="template"> of size 1×1
+    // and then one <use href="#template" x="col" y="row"> per dark
+    // module. Read the module count from the svg viewBox
+    // ("0 0 <n> <n>") and emit one tight dark-rect per use.
+    const vb = (svg.getAttribute('viewBox') || '').split(/\s+/);
+    const totalModules = Math.round(Number(vb[2]));
+    if (!totalModules || !isFinite(totalModules)) return '';
+    const uses = svg.querySelectorAll('use');
+    if (!uses.length) return '';
+    const scale = size / totalModules;
     const parts = [`<rect width="${size}" height="${size}" fill="${bg}"/>`];
-    for (const r of rects) {
-        const fill = r.getAttribute('fill');
-        // qrcode.js draws background rects as #ffffff and dark as
-        // #000000. Skip background rects (we already drew one).
-        if (!fill || fill === '#ffffff' || fill.toLowerCase() === bg.toLowerCase()) continue;
-        const x = Number(r.getAttribute('x')) * scale;
-        const y = Number(r.getAttribute('y')) * scale;
-        const w = Number(r.getAttribute('width')) * scale;
-        const h = Number(r.getAttribute('height')) * scale;
-        parts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${(w + 0.2).toFixed(2)}" height="${(h + 0.2).toFixed(2)}" fill="${color}"/>`);
+    for (const u of uses) {
+        const col = Number(u.getAttribute('x')) || 0;
+        const row = Number(u.getAttribute('y')) || 0;
+        const x = col * scale;
+        const y = row * scale;
+        // +0.2 avoids sub-pixel seams between adjacent modules when the
+        // SVG is rasterised by the browser.
+        parts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${(scale + 0.2).toFixed(2)}" height="${(scale + 0.2).toFixed(2)}" fill="${color}"/>`);
     }
     return parts.join('');
 }
