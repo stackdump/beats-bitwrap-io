@@ -631,7 +631,8 @@ export function compose(genreName, overrides = {}) {
     // Genre-specific extras
     if (genreName === 'edm' || genreName === 'synthwave' || genreName === 'trance') {
         if (genreName === 'edm') {
-            proj.nets.clap = euclidean(2, 16, 4, 39, snareParams).bundle;
+            const clapParams = { channel: 13, velocity: 100, duration: 50, seed: dSeed + 3, accent: AccentSnare };
+            proj.nets.clap = euclidean(2, 16, 4, 39, clapParams).bundle;
         }
         let arpScale = genre.scale(genre.rootNote + 24);
         if (arpScale.length > 5) arpScale = arpScale.slice(0, 5);

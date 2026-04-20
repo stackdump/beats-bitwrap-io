@@ -488,10 +488,12 @@ export function channelParamMove(el, macro, durationMs) {
     const targets = macro.targets ? macro.targets(el) : [];
     const chans = [];
     const seen = new Set();
-    const netIds = [];
+    const allTargetIds = [];
     for (const id of targets) {
         const ch = el._project?.nets?.[id]?.track?.channel;
-        if (ch != null && !seen.has(ch)) { chans.push(ch); seen.add(ch); netIds.push(id); }
+        if (ch == null) continue;
+        allTargetIds.push(id);
+        if (!seen.has(ch)) { chans.push(ch); seen.add(ch); }
     }
     if (chans.length === 0) return;
 
@@ -529,11 +531,22 @@ export function channelParamMove(el, macro, durationMs) {
         for (const ch of chans) apply(ch, before[ch] ?? (kind === 'pan-move' ? 0 : 1.0));
     };
 
+    // Pulse every targeted net's mixer row, not just the first per channel.
+    // Drum voices (kick/snare/hihat/clap) share a single channel — without
+    // this, dedup-by-channel meant only one drum row's slider animated
+    // and the others looked like the macro skipped them.
     const sliderCls = kind === 'pan-move' ? 'pn-mixer-pan' : 'pn-mixer-decay';
-    const sliders = netIds.map(id =>
-        el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${id}"] .${sliderCls}`)
-        || el._mixerEl?.querySelector(`.pn-mixer-row[data-riff-group="${id}"] .${sliderCls}`)
-    ).filter(Boolean);
+    const sliderSet = new Set();
+    for (const id of allTargetIds) {
+        const byNet = el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${id}"] .${sliderCls}`);
+        if (byNet) { sliderSet.add(byNet); continue; }
+        const net = el._project?.nets?.[id];
+        if (net?.riffGroup) {
+            const byGroup = el._mixerEl?.querySelector(`.pn-mixer-row[data-riff-group="${net.riffGroup}"] .${sliderCls}`);
+            if (byGroup) sliderSet.add(byGroup);
+        }
+    }
+    const sliders = [...sliderSet];
     const cleanupBlink = () => {
         for (const node of sliders) node.classList.remove('pn-pulsing', 'pn-pulsing-hot');
     };
