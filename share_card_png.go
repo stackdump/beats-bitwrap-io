@@ -125,7 +125,7 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 		drawText(dc, false, 20, 70, 200, 0.6, 0.6, 0.6, "BEATS · BITWRAP · IO")
 	}
 
-	// Tempo / seed / swing·humanize strip.
+	// Tempo / seed / key·bars strip.
 	drawText(dc, false, 24, 70, 290, 0.53, 0.53, 0.53, "TEMPO")
 	drawText(dc, true, 52, 70, 340, 0.93, 0.93, 0.93, fmt.Sprintf("%d", p.Tempo))
 	face, _ := loadFace(true, 52)
@@ -136,8 +136,16 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 	drawText(dc, false, 16, 70, 410, 0.53, 0.53, 0.53, "SEED")
 	drawText(dc, false, 24, 70, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%d", p.Seed))
 
-	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "SWING · HUMANIZE")
-	drawText(dc, false, 24, 340, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%d · %d", p.Swing, p.Humanize))
+	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "KEY · BARS")
+	keyStr := keyLabel(p.RootNote, p.ScaleName)
+	if keyStr == "" {
+		keyStr = "—"
+	}
+	barStr := "—"
+	if p.Bars > 0 {
+		barStr = fmt.Sprintf("%d", p.Bars)
+	}
+	drawText(dc, false, 24, 340, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%s · %s", keyStr, barStr))
 
 	// Ring + dots — same geometry as the SVG template.
 	dc.SetRGBA(cr, cg, cb, 0.4)

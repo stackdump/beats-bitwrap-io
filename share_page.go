@@ -40,13 +40,42 @@ var urlQueryEscapeFn = url.QueryEscape
 // sharePayload is the minimum shape we need out of the stored bytes to
 // render a card. Fields the JSON schema also guarantees are present.
 type sharePayload struct {
-	Type     string `json:"@type"`
-	V        int    `json:"v"`
-	Genre    string `json:"genre"`
-	Seed     int64  `json:"seed"`
-	Tempo    int    `json:"tempo"`
-	Swing    int    `json:"swing"`
-	Humanize int    `json:"humanize"`
+	Type      string `json:"@type"`
+	V         int    `json:"v"`
+	Genre     string `json:"genre"`
+	Seed      int64  `json:"seed"`
+	Tempo     int    `json:"tempo"`
+	Swing     int    `json:"swing"`
+	Humanize  int    `json:"humanize"`
+	RootNote  *int   `json:"rootNote,omitempty"`
+	ScaleName string `json:"scaleName,omitempty"`
+	Bars      int    `json:"bars,omitempty"`
+}
+
+// keyLabel renders the musical key for the card. Mirrors the JS
+// keyLabel() in public/lib/share/card.js so the SVG/PNG/client cards
+// all display the same string for identical payloads.
+var noteNames = [12]string{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
+var scaleShort = map[string]string{
+	"Major": "MAJ", "Minor": "MIN", "Pentatonic": "PENT",
+	"MinPentatonic": "MIN PENT", "Blues": "BLUES",
+	"Dorian": "DOR", "Mixolydian": "MIX", "Phrygian": "PHR",
+	"HarmonicMin": "H MIN",
+}
+
+func keyLabel(rootNote *int, scaleName string) string {
+	if rootNote == nil || *rootNote < 0 {
+		return ""
+	}
+	note := noteNames[((*rootNote%12)+12)%12]
+	tag, ok := scaleShort[scaleName]
+	if !ok {
+		tag = strings.ToUpper(scaleName)
+	}
+	if tag == "" {
+		return note
+	}
+	return note + " " + tag
 }
 
 // Genre → background color for the card. Same palette as the frontend
@@ -536,8 +565,10 @@ func handleShareCard(store *shareStore) http.Handler {
 		data := struct {
 			Genre, GenreUpper, Color, Title string
 			HasTitle                        bool
-			Tempo, Swing, Humanize          int
+			Tempo                           int
 			Seed                            int64
+			Key                             string
+			Bars                            int
 			CID                             string
 			Dots                            []ringDot
 			QRDataURL                       string
@@ -548,9 +579,9 @@ func handleShareCard(store *shareStore) http.Handler {
 			Title:      userTitle,
 			HasTitle:   userTitle != "",
 			Tempo:      p.Tempo,
-			Swing:      p.Swing,
-			Humanize:   p.Humanize,
 			Seed:       p.Seed,
+			Key:        keyLabel(p.RootNote, p.ScaleName),
+			Bars:       p.Bars,
 			CID:        name,
 			Dots:       dots,
 			QRDataURL:  qrDataURL,
@@ -636,8 +667,8 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">{{.Seed}}</text>
 
-      <text x="340" y="410" font-size="18" fill="#888">SWING · HUMANIZE</text>
-      <text x="340" y="440" font-size="28" fill="#ccc">{{.Swing}} · {{.Humanize}}</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
+      <text x="340" y="440" font-size="28" fill="#ccc">{{if .Key}}{{.Key}}{{else}}&#8212;{{end}} · {{if .Bars}}{{.Bars}}{{else}}&#8212;{{end}}</text>
     </g>
   </g>
 

@@ -9,10 +9,12 @@ import (
 )
 
 func TestRenderShareCardPNG(t *testing.T) {
+	root := 45
 	p := sharePayload{
 		Type: "BeatsShare", V: 1,
 		Genre: "techno", Seed: 42,
 		Tempo: 128, Swing: 15, Humanize: 10,
+		RootNote: &root, ScaleName: "Minor", Bars: 60,
 	}
 	cases := []struct {
 		name, title, qr string

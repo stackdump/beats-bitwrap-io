@@ -105,10 +105,29 @@ function ringDotsForSeed(seed, n = 16) {
 // `qr` is an optional inline `<g>` containing rect modules (see
 // lib/share/qr.js:renderQrGroup); when supplied it's placed in the
 // centre of the ring.
+// Note names for rendering rootNote → "C" / "F#" etc. on the card.
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Short display labels for scale names stashed on the project.
+// Keep this list in sync with any new scales added in theory.js.
+const SCALE_SHORT = {
+    Major: 'MAJ', Minor: 'MIN', Pentatonic: 'PENT', MinPentatonic: 'MIN PENT',
+    Blues: 'BLUES', Dorian: 'DOR', Mixolydian: 'MIX', Phrygian: 'PHR',
+    HarmonicMin: 'H MIN',
+};
+
+export function keyLabel(rootNote, scaleName) {
+    if (rootNote == null || rootNote < 0 || !Number.isFinite(rootNote)) return '';
+    const note = NOTE_NAMES[((rootNote % 12) + 12) % 12];
+    const tag = SCALE_SHORT[scaleName] || (scaleName || '').toUpperCase();
+    return tag ? `${note} ${tag}` : note;
+}
+
 export function renderShareCardSvg(opts) {
     const {
         genre = 'techno', seed = 0, tempo = 120,
-        swing = 0, humanize = 0, title = '', cid = '', qr = '',
+        title = '', cid = '', qr = '',
+        rootNote = null, scaleName = '', bars = 0,
     } = opts || {};
     const color = variantColor(colorForGenre(genre), Number(seed) || 0);
     const genreUpper = genre.toUpperCase();
@@ -151,8 +170,8 @@ export function renderShareCardSvg(opts) {
       <text x="70" y="340" font-size="56" font-weight="700" fill="#eee">${tempo}<tspan font-size="28" fill="#888"> BPM</tspan></text>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">${seed}</text>
-      <text x="340" y="410" font-size="18" fill="#888">SWING · HUMANIZE</text>
-      <text x="340" y="440" font-size="28" fill="#ccc">${swing} · ${humanize}</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
+      <text x="340" y="440" font-size="28" fill="#ccc">${svgEscape(keyLabel(rootNote, scaleName) || '—')} · ${bars || '—'}</text>
     </g>
   </g>
   <g stroke="${color}" stroke-width="2" fill="none" opacity="0.4">
@@ -177,8 +196,11 @@ export function renderCurrentCard(el, title = '') {
     const genre = el.querySelector('.pn-genre')?.value || project.genre || 'techno';
     const seed = el._currentGen?.params?.seed ?? project.seed ?? 0;
     const tempo = project.tempo || el._tempo || 120;
-    const swing = el._swing ?? project.swing ?? 0;
-    const humanize = el._humanize ?? project.humanize ?? 0;
+    const rootNote = project.rootNote ?? null;
+    const scaleName = project.scaleName || '';
+    const structureArr = Array.isArray(project.structure) ? project.structure : [];
+    const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
+    const bars = Math.max(0, Math.round(totalSteps / 16));
     const cid = new URLSearchParams(location.search).get('cid') || '';
     const qr = renderQrGroup(shortShareUrl({ cid, title }), {
         size: 200,
@@ -186,5 +208,5 @@ export function renderCurrentCard(el, title = '') {
         color: '#0d0d0d',
         bg: '#ffffff',
     });
-    return renderShareCardSvg({ genre, seed, tempo, swing, humanize, title, cid, qr });
+    return renderShareCardSvg({ genre, seed, tempo, rootNote, scaleName, bars, title, cid, qr });
 }

@@ -19,6 +19,9 @@
     "tempo":    { "type": "integer", "minimum": 20, "maximum": 300 },
     "swing":    { "type": "integer", "minimum": 0,  "maximum": 100 },
     "humanize": { "type": "integer", "minimum": 0,  "maximum": 100 },
+    "rootNote": { "type": ["integer", "null"], "minimum": 0, "maximum": 127 },
+    "scaleName":{ "type": ["string", "null"], "maxLength": 32 },
+    "bars":     { "type": ["integer", "null"], "minimum": 0, "maximum": 4096 },
     "structure":{ "type": ["string", "null"] },
     "traits":   { "type": ["object", "null"] },
     "tracks": {

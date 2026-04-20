@@ -553,6 +553,11 @@ export function compose(genreName, overrides = {}) {
         tempo: bpm,
         swing: genre.swing,
         humanize: genre.humanize,
+        // Musical key: rootNote is a MIDI number; scaleName is the raw
+        // function name (MajorScale / MinorScale / DorianScale / …) that
+        // card renderers shorten to MAJ / MIN / DOR / etc.
+        rootNote: genre.rootNote,
+        scaleName: (genre.scale?.name || '').replace(/Scale$/, ''),
         nets: {},
         connections: [],
         initialMutes: [],

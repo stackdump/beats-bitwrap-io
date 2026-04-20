@@ -111,6 +111,13 @@ export function buildSharePayload(el) {
     const cur = el._currentGen;
     const genre = cur?.genre || el.querySelector('.pn-genre-select')?.value || 'techno';
     const params = { ...(cur?.params || {}) };
+    // Bars — sum of section step-counts from the current structure,
+    // divided by the 16-steps-per-bar convention the generator uses.
+    // Missing structure → 0 (card renderer falls back to a dash).
+    const structureArr = Array.isArray(el._project?.structure) ? el._project.structure : [];
+    const totalSteps = structureArr.reduce((s, sec) => s + (sec?.steps || 0), 0);
+    const bars = Math.max(0, Math.round(totalSteps / 16));
+
     const payload = {
         '@context': SHARE_CONTEXT,
         '@type': 'BeatsShare',
@@ -120,6 +127,9 @@ export function buildSharePayload(el) {
         tempo: el._project?.tempo ?? el._tempo ?? 120,
         swing: el._project?.swing ?? 0,
         humanize: el._project?.humanize ?? 0,
+        rootNote: el._project?.rootNote ?? null,
+        scaleName: el._project?.scaleName ?? null,
+        bars,
         structure: params.structure || el.querySelector('.pn-structure-select')?.value || null,
     };
     const traits = {};

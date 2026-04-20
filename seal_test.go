@@ -124,6 +124,22 @@ func TestPutGetRoundTrip(t *testing.T) {
 	}
 }
 
+// Schema must accept a payload that carries the new rootNote/scaleName/
+// bars key-BARS fields — guards against the card renderer reading blank
+// because the envelope was silently rejected.
+func TestPutAcceptsKeyAndBarsFields(t *testing.T) {
+	s, _ := newTestStore(t)
+	body := `{"@context":"https://beats.bitwrap.io/schema/beats-share.context.jsonld","@type":"BeatsShare","bars":60,"genre":"edm","humanize":0,"rootNote":45,"scaleName":"Minor","seed":42,"swing":0,"tempo":138,"v":1}`
+	cid := computeCid([]byte(body))
+	req := httptest.NewRequest(http.MethodPut, "/o/"+cid, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/ld+json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("PUT with KEY/BARS fields: got %d, want 201. body=%s", rec.Code, rec.Body)
+	}
+}
+
 // CID verification: a PUT whose body does not hash to the path CID must
 // be rejected. Otherwise the server would happily store anything under
 // any name and the content-addressing guarantee evaporates.
