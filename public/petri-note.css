@@ -1852,6 +1852,36 @@ input[type="range"][data-default] {
     line-height: 1.4;
 }
 
+.pn-modal-hint {
+    font-size: 11px;
+    color: #778;
+    margin: 8px 0 16px 0;
+    line-height: 1.5;
+}
+
+.pn-share-inline-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 6px 0;
+    font-size: 12px;
+    color: #bbb;
+    cursor: pointer;
+    user-select: none;
+}
+
+.pn-share-inline-toggle input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: #e94560;
+    cursor: pointer;
+}
+
+.pn-share-inline-size {
+    color: #667;
+    font-variant-numeric: tabular-nums;
+}
+
 .pn-modal-row input[type="checkbox"] {
     flex: 0 0 auto;
     width: auto;

@@ -5594,24 +5594,31 @@ class PetriNote extends HTMLElement {
         };
     }
 
-    async _buildShareUrl() {
+    // Returns an object describing both URL forms so the share modal can
+    // let the user toggle between them. `stored` reflects whether the
+    // canonical bytes were accepted by the server store — if false, only
+    // `fullUrl` actually resolves (shortUrl would 404 from a fresh tab).
+    async _buildShareUrlForms() {
         const base = `${location.origin}${location.pathname}`;
         const payload = this._buildSharePayload();
         if (!payload.genre || payload.seed == null) {
-            // No concrete seed yet — fall back to genre-only short link.
-            return `${base}?g=${encodeURIComponent(payload.genre || 'techno')}`;
+            const u = `${base}?g=${encodeURIComponent(payload.genre || 'techno')}`;
+            return { shortUrl: u, fullUrl: u, stored: false, fallback: true };
         }
         const canonical = this._canonicalizeJSON(payload);
         const cid = await this._computeCidForJsonLd(payload);
-        // Try to upload the canonical bytes to the server store. If it
-        // succeeds, the share URL can be just `?cid=...` — short, stable,
-        // and survives re-opening from any device. Fall back to embedding
-        // the gzipped payload inline when the store is unavailable or
-        // refuses the write (full / rate-limited / schema-rejected).
         const stored = await this._uploadShare(cid, canonical);
-        if (stored) return `${base}?cid=${cid}`;
+        const shortUrl = `${base}?cid=${cid}`;
         const z = await this._gzipToB64Url(canonical);
-        return `${base}?cid=${cid}&z=${z}`;
+        const fullUrl = `${base}?cid=${cid}&z=${z}`;
+        return { shortUrl, fullUrl, stored, fallback: false };
+    }
+
+    // Back-compat: keep the original return-a-string entry point for any
+    // callers that don't need the modal's toggle UX (e.g. future CLI paths).
+    async _buildShareUrl() {
+        const { shortUrl, fullUrl, stored } = await this._buildShareUrlForms();
+        return stored ? shortUrl : fullUrl;
     }
 
     async _uploadShare(cid, canonical) {
@@ -5640,16 +5647,36 @@ class PetriNote extends HTMLElement {
     }
 
     async _onShareClick() {
-        const url = await this._buildShareUrl();
+        const forms = await this._buildShareUrlForms();
+        const { shortUrl, fullUrl, stored, fallback } = forms;
+        // If the server store accepted the upload we default to the short
+        // CID-only URL; if not, the inline form is forced (and the toggle
+        // is locked on) because the short URL would 404 elsewhere.
+        const hasInlineChoice = stored && !fallback;
         const overlay = document.createElement('div');
         overlay.className = 'pn-modal-overlay';
+        const inlineSize = Math.round(fullUrl.length / 1024 * 10) / 10;
         overlay.innerHTML = `
             <div class="pn-modal pn-share-modal">
                 <h2>Share track</h2>
                 <p class="pn-modal-desc">Anyone opening this link gets the same track — genre, seed, mix, instruments, FX, Feel, Auto-DJ and macro toggles all reproduce exactly.</p>
                 <div class="pn-modal-row">
-                    <input type="text" class="pn-share-url" readonly value="${url.replace(/"/g, '&quot;')}">
+                    <input type="text" class="pn-share-url" readonly value="">
                 </div>
+                ${hasInlineChoice ? `
+                <label class="pn-share-inline-toggle">
+                    <input type="checkbox" class="pn-share-inline-cb">
+                    <span>Include track data in link <span class="pn-share-inline-size">(~${inlineSize} KB)</span></span>
+                </label>
+                <p class="pn-modal-hint pn-share-inline-why">
+                    Off (default): short link, reads the track from this site's share store. Best for chat, QR codes, and most cases.<br>
+                    On: self-contained link — every byte of the track travels in the URL itself. Opens offline, in a local copy of the page, or if the share store is ever purged. Good for archives and long-term preservation.
+                </p>
+                ` : (fallback ? '' : `
+                <p class="pn-modal-hint">
+                    Server store upload failed, so the track data is embedded in the link itself. It's long but self-contained — anyone opening it gets the exact track, no lookup required.
+                </p>
+                `)}
                 <div class="pn-modal-actions">
                     <button class="cancel close">Close</button>
                     <button class="save copy">Copy link</button>
@@ -5658,6 +5685,16 @@ class PetriNote extends HTMLElement {
         `;
         this.appendChild(overlay);
         const input = overlay.querySelector('.pn-share-url');
+        const cb = overlay.querySelector('.pn-share-inline-cb');
+        const render = () => {
+            const wantInline = cb?.checked;
+            const url = (hasInlineChoice && wantInline) ? fullUrl : (stored ? shortUrl : fullUrl);
+            input.value = url;
+            input.select();
+            return url;
+        };
+        let currentUrl = render();
+        cb?.addEventListener('change', () => { currentUrl = render(); });
         input.focus();
         input.select();
         const copyBtn = overlay.querySelector('.copy');
@@ -5673,7 +5710,7 @@ class PetriNote extends HTMLElement {
             }
             if (e.target.classList.contains('copy')) {
                 if (navigator.clipboard?.writeText) {
-                    navigator.clipboard.writeText(url).then(() => flash(true), () => flash(false));
+                    navigator.clipboard.writeText(currentUrl).then(() => flash(true), () => flash(false));
                 } else {
                     input.select();
                     try { document.execCommand('copy'); flash(true); }
