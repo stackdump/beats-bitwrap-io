@@ -1471,8 +1471,12 @@ input[type="range"][data-default] {
 .pn-fx-value {
     font-size: 10px;
     color: #4a90d9;
-    min-width: 32px;
+    /* Fixed width + tabular-nums so sweeping macros (hp-freq "20Hz" → "1.0kHz",
+     * phaser-wet "0%" → "100%") don't reflow the fx-control row every 120ms. */
+    width: 48px;
+    flex-shrink: 0;
     text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Timeline */
