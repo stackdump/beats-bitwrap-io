@@ -5303,13 +5303,20 @@ class PetriNote extends HTMLElement {
         if (!panel) return null;
         const pools = {};
         for (const cb of panel.querySelectorAll('.pn-autodj-pool')) pools[cb.value] = cb.checked;
+        // Coerce the <select>.value strings to ints so the share payload hits
+        // the schema's integer typing (and keeps CIDs stable across sessions —
+        // "2" vs 2 would otherwise hash to different bytes).
+        const intOr = (el, fallback) => {
+            const n = parseInt(el?.value, 10);
+            return Number.isFinite(n) ? n : fallback;
+        };
         return {
             showAutoDj:  !!this._showAutoDj,
             run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
             animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
-            rate:        panel.querySelector('.pn-autodj-rate')?.value,
-            regen:       panel.querySelector('.pn-autodj-regen')?.value,
-            stack:       panel.querySelector('.pn-autodj-stack')?.value,
+            rate:        intOr(panel.querySelector('.pn-autodj-rate'),  2),
+            regen:       intOr(panel.querySelector('.pn-autodj-regen'), 0),
+            stack:       intOr(panel.querySelector('.pn-autodj-stack'), 1),
             pools,
         };
     }
