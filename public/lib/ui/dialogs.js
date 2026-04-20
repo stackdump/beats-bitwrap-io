@@ -4,6 +4,7 @@
 // at Save time.
 
 import { noteToName, nameToNote } from '../audio/note-name.js';
+import { renderCurrentCard } from '../share/card.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -212,6 +213,51 @@ export function showQuickstartModal(el) {
         } else if (e.target.closest('.pn-quickstart-guide')) {
             dismiss();
             showHelpModal(el);
+        }
+    });
+    document.body.appendChild(overlay);
+}
+
+// Welcome overlay shown on a user's first project-sync. Uses the
+// client-side card twin (lib/share/card.js) so the preview renders
+// without sealing the payload to the store first — no CID required.
+// Dismisses on click anywhere; persists a flag so it only fires once.
+export function showWelcomeCard(el) {
+    if (localStorage.getItem('pn-welcome-seen')) return;
+    el.querySelector('.pn-welcome-overlay')?.remove();
+    const svg = renderCurrentCard(el);
+    const overlay = document.createElement('div');
+    overlay.className = 'pn-help-overlay pn-welcome-overlay';
+    overlay.innerHTML = `
+        <div class="pn-welcome-modal" style="max-width:760px;width:92%;background:#0d0d0d;border:1px solid #222;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+            <div class="pn-welcome-card" style="display:block;line-height:0;cursor:pointer" title="Click to start">${svg}</div>
+            <div style="padding:18px 22px;color:#ccc;font-family:system-ui,sans-serif">
+                <p style="margin:0 0 12px;font-size:14px;line-height:1.55">
+                    Deterministic beat generator. Each card is a fingerprint: genre + seed + tempo reproduce the exact track.
+                    Share any mix and the card you see here travels with the link.
+                </p>
+                <div style="display:flex;gap:10px">
+                    <button class="pn-welcome-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Start playing</button>
+                    <button class="pn-welcome-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">Open full guide</button>
+                </div>
+            </div>
+        </div>
+    `;
+    const dismiss = () => {
+        localStorage.setItem('pn-welcome-seen', '1');
+        localStorage.setItem('pn-quickstart-seen', '1');
+        overlay.remove();
+    };
+    overlay.addEventListener('click', (e) => {
+        if (e.target.closest('.pn-welcome-guide')) {
+            dismiss();
+            showHelpModal(el);
+            return;
+        }
+        if (e.target === overlay
+            || e.target.closest('.pn-welcome-card')
+            || e.target.closest('.pn-welcome-start')) {
+            dismiss();
         }
     });
     document.body.appendChild(overlay);

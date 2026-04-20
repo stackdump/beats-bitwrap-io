@@ -201,6 +201,10 @@ export function applyProjectSync(el, project, seamless = false) {
         el._playing = false;
         const playBtn = el.querySelector('.pn-play');
         if (playBtn) playBtn.innerHTML = '&#9654;';
+        if (el._showWelcomeOnSync) {
+            el._showWelcomeOnSync = false;
+            el._showWelcomeCard?.();
+        }
         return;
     }
     if (seamless) {

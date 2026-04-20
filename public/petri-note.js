@@ -49,7 +49,7 @@ import {
 } from './lib/ui/canvas.js';
 import {
     openMidiEditor, fireTransition,
-    showQuickstartModal, showHelpModal,
+    showQuickstartModal, showHelpModal, showWelcomeCard,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
 import {
@@ -217,9 +217,10 @@ class PetriNote extends HTMLElement {
         this._initAudio();
         this._renderNet();
         this._watchAudioContextState();
-        if (!localStorage.getItem('pn-quickstart-seen')) {
-            this._showQuickstartModal();
-        }
+        // Welcome card fires from _applyProjectSync once the first
+        // project lands — we need genre/seed/tempo to render it.
+        this._showWelcomeOnSync = !localStorage.getItem('pn-welcome-seen')
+            && !localStorage.getItem('pn-quickstart-seen');
     }
 
     _bindGlobalWheel() {
@@ -1267,6 +1268,7 @@ class PetriNote extends HTMLElement {
     _ensureToneStarted() { return ensureToneStarted(this); }
 
     _showQuickstartModal() { return showQuickstartModal(this); }
+    _showWelcomeCard() { return showWelcomeCard(this); }
     _showHelpModal() { return showHelpModal(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
