@@ -159,7 +159,7 @@ function getFloatArray(m, key, def) {
 }
 
 // --- Parse a net bundle from JSON ---
-function parseNetBundle(data) {
+export function parseNetBundle(data) {
     const nb = new NetBundle();
     nb.role = getString(data, 'role', 'music');
     nb.riffGroup = getString(data, 'riffGroup', '');

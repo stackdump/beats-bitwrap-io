@@ -445,8 +445,17 @@ export function handleWsMessage(el, msg) {
                     const structure = el.querySelector('.pn-structure-select').value;
                     const params = { ...(el._traitOverrides || {}), instruments: el._getCurrentInstruments() };
                     if (structure) params.structure = structure;
-                    sendWs(el, { type: 'generate', genre, params });
-                    el._injectTransitionOnNextSync = true;
+                    // Mirror doGenerate's transition-injection shape so
+                    // the shuffle-pool fallback feels like Auto-DJ regen.
+                    let injectTransitionNet = null;
+                    const macroId = el._pickTransitionMacroId();
+                    if (macroId) {
+                        injectTransitionNet = {
+                            netId: `macro:transition:${macroId}:${Date.now().toString(36)}`,
+                            net: el._transitionNetJson(macroId),
+                        };
+                    }
+                    sendWs(el, { type: 'generate', genre, params, injectTransitionNet });
                 }
             } else {
                 // Single: stop.

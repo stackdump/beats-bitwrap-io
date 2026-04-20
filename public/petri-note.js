@@ -655,14 +655,24 @@ class PetriNote extends HTMLElement {
             this._nextGenerateWithFeels = !this._feelDisengaged;
             // When Auto-DJ is armed, a manual Generate should cross-fade
             // through a transition macro the same way the Regen timer
-            // does. Flag the *next* project-sync to inject a transient
-            // control net into project.nets — so the transition fires
-            // as the new track actually starts, not as an out-of-band
-            // hit on the outgoing track.
+            // does. Ship the transition net with the generate message
+            // so the worker adds it to the composed project before
+            // queueing — landing it server-side survives both the
+            // cold-start (project-load) and seamless-swap (project-
+            // queue / bar-boundary) paths without a client-side
+            // injection that the worker's already-swapped project
+            // would never see.
+            let injectTransitionNet = null;
             if (this.querySelector('.pn-autodj-enable')?.checked) {
-                this._injectTransitionOnNextSync = true;
+                const macroId = pickTransitionMacroId(this);
+                if (macroId) {
+                    injectTransitionNet = {
+                        netId: `macro:transition:${macroId}:${Date.now().toString(36)}`,
+                        net: transitionNetJson(macroId),
+                    };
+                }
             }
-            this._sendWs({ type: 'generate', genre, params });
+            this._sendWs({ type: 'generate', genre, params, injectTransitionNet });
         };
         this.querySelector('.pn-generate-btn').addEventListener('click', doGenerate);
         // Genre change: drop any Feel-written trait overrides so the NEW

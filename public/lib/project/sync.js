@@ -135,16 +135,19 @@ export function applyProjectSync(el, project, seamless = false) {
     }
     el._nextGenerateWithFeels = false;
 
-    // Auto-DJ-requested transition: inject a transient control net
-    // that fires a Transition-pool macro on its first tick. Landing
-    // the macro IN the project means it plays as the new track
-    // actually starts — same seamless regen path the Auto-DJ timer
-    // uses, not an out-of-band fire on the previous track.
-    if (el._injectTransitionOnNextSync && !seamless && project?.nets) {
-        el._injectTransitionOnNextSync = false;
-        const label = injectTransitionNet(el, project);
-        const statusEl = el.querySelector('.pn-autodj-status');
-        if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
+    // Auto-DJ transition (when armed) is now injected server-side in
+    // the worker's `generate` handler, so the transition net is
+    // already present on project.nets when we land here. Just label
+    // the status pill for UX.
+    el._injectTransitionOnNextSync = false;
+    if (project?.nets) {
+        const transitionNetId = Object.keys(project.nets)
+            .find(k => k.startsWith('macro:transition:'));
+        if (transitionNetId) {
+            const macroId = transitionNetId.split(':')[2] || '';
+            const statusEl = el.querySelector('.pn-autodj-status');
+            if (statusEl && macroId) statusEl.textContent = `⟳ ${macroId}`;
+        }
     }
 
     el._project = project;

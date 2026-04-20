@@ -4,7 +4,7 @@
  * Communicates with main thread using the same JSON message protocol as WebSocket.
  */
 
-import { parseProject, projectToJSON } from './lib/pflow.js';
+import { parseProject, parseNetBundle, projectToJSON } from './lib/pflow.js';
 import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js?v=5';
 import { regenerateTrack } from './lib/generator/regenerate.js';
 import { buildMacroRestoreNet, MACRO_NET_PREFIX, pruneMacroNets } from './lib/generator/macros.js';
@@ -508,6 +508,14 @@ self.onmessage = function(e) {
 
         case 'generate': {
             const proj = compose(msg.genre, msg.params || {});
+            // Auto-DJ-requested transition: add a transient control net
+            // to the composed project before it's queued. The client
+            // picks the macro ID so user preferences (disabled macros,
+            // transition pool) stay authoritative there; the worker
+            // just links the JSON shape into its bundle graph.
+            if (msg.injectTransitionNet?.netId && msg.injectTransitionNet?.net) {
+                proj.nets[msg.injectTransitionNet.netId] = parseNetBundle(msg.injectTransitionNet.net);
+            }
             queueProject(proj);
             break;
         }
