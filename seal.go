@@ -230,16 +230,9 @@ func (s *shareStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *shareStore) get(w http.ResponseWriter, cid string) {
-	s.mu.Lock()
-	path, ok := s.index[cid]
-	s.mu.Unlock()
-	if !ok {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	data, err := os.ReadFile(path)
+	data, err := s.lookup(cid)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -250,6 +243,19 @@ func (s *shareStore) get(w http.ResponseWriter, cid string) {
 	w.Header().Set("Content-Type", "application/ld+json")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Write(data)
+}
+
+// lookup returns the raw canonical-JSON bytes for a stored CID, or
+// os.ErrNotExist if the CID isn't in the index. Shared by the HTTP GET
+// path and the server-side share-card / decorated-index renderer.
+func (s *shareStore) lookup(cid string) ([]byte, error) {
+	s.mu.Lock()
+	path, ok := s.index[cid]
+	s.mu.Unlock()
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return os.ReadFile(path)
 }
 
 func (s *shareStore) put(w http.ResponseWriter, r *http.Request, cid string) {

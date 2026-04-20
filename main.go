@@ -22,6 +22,7 @@ func main() {
 	flag.Parse()
 
 	var handler http.Handler
+	var publicSub fs.FS
 	if *dir != "" {
 		handler = http.FileServer(http.Dir(*dir))
 		log.Printf("Serving from disk: %s", *dir)
@@ -30,6 +31,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		publicSub = sub
 		handler = http.FileServer(http.FS(sub))
 		log.Printf("Serving embedded files")
 	}
@@ -41,10 +43,24 @@ func main() {
 	log.Printf("Share store: %s (cap %d bytes, %d PUT/min/IP, %d PUT/min global)",
 		*dataDir, *maxStoreBytes, *putPerMin, *globalPutPerMin)
 
+	// Root needs custom routing: a request like `/?cid=z…` gets served
+	// with OG/JSON-LD injected into <head> so link unfurlers see the
+	// track metadata. Every other path under `/` falls back to the
+	// static file handler.
+	decorated := decoratedIndex(store, publicSub, *dir)
+	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			decorated.ServeHTTP(w, r)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+
 	mux := http.NewServeMux()
 	mux.Handle("/o/", store)
 	mux.HandleFunc("/schema/beats-share", handleBeatsShareSchema)
-	mux.Handle("/", handler)
+	mux.Handle("/share-card/", handleShareCard(store))
+	mux.Handle("/", rootHandler)
 
 	// Wrap with CORS headers for cross-origin consumption (CDN, data-backend="ws")
 	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
