@@ -442,12 +442,11 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta property="og:description" content="{{.Desc}}"/>
 <meta property="og:url" content="{{.ShareURL}}"/>
 <meta property="og:image" content="{{.CardPNG}}"/>
+<meta property="og:image:secure_url" content="{{.CardPNG}}"/>
 <meta property="og:image:type" content="image/png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta property="og:image:alt" content="{{.ImgAlt}}"/>
-<meta property="og:image" content="{{.CardSVG}}"/>
-<meta property="og:image:type" content="image/svg+xml"/>
 <meta property="og:site_name" content="beats.bitwrap.io"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="{{.Title}}"/>
