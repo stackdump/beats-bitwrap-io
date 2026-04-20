@@ -5665,12 +5665,15 @@ class PetriNote extends HTMLElement {
                 </div>
                 ${hasInlineChoice ? `
                 <label class="pn-share-inline-toggle">
-                    <input type="checkbox" class="pn-share-inline-cb">
-                    <span>Include track data in link <span class="pn-share-inline-size">(~${inlineSize} KB)</span></span>
+                    <span>Store:</span>
+                    <select class="pn-share-storage">
+                        <option value="server" selected>Server (short link)</option>
+                        <option value="url">URL (self-contained, ~${inlineSize} KB)</option>
+                    </select>
                 </label>
                 <p class="pn-modal-hint pn-share-inline-why">
-                    Off (default): short link, reads the track from this site's share store. Best for chat, QR codes, and most cases.<br>
-                    On: self-contained link — every byte of the track travels in the URL itself. Opens offline, in a local copy of the page, or if the share store is ever purged. Good for archives and long-term preservation.
+                    <strong>Server</strong> (default): short link, the track lives in this site's share store. Best for chat, QR codes, and most everyday sharing.<br>
+                    <strong>URL</strong>: self-contained — every byte of the track travels in the URL itself. Opens offline, from a local copy of the page, or if the share store is ever purged. Good for archives and long-term preservation.
                 </p>
                 ` : (fallback ? '' : `
                 <p class="pn-modal-hint">
@@ -5685,16 +5688,16 @@ class PetriNote extends HTMLElement {
         `;
         this.appendChild(overlay);
         const input = overlay.querySelector('.pn-share-url');
-        const cb = overlay.querySelector('.pn-share-inline-cb');
+        const sel = overlay.querySelector('.pn-share-storage');
         const render = () => {
-            const wantInline = cb?.checked;
+            const wantInline = sel?.value === 'url';
             const url = (hasInlineChoice && wantInline) ? fullUrl : (stored ? shortUrl : fullUrl);
             input.value = url;
             input.select();
             return url;
         };
         let currentUrl = render();
-        cb?.addEventListener('change', () => { currentUrl = render(); });
+        sel?.addEventListener('change', () => { currentUrl = render(); });
         input.focus();
         input.select();
         const copyBtn = overlay.querySelector('.copy');

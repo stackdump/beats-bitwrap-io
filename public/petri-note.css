@@ -1866,19 +1866,17 @@ input[type="range"][data-default] {
     margin: 10px 0 6px 0;
     font-size: 12px;
     color: #bbb;
-    cursor: pointer;
     user-select: none;
 }
 
-.pn-share-inline-toggle input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: #e94560;
+.pn-share-storage {
+    background: #0f1a2e;
+    color: #ddd;
+    border: 1px solid #2a3a5a;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
     cursor: pointer;
-}
-
-.pn-share-inline-size {
-    color: #667;
     font-variant-numeric: tabular-nums;
 }
 
