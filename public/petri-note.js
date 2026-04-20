@@ -655,12 +655,12 @@ class PetriNote extends HTMLElement {
             this._nextGenerateWithFeels = !this._feelDisengaged;
             // When Auto-DJ is armed, a manual Generate should cross-fade
             // through a transition macro the same way the Regen timer
-            // does — otherwise the "live set" feeling breaks the
-            // instant the DJ taps Generate. Fire it before we ship the
-            // generate message so the whoosh lands while the worker is
-            // still composing.
+            // does. Flag the *next* project-sync to inject a transient
+            // control net into project.nets — so the transition fires
+            // as the new track actually starts, not as an out-of-band
+            // hit on the outgoing track.
             if (this.querySelector('.pn-autodj-enable')?.checked) {
-                this._fireTransitionMacro();
+                this._injectTransitionOnNextSync = true;
             }
             this._sendWs({ type: 'generate', genre, params });
         };

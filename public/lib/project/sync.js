@@ -9,6 +9,7 @@
 
 import { toneEngine, INSTRUMENT_CONFIGS } from '../../audio/tone-engine.js';
 import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
+import { injectTransitionNet } from '../macros/runtime.js';
 
 export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
@@ -134,6 +135,18 @@ export function applyProjectSync(el, project, seamless = false) {
     }
     el._nextGenerateWithFeels = false;
 
+    // Auto-DJ-requested transition: inject a transient control net
+    // that fires a Transition-pool macro on its first tick. Landing
+    // the macro IN the project means it plays as the new track
+    // actually starts — same seamless regen path the Auto-DJ timer
+    // uses, not an out-of-band fire on the previous track.
+    if (el._injectTransitionOnNextSync && !seamless && project?.nets) {
+        el._injectTransitionOnNextSync = false;
+        const label = injectTransitionNet(el, project);
+        const statusEl = el.querySelector('.pn-autodj-status');
+        if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
+    }
+
     el._project = project;
     el._normalizeProject();
     el._vizHistory = [];
@@ -221,11 +234,6 @@ export function applyProjectSync(el, project, seamless = false) {
     el._setupMediaSession();
     el._updateMediaSessionState();
 
-    // Deferred transition macro from cold-regen fallback.
-    if (el._pendingTransitionAfterSync) {
-        el._pendingTransitionAfterSync = false;
-        el._fireTransitionMacro();
-    }
 }
 
 // Handle instruments-changed message from server (after shuffle).

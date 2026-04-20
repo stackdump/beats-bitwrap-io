@@ -529,9 +529,10 @@ export function autoDjTick(el, prevTick, curTick) {
                 if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
             } else {
                 // Pre-load didn't land in time — fall back to a sync gen.
+                // The generate click below sets _injectTransitionOnNextSync,
+                // so the transition still lands on the fresh project.
                 el._previewReqId++;
                 el.querySelector('.pn-generate-btn')?.click();
-                el._pendingTransitionAfterSync = true;
             }
             el._autoDjPreviewPending = false;
             const statusEl = el.querySelector('.pn-autodj-status');

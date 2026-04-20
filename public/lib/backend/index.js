@@ -446,7 +446,7 @@ export function handleWsMessage(el, msg) {
                     const params = { ...(el._traitOverrides || {}), instruments: el._getCurrentInstruments() };
                     if (structure) params.structure = structure;
                     sendWs(el, { type: 'generate', genre, params });
-                    el._pendingTransitionAfterSync = true;
+                    el._injectTransitionOnNextSync = true;
                 }
             } else {
                 // Single: stop.
