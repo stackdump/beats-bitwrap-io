@@ -18,6 +18,53 @@ const GENRE_COLORS = {
 
 function colorForGenre(g) { return GENRE_COLORS[g] || '#4a90d9'; }
 
+// Seed-driven variant: rotate the genre color's hue in HSL so each
+// track gets a visually distinct tint while still reading as the
+// genre. Keeps saturation/lightness intact so the card palette
+// stays coherent. Rotation range ±30° — enough to see the
+// difference between two seeds in the same genre, not so much that
+// techno stops feeling red.
+function variantColor(baseHex, seed) {
+    const [h, s, l] = hexToHsl(baseHex);
+    const rand = seededRand(seed || 0);
+    const shift = (rand() * 60) - 30; // -30..+30 degrees
+    const hue = ((h + shift) % 360 + 360) % 360;
+    return hslToHex(hue, s, l);
+}
+
+function hexToHsl(hex) {
+    const m = hex.replace('#', '');
+    const r = parseInt(m.slice(0, 2), 16) / 255;
+    const g = parseInt(m.slice(2, 4), 16) / 255;
+    const b = parseInt(m.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    return [h * 60, s, l];
+}
+
+function hslToHex(h, s, l) {
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const hp = h / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hp < 1) [r, g, b] = [c, x, 0];
+    else if (hp < 2) [r, g, b] = [x, c, 0];
+    else if (hp < 3) [r, g, b] = [0, c, x];
+    else if (hp < 4) [r, g, b] = [0, x, c];
+    else if (hp < 5) [r, g, b] = [x, 0, c];
+    else [r, g, b] = [c, 0, x];
+    const m = l - c / 2;
+    const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return '#' + to(r) + to(g) + to(b);
+}
+
 function svgEscape(s) {
     return String(s).replace(/[&<>"']/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]
@@ -60,7 +107,7 @@ export function renderShareCardSvg(opts) {
         genre = 'techno', seed = 0, tempo = 120,
         swing = 0, humanize = 0, title = '', cid = '',
     } = opts || {};
-    const color = colorForGenre(genre);
+    const color = variantColor(colorForGenre(genre), Number(seed) || 0);
     const genreUpper = genre.toUpperCase();
     const hasTitle = !!title;
     const dots = ringDotsForSeed(Number(seed) || 0);
