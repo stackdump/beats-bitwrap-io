@@ -35,6 +35,12 @@ import {
     uploadShare, fetchShare, onShareClick,
 } from './lib/share/url.js';
 import { loadUploadedProject, serializeProject, downloadProject } from './lib/project/serialize.js';
+import {
+    applyProjectInstruments, prewarmPreviewInstruments, applyDefaultPans,
+    applyProjectSync, onInstrumentsChanged,
+    getAvailableInstruments as getAvailableInstrumentsFn,
+    getCurrentInstruments,
+} from './lib/project/sync.js';
 import { noteToName, nameToNote } from './lib/audio/note-name.js';
 import {
     renderNet, centerNet, createPlaceElement, createTransitionElement,
@@ -59,6 +65,17 @@ import {
     scheduleReconnect, updateWsStatus, sendWs, handleWsMessage,
     onRemoteTransitionFired, humanizeNote, swingDelay, onStateSync,
 } from './lib/backend/index.js';
+import {
+    initAudio, connectMidiInputs,
+    sliderBindingKey, resolveBinding,
+    handleMidiMessage, handleMidiCC, handleMidiNoteOn,
+    ensureToneStarted, toggleAudioMode, refreshMidiOutputs,
+    toggleMute, toggleMuteGroup, debouncedRenderMixer,
+    playNote, reapplyChannelRoutings, setChannelRouting,
+    playTone, playWebMidi, setChannelInstrument,
+    vizColorForNet, vizSpawnParticle,
+    vizStartLoop, vizStopLoop, vizDrawFrame, vizDrawTimeline,
+} from './lib/backend/audio-io.js';
 import {
     musicNets, panicMacros, fireMacro, executeMacro,
     snapshotOneShot, applyOneShotSnapshot, oneShotToneReset,
@@ -2095,707 +2112,46 @@ class PetriNote extends HTMLElement {
 
     // === Audio (Tone.js) ===
 
-    async _initAudio() {
-        // Audio state already initialized in constructor
-        // Tone.js requires user gesture to start - handled in _ensureToneStarted
-        this._connectMidiInputs();
-    }
+    // --- Audio/MIDI I/O + viz — thin wrappers around ./lib/backend/audio-io.js ---
 
-    async _connectMidiInputs() {
-        if (this._midiInputConnected || !navigator.requestMIDIAccess) return;
-        try {
-            const midi = await navigator.requestMIDIAccess({ sysex: false });
-            for (const input of midi.inputs.values()) {
-                input.onmidimessage = (e) => this._handleMidiMessage(e);
-            }
-            // Listen for new devices plugged in
-            midi.onstatechange = () => {
-                for (const input of midi.inputs.values()) {
-                    if (!input.onmidimessage) {
-                        input.onmidimessage = (e) => this._handleMidiMessage(e);
-                    }
-                }
-            };
-            this._midiInputConnected = true;
-        } catch (e) {
-            console.warn('MIDI input access denied:', e);
-        }
-    }
-
-    // Build a logical key and CSS selector for a slider so bindings survive DOM rebuilds.
-    _sliderBindingKey(slider) {
-        // FX slider: keyed by data-fx attribute
-        if (slider.dataset.fx) {
-            return { key: `fx:${slider.dataset.fx}`, selector: `.pn-fx-slider[data-fx="${slider.dataset.fx}"]` };
-        }
-        // Mixer slider: keyed by riffGroup (or netId) + slider class
-        const row = slider.closest('.pn-mixer-row');
-        if (!row) return null;
-        const group = row.dataset.riffGroup || row.dataset.netId;
-        const cls = [...slider.classList].find(c => c.startsWith('pn-mixer-') && c !== 'pn-mixer-slider');
-        if (!group || !cls) return null;
-        return { key: `mix:${group}:${cls}`, selector: `.pn-mixer-row[data-riff-group="${group}"] .${cls}, .pn-mixer-row[data-net-id="${group}"] .${cls}` };
-    }
-
-    // Resolve a binding's selector to a current DOM element.
-    _resolveBinding(binding) {
-        return this.querySelector(binding.selector);
-    }
-
-    _handleMidiMessage(event) {
-        const [status, data1, data2] = event.data;
-        const type = status & 0xF0;
-        if (type === 0xB0) return this._handleMidiCC(data1, data2);
-        if (type === 0x90 && data2 > 0) return this._handleMidiNoteOn(data1);
-        // Ignore Note Off (0x80) and velocity-0 Note On (release) — macros are one-shot
-    }
-
-    _handleMidiCC(cc, value) {
-        // If hovering over a slider, bind this CC to it
-        if (this._hoveredSlider && !this._ccBindings.has(cc)) {
-            const binding = this._sliderBindingKey(this._hoveredSlider);
-            if (binding) {
-                this._ccBindings.set(cc, binding);
-                // Visual flash to confirm binding
-                this._hoveredSlider.style.outline = '2px solid #64ffda';
-                setTimeout(() => { if (this._hoveredSlider) this._hoveredSlider.style.outline = ''; }, 300);
-            }
-        }
-
-        // Apply CC value to bound slider (resolve from DOM each time)
-        const binding = this._ccBindings.get(cc);
-        if (!binding) return;
-
-        const slider = this._resolveBinding(binding);
-        if (!slider) return;
-
-        const min = parseFloat(slider.min);
-        const max = parseFloat(slider.max);
-        slider.value = Math.round(min + (value / 127) * (max - min));
-        slider.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-
-    _handleMidiNoteOn(note) {
-        // Bind on hover
-        if (this._hoveredMacro && !this._padBindings.has(note)) {
-            const macroId = this._hoveredMacro.dataset.macro;
-            this._padBindings.set(note, macroId);
-            this._savePadBindings();
-            const btn = this._hoveredMacro;
-            btn.style.outline = '2px solid #64ffda';
-            setTimeout(() => { btn.style.outline = ''; }, 300);
-            return;
-        }
-        const macroId = this._padBindings.get(note);
-        if (macroId) this._fireMacro(macroId);
-    }
-
-    async _ensureToneStarted() {
-        if (this._toneStarted) return;
-        if (this._toneInitPromise) return this._toneInitPromise;
-        this._toneInitPromise = (async () => {
-            try {
-                await toneEngine.init();
-                // Apply initial master volume from slider (default 80% = -12 dB)
-                const initVol = parseInt(this.querySelector('[data-fx="master-vol"]')?.value || '80');
-                const initDb = initVol === 0 ? -60 : -60 + (initVol / 100) * 60;
-                toneEngine.setMasterVolume(initDb);
-                this._toneStarted = true;
-                // Keep banner in sync with context state
-                const ctx = window.Tone?.context?.rawContext;
-                if (ctx && !this._ctxListenerBound) {
-                    this._ctxListenerBound = true;
-                    ctx.addEventListener('statechange', () => {
-                        if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();
-                        else this._hideAudioLockBanner();
-                    });
-                }
-                // If auto-play triggered init without a user gesture, context stays suspended.
-                if (ctx && ctx.state !== 'running' && this._playing) {
-                    this._showAudioLockBanner();
-                }
-                const loads = Object.entries(this._channelInstruments).map(
-                    ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
-                );
-                await Promise.all(loads);
-                // Channel strips now exist — push the current mixer state onto them
-                // (initial vol/pan was silently dropped before strips were created).
-                this._applyMixerStateToEngine();
-                await this._reapplyChannelRoutings();
-                this._populateAudioOutputs();
-            } catch (e) {
-                console.error('Failed to start Tone.js:', e);
-            }
-        })();
-        return this._toneInitPromise;
-    }
+    _initAudio() { return initAudio(this); }
+    _connectMidiInputs() { return connectMidiInputs(this); }
+    _sliderBindingKey(slider) { return sliderBindingKey(slider); }
+    _resolveBinding(binding) { return resolveBinding(this, binding); }
+    _handleMidiMessage(event) { return handleMidiMessage(this, event); }
+    _handleMidiCC(cc, value) { return handleMidiCC(this, cc, value); }
+    _handleMidiNoteOn(note) { return handleMidiNoteOn(this, note); }
+    _ensureToneStarted() { return ensureToneStarted(this); }
 
     _showQuickstartModal() { return showQuickstartModal(this); }
     _showHelpModal() { return showHelpModal(this); }
 
-    async _toggleAudioMode(mode) {
-        if (this._audioModes.has(mode)) {
-            this._audioModes.delete(mode);
-            // Clear per-channel pins of the now-disabled kind
-            const kind = mode === 'web-audio' ? 'audio' : 'midi';
-            for (const [ch, routing] of [...this._channelRouting.entries()]) {
-                if (routing.kind === kind) {
-                    await this._setChannelRouting(ch, '');
-                    sessionStorage.removeItem(`pn-channel-routing-${ch}`);
-                }
-            }
-        } else {
-            this._audioModes.add(mode);
-        }
-        this.querySelectorAll('.pn-audio-mode button').forEach(btn => {
-            btn.classList.toggle('active', this._audioModes.has(btn.dataset.mode));
-        });
-        this.classList.toggle('pn-midi-enabled', this._audioModes.has('web-midi'));
+    _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
+    _refreshMidiOutputs() { return refreshMidiOutputs(this); }
+    _toggleMute(netId) { return toggleMute(this, netId); }
+    _toggleMuteGroup(riffGroup) { return toggleMuteGroup(this, riffGroup); }
+    _debouncedRenderMixer() { return debouncedRenderMixer(this); }
+    _playNote(midi, netId) { return playNote(this, midi, netId); }
+    _reapplyChannelRoutings() { return reapplyChannelRoutings(this); }
+    _setChannelRouting(channel, value) { return setChannelRouting(this, channel, value); }
+    _playTone(midi) { return playTone(this, midi); }
+    _vizColorForNet(netId) { return vizColorForNet(netId); }
+    _vizSpawnParticle(netId, midi) { return vizSpawnParticle(this, netId, midi); }
+    _vizStartLoop() { return vizStartLoop(this); }
+    _vizStopLoop() { return vizStopLoop(this); }
+    _vizDrawFrame() { return vizDrawFrame(this); }
+    _vizDrawTimeline(ctx, w, h) { return vizDrawTimeline(this, ctx, w, h); }
+    _playWebMidi(midi, portIdOverride) { return playWebMidi(this, midi, portIdOverride); }
+    setChannelInstrument(channel, instrumentType) { return setChannelInstrument(this, channel, instrumentType); }
 
-        if (this._audioModes.has('web-midi')) {
-            this._refreshMidiOutputs().then(() => this._populateAudioOutputs());
-        } else {
-            this._populateAudioOutputs();
-        }
-    }
-
-    async _refreshMidiOutputs() {
-        if (!navigator.requestMIDIAccess) {
-            console.warn('Web MIDI not supported');
-            return;
-        }
-
-        try {
-            this._midiAccess = await navigator.requestMIDIAccess();
-        } catch (e) {
-            console.error('MIDI access error:', e);
-        }
-    }
-
-    _toggleMute(netId) {
-        const muted = !this._mutedNets.has(netId);
-        if (muted) {
-            this._mutedNets.add(netId);
-        } else {
-            this._mutedNets.delete(netId);
-        }
-        this._sendWs({ type: 'mute', netId, muted });
-        this._debouncedRenderMixer();
-    }
-
-    _toggleMuteGroup(riffGroup) {
-        // Find all nets in this riff group
-        const netIds = [];
-        for (const [id, net] of Object.entries(this._project.nets)) {
-            if (net.riffGroup === riffGroup) netIds.push(id);
-        }
-        if (netIds.length === 0) return;
-
-        // If all are muted, unmute; otherwise mute
-        const allMuted = netIds.every(nid => this._mutedNets.has(nid));
-        const muted = !allMuted;
-
-        // Let the server handle riff group logic (only unmutes the active slot)
-        this._sendWs({ type: 'mute-group', riffGroup, muted });
-    }
-
-    _debouncedRenderMixer() {
-        if (this._renderMixerTimeout) return;
-        this._renderMixerTimeout = setTimeout(() => {
-            this._renderMixerTimeout = null;
-            this._renderMixer();
-        }, 100);
-    }
-
-    async _playNote(midi, netId) {
-        const channel = midi.channel || 1;
-        if (netId && (this._mutedNets.has(netId) || this._manualMutedNets.has(netId))) {
-            return; // Skip muted nets
-        }
-        if (this._mutedChannels.has(channel)) {
-            return; // Skip muted channels (legacy)
-        }
-        // Drop notes while AudioContext is suspended — otherwise they queue up
-        // and fire in a burst when the context resumes, blowing polyphony.
-        if (this._toneStarted && !toneEngine.isContextRunning()) {
-            return;
-        }
-
-        const routing = this._channelRouting.get(channel);
-        if (routing?.kind === 'midi') {
-            await this._playWebMidi(midi, routing.id);
-            return;
-        }
-        if (routing?.kind === 'audio') {
-            await this._playTone(midi);
-            return;
-        }
-
-        // Global fallback: honor whichever modes are enabled
-        if (this._audioModes.has('web-audio')) {
-            await this._playTone(midi);
-        } else if (this._audioModes.has('web-midi')) {
-            await this._playWebMidi(midi);
-        }
-    }
-
-    async _reapplyChannelRoutings() {
-        if (!this._toneStarted) return;
-        for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            const m = key && key.match(/^pn-channel-routing-(\d+)$/);
-            if (!m) continue;
-            const ch = parseInt(m[1], 10);
-            const val = sessionStorage.getItem(key);
-            if (val) await this._setChannelRouting(ch, val);
-        }
-    }
-
-    async _setChannelRouting(channel, value) {
-        // value: '' | 'audio:<deviceId>' | 'midi:<portId>'
-        if (!value) {
-            this._channelRouting.delete(channel);
-            try { await toneEngine.setChannelOutputDevice(channel, ''); } catch (err) { console.warn(err); }
-            return;
-        }
-        const sep = value.indexOf(':');
-        const kind = value.slice(0, sep);
-        const id = value.slice(sep + 1);
-
-        if (kind === 'audio') {
-            this._channelRouting.set(channel, { kind, id });
-            try { await toneEngine.setChannelOutputDevice(channel, id); }
-            catch (err) { console.warn('setChannelOutputDevice failed:', err); }
-        } else if (kind === 'midi') {
-            if (!this._midiAccess) await this._refreshMidiOutputs();
-            this._channelRouting.set(channel, { kind, id });
-            // Release any audio-sink routing for this channel (no local synth output)
-            try { await toneEngine.setChannelOutputDevice(channel, ''); } catch {}
-        }
-    }
-
-    async _playTone(midi) {
-        if (!this._toneStarted) {
-            await this._ensureToneStarted();
-        }
-        toneEngine.playNote(midi);
-    }
-
-    // === Visualization ===
-
-    _vizColors = {
-        kick:    '#e94560',
-        snare:   '#f5a623',
-        hihat:   '#f8e71c',
-        clap:    '#ff6b6b',
-        bass:    '#4a90d9',
-        melody:  '#2ecc71',
-        harmony: '#9b59b6',
-        arp:     '#00d2ff',
-    };
-
-    _vizDefaultColor = '#888';
-
-    _vizColorForNet(netId) {
-        if (this._vizColors[netId]) return this._vizColors[netId];
-        // Match riff group prefix: "kick-0" -> "kick"
-        const base = netId.replace(/-\d+$/, '');
-        return this._vizColors[base] || this._vizDefaultColor;
-    }
-
-    _vizSpawnParticle(netId, midi) {
-        // Rolling history for timeline
-        this._vizHistory.push({ time: Date.now(), netId, note: midi?.note });
-        if (this._vizHistory.length > 200) this._vizHistory.shift();
-    }
-
-    _vizStartLoop() {
-        if (this._vizRafId) return;
-        const loop = () => {
-            this._vizRafId = requestAnimationFrame(loop);
-            this._vizDrawFrame();
-        };
-        this._vizRafId = requestAnimationFrame(loop);
-    }
-
-    _vizStopLoop() {
-        if (this._vizRafId) {
-            cancelAnimationFrame(this._vizRafId);
-            this._vizRafId = null;
-        }
-    }
-
-    _vizDrawFrame() {
-        this._renderFrame();
-        // Smooth playhead interpolation — DOM side, not canvas.
-        this._updatePlayhead();
-    }
-
-    _vizDrawTimeline(ctx, w, h) {
-        const now = Date.now();
-        // Adaptive window: shrinks to fit available dots, grows to max 4 bars
-        // At 120bpm, 4 bars = 8s. Use elapsed since first dot as the window.
-        const maxWindowMs = (240 / Math.max(60, this._tempo)) * 1000; // ~4 bars
-        const elapsed = this._vizHistory.length > 0 ? now - this._vizHistory[0].time : 0;
-        const windowMs = Math.max(2000, Math.min(maxWindowMs, elapsed + 500));
-
-        for (const evt of this._vizHistory) {
-            const age = now - evt.time;
-            if (age > windowMs) continue;
-            const x = w - (age / windowMs) * w;
-            const color = this._vizColorForNet(evt.netId);
-            // Stay visible across the full screen: fade only in the last 15%
-            const pct = age / windowMs;
-            const alpha = pct < 0.85 ? 0.7 : 0.7 * (1 - (pct - 0.85) / 0.15);
-
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = color;
-            // Short streak trailing behind the dot
-            const streakLen = Math.min(20, (w / windowMs) * 120); // ~120ms trail
-            const grad = ctx.createLinearGradient(x - streakLen, 0, x, 0);
-            grad.addColorStop(0, 'transparent');
-            grad.addColorStop(1, color);
-            ctx.fillStyle = grad;
-            ctx.fillRect(x - streakLen, 27, streakLen, 6);
-            // Dot head
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, 30, 4, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // Prune old events
-        while (this._vizHistory.length > 0 && now - this._vizHistory[0].time > windowMs) {
-            this._vizHistory.shift();
-        }
-        ctx.globalAlpha = 1;
-    }
-
-    async _playWebMidi(midi, portIdOverride) {
-        if (!this._midiAccess) {
-            await this._refreshMidiOutputs();
-        }
-
-        const portId = portIdOverride || this._midiOutputId;
-        if (!this._midiAccess || !portId) {
-            console.warn('No MIDI output selected');
-            return;
-        }
-
-        const output = this._midiAccess.outputs.get(portId);
-        if (!output) {
-            console.warn('MIDI output not found:', portId);
-            return;
-        }
-
-        const noteOn = [0x90 | ((midi.channel || 1) - 1), midi.note, midi.velocity || 100];
-        const noteOff = [0x80 | ((midi.channel || 1) - 1), midi.note, 0];
-
-        output.send(noteOn);
-        setTimeout(() => output.send(noteOff), midi.duration || 100);
-    }
-
-    /**
-     * Set instrument for a channel
-     */
-    async setChannelInstrument(channel, instrumentType) {
-        this._channelInstruments[channel] = instrumentType;
-        if (this._toneStarted) {
-            await toneEngine.loadInstrument(channel, instrumentType);
-        }
-    }
-
-    /**
-     * Apply instruments from project track data, falling back to genre mapping
-     */
-    _applyProjectInstruments(project) {
-        const nets = project.nets || {};
-        let usedTrackInstruments = false;
-
-        // Try pooled promote first (preview pre-warmed the synth → pointer
-        // swap, no Tone allocation on the audio-scheduling thread). Fall
-        // through to loadInstrument only for channels that weren't prewarmed.
-        for (const [, net] of Object.entries(nets)) {
-            if (net.track?.instrument && net.role !== 'control') {
-                const ch = net.track.channel || 1;
-                const inst = net.track.instrument;
-                this._channelInstruments[ch] = inst;
-                if (this._toneStarted) {
-                    if (!toneEngine.promotePooledInstrument(ch, inst)) {
-                        toneEngine.loadInstrument(ch, inst);
-                    }
-                }
-                usedTrackInstruments = true;
-            }
-        }
-
-        // Fallback: genre-based mapping
-        if (!usedTrackInstruments) {
-            const genreName = (project.name || '').split(' ')[0].toLowerCase();
-            const genreInst = GENRE_INSTRUMENTS[genreName] || {};
-            for (const [ch, inst] of Object.entries(genreInst)) {
-                const chNum = parseInt(ch);
-                this._channelInstruments[chNum] = inst;
-                if (this._toneStarted) {
-                    if (!toneEngine.promotePooledInstrument(chNum, inst)) {
-                        toneEngine.loadInstrument(chNum, inst);
-                    }
-                }
-            }
-        }
-        // Drop anything still pooled (preview channels we didn't end up
-        // using) so memory doesn't grow across regens.
-        if (this._toneStarted) toneEngine.clearPool();
-
-        // Subtle default pan spread per track role so the Mono / Pan macros
-        // have something to collapse/flip. Users can still override via the
-        // mixer pan slider — these only paint the starting point.
-        this._applyDefaultPans(nets);
-    }
-
-    // Build the next track's synths into the tone-engine pool one-at-a-time
-    // while the current track still plays. Awaiting each keeps Tone.js
-    // allocations serialized so each individual hitch is tiny and spread
-    // across multiple ticks; by the time the swap happens, every synth is
-    // already wired to its channel strip.
-    async _prewarmPreviewInstruments(project) {
-        if (!this._toneStarted || !project?.nets) return;
-        const seen = new Set();
-        for (const net of Object.values(project.nets)) {
-            if (net.role === 'control') continue;
-            const inst = net.track?.instrument;
-            const ch = net.track?.channel;
-            if (!inst || ch == null) continue;
-            const key = `${ch}:${inst}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            try { await toneEngine.preloadInstrument(ch, inst); }
-            catch (err) { console.warn('preloadInstrument failed:', err); }
-        }
-    }
-
-    _applyDefaultPans(nets) {
-        // CC10 values: 64 = center. Offsets below are gentle (±24 max) so a
-        // default project still sounds natural, but Mono / Ping-Pong produce
-        // an audible change.
-        const ROLE_PAN = {
-            kick:   64, snare: 60, hihat: 84, clap: 44,
-            bass:   64, melody: 54,
-            harmony: 74, arp: 80,
-            hit1: 40, hit2: 88, hit3: 56, hit4: 72,
-        };
-        for (const [id, net] of Object.entries(nets)) {
-            if (net.role === 'control') continue;
-            const ch = net.track?.channel;
-            if (ch == null) continue;
-            const key = net.riffGroup || id;
-            const pan = ROLE_PAN[key] ?? 64;
-            if (pan !== 64) toneEngine.controlChange(ch, 10, pan);
-        }
-    }
-
-    /**
-     * Apply a buffered project-sync (called immediately or at bar boundary)
-     */
-    _applyProjectSync(project, seamless = false) {
-        // Cancel any in-flight macro animations — their tokens reference DOM
-        // nodes about to be replaced and channels whose snapshots no longer
-        // apply. Without this, chase-pulse classes can stick on detached
-        // elements and pan/decay restores can fire against a fresh project's
-        // state with stale "before" values.
-        if (this._chanAnim) {
-            for (const id of Object.keys(this._chanAnim)) {
-                const t = this._chanAnim[id];
-                if (t) { t.cancelled = true; if (t.hardStop) clearTimeout(t.hardStop); }
-            }
-            this._chanAnim = {};
-        }
-        if (this._pulseAnim) {
-            for (const id of Object.keys(this._pulseAnim)) {
-                const t = this._pulseAnim[id];
-                if (t) t.cancelled = true;
-            }
-            this._pulseAnim = {};
-        }
-        // Clear any leftover pulse classes so the new mixer rows render clean.
-        this.querySelectorAll('.pn-pulsing, .pn-pulsing-hot').forEach(el => {
-            el.classList.remove('pn-pulsing', 'pn-pulsing-hot');
-        });
-        // Master-FX sweep/hold in progress? Snap their sliders back to the
-        // pre-macro start BEFORE cancelling so the new project doesn't
-        // inherit a half-swept reverb / delay / filter.
-        if (this._fxAnim) {
-            for (const key of Object.keys(this._fxAnim)) {
-                const t = this._fxAnim[key];
-                if (!t) continue;
-                t.cancelled = true;
-                if (t.slider && typeof t.start === 'number') {
-                    this._setFxValue(t.slider, t.start);
-                }
-            }
-            this._fxAnim = {};
-        }
-        // Auto-DJ preview bookkeeping resets with the project
-        this._autoDjPreviewPending = false;
-
-        // Tag the incoming project with the Feel-engaged snapshot we made
-        // at doGenerate time. Project-load paths (upload / navTrack) set
-        // this directly on the incoming project. Track nav through history
-        // preserves each project's own flag via the deep-clone below.
-        if (typeof project._feelsApplied !== 'boolean') {
-            project._feelsApplied = !!this._nextGenerateWithFeels;
-        }
-        this._nextGenerateWithFeels = false;
-
-        this._project = project;
-        this._normalizeProject();
-        this._vizHistory = [];
-        // Save to track history (unless navigating back). Capped at 99
-        // entries — each snapshot is a deep-cloned project (~50–200 KB)
-        // and Auto-DJ regen can push multiple per minute, so without a
-        // cap this grew unboundedly over a long session.
-        if (!this._navingHistory) {
-            if (this._trackIndex < this._trackHistory.length - 1) {
-                this._trackHistory.length = this._trackIndex + 1;
-            }
-            this._trackHistory.push(JSON.parse(JSON.stringify(project)));
-            const MAX_TRACK_HISTORY = 99;
-            while (this._trackHistory.length > MAX_TRACK_HISTORY) {
-                this._trackHistory.shift();
-            }
-            this._trackIndex = this._trackHistory.length - 1;
-        }
-        this._navingHistory = false;
-        this._tempo = project.tempo || 120;
-        this._swing = project.swing || 0;
-        this._humanize = project.humanize || 0;
-        this._structure = project.structure || null;
-        this._tick = 0; this._lastPlayheadPct = 0;
-        // Reset loop markers to full range and clear server loop
-        this._loopStart = 0;
-        this._loopEnd = 0; // will be set to totalSteps in _renderTimeline
-        this._sendWs({ type: 'loop', startTick: -1, endTick: -1 });
-        const netIds = Object.keys(project.nets || {});
-        this._activeNetId = netIds.find(id => project.nets[id].role !== 'control') || netIds[0] || null;
-        this._applyProjectInstruments(project);
-        this._reapplyChannelRoutings();
-        const prevGenre = this.querySelector('.pn-genre-select')?.value;
-        const prevStructure = this.querySelector('.pn-structure-select')?.value;
-        this._saveFxState();
-        this._buildUI();
-        this._setupEventListeners();
-        this._restoreFxState();
-        this._renderNet();
-        this._updateWsStatus();
-        const genreSelect = this.querySelector('.pn-genre-select');
-        if (genreSelect) {
-            if (prevGenre && genreSelect.querySelector(`option[value="${prevGenre}"]`)) {
-                genreSelect.value = prevGenre;
-            } else {
-                const genreMatch = (project.name || '').split(' ')[0].toLowerCase();
-                if (genreSelect.querySelector(`option[value="${genreMatch}"]`)) {
-                    genreSelect.value = genreMatch;
-                }
-            }
-        }
-        const structSelect = this.querySelector('.pn-structure-select');
-        if (structSelect && prevStructure) {
-            structSelect.value = prevStructure;
-        }
-        // Re-render traits now that genre dropdown is restored
-        this._updateTraits();
-        // _buildUI rebuilt the header + genre dropdown, wiping the "· feels"
-        // suffix on the project name and the `· feels` tail on the selected
-        // genre option. Re-stamp both so the UI matches the surviving Feel
-        // state after regenerate / shuffle-advance / upload.
-        this._updateFeelIconDisengaged();
-        this._markGenreTilde(!this._feelDisengaged);
-        this._updateProjectNameDisplay();
-        // Apply pending share overrides one-shot: mix / instrument / FX /
-        // Feel / Auto-DJ / disabled-macros layered onto the regenerated
-        // project. Runs once, before the project is handed to the worker
-        // so mix lands in the same project-load round-trip.
-        if (this._pendingShareOverrides) {
-            const ov = this._pendingShareOverrides;
-            this._pendingShareOverrides = null;
-            this._applyShareOverrides(ov);
-        }
-        if (this._firstLoad) {
-            // Initial page load — don't auto-play (browser blocks audio without a gesture)
-            this._firstLoad = false;
-            this._sendWs({ type: 'project-load', project: this._project });
-            this._playing = false;
-            const playBtn = this.querySelector('.pn-play');
-            if (playBtn) playBtn.innerHTML = '&#9654;';
-            return;
-        }
-        if (seamless) {
-            // Server already has the project loaded and is playing —
-            // just ensure frontend state is correct
-            this._playing = true;
-            this._vizStartLoop();
-        } else {
-            // Cold load — send project to server and start playback
-            this._sendWs({ type: 'project-load', project: this._project });
-            this._playing = true;
-            this._vizStartLoop();
-            this._sendWs({ type: 'transport', action: 'play' });
-        }
-        const playBtn = this.querySelector('.pn-play');
-        if (playBtn) playBtn.textContent = '⏹';
-        this._setupMediaSession();
-        this._updateMediaSessionState();
-
-        // Deferred transition macro from cold-regen fallback: fire here so
-        // the sweep/wash lands on the new track instead of the old one.
-        if (this._pendingTransitionAfterSync) {
-            this._pendingTransitionAfterSync = false;
-            this._fireTransitionMacro();
-        }
-    }
-
-    /**
-     * Handle instruments-changed message from server (after shuffle)
-     */
-    _onInstrumentsChanged(instruments) {
-        if (!instruments || !this._project) return;
-
-        for (const [netId, instrumentName] of Object.entries(instruments)) {
-            const net = this._project.nets[netId];
-            if (!net) continue;
-            // Update project data
-            if (!net.track) net.track = {};
-            net.track.instrument = instrumentName;
-            // Update audio engine
-            const ch = net.track.channel || 1;
-            this._channelInstruments[ch] = instrumentName;
-            if (this._toneStarted) {
-                if (!toneEngine.promotePooledInstrument(ch, instrumentName)) {
-                    toneEngine.loadInstrument(ch, instrumentName);
-                }
-            }
-        }
-
-        // Refresh mixer display
-        this._renderMixer();
-        this._reapplyChannelRoutings();
-    }
-
-    /**
-     * Get available instrument types
-     */
-    getAvailableInstruments() {
-        return Object.keys(INSTRUMENT_CONFIGS).sort();
-    }
-
-    _getCurrentInstruments() {
-        const instruments = {};
-        if (!this._project?.nets) return instruments;
-        for (const [netId, net] of Object.entries(this._project.nets)) {
-            if (net.track?.instrument) instruments[netId] = net.track.instrument;
-        }
-        return instruments;
-    }
+    // --- Project sync — thin wrappers around ./lib/project/sync.js ---
+    _applyProjectInstruments(project) { return applyProjectInstruments(this, project); }
+    _prewarmPreviewInstruments(project) { return prewarmPreviewInstruments(this, project); }
+    _applyDefaultPans(nets) { return applyDefaultPans(this, nets); }
+    _applyProjectSync(project, seamless) { return applyProjectSync(this, project, seamless); }
+    _onInstrumentsChanged(instruments) { return onInstrumentsChanged(this, instruments); }
+    getAvailableInstruments() { return getAvailableInstrumentsFn(); }
+    _getCurrentInstruments() { return getCurrentInstruments(this); }
 
     // === Transport ===
 
