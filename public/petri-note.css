@@ -1880,6 +1880,50 @@ input[type="range"][data-default] {
     font-variant-numeric: tabular-nums;
 }
 
+.pn-share-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0 10px 0;
+    font-size: 12px;
+    color: #bbb;
+}
+
+.pn-share-title-row > span {
+    flex: 0 0 auto;
+}
+
+.pn-share-title {
+    flex: 1;
+    background: #0f1a2e;
+    color: #eee;
+    border: 1px solid #2a3a5a;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.pn-share-title:focus {
+    outline: none;
+    border-color: #4a90d9;
+}
+
+.pn-share-preview {
+    margin: 12px 0 6px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #0d0d0d;
+    line-height: 0;
+}
+
+.pn-share-preview-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    aspect-ratio: 1200 / 630;
+}
+
 .pn-modal-row input[type="checkbox"] {
     flex: 0 0 auto;
     width: auto;

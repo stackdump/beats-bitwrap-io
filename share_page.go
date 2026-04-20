@@ -25,10 +25,13 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	texttemplate "text/template"
 )
+
+var urlQueryEscapeFn = url.QueryEscape
 
 // sharePayload is the minimum shape we need out of the stored bytes to
 // render a card. Fields the JSON schema also guarantees are present.
@@ -83,6 +86,48 @@ func titleCase(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// sanitizeTitle strips control chars + trims, caps at 60 runes. The
+// cap keeps the SVG layout predictable and the og:title reasonable,
+// and stripping control chars closes a trivial XML-injection vector
+// (even though we also escape on write).
+func sanitizeTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+		n++
+		if n >= 60 {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// urlQueryEscape is url.QueryEscape under a shorter name so the build
+// callsites read cleanly.
+func urlQueryEscape(s string) string { return urlQueryEscapeFn(s) }
+
+// svgEscape escapes the five XML entities that can break out of a
+// <text> body. Called from the share-card SVG template on user-supplied
+// title strings.
+func svgEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		`'`, "&apos;",
+	)
+	return r.Replace(s)
+}
+
 // decoratedIndex serves the single-page app shell with Open Graph /
 // JSON-LD metadata injected into <head>. Falls back to the plain
 // static index.html for non-share requests and for share URLs whose
@@ -123,10 +168,18 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 		}
 		// Build the injection block from the payload.
 		origin := schemeHost(r)
+		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
+		genreCap := titleCase(p.Genre)
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
 		cardURL := fmt.Sprintf("%s/share-card/%s.svg", origin, cid)
-		genreCap := titleCase(p.Genre)
+		if userTitle != "" {
+			shareURL += "&title=" + urlQueryEscape(userTitle)
+			cardURL += "?title=" + urlQueryEscape(userTitle)
+		}
 		title := fmt.Sprintf("%s · beats.bitwrap.io", genreCap)
+		if userTitle != "" {
+			title = userTitle + " · beats.bitwrap.io"
+		}
 		desc := fmt.Sprintf("%s · %d BPM · seed %d · swing %d · humanize %d",
 			genreCap, p.Tempo, p.Seed, p.Swing, p.Humanize)
 
@@ -255,10 +308,12 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 func handleShareCard(store *shareStore) http.Handler {
 	// text/template, not html/template — html/template escapes `<?xml`
 	// into `&lt;?xml` which breaks the SVG preamble. SVG is XML, not
-	// HTML, and the payload fields we interpolate are validated shape
-	// (genre/tempo/seed/etc.) so HTML-style contextual escaping isn't
-	// the right tool anyway.
-	tpl := texttemplate.Must(texttemplate.New("svg").Parse(shareSvgTemplate))
+	// HTML. For interpolated user input (title) we register an explicit
+	// svgEscape helper so angle brackets / ampersands / quotes in the
+	// user's title can't break out of the <text> element.
+	tpl := texttemplate.Must(texttemplate.New("svg").
+		Funcs(texttemplate.FuncMap{"svgEscape": svgEscape}).
+		Parse(shareSvgTemplate))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/share-card/")
 		name = strings.TrimSuffix(name, ".svg")
@@ -281,16 +336,20 @@ func handleShareCard(store *shareStore) http.Handler {
 			return
 		}
 		dots := ringDotsForSeed(p.Seed, 16)
+		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
 		data := struct {
-			Genre, GenreUpper, Color string
-			Tempo, Swing, Humanize   int
-			Seed                     int64
-			CID                      string
-			Dots                     []ringDot
+			Genre, GenreUpper, Color, Title string
+			HasTitle                        bool
+			Tempo, Swing, Humanize          int
+			Seed                            int64
+			CID                             string
+			Dots                            []ringDot
 		}{
 			Genre:      p.Genre,
 			GenreUpper: strings.ToUpper(p.Genre),
 			Color:      colorForGenre(p.Genre),
+			Title:      userTitle,
+			HasTitle:   userTitle != "",
 			Tempo:      p.Tempo,
 			Swing:      p.Swing,
 			Humanize:   p.Humanize,
@@ -361,10 +420,16 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <circle cx="1000" cy="315" r="280" fill="url(#glow)"/>
 
-  <!-- Left panel: genre + params -->
+  <!-- Left panel: title / genre + params -->
   <g font-family="system-ui, -apple-system, sans-serif" fill="#eee">
+    {{if .HasTitle -}}
+    <text x="70" y="120" font-size="60" font-weight="800" fill="#eee" letter-spacing="-1.5">{{svgEscape .Title}}</text>
+    <text x="70" y="170" font-size="28" font-weight="700" fill="{{.Color}}" letter-spacing="2">{{.GenreUpper}}</text>
+    <text x="70" y="205" font-size="18" fill="#999" letter-spacing="4">BEATS · BITWRAP · IO</text>
+    {{- else -}}
     <text x="70" y="140" font-size="72" font-weight="800" fill="{{.Color}}" letter-spacing="-2">{{.GenreUpper}}</text>
     <text x="70" y="200" font-size="22" fill="#999" letter-spacing="4">BEATS · BITWRAP · IO</text>
+    {{- end}}
 
     <g font-family="ui-monospace, SFMono-Regular, monospace">
       <text x="70" y="290" font-size="28" fill="#888">TEMPO</text>

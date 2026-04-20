@@ -154,6 +154,10 @@ export async function onShareClick(el) {
     // CID-only URL; if not, the inline form is forced (and the toggle
     // is hidden) because the short URL would 404 elsewhere.
     const hasInlineChoice = stored && !fallback;
+    // CID for the share-card / og:image endpoint. Only non-empty when
+    // the payload actually made it to the server store — otherwise the
+    // SVG endpoint would 404.
+    const cid = stored ? new URL(shortUrl).searchParams.get('cid') : '';
     const overlay = document.createElement('div');
     overlay.className = 'pn-modal-overlay';
     const inlineSize = Math.round(fullUrl.length / 1024 * 10) / 10;
@@ -161,6 +165,10 @@ export async function onShareClick(el) {
         <div class="pn-modal pn-share-modal">
             <h2>Share track</h2>
             <p class="pn-modal-desc">Anyone opening this link gets the same track — genre, seed, mix, instruments, FX, Feel, Auto-DJ and macro toggles all reproduce exactly.</p>
+            <label class="pn-share-title-row">
+                <span>Title (optional):</span>
+                <input type="text" class="pn-share-title" maxlength="60" placeholder="e.g. Friday Night Drop">
+            </label>
             <div class="pn-modal-row">
                 <input type="text" class="pn-share-url" readonly value="">
             </div>
@@ -181,6 +189,11 @@ export async function onShareClick(el) {
                 Server store upload failed, so the track data is embedded in the link itself. It's long but self-contained — anyone opening it gets the exact track, no lookup required.
             </p>
             `)}
+            ${cid ? `
+            <div class="pn-share-preview" title="Social-media preview card. Link unfurlers (Slack, Twitter, iMessage) render this image and the title/description above the link.">
+                <img class="pn-share-preview-img" alt="Share card preview" src="/share-card/${cid}.svg" loading="lazy">
+            </div>
+            ` : ''}
             <div class="pn-modal-actions">
                 <button class="cancel close">Close</button>
                 <button class="save copy">Copy link</button>
@@ -190,15 +203,40 @@ export async function onShareClick(el) {
     el.appendChild(overlay);
     const input = overlay.querySelector('.pn-share-url');
     const sel = overlay.querySelector('.pn-share-storage');
+    const titleInput = overlay.querySelector('.pn-share-title');
+    const preview = overlay.querySelector('.pn-share-preview-img');
+
+    // Append `&title=…` (on short URL) or `?title=…` (on the card SVG)
+    // so the title rides along but doesn't affect the CID — it's pure
+    // presentation, consumed by the decorated-index handler + the SVG
+    // renderer on the server.
+    const withTitle = (url, title) => {
+        if (!title) return url;
+        const sep = url.includes('?') ? '&' : '?';
+        return `${url}${sep}title=${encodeURIComponent(title)}`;
+    };
     const render = () => {
         const wantInline = sel?.value === 'url';
-        const url = (hasInlineChoice && wantInline) ? fullUrl : (stored ? shortUrl : fullUrl);
+        const baseUrl = (hasInlineChoice && wantInline) ? fullUrl : (stored ? shortUrl : fullUrl);
+        const title = (titleInput?.value || '').trim();
+        const url = withTitle(baseUrl, title);
         input.value = url;
-        input.select();
+        if (preview && cid) {
+            preview.src = title
+                ? `/share-card/${cid}.svg?title=${encodeURIComponent(title)}`
+                : `/share-card/${cid}.svg`;
+        }
         return url;
     };
     let currentUrl = render();
     sel?.addEventListener('change', () => { currentUrl = render(); });
+    // Debounce the preview reload so fast typing doesn't spam the SVG
+    // endpoint (each keystroke would otherwise issue a new GET).
+    let titleDebounce = null;
+    titleInput?.addEventListener('input', () => {
+        if (titleDebounce) clearTimeout(titleDebounce);
+        titleDebounce = setTimeout(() => { currentUrl = render(); }, 250);
+    });
     input.focus();
     input.select();
     const copyBtn = overlay.querySelector('.copy');
