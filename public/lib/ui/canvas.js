@@ -238,3 +238,124 @@ export function viewToModel(el, vx, vy) {
         y: (vy - el._view.ty) / el._view.scale,
     };
 }
+
+// --- Timeline / playhead / loop markers ---
+
+export function renderTimeline(el) {
+    if (!el._timelineEl || !el._structure) return;
+    const sections = el._structure;
+    const totalSteps = sections.reduce((s, sec) => s + sec.steps, 0);
+
+    el._timelineEl.innerHTML = '';
+
+    const sectionColors = {
+        intro: '#4a90d9', verse: '#2ecc71', chorus: '#e94560',
+        bridge: '#9b59b6', outro: '#f5a623',
+    };
+
+    let stepOffset = 0;
+    for (const sec of sections) {
+        const pct = (sec.steps / totalSteps) * 100;
+        const color = sectionColors[sec.name] || '#888';
+        const block = document.createElement('div');
+        block.className = 'pn-timeline-section';
+        block.style.width = `${pct}%`;
+        block.style.background = color;
+        block.dataset.start = stepOffset;
+        block.dataset.end = stepOffset + sec.steps;
+
+        const phrases = sec.phrases;
+        if (phrases) {
+            const phraseLists = Object.values(phrases);
+            const phraseCount = phraseLists.length > 0 ? Math.max(...phraseLists.map(p => p.length)) : 1;
+
+            if (phraseCount > 1) {
+                const firstRole = Object.keys(phrases)[0];
+                const pattern = phrases[firstRole] || ['A'];
+
+                block.innerHTML = `<span>${sec.name}</span><span class="pn-timeline-phrases">${pattern.join('')}</span>`;
+
+                for (let pi = 1; pi < phraseCount; pi++) {
+                    const divider = document.createElement('div');
+                    divider.className = 'pn-timeline-phrase-divider';
+                    divider.style.left = `${(pi / phraseCount) * 100}%`;
+                    block.appendChild(divider);
+                }
+            } else {
+                block.innerHTML = `<span>${sec.name}</span>`;
+            }
+        } else {
+            block.innerHTML = `<span>${sec.name}</span>`;
+        }
+
+        el._timelineEl.appendChild(block);
+        stepOffset += sec.steps;
+    }
+
+    const loopRegion = document.createElement('div');
+    loopRegion.className = 'pn-loop-region';
+    el._timelineEl.appendChild(loopRegion);
+    el._loopRegionEl = loopRegion;
+
+    const loopStartEl = document.createElement('div');
+    loopStartEl.className = 'pn-loop-marker pn-loop-start';
+    el._timelineEl.appendChild(loopStartEl);
+    el._loopStartEl = loopStartEl;
+
+    const loopEndEl = document.createElement('div');
+    loopEndEl.className = 'pn-loop-marker pn-loop-end';
+    el._timelineEl.appendChild(loopEndEl);
+    el._loopEndEl = loopEndEl;
+
+    el._cropBtnEl = el.querySelector('.pn-crop-bar-btn');
+
+    const playhead = document.createElement('div');
+    playhead.className = 'pn-timeline-playhead';
+    el._timelineEl.appendChild(playhead);
+    el._playheadEl = playhead;
+
+    el._totalSteps = totalSteps;
+    el._loopStart = 0;
+    el._loopEnd = totalSteps;
+    updateLoopMarkers(el);
+}
+
+export function updatePlayhead(el) {
+    if (!el._playheadEl || !el._structure || !el._totalSteps) return;
+
+    // Interpolate between server ticks for smooth movement.
+    let tickEstimate = el._tick;
+    if (el._playing && el._tickTimestamp > 0) {
+        const elapsed = performance.now() - el._tickTimestamp;
+        const tickMs = 60000 / (el._tempo * 4);
+        // Cap interpolation to 6 ticks to avoid overshoot.
+        const interpolated = Math.min(elapsed / tickMs, 6);
+        tickEstimate = el._tick + interpolated;
+    }
+
+    const pct = Math.min(100, (tickEstimate / el._totalSteps) * 100);
+    // Only move forward (prevent jitter) unless looping.
+    if (!el._lastPlayheadPct || pct >= el._lastPlayheadPct || pct < 1 || el._loopStart >= 0) {
+        el._lastPlayheadPct = pct;
+        el._playheadEl.style.left = `${pct}%`;
+    }
+}
+
+export function updateLoopMarkers(el) {
+    if (!el._loopStartEl || !el._totalSteps) return;
+    el._loopStartEl.style.left = `${(el._loopStart / el._totalSteps) * 100}%`;
+    el._loopEndEl.style.left = `${(el._loopEnd / el._totalSteps) * 100}%`;
+    const isFullRange = el._loopStart === 0 && el._loopEnd === el._totalSteps;
+    if (!isFullRange && el._loopRegionEl) {
+        const left = (el._loopStart / el._totalSteps) * 100;
+        const width = ((el._loopEnd - el._loopStart) / el._totalSteps) * 100;
+        el._loopRegionEl.style.left = `${left}%`;
+        el._loopRegionEl.style.width = `${width}%`;
+        el._loopRegionEl.style.display = '';
+    } else if (el._loopRegionEl) {
+        el._loopRegionEl.style.display = 'none';
+    }
+    if (el._cropBtnEl) {
+        el._cropBtnEl.style.display = isFullRange ? 'none' : '';
+    }
+}
