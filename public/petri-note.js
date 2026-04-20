@@ -52,6 +52,7 @@ import {
     showQuickstartModal, showHelpModal, showWelcomeCard,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
+import { toggleStage } from './lib/ui/stage.js';
 import {
     fxSweep, runBeatRepeat, runCompound,
     setTempoTransient, tempoHold, tempoSweep,
@@ -752,6 +753,11 @@ class PetriNote extends HTMLElement {
             this._showHelpModal();
         });
 
+        // Full-page Stage
+        this.querySelector('.pn-stage-btn')?.addEventListener('click', () => {
+            this._toggleStage();
+        });
+
         // Canvas interactions (pan/zoom only)
         this._canvas.parentElement.addEventListener('pointerdown', (e) => this._onPointerDown(e));
         this._canvas.parentElement.addEventListener('pointermove', (e) => this._onPointerMove(e));
@@ -1295,6 +1301,7 @@ class PetriNote extends HTMLElement {
     _showQuickstartModal() { return showQuickstartModal(this); }
     _showWelcomeCard() { return showWelcomeCard(this); }
     _showHelpModal() { return showHelpModal(this); }
+    _toggleStage() { return toggleStage(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
     _refreshMidiOutputs() { return refreshMidiOutputs(this); }

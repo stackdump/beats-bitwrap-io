@@ -9,6 +9,7 @@
 
 import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
+import { stageOnTransitionFired, stageOnMuteStateChange } from '../ui/stage.js';
 
 // --- Transport ---
 
@@ -409,6 +410,7 @@ export function handleWsMessage(el, msg) {
                 }
             }
             el._renderMixer();
+            stageOnMuteStateChange(el);
             break;
         case 'playback-complete':
             // Sequencer has stopped — mark as not playing so project-sync
@@ -498,6 +500,9 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi) {
     if (midi) {
         el._vizSpawnParticle(netId, midi);
     }
+
+    // Full-page Stage: pulse the matching transition in its panel.
+    stageOnTransitionFired(el, netId, transitionId);
 
     // Play sound locally.
     if (midi) {

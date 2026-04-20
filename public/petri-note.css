@@ -2338,4 +2338,56 @@ input[type="range"][data-default] {
     }
 }
 
+/* --- Full-page Stage (lib/ui/stage.js) --- */
+.pn-stage-overlay {
+    position: fixed; inset: 0;
+    background: #0a0a1a;
+    z-index: 1100;
+    display: flex;
+}
+.pn-stage-close {
+    position: absolute; top: 10px; right: 14px;
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #eee; font-size: 20px; line-height: 1;
+    border-radius: 50%; cursor: pointer;
+    z-index: 2;
+}
+.pn-stage-close:hover { background: rgba(255,255,255,0.12); }
+.pn-stage-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-auto-rows: 1fr;
+    gap: 10px;
+    padding: 12px;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+}
+.pn-stage-panel {
+    position: relative;
+    background: radial-gradient(circle at center, #131a33 0%, #070712 100%);
+    border: 1px solid rgba(74,144,217,0.18);
+    border-radius: 10px;
+    overflow: hidden;
+    min-height: 180px;
+}
+.pn-stage-panel .pn-stage-canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none;
+}
+.pn-stage-panel .pn-stage-stage {
+    position: absolute; inset: 0;
+    pointer-events: none;
+}
+.pn-stage-panel .pn-stage-label {
+    position: absolute; top: 8px; left: 10px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    pointer-events: none;
+}
 
