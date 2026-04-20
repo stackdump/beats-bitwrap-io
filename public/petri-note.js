@@ -5185,10 +5185,363 @@ class PetriNote extends HTMLElement {
         }
     }
 
-    // Read genre/seed/structure/traits from the URL query string. Supports
-    // a compact `?p=<base64>` blob or explicit `?g=...&s=...&t=...` params.
-    _parseShareFromUrl() {
+    // --- Canonical JSON + CIDv1 (dag-json / sha2-256 / base58btc) ---
+    // Ported from pflow-xyz/public/petri-view.js so share payloads are
+    // content-addressed with the same CID algorithm used across the
+    // Petri-net ecosystem. Deliberately not URDNA2015 — the simpler
+    // sorted-key canonical JSON keeps us dep-free and matches the
+    // pflow-xyz client-side path.
+    _canonicalizeJSON(doc) {
+        const canon = (obj) => {
+            if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+            if (Array.isArray(obj)) return '[' + obj.map(canon).join(',') + ']';
+            const keys = Object.keys(obj).sort();
+            return '{' + keys.map(k => JSON.stringify(k) + ':' + canon(obj[k])).join(',') + '}';
+        };
+        return canon(doc);
+    }
+
+    async _sha256(data) {
+        const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+        const h = await crypto.subtle.digest('SHA-256', bytes);
+        return new Uint8Array(h);
+    }
+
+    _encodeBase58(bytes) {
+        const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        let num = 0n;
+        for (let i = 0; i < bytes.length; i++) num = num * 256n + BigInt(bytes[i]);
+        let out = '';
+        while (num > 0n) { out = alphabet[Number(num % 58n)] + out; num = num / 58n; }
+        for (let i = 0; i < bytes.length && bytes[i] === 0; i++) out = '1' + out;
+        return out;
+    }
+
+    _decodeBase58(str) {
+        const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        let num = 0n;
+        for (const ch of str) {
+            const v = alphabet.indexOf(ch);
+            if (v < 0) return null;
+            num = num * 58n + BigInt(v);
+        }
+        const bytes = [];
+        while (num > 0n) { bytes.unshift(Number(num & 0xffn)); num >>= 8n; }
+        for (let i = 0; i < str.length && str[i] === '1'; i++) bytes.unshift(0);
+        return new Uint8Array(bytes);
+    }
+
+    // CIDv1 = <version=0x01><codec-varint><multihash>.
+    // dag-json codec 0x0129 = varint [0xa9, 0x02]; sha2-256 = 0x12 len 0x20.
+    _createCIDv1Bytes(hash) {
+        const codec = [0xa9, 0x02];
+        const out = new Uint8Array(1 + codec.length + 2 + hash.length);
+        let o = 0;
+        out[o++] = 0x01;
+        for (const b of codec) out[o++] = b;
+        out[o++] = 0x12;
+        out[o++] = hash.length;
+        for (let i = 0; i < hash.length; i++) out[o++] = hash[i];
+        return out;
+    }
+
+    async _computeCidForJsonLd(doc) {
+        const canonical = this._canonicalizeJSON(doc);
+        const hash = await this._sha256(canonical);
+        const cidBytes = this._createCIDv1Bytes(hash);
+        return 'z' + this._encodeBase58(cidBytes);
+    }
+
+    // gzip(canonical-json) → base64url. CompressionStream is native in
+    // all evergreen browsers; no pako dep.
+    async _gzipToB64Url(str) {
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        writer.write(new TextEncoder().encode(str));
+        writer.close();
+        const buf = await new Response(cs.readable).arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (const b of bytes) bin += String.fromCharCode(b);
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async _b64UrlToGunzip(str) {
+        const pad = '='.repeat((4 - str.length % 4) % 4);
+        const b64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const ds = new DecompressionStream('gzip');
+        const writer = ds.writable.getWriter();
+        writer.write(bytes);
+        writer.close();
+        const buf = await new Response(ds.readable).arrayBuffer();
+        return new TextDecoder().decode(buf);
+    }
+
+    // --- State collectors (DOM / in-memory → plain objects) ---
+
+    _collectFxState() {
+        const fx = {};
+        this.querySelectorAll('.pn-effects-panel .pn-fx-slider').forEach(s => {
+            fx[s.dataset.fx] = parseInt(s.value);
+        });
+        if (this._fxBypassed) fx._bypassed = true;
+        return fx;
+    }
+
+    _collectFeelState() {
+        return {
+            engaged: !this._feelDisengaged,
+            sliders: this._feelState ? { ...this._feelState } : {},
+        };
+    }
+
+    _collectAutoDjState() {
+        const panel = this.querySelector('.pn-autodj-panel');
+        if (!panel) return null;
+        const pools = {};
+        for (const cb of panel.querySelectorAll('.pn-autodj-pool')) pools[cb.value] = cb.checked;
+        return {
+            showAutoDj:  !!this._showAutoDj,
+            run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
+            animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
+            rate:        panel.querySelector('.pn-autodj-rate')?.value,
+            regen:       panel.querySelector('.pn-autodj-regen')?.value,
+            stack:       panel.querySelector('.pn-autodj-stack')?.value,
+            pools,
+        };
+    }
+
+    _collectDisabledMacros() {
+        this._disabledMacros = this._disabledMacros || this._loadDisabledMacros();
+        return [...this._disabledMacros];
+    }
+
+    // Per-channel track overrides (mix + instrument + generator recipe).
+    // Keyed by channel number — stable across regens even when netIds shift.
+    _collectTrackOverrides() {
+        const out = {};
+        const nets = this._project?.nets || {};
+        for (const [, net] of Object.entries(nets)) {
+            if (net.role === 'control') continue;
+            const ch = net.track?.channel;
+            if (ch == null) continue;
+            let mixRow = null;
+            const rows = this._mixerEl?.querySelectorAll('.pn-mixer-row');
+            if (rows) {
+                for (const r of rows) {
+                    const nid = r.dataset.netId;
+                    if (nid && nets[nid]?.track?.channel === ch) { mixRow = r; break; }
+                }
+            }
+            const mix = {};
+            if (mixRow) {
+                const v = (cls) => mixRow.querySelector(`.${cls}`)?.value;
+                const parse = (x) => (x == null ? null : parseInt(x));
+                const pairs = [
+                    ['volume', 'pn-mixer-vol'],
+                    ['pan',    'pn-mixer-pan'],
+                    ['loCut',  'pn-mixer-locut'],
+                    ['loResonance', 'pn-mixer-loreso'],
+                    ['cutoff', 'pn-mixer-cutoff'],
+                    ['resonance', 'pn-mixer-reso'],
+                    ['decay',  'pn-mixer-decay'],
+                ];
+                for (const [k, cls] of pairs) {
+                    const n = parse(v(cls));
+                    if (n != null && !Number.isNaN(n)) mix[k] = n;
+                }
+            } else if (net.track?.mix) {
+                Object.assign(mix, net.track.mix);
+            }
+            const entry = {};
+            if (Object.keys(mix).length) entry.mix = mix;
+            if (net.track?.instrument) entry.instrument = net.track.instrument;
+            if (net.track?.instrumentSet) entry.instrumentSet = net.track.instrumentSet;
+            if (net.track?.generator) entry.generator = net.track.generator;
+            if (net.track?.generatorParams) entry.generatorParams = net.track.generatorParams;
+            if (Object.keys(entry).length) out[String(ch)] = entry;
+        }
+        return out;
+    }
+
+    _collectInitialMutes() {
+        return Array.isArray(this._project?.initialMutes) ? [...this._project.initialMutes] : [];
+    }
+
+    // Build the `share-v1` JSON-LD payload from the live UI + project.
+    // Reproducibility contract: genre + params regenerate nets; overrides
+    // carry everything not reconstructible from the recipe alone.
+    _buildSharePayload() {
+        const cur = this._currentGen;
+        const genre = cur?.genre || this.querySelector('.pn-genre-select')?.value || 'techno';
+        const params = { ...(cur?.params || {}) };
+        const payload = {
+            '@context': 'https://beats.bitwrap.io/schema/beats-share.context.jsonld',
+            '@type': 'BeatsShare',
+            v: 1,
+            genre,
+            seed: typeof params.seed === 'number' ? params.seed : null,
+            tempo: this._project?.tempo ?? this._tempo ?? 120,
+            swing: this._project?.swing ?? 0,
+            humanize: this._project?.humanize ?? 0,
+            structure: params.structure || this.querySelector('.pn-structure-select')?.value || null,
+        };
+        const traits = {};
+        for (const [k, v] of Object.entries(params)) {
+            if (k === 'seed' || k === 'structure') continue;
+            traits[k] = v;
+        }
+        if (Object.keys(traits).length) payload.traits = traits;
+        const tracks = this._collectTrackOverrides();
+        if (Object.keys(tracks).length) payload.tracks = tracks;
+        const fx = this._collectFxState();
+        if (Object.keys(fx).length) payload.fx = fx;
+        const feel = this._collectFeelState();
+        if (feel.engaged || Object.keys(feel.sliders).length) payload.feel = feel;
+        const autoDj = this._collectAutoDjState();
+        if (autoDj) payload.autoDj = autoDj;
+        const disabled = this._collectDisabledMacros();
+        if (disabled.length) payload.macrosDisabled = disabled;
+        const mutes = this._collectInitialMutes();
+        if (mutes.length) payload.initialMutes = mutes;
+        return payload;
+    }
+
+    // --- State appliers (payload → DOM / in-memory) ---
+
+    _applyFxState(fx) {
+        if (!fx) return;
+        for (const [name, val] of Object.entries(fx)) {
+            if (name === '_bypassed') continue;
+            const slider = this.querySelector(`.pn-fx-slider[data-fx="${name}"]`);
+            if (slider && val != null) {
+                slider.value = val;
+                slider.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+        if (fx._bypassed) {
+            const btn = this.querySelector('.pn-fx-bypass');
+            if (btn && !btn.classList.contains('active')) btn.click();
+        }
+    }
+
+    _applyFeelState(feel) {
+        if (!feel) return;
+        this._feelState = { ...(feel.sliders || {}) };
+        try { localStorage.setItem('pn-feel-settings', JSON.stringify(this._feelState)); } catch {}
+        this._feelDisengaged = !feel.engaged;
+        this._updateFeelIconDisengaged();
+        if (feel.engaged) this._markGenreTilde(true);
+    }
+
+    _applyAutoDjState(state) {
+        const panel = this.querySelector('.pn-autodj-panel');
+        const btn = this.querySelector('.pn-autodj-btn');
+        if (!panel || !state) return;
+        if (state.showAutoDj) {
+            this._showAutoDj = true;
+            panel.style.display = 'flex';
+            btn?.classList.add('active');
+        }
+        const set = (cls, val) => {
+            const el = panel.querySelector(`.${cls}`);
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else if (val != null) el.value = val;
+        };
+        set('pn-autodj-enable',       state.run);
+        set('pn-autodj-animate-only', state.animateOnly);
+        set('pn-autodj-rate',         state.rate);
+        set('pn-autodj-regen',        state.regen);
+        set('pn-autodj-stack',        state.stack);
+        if (state.pools) {
+            for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
+                if (cb.value in state.pools) cb.checked = !!state.pools[cb.value];
+            }
+        }
+        try { localStorage.setItem('pn-autodj-settings', JSON.stringify(state)); } catch {}
+    }
+
+    _applyDisabledMacros(ids) {
+        if (!Array.isArray(ids)) return;
+        this._disabledMacros = new Set(ids);
+        this._saveDisabledMacros();
+        this._refreshMacroDisabledMarks();
+    }
+
+    _applyTrackOverrides(tracksByChannel) {
+        if (!tracksByChannel || !this._project?.nets) return;
+        const nets = this._project.nets;
+        for (const [ch, ov] of Object.entries(tracksByChannel)) {
+            const chNum = parseInt(ch);
+            for (const [, net] of Object.entries(nets)) {
+                if (net.role === 'control' || net.track?.channel !== chNum) continue;
+                if (ov.mix) net.track.mix = { ...(net.track.mix || {}), ...ov.mix };
+                if (ov.instrument) {
+                    net.track.instrument = ov.instrument;
+                    this._channelInstruments[chNum] = ov.instrument;
+                    if (this._toneStarted) toneEngine.loadInstrument(chNum, ov.instrument);
+                }
+                if (ov.instrumentSet) net.track.instrumentSet = ov.instrumentSet;
+            }
+        }
+    }
+
+    // Apply every override block onto the just-synced project + DOM.
+    // Called at the tail of _applyProjectSync when a pending share payload
+    // is waiting — one-shot: cleared after application.
+    _applyShareOverrides(ov) {
+        if (!ov) return;
+        if (ov.tracks) this._applyTrackOverrides(ov.tracks);
+        // Re-render mixer so mix values land on the sliders. The mixer reads
+        // from track.mix; applying after _applyTrackOverrides is important.
+        if (ov.tracks) this._renderMixer?.();
+        if (ov.fx) this._applyFxState(ov.fx);
+        if (ov.feel) this._applyFeelState(ov.feel);
+        if (ov.autoDj) this._applyAutoDjState(ov.autoDj);
+        if (ov.macrosDisabled) this._applyDisabledMacros(ov.macrosDisabled);
+        if (ov.initialMutes && this._project) {
+            this._project.initialMutes = [...ov.initialMutes];
+            this._sendWs({ type: 'mute-state', mutes: ov.initialMutes });
+        }
+    }
+
+    // --- Share URL build/parse ---
+
+    // URL: `?cid=z<base58>&z=<base64url-gzip>`. Self-contained — no
+    // server lookup. Legacy `?p=` / `?g/s/structure/t` still parse.
+    async _parseShareFromUrl() {
         const q = new URLSearchParams(location.search);
+        const cid = q.get('cid');
+        const z = q.get('z');
+        if (cid) {
+            try {
+                let json = null;
+                if (z) {
+                    json = await this._b64UrlToGunzip(z);
+                } else {
+                    // cid-only link — pull payload from the content-addressed
+                    // server store. Never trust what the server returns
+                    // blindly; re-hash it and match against the URL's CID.
+                    json = await this._fetchShare(cid);
+                }
+                if (json) {
+                    const payload = JSON.parse(json);
+                    const expectedCid = await this._computeCidForJsonLd(payload);
+                    if (expectedCid !== cid) {
+                        console.warn('share CID mismatch', { url: cid, computed: expectedCid });
+                    } else {
+                        return this._shareFromPayload(payload);
+                    }
+                }
+            } catch (err) {
+                console.warn('share decode failed:', err);
+            }
+        }
+        // Legacy full-project payload.
         const p = q.get('p');
         if (p) {
             const decoded = this._b64urlDecode(p);
@@ -5209,38 +5562,84 @@ class PetriNote extends HTMLElement {
         return out;
     }
 
-    // Build `?g=...&s=...&structure=...&t=<base64>` from the active gen.
-    // Falls back to the genre dropdown when _currentGen isn't set yet (e.g.
-    // user hit Share before the first deterministic generate landed).
-    _buildShareUrl() {
-        const base = `${location.origin}${location.pathname}`;
-        const cur = this._currentGen;
-        if (!cur) {
-            const g = this.querySelector('.pn-genre-select')?.value || 'techno';
-            return `${base}?g=${encodeURIComponent(g)}`;
-        }
-        const { genre, params } = cur;
-        const q = new URLSearchParams();
-        q.set('g', genre);
-        if (typeof params.seed === 'number') q.set('s', String(params.seed));
-        if (params.structure) q.set('structure', String(params.structure));
-        const traits = {};
-        for (const [k, v] of Object.entries(params)) {
-            if (k === 'seed' || k === 'structure') continue;
-            traits[k] = v;
-        }
-        if (Object.keys(traits).length > 0) q.set('t', this._b64urlEncode(traits));
-        return `${base}?${q.toString()}`;
+    // Lower a `share-v1` payload to the `{ genre, params, overrides }`
+    // shape the boot path already consumes. Overrides are stashed and
+    // applied after the worker returns project-sync.
+    _shareFromPayload(payload) {
+        const params = {};
+        if (typeof payload.seed === 'number') params.seed = payload.seed;
+        if (payload.structure) params.structure = payload.structure;
+        if (payload.traits && typeof payload.traits === 'object') Object.assign(params, payload.traits);
+        const overrides = {};
+        if (payload.tracks) overrides.tracks = payload.tracks;
+        if (payload.fx) overrides.fx = payload.fx;
+        if (payload.feel) overrides.feel = payload.feel;
+        if (payload.autoDj) overrides.autoDj = payload.autoDj;
+        if (payload.macrosDisabled) overrides.macrosDisabled = payload.macrosDisabled;
+        if (payload.initialMutes) overrides.initialMutes = payload.initialMutes;
+        if (typeof payload.tempo === 'number') overrides.tempo = payload.tempo;
+        if (typeof payload.swing === 'number') overrides.swing = payload.swing;
+        if (typeof payload.humanize === 'number') overrides.humanize = payload.humanize;
+        return {
+            genre: payload.genre,
+            params,
+            overrides: Object.keys(overrides).length ? overrides : null,
+        };
     }
 
-    _onShareClick() {
-        const url = this._buildShareUrl();
+    async _buildShareUrl() {
+        const base = `${location.origin}${location.pathname}`;
+        const payload = this._buildSharePayload();
+        if (!payload.genre || payload.seed == null) {
+            // No concrete seed yet — fall back to genre-only short link.
+            return `${base}?g=${encodeURIComponent(payload.genre || 'techno')}`;
+        }
+        const canonical = this._canonicalizeJSON(payload);
+        const cid = await this._computeCidForJsonLd(payload);
+        // Try to upload the canonical bytes to the server store. If it
+        // succeeds, the share URL can be just `?cid=...` — short, stable,
+        // and survives re-opening from any device. Fall back to embedding
+        // the gzipped payload inline when the store is unavailable or
+        // refuses the write (full / rate-limited / schema-rejected).
+        const stored = await this._uploadShare(cid, canonical);
+        if (stored) return `${base}?cid=${cid}`;
+        const z = await this._gzipToB64Url(canonical);
+        return `${base}?cid=${cid}&z=${z}`;
+    }
+
+    async _uploadShare(cid, canonical) {
+        try {
+            const res = await fetch(`/o/${cid}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/ld+json' },
+                body: canonical,
+            });
+            return res.ok;
+        } catch (err) {
+            console.warn('share upload failed:', err);
+            return false;
+        }
+    }
+
+    async _fetchShare(cid) {
+        try {
+            const res = await fetch(`/o/${cid}`, { headers: { Accept: 'application/ld+json' } });
+            if (!res.ok) return null;
+            return await res.text();
+        } catch (err) {
+            console.warn('share fetch failed:', err);
+            return null;
+        }
+    }
+
+    async _onShareClick() {
+        const url = await this._buildShareUrl();
         const overlay = document.createElement('div');
         overlay.className = 'pn-modal-overlay';
         overlay.innerHTML = `
             <div class="pn-modal pn-share-modal">
                 <h2>Share track</h2>
-                <p class="pn-modal-desc">Anyone opening this link gets the same genre, seed, structure, and trait overrides — the track regenerates deterministically.</p>
+                <p class="pn-modal-desc">Anyone opening this link gets the same track — genre, seed, mix, instruments, FX, Feel, Auto-DJ and macro toggles all reproduce exactly.</p>
                 <div class="pn-modal-row">
                     <input type="text" class="pn-share-url" readonly value="${url.replace(/"/g, '&quot;')}">
                 </div>
@@ -5336,8 +5735,8 @@ class PetriNote extends HTMLElement {
     // First generate after worker/WS ready. Honours a `?g=...&s=...` share
     // URL if present so the linked track is reproduced on load, otherwise
     // kicks the default techno generate with a fresh explicit seed.
-    _bootGenerate() {
-        const share = this._parseShareFromUrl();
+    async _bootGenerate() {
+        const share = await this._parseShareFromUrl();
         if (share) {
             const genreSelect = this.querySelector('.pn-genre-select');
             if (genreSelect && [...genreSelect.options].some(o => o.value === share.genre)) {
@@ -5353,6 +5752,9 @@ class PetriNote extends HTMLElement {
                 this._traitOverrides[k] = v;
             }
             this._currentGen = { genre: share.genre, params: { ...share.params } };
+            // Stash the overrides block so _applyProjectSync can layer it
+            // onto the regenerated project once the worker replies. One-shot.
+            if (share.overrides) this._pendingShareOverrides = share.overrides;
             this._sendWs({ type: 'generate', genre: share.genre, params: share.params });
             return;
         }
@@ -6412,6 +6814,15 @@ class PetriNote extends HTMLElement {
         this._updateFeelIconDisengaged();
         this._markGenreTilde(!this._feelDisengaged);
         this._updateProjectNameDisplay();
+        // Apply pending share overrides one-shot: mix / instrument / FX /
+        // Feel / Auto-DJ / disabled-macros layered onto the regenerated
+        // project. Runs once, before the project is handed to the worker
+        // so mix lands in the same project-load round-trip.
+        if (this._pendingShareOverrides) {
+            const ov = this._pendingShareOverrides;
+            this._pendingShareOverrides = null;
+            this._applyShareOverrides(ov);
+        }
         if (this._firstLoad) {
             // Initial page load — don't auto-play (browser blocks audio without a gesture)
             this._firstLoad = false;

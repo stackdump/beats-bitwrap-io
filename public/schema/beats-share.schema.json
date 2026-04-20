@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beats.bitwrap.io/schema/beats-share.schema.json",
+  "title": "BeatsShare",
+  "description": "Envelope for a deterministic share-v1 payload produced by beats.bitwrap.io. The CID (base58-encoded sha2-256 of the canonical-JSON bytes) is the content address; this schema validates the envelope shape.",
+  "type": "object",
+  "required": ["@type", "v", "genre", "seed"],
+  "additionalProperties": false,
+  "properties": {
+    "@context": {
+      "description": "JSON-LD context URL. Canonical value is the hosted context document.",
+      "type": "string",
+      "format": "uri"
+    },
+    "@type":    { "const": "BeatsShare" },
+    "v":        { "const": 1 },
+    "genre":    { "type": "string", "minLength": 1, "maxLength": 64 },
+    "seed":     { "type": "integer" },
+    "tempo":    { "type": "integer", "minimum": 20, "maximum": 300 },
+    "swing":    { "type": "integer", "minimum": 0,  "maximum": 100 },
+    "humanize": { "type": "integer", "minimum": 0,  "maximum": 100 },
+    "structure":{ "type": ["string", "null"] },
+    "traits":   { "type": ["object", "null"] },
+    "tracks": {
+      "type": ["object", "null"],
+      "additionalProperties": { "$ref": "#/$defs/TrackOverride" }
+    },
+    "fx":     { "$ref": "#/$defs/FxState" },
+    "feel":   { "$ref": "#/$defs/FeelState" },
+    "autoDj": { "$ref": "#/$defs/AutoDjState" },
+    "macrosDisabled": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "initialMutes": {
+      "type": ["array", "null"],
+      "items": { "type": ["string", "integer"] }
+    }
+  },
+  "$defs": {
+    "TrackOverride": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mix":           { "type": "object" },
+        "instrument":    { "type": "string" },
+        "instrumentSet": { "type": "string" }
+      }
+    },
+    "FxState": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "_bypassed": { "type": "boolean" }
+      }
+    },
+    "FeelState": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "engaged": { "type": "boolean" },
+        "sliders": { "type": "object" }
+      }
+    },
+    "AutoDjState": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "run":         { "type": "boolean" },
+        "animateOnly": { "type": "boolean" },
+        "rate":        { "type": "integer" },
+        "regen":       { "type": "integer" },
+        "stack":       { "type": "integer" },
+        "showAutoDj":  { "type": "boolean" },
+        "pools":       { "type": "object" }
+      }
+    }
+  }
+}

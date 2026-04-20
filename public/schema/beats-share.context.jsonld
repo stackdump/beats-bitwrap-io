@@ -1,0 +1,41 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "vocab": "https://beats.bitwrap.io/schema/vocab#",
+    "@vocab": "https://beats.bitwrap.io/schema/vocab#",
+
+    "BeatsShare": "vocab:BeatsShare",
+
+    "v":        { "@id": "vocab:v",        "@type": "xsd:integer" },
+    "genre":    { "@id": "vocab:genre",    "@type": "xsd:string"  },
+    "seed":     { "@id": "vocab:seed",     "@type": "xsd:integer" },
+    "tempo":    { "@id": "vocab:tempo",    "@type": "xsd:integer" },
+    "swing":    { "@id": "vocab:swing",    "@type": "xsd:integer" },
+    "humanize": { "@id": "vocab:humanize", "@type": "xsd:integer" },
+    "structure":{ "@id": "vocab:structure","@type": "xsd:string"  },
+
+    "traits": { "@id": "vocab:traits" },
+    "tracks": { "@id": "vocab:tracks" },
+    "fx":     { "@id": "vocab:fx"     },
+    "feel":   { "@id": "vocab:feel"   },
+    "autoDj": { "@id": "vocab:autoDj" },
+
+    "macrosDisabled": { "@id": "vocab:macrosDisabled", "@container": "@list" },
+    "initialMutes":   { "@id": "vocab:initialMutes",   "@container": "@list" },
+
+    "engaged":     { "@id": "vocab:engaged",     "@type": "xsd:boolean" },
+    "sliders":     { "@id": "vocab:sliders" },
+    "run":         { "@id": "vocab:run",         "@type": "xsd:boolean" },
+    "animateOnly": { "@id": "vocab:animateOnly", "@type": "xsd:boolean" },
+    "rate":        { "@id": "vocab:rate",        "@type": "xsd:integer" },
+    "regen":       { "@id": "vocab:regen",       "@type": "xsd:integer" },
+    "stack":       { "@id": "vocab:stack",       "@type": "xsd:integer" },
+    "showAutoDj":  { "@id": "vocab:showAutoDj",  "@type": "xsd:boolean" },
+    "pools":       { "@id": "vocab:pools" },
+
+    "mix":           { "@id": "vocab:mix"           },
+    "instrument":    { "@id": "vocab:instrument",    "@type": "xsd:string" },
+    "instrumentSet": { "@id": "vocab:instrumentSet", "@type": "xsd:string" }
+  }
+}
