@@ -384,6 +384,10 @@ export function showHelpModal(el) {
                 <li><b>Scroll</b> &mdash; fine-tune any slider, number, or dropdown under the cursor</li>
             </ul>
 
+            <h3>Found a bug?</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Open Share, copy the <code>?cid=…</code> URL, and paste it in the report &mdash; the CID carries the exact track state so we can reproduce in one click.</p>
+            <p style="margin:0 0 16px"><a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" style="color:#0af">Report a bug on GitHub &rarr;</a></p>
+
             <h3>Built With</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Macros inject transient control nets that fire their restore action on a tick-locked terminal transition.</p>
             <ul>

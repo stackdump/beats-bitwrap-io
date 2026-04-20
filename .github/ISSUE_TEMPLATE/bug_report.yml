@@ -1,0 +1,46 @@
+name: Bug report
+description: Report something broken in beats.bitwrap.io
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What went wrong?
+      description: Briefly describe what you saw and what you expected instead.
+      placeholder: "Clicked Share, the card rendered blank..."
+    validations:
+      required: true
+
+  - type: input
+    id: share-url
+    attributes:
+      label: Share URL
+      description: Paste the full `?cid=…` URL from the Share button — it carries the exact track state so we can reproduce in one click.
+      placeholder: "https://beats.bitwrap.io/?cid=z…"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + OS
+      placeholder: "Chrome 134 on macOS 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the share URL above
+        2. Press Play
+        3. ...
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: Any red errors from the browser devtools console.
+      render: shell
