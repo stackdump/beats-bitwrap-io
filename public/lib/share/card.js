@@ -102,10 +102,13 @@ function ringDotsForSeed(seed, n = 16) {
 
 // Render the 1200x630 SVG as a string. `title` and `cid` are
 // optional projection fields — card still renders without them.
+// `qr` is an optional inline `<g>` containing rect modules (see
+// lib/share/qr.js:renderQrGroup); when supplied it's placed in the
+// centre of the ring.
 export function renderShareCardSvg(opts) {
     const {
         genre = 'techno', seed = 0, tempo = 120,
-        swing = 0, humanize = 0, title = '', cid = '',
+        swing = 0, humanize = 0, title = '', cid = '', qr = '',
     } = opts || {};
     const color = variantColor(colorForGenre(genre), Number(seed) || 0);
     const genreUpper = genre.toUpperCase();
@@ -158,6 +161,7 @@ export function renderShareCardSvg(opts) {
   <g>
     ${dotSvg}
   </g>
+  ${qr ? `<g transform="translate(900,215)">${qr}</g>` : ''}
   <rect x="0" y="570" width="1200" height="60" fill="#000" opacity="0.4"/>
   ${cidText}
   <text x="1130" y="610" font-family="system-ui, sans-serif" font-size="18" fill="#888" text-anchor="end">open in a browser to play →</text>
@@ -166,6 +170,8 @@ export function renderShareCardSvg(opts) {
 
 // Convenience: pull fields out of the element's current state and
 // render. Keeps callers from reaching into internal shape.
+import { renderQrGroup, shortShareUrl } from './qr.js';
+
 export function renderCurrentCard(el, title = '') {
     const project = el._project || {};
     const genre = el.querySelector('.pn-genre')?.value || project.genre || 'techno';
@@ -173,5 +179,12 @@ export function renderCurrentCard(el, title = '') {
     const tempo = project.tempo || el._tempo || 120;
     const swing = el._swing ?? project.swing ?? 0;
     const humanize = el._humanize ?? project.humanize ?? 0;
-    return renderShareCardSvg({ genre, seed, tempo, swing, humanize, title });
+    const cid = new URLSearchParams(location.search).get('cid') || '';
+    const qr = renderQrGroup(shortShareUrl({ cid, title }), {
+        size: 200,
+        ecl: 'M',
+        color: '#0d0d0d',
+        bg: '#ffffff',
+    });
+    return renderShareCardSvg({ genre, seed, tempo, swing, humanize, title, cid, qr });
 }

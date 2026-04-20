@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,8 @@ import (
 	"os"
 	"strings"
 	texttemplate "text/template"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 var urlQueryEscapeFn = url.QueryEscape
@@ -248,6 +251,71 @@ func injectIntoHead(doc, block []byte) []byte {
 	return out
 }
 
+// qrPngDataURL renders `text` as a medium-ECL QR code PNG and
+// returns a `data:image/png;base64,…` URL suitable for embedding
+// as the `href` of an SVG <image>. Paired with the client-side
+// renderQrGroup() in public/lib/share/qr.js — both encode the same
+// URL with medium ECL, so scanners produce the same payload
+// regardless of which renderer drew the card. Returns empty string
+// + nil on any failure; callers should fall back to a card without
+// the QR rather than error out.
+func qrPngDataURL(text string, size int) (string, error) {
+	if text == "" {
+		return "", nil
+	}
+	qc, err := qrcode.New(text, qrcode.Medium)
+	if err != nil {
+		return "", err
+	}
+	qc.DisableBorder = true
+	png, err := qc.PNG(size)
+	if err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
+}
+
+// handleQRCode serves /qr?data=…&size=… as a standalone PNG. Not
+// used by the share card itself (that embeds a data URL inline) —
+// useful for stamping QRs in other places (docs, external tools)
+// and for the cross-runtime equivalence test that captures the
+// matrix bytes.
+func handleQRCode() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := r.URL.Query().Get("data")
+		if data == "" {
+			http.Error(w, "missing data", http.StatusBadRequest)
+			return
+		}
+		if len(data) > 2048 {
+			http.Error(w, "data too long", http.StatusRequestEntityTooLarge)
+			return
+		}
+		size := 512
+		if s := r.URL.Query().Get("size"); s != "" {
+			var n int
+			fmt.Sscanf(s, "%d", &n)
+			if n >= 64 && n <= 2048 {
+				size = n
+			}
+		}
+		qc, err := qrcode.New(data, qrcode.Medium)
+		if err != nil {
+			http.Error(w, "encode failed", http.StatusBadRequest)
+			return
+		}
+		qc.DisableBorder = true
+		png, err := qc.PNG(size)
+		if err != nil {
+			http.Error(w, "render failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(png)
+	})
+}
+
 // escapeJSONForScriptTag makes canonical-JSON bytes safe to embed
 // inside <script type="application/ld+json">…</script>. The stored
 // bytes are whatever the client PUT (any CID-matching byte sequence
@@ -418,6 +486,16 @@ func handleShareCard(store *shareStore) http.Handler {
 		}
 		dots := ringDotsForSeed(p.Seed, 16)
 		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
+		// Short URL identical to the one shortShareUrl() builds on
+		// the client — both sides encode the same bytes so a scanner
+		// reads the same destination regardless of which renderer drew
+		// the card.
+		origin := schemeHost(r)
+		qrTarget := fmt.Sprintf("%s/?cid=%s", origin, name)
+		if userTitle != "" {
+			qrTarget += "&title=" + urlQueryEscape(userTitle)
+		}
+		qrDataURL, _ := qrPngDataURL(qrTarget, 512)
 		data := struct {
 			Genre, GenreUpper, Color, Title string
 			HasTitle                        bool
@@ -425,6 +503,7 @@ func handleShareCard(store *shareStore) http.Handler {
 			Seed                            int64
 			CID                             string
 			Dots                            []ringDot
+			QRDataURL                       string
 		}{
 			Genre:      p.Genre,
 			GenreUpper: strings.ToUpper(p.Genre),
@@ -437,6 +516,7 @@ func handleShareCard(store *shareStore) http.Handler {
 			Seed:       p.Seed,
 			CID:        name,
 			Dots:       dots,
+			QRDataURL:  qrDataURL,
 		}
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -535,6 +615,7 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     {{end -}}
     {{end}}
   </g>
+  {{if .QRDataURL}}<image href="{{.QRDataURL}}" x="900" y="215" width="200" height="200" preserveAspectRatio="xMidYMid meet"/>{{end}}
 
   <!-- Footer strip: CID -->
   <rect x="0" y="570" width="1200" height="60" fill="#000" opacity="0.4"/>

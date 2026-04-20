@@ -60,6 +60,7 @@ func main() {
 	mux.Handle("/o/", store)
 	mux.HandleFunc("/schema/beats-share", handleBeatsShareSchema)
 	mux.Handle("/share-card/", handleShareCard(store))
+	mux.Handle("/qr", handleQRCode())
 	mux.Handle("/", rootHandler)
 
 	// Wrap with CORS headers for cross-origin consumption (CDN, data-backend="ws")
