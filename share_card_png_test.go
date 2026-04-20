@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image/png"
+	"sync"
 	"testing"
 )
 
@@ -37,5 +39,43 @@ func TestRenderShareCardPNG(t *testing.T) {
 					img.Bounds().Dx(), img.Bounds().Dy())
 			}
 		})
+	}
+}
+
+// Reproduces the sfnt glyph-buffer race that crashed prod on
+// 2026-04-20 when two share-card requests rendered concurrently.
+// Before the fontsOnce fix, this panics with
+// "index out of range [3] with length 0" inside sfnt.LoadGlyph.
+func TestRenderShareCardPNGConcurrent(t *testing.T) {
+	p := sharePayload{
+		Type: "BeatsShare", V: 1,
+		Genre: "techno", Seed: 42,
+		Tempo: 128, Swing: 15, Humanize: 10,
+	}
+	const N = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, N)
+	for range N {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body, err := renderShareCardPNG(p, "Friday Night Drop",
+				"https://beats.bitwrap.io/?cid=zTest")
+			if err != nil {
+				errs <- err
+				return
+			}
+			if len(body) < 1000 {
+				errs <- fmt.Errorf("png too short: %d bytes", len(body))
+				return
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent render: %v", err)
+		}
 	}
 }

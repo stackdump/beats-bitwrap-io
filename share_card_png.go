@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/fogleman/gg"
 	"golang.org/x/image/font"
@@ -31,40 +32,39 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// faceCache memoises parsed OpenType faces per (bold, size). The
-// TTFs are baked in by golang.org/x/image/font/gofont so there's
-// no I/O — just `opentype.Parse` is 10µs-ish, worth caching so
-// each render doesn't redo it for every label.
-type faceKey struct {
-	bold bool
-	size float64
+// Parsed OpenType fonts are safe to share across goroutines; the
+// per-face glyph buffer inside sfnt is not. So we parse each TTF
+// exactly once and hand out a *fresh* opentype.Face per loadFace
+// call — each render gets its own glyph buffer and there's no race.
+var (
+	regularFont     *opentype.Font
+	boldFont        *opentype.Font
+	fontsOnce       sync.Once
+	fontsParseError error
+)
+
+func parseFonts() {
+	regularFont, fontsParseError = opentype.Parse(goregular.TTF)
+	if fontsParseError != nil {
+		return
+	}
+	boldFont, fontsParseError = opentype.Parse(gobold.TTF)
 }
 
-var faceCache = map[faceKey]font.Face{}
-
 func loadFace(bold bool, size float64) (font.Face, error) {
-	k := faceKey{bold, size}
-	if f, ok := faceCache[k]; ok {
-		return f, nil
+	fontsOnce.Do(parseFonts)
+	if fontsParseError != nil {
+		return nil, fontsParseError
 	}
-	raw := goregular.TTF
+	tt := regularFont
 	if bold {
-		raw = gobold.TTF
+		tt = boldFont
 	}
-	tt, err := opentype.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	face, err := opentype.NewFace(tt, &opentype.FaceOptions{
+	return opentype.NewFace(tt, &opentype.FaceOptions{
 		Size:    size,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})
-	if err != nil {
-		return nil, err
-	}
-	faceCache[k] = face
-	return face, nil
 }
 
 // parseHexColor accepts "#RRGGBB" → gg float RGB. Falls back to
