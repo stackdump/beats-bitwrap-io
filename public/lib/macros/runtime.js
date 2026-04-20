@@ -120,12 +120,17 @@ export function panicMacros(el) {
     }
 
     // 6. Tell the worker to prune in-flight macro control nets, then
-    //    unmute anything not in the user's manual mute set.
+    //    unmute anything not in the user's manual mute set — but keep
+    //    the project's schema-reserved `initialMutes` (hit1-hit4 stinger
+    //    slots) muted. Without this guard, Panic unmutes the stinger
+    //    tracks and the first beat after panic dumps four stingers onto
+    //    the mix.
     el._sendWs({ type: 'cancel-macros' });
     const manual = el._manualMutedNets || new Set();
+    const initial = new Set(el._project?.initialMutes || []);
     const muted = [...el._mutedNets];
     for (const id of muted) {
-        if (manual.has(id)) continue;
+        if (manual.has(id) || initial.has(id)) continue;
         el._mutedNets.delete(id);
         el._sendWs({ type: 'mute', netId: id, muted: false });
     }
