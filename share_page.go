@@ -188,22 +188,29 @@ func decoratedIndex(store *shareStore, publicFS fs.FS, diskDir string) http.Hand
 		// the page can recover the exact track recipe without a second
 		// round-trip to /o/{cid}. The bytes are the canonical JSON
 		// straight from the store, so the CID still hashes to cid.
+		projection, err := buildProjectionJSONLD(shareURL, cid, genreCap, userTitle, desc)
+		if err != nil {
+			http.Error(w, "projection render error", http.StatusInternalServerError)
+			return
+		}
 		var buf strings.Builder
 		if err := tpl.Execute(&buf, struct {
 			Title, Desc, CardURL, ShareURL, CID string
-			Payload                             template.JS
+			Payload, Projection                 template.JS
 		}{
-			Title:    title,
-			Desc:     desc,
-			CardURL:  cardURL,
-			ShareURL: shareURL,
-			CID:      cid,
-			Payload:  template.JS(raw),
+			Title:      title,
+			Desc:       desc,
+			CardURL:    cardURL,
+			ShareURL:   shareURL,
+			CID:        cid,
+			Payload:    template.JS(raw),
+			Projection: template.JS(projection),
 		}); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)
 			return
 		}
 		decorated := injectIntoHead(indexBytes, []byte(buf.String()))
+		decorated = replaceTitle(decorated, title)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// Cache briefly so link-unfurl bots don't thrash the store on
 		// retries, but not immutably — a re-generated card template
@@ -238,6 +245,59 @@ func injectIntoHead(doc, block []byte) []byte {
 	out = append(out, block...)
 	out = append(out, doc[idx:]...)
 	return out
+}
+
+// replaceTitle swaps the first <title>…</title> in doc for the
+// computed share title. The static shell ships with a generic
+// "beats-btw" title; without this, browser tabs and bookmarks of
+// `?cid=…` links all show the same generic title even though the
+// social-card metadata is correct. Projection layer — never affects
+// the CID.
+func replaceTitle(doc []byte, title string) []byte {
+	open := []byte("<title>")
+	close := []byte("</title>")
+	i := indexBytes(doc, open)
+	if i < 0 {
+		return doc
+	}
+	j := indexBytes(doc[i:], close)
+	if j < 0 {
+		return doc
+	}
+	j += i
+	escaped := template.HTMLEscapeString(title)
+	out := make([]byte, 0, len(doc)+len(escaped))
+	out = append(out, doc[:i+len(open)]...)
+	out = append(out, escaped...)
+	out = append(out, doc[j:]...)
+	return out
+}
+
+// buildProjectionJSONLD emits a schema.org MusicRecording node keyed
+// by the CID. This is the *projection* layer — a human-vocabulary
+// view over the canonical BeatsShare bytes. The CID is the stable
+// identity (`identifier`); name/url/genre are mutable labels the
+// user chose at share time and travel in the query string, not the
+// hashed payload.
+func buildProjectionJSONLD(shareURL, cid, genre, userTitle, desc string) (string, error) {
+	name := userTitle
+	if name == "" {
+		name = genre + " · beats.bitwrap.io"
+	}
+	node := map[string]any{
+		"@context":    "https://schema.org",
+		"@type":       "MusicRecording",
+		"name":        name,
+		"url":         shareURL,
+		"identifier":  cid,
+		"genre":       genre,
+		"description": desc,
+	}
+	b, err := json.Marshal(node)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // indexBytes is a minimal substring scanner — pulling in `bytes.Index`
@@ -296,6 +356,7 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta name="twitter:image" content="{{.CardURL}}"/>
 <meta name="description" content="{{.Desc}}"/>
 <link rel="canonical" href="{{.ShareURL}}"/>
+<script type="application/ld+json">{{.Projection}}</script>
 <script type="application/ld+json">{{.Payload}}</script>
 `
 
