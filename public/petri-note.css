@@ -2459,7 +2459,10 @@ input[type="range"][data-default] {
     background: radial-gradient(circle at center, #131a33 0%, #070712 100%);
     border: 1px solid rgba(74,144,217,0.18);
     border-radius: 10px;
-    overflow: hidden;
+    /* overflow:visible so sub-rings drawn slightly past the panel box
+     * (canvas nodes at scale, or mandala panels that intentionally
+     * overlap at high N) don't get cropped into ugly half-arcs. */
+    overflow: visible;
     aspect-ratio: 1 / 1;
     transition: opacity 280ms ease;
     /* Sit above the flame + pulse layers in the meta SVG so beat
