@@ -1296,9 +1296,13 @@ input[type="range"][data-default] {
  * instrument dropdown, Hits/Pit selects, and Vol/HP/HPR/LP/LPR/Atk/Dec sliders.
  * Everything below flows as the existing macro columns. */
 .pn-os-rows {
-    display: flex;
-    flex-wrap: wrap;
+    /* 2×2 grid clustered to the left — auto-sized columns so each Fire
+     * pad takes only as much space as its controls need, instead of
+     * stretching to fill the entire panel width. */
+    display: grid;
+    grid-template-columns: repeat(2, max-content);
     gap: 8px;
+    justify-content: start;
     padding: 8px 14px;
     border-bottom: 1px solid #0f3460;
 }
@@ -1325,6 +1329,21 @@ input[type="range"][data-default] {
 }
 
 .pn-os-pair:hover {
+    border-color: #6e4adf;
+}
+
+/* Bar selector next to Fire — matches the shape of pn-macro-bars in
+ * the main Macros panel so both readouts read as the same control. */
+.pn-os-bars {
+    padding: 3px 4px;
+    background: #1a1a2e;
+    color: #c3a6ff;
+    border: 1px solid #0f3460;
+    border-radius: 3px;
+    font-size: 10px;
+    cursor: pointer;
+}
+.pn-os-bars:hover {
     border-color: #6e4adf;
 }
 

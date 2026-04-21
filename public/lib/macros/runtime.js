@@ -208,30 +208,59 @@ export function executeMacro(el, id) {
     } else if (macro.kind === 'tempo-sweep') {
         el._tempoSweep(macro.finalBpm, durationMs);
     } else if (macro.kind === 'one-shot') {
-        // Fire pad: route through the track's channel strip (so track vol
-        // /pan/filters apply) and bypass the mute filter — so Fire still
-        // works even when the stinger track starts muted.
+        // Fire pad is an N-bar macro: unmute the stinger net for the
+        // selected bar count so its Petri ring pulses every beat, apply
+        // the Pit transpose to that track for the window, optionally
+        // stack a paired FX macro for the same duration, then re-mute
+        // and restore pitch on release.
+        const barsSel = el.querySelector(`.pn-os-bars[data-macro="${id}"]`);
+        const bars = parseInt(barsSel?.value, 10) || 2;
         const pitchSel = el.querySelector(`.pn-os-pitch[data-macro="${id}"]`);
         const pitch = parseInt(pitchSel?.value, 10) || 0;
+        const windowMs = bars * el._msPerBar();
+
+        // Pitch: stash an offset on the element, read in the note-play
+        // path, and clear on release. Prior timer gets cancelled so a
+        // re-fire on the same pad extends the window instead of racing.
+        el._stingerPitchOffsets ||= {};
+        el._stingerPitchTimers  ||= {};
+        el._stingerPitchOffsets[id] = pitch;
+        clearTimeout(el._stingerPitchTimers[id]);
+        el._stingerPitchTimers[id] = setTimeout(() => {
+            delete el._stingerPitchOffsets[id];
+        }, windowMs);
+
+        // Unmute for the window (track re-mutes on timer expiry). Skip
+        // when the track is 'unbound' (silent slot) — the paired FX is
+        // then the only audible effect.
         const track = el._project?.nets?.[id];
-        const channel = track?.track?.channel;
         const currentInst = track?.track?.instrument;
-        el._ensureToneStarted().then(() => {
-            if (currentInst === 'unbound') {
-                // Silent slot — Fire still fires paired FX macros, but no sound
-            } else if (channel != null) {
-                toneEngine.playNote({ channel, note: 60 + pitch, velocity: 110, duration: 200 });
-            } else {
-                toneEngine.playOneShot(macro.sound, pitch);
+        const wasMutedBefore = el._mutedNets?.has(id) || el._manualMutedNets?.has(id);
+        if (currentInst !== 'unbound' && wasMutedBefore) {
+            el._toggleMute(id);
+        }
+        el._stingerMuteTimers ||= {};
+        clearTimeout(el._stingerMuteTimers[id]);
+        el._stingerMuteTimers[id] = setTimeout(() => {
+            const stillUnmuted = !(el._mutedNets?.has(id) || el._manualMutedNets?.has(id));
+            if (currentInst !== 'unbound' && wasMutedBefore && stillUnmuted) {
+                el._toggleMute(id);
             }
-        });
-        // Paired macro: fire the chosen FX macro alongside the sound.
+        }, windowMs);
+
+        // Paired FX: fire with the Fire pad's bar count, not the macro's
+        // own default — so the effect lasts exactly as long as the beat
+        // pulse it's stacked on.
         const pairSel = el.querySelector(`.pn-os-pair[data-macro="${id}"]`);
         const pairId = pairSel?.value;
         if (pairId && pairId !== id) {
+            const pairBars = el.querySelector(`.pn-macro-bars[data-macro="${pairId}"]`);
+            const savedBars = pairBars?.value;
+            if (pairBars) pairBars.value = String(bars);
             const savedRunning = el._runningMacro;
             el._runningMacro = null;        // bypass serial queue for this side-effect
             try { executeMacro(el, pairId); } finally { el._runningMacro = savedRunning; }
+            if (pairBars && savedBars != null) pairBars.value = savedBars;
         }
     }
 

@@ -215,10 +215,14 @@ export function buildUI(el) {
                         `<optgroup label="${g}">${items.map(x => `<option value="${x.id}">${x.label}</option>`).join('')}</optgroup>`
                     ).join('');
                 const oneShotRows = oneShots.map(m => {
-                    const pitchHtml = `<select class="pn-mixer-slider pn-os-pitch" data-macro="${m.id}" title="Pitch (semitones)">
+                    const pitchHtml = `<select class="pn-mixer-slider pn-os-pitch" data-macro="${m.id}" title="Pitch (semitones) — transposes the stinger track during the unmute window">
                         ${m.pitchOpts.map(v => opt(v, v > 0 ? '+'+v : ''+v, m.defaultPitch ?? 0)).join('')}
                     </select>`;
-                    const fxHtml = `<select class="pn-os-pair" data-macro="${m.id}" title="Fire this macro together with the stinger">${pairOpts}</select>`;
+                    const fxHtml = `<select class="pn-os-pair" data-macro="${m.id}" title="Fire this macro together with the stinger — matches the Fire bar length">${pairOpts}</select>`;
+                    const barOpts = [1, 2, 4, 8];
+                    const barHtml = `<select class="pn-os-bars" data-macro="${m.id}" title="Fire duration — track stays unmuted for this many bars">
+                        ${barOpts.map(v => `<option value="${v}"${v === 2 ? ' selected' : ''}>${v} bar${v === 1 ? '' : 's'}</option>`).join('')}
+                    </select>`;
                     // Label reflects the current track.instrument (may differ from
                     // the macro's default sound after the user rotates / picks a
                     // new instrument on the mixer row). 'unbound' falls back to
@@ -230,6 +234,7 @@ export function buildUI(el) {
                         : (oneShotSpec(currentInst)?.label || prettifyInstrumentName(currentInst));
                     return `<div class="pn-os-pad">
                         <button class="pn-macro-btn pn-os-fire" data-macro="${m.id}" title="Fire">Fire ${defaultLabel}</button>
+                        ${barHtml}
                         <div class="pn-mixer-slider-group"><span>Pit</span>${pitchHtml}</div>
                         <div class="pn-mixer-slider-group"><span>FX</span>${fxHtml}</div>
                     </div>`;

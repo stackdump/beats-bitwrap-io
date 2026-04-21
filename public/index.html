@@ -20,7 +20,23 @@
 </head>
 <body>
     <script type="module" src="petri-note.js"></script>
-    <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+    <script>
+      // Skip the service worker in dev — it caches ES modules so editing
+      // source files mid-session leaves the page running old module
+      // graphs even after reload. Production (beats.bitwrap.io) still
+      // gets offline-capable SW-backed behavior.
+      if ('serviceWorker' in navigator) {
+        const host = location.hostname;
+        const isDev = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+        if (isDev) {
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            for (const r of regs) r.unregister();
+          });
+        } else {
+          navigator.serviceWorker.register('/sw.js');
+        }
+      }
+    </script>
 
     <petri-note id="app">
     </petri-note>

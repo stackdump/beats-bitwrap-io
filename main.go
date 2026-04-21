@@ -31,8 +31,16 @@ func main() {
 	var handler http.Handler
 	var publicSub fs.FS
 	if *dir != "" {
-		handler = http.FileServer(http.Dir(*dir))
-		log.Printf("Serving from disk: %s", *dir)
+		// Dev mode: wrap the file server with a no-store header so the
+		// browser never caches JS/CSS across edits. Production (embedded
+		// files) keeps default caching.
+		fileHandler := http.FileServer(http.Dir(*dir))
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			fileHandler.ServeHTTP(w, r)
+		})
+		log.Printf("Serving from disk: %s (no-cache dev mode)", *dir)
 	} else {
 		sub, err := fs.Sub(publicFS, "public")
 		if err != nil {
