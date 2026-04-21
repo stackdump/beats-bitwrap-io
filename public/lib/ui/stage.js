@@ -438,8 +438,29 @@ function eligibleNetIds(el) {
         const cb = nets[b]?.track?.channel ?? 0;
         return ca - cb;
     });
-    return ids;
+    return distributeEvenly(ids);
 }
+
+// Deterministic golden-ratio stride permutation. Panels arriving in
+// channel order cluster (all BASS riffGroup slots adjacent, etc.),
+// which makes the ring animate unevenly — one slice pulses while the
+// rest sits idle. Re-index by i ↦ (i * stride) mod N where stride is
+// coprime to N and near N/φ, so adjacent-in-order items land on
+// opposite sides of the ring. Same input always produces same output.
+function distributeEvenly(ids) {
+    const n = ids.length;
+    if (n < 4) return ids;
+    let stride = Math.max(1, Math.round(n * 0.381966));
+    while (gcd(stride, n) !== 1) {
+        stride++;
+        if (stride >= n) { stride = 1; break; }
+    }
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[(i * stride) % n] = ids[i];
+    return out;
+}
+
+function gcd(a, b) { while (b) { const t = b; b = a % b; a = t; } return a; }
 
 function* buildPanels(el, grid) {
     for (const id of eligibleNetIds(el)) {
