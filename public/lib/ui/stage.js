@@ -289,13 +289,13 @@ function layoutRing(s) {
     // Size each panel so a ring of N squares fits comfortably. The
     // fraction is tuned so 2 panels pair naturally, 3–5 form a tight
     // pentagon, and 6+ still leave visible ring negative space.
-    let baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
-    const scaleMult = { loop: 1, s: 0.65, m: 0.85, l: 1.25, xl: 1.6 }[s.scale] ?? 1;
-    baseFrac *= scaleMult;
+    const baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
+    const baseSide = Math.min(w, h) * baseFrac;
+    const scaleMult = { loop: 1, s: 0.45, m: 0.75, l: 1.6, xl: 2.4 }[s.scale] ?? 1;
     // Panels are intentionally allowed to overlap at high N — the
-    // interleaved sub-nets form a mandala. overflow:visible on the
-    // panel box (see CSS) lets each sub-net render at full size.
-    const side = Math.max(140, Math.min(520, Math.min(w, h) * baseFrac));
+    // interleaved sub-nets form a mandala.
+    const maxSide = Math.min(w, h) * 0.65;
+    const side = Math.max(60, Math.min(maxSide, baseSide * scaleMult));
     const radius = Math.min(w, h) / 2 - side / 2 - 24;
     const cx = w / 2, cy = h / 2;
 
