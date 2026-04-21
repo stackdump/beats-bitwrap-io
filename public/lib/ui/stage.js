@@ -30,7 +30,25 @@ export function openStage(el) {
             <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
             <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
+            <select class="pn-stage-structure" title="Track structure (bars)">
+                <option value="">Loop</option>
+                <option value="ab">A/B</option>
+                <option value="drop">Drop</option>
+                <option value="build">Build</option>
+                <option value="jam">Jam</option>
+                <option value="minimal">Minimal</option>
+                <option value="standard">Standard</option>
+                <option value="extended">Extended</option>
+            </select>
+            <select class="pn-stage-scale" title="Panel scale">
+                <option value="loop" selected>Fit</option>
+                <option value="s">S</option>
+                <option value="m">M</option>
+                <option value="l">L</option>
+                <option value="xl">XL</option>
+            </select>
         </div>
+        <div class="pn-stage-stats" aria-live="polite"></div>
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
         <div class="pn-stage-grid">
             <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
@@ -58,6 +76,7 @@ export function openStage(el) {
         flameBuckets: new Float32Array(64), // radial energy for flame mode
         flameCanvas: null,
         flameCtx: null,
+        scale: 'loop',        // panel-size scale: loop (default) / s / m / l / xl
     };
 
     session.onKey = (e) => { if (e.key === 'Escape') closeStage(el); };
@@ -71,6 +90,20 @@ export function openStage(el) {
     layoutRing(session);
 
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
+    overlay.querySelector('.pn-stage-scale').addEventListener('change', (e) => {
+        session.scale = e.target.value;
+        layoutRing(session);
+        for (const p of session.panels) layoutPanel(p);
+    });
+    const structSel = overlay.querySelector('.pn-stage-structure');
+    const headerStruct = el.querySelector('.pn-structure-select');
+    if (headerStruct) structSel.value = headerStruct.value || '';
+    structSel.addEventListener('change', (e) => {
+        const hs = el.querySelector('.pn-structure-select');
+        if (!hs) return;
+        hs.value = e.target.value;
+        hs.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     overlay.querySelector('.pn-stage-menu').addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-viz]');
         if (!btn) return;
@@ -96,6 +129,8 @@ export function openStage(el) {
             }
         }
     });
+
+    renderStats();
 
     // Size panels immediately (getBoundingClientRect inside layoutPanel
     // forces a synchronous layout pass) so the first rendered frame has
@@ -165,12 +200,59 @@ export function stageOnTransitionFired(el, netId, transitionId) {
 // (no reflow flash) and muted panels just dim via a `.muted` class.
 // Auto-DJ section boundaries flip mutes often, so any rebuild here
 // would strobe the whole composition.
+// Rebuild panels + refresh stats when a new project is applied — otherwise
+// panels point at stale nets after a structure change / regenerate.
+export function stageOnProjectSync(el) {
+    if (!session) return;
+    const grid = session.overlay.querySelector('.pn-stage-grid');
+    // Preserve the canvas + svg overlays; only wipe panel divs.
+    for (const p of session.panels) p.root.remove();
+    session.panels.length = 0;
+    session.pulses.length = 0;
+    session.flameBuckets.fill(0);
+    for (const entry of buildPanels(el, grid)) session.panels.push(entry);
+    // Sync structure dropdown to whatever the header now shows.
+    const structSel = session.overlay.querySelector('.pn-stage-structure');
+    const headerStruct = el.querySelector('.pn-structure-select');
+    if (structSel && headerStruct) structSel.value = headerStruct.value || '';
+    layoutRing(session);
+    for (const p of session.panels) layoutPanel(p);
+    renderStats();
+}
+
 export function stageOnMuteStateChange(el) {
     if (!session) return;
     for (const p of session.panels) {
         const muted = el._mutedNets?.has(p.netId) || el._manualMutedNets?.has(p.netId);
         p.root.classList.toggle('muted', !!muted);
     }
+    renderStats();
+}
+
+function renderStats() {
+    if (!session) return;
+    const out = session.overlay.querySelector('.pn-stage-stats');
+    if (!out) return;
+    const el = session.el;
+    const nets = el?._project?.nets || {};
+    let netCount = 0, placeCount = 0, transCount = 0, arcCount = 0, mutedCount = 0;
+    let bindingCount = 0;
+    for (const [id, net] of Object.entries(nets)) {
+        if (!net || net.role === 'control') continue;
+        const pc = Object.keys(net.places || {}).length;
+        const tc = Object.keys(net.transitions || {}).length;
+        if (pc === 0 || tc === 0) continue;
+        netCount++;
+        placeCount += pc;
+        transCount += tc;
+        arcCount += (net.arcs || []).length;
+        if (el._mutedNets?.has(id) || el._manualMutedNets?.has(id)) mutedCount++;
+        for (const t of Object.values(net.transitions || {})) if (t && t.midi) bindingCount++;
+    }
+    const active = netCount - mutedCount;
+    const bars = el?._project?.bars || 0;
+    out.textContent =
+        `${bars} bars · ${active}/${netCount} nets · ${placeCount} places · ${transCount} transitions · ${arcCount} arcs · ${bindingCount} notes`;
 }
 
 // Arrange sub-panels as squares (transitions) alternating with small
@@ -200,8 +282,10 @@ function layoutRing(s) {
     // Size each panel so a ring of N squares fits comfortably. The
     // fraction is tuned so 2 panels pair naturally, 3–5 form a tight
     // pentagon, and 6+ still leave visible ring negative space.
-    const baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
-    const side = Math.max(140, Math.min(360, Math.min(w, h) * baseFrac));
+    let baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
+    const scaleMult = { loop: 1, s: 0.65, m: 0.85, l: 1.25, xl: 1.6 }[s.scale] ?? 1;
+    baseFrac *= scaleMult;
+    const side = Math.max(80, Math.min(520, Math.min(w, h) * baseFrac));
     const radius = Math.min(w, h) / 2 - side / 2 - 24;
     const cx = w / 2, cy = h / 2;
 

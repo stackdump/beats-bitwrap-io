@@ -2398,6 +2398,34 @@ input[type="range"][data-default] {
     background: rgba(74,144,217,0.22);
     border-color: rgba(74,144,217,0.55);
 }
+.pn-stage-menu .pn-stage-scale {
+    margin-left: 4px;
+    height: 32px;
+    padding: 0 8px;
+    background: rgba(255,255,255,0.04);
+    color: #eee;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 999px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.pn-stage-menu .pn-stage-scale:focus { outline: none; border-color: rgba(74,144,217,0.55); }
+.pn-stage-stats {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    pointer-events: none;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 6px 14px;
+}
 .pn-stage-grid {
     transition: transform 220ms ease;
     transform-style: preserve-3d;

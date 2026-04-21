@@ -10,6 +10,7 @@
 import { toneEngine, INSTRUMENT_CONFIGS } from '../../audio/tone-engine.js';
 import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
 import { injectTransitionNet } from '../macros/runtime.js';
+import { stageOnProjectSync } from '../ui/stage.js';
 
 export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
@@ -205,6 +206,7 @@ export function applyProjectSync(el, project, seamless = false) {
     el._updateFeelIconDisengaged();
     el._markGenreTilde(!el._feelDisengaged);
     el._updateProjectNameDisplay();
+    stageOnProjectSync(el);
     // Apply pending share overrides one-shot.
     if (el._pendingShareOverrides) {
         const ov = el._pendingShareOverrides;
