@@ -22,7 +22,7 @@ export function openStage(el) {
     if (!el._project || !el._project.nets) return;
 
     const overlay = document.createElement('div');
-    overlay.className = 'pn-stage-overlay hide-backs';
+    overlay.className = 'pn-stage-overlay hide-backs hide-labels';
     overlay.dataset.pnStage = '1';
     overlay.innerHTML = `
         <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
@@ -31,6 +31,7 @@ export function openStage(el) {
             <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
+            <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
             <select class="pn-stage-structure" title="Track structure (bars)">
                 <option value="">Loop</option>
                 <option value="ab">A/B</option>
@@ -94,6 +95,12 @@ export function openStage(el) {
     overlay.querySelector('.pn-stage-backs').addEventListener('click', (e) => {
         const btn = e.currentTarget;
         const on = overlay.classList.toggle('hide-backs');
+        btn.classList.toggle('active', !on);
+        btn.setAttribute('aria-pressed', String(!on));
+    });
+    overlay.querySelector('.pn-stage-labels').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const on = overlay.classList.toggle('hide-labels');
         btn.classList.toggle('active', !on);
         btn.setAttribute('aria-pressed', String(!on));
     });

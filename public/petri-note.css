@@ -2472,6 +2472,9 @@ input[type="range"][data-default] {
     background: transparent;
     border-color: transparent;
 }
+.pn-stage-overlay.hide-labels .pn-stage-panel .pn-stage-label {
+    display: none;
+}
 .pn-stage-meta {
     position: absolute;
     inset: 0;
