@@ -11,6 +11,22 @@ import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
 
+// Cursor-anchored slider tooltip — a single document-level element
+// that floats near the mouse to show the hovered slider's live value
+// (Hz / Q / L-C-R / ms / %). Module-scoped so any mixer row can
+// drive the same tip without reserving layout space inside the row.
+let sliderTip = null;
+let tipSlider = null;
+
+function ensureSliderTip() {
+    if (sliderTip) return sliderTip;
+    sliderTip = document.createElement('div');
+    sliderTip.className = 'pn-slider-tip';
+    sliderTip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(sliderTip);
+    return sliderTip;
+}
+
 // --- Render ---
 
 export function renderMixer(el) {
@@ -354,9 +370,12 @@ function bindMixerEvents(el) {
 
         saveMixerSliderState(el, netId);
 
-        // Live-update the on-hover readout for this group.
-        const readout = slider.parentElement?.querySelector('.pn-mixer-slider-readout');
-        if (readout) readout.textContent = formatSliderReadout(slider.className, slider.value);
+        // Keep the floating slider tip in sync with drags / wheel /
+        // keyboard nudges — only if the user is currently hovering
+        // the same slider.
+        if (sliderTip && tipSlider === slider) {
+            sliderTip.textContent = formatSliderReadout(slider.className, slider.value);
+        }
 
         const v = parseInt(slider.value);
         for (const [cls, , applyFactory] of MIXER_SLIDERS) {
@@ -394,6 +413,32 @@ function bindMixerEvents(el) {
     el._mixerEl.addEventListener('mouseout', (e) => {
         const slider = e.target.closest('.pn-mixer-slider');
         if (slider && slider === el._hoveredSlider) el._hoveredSlider = null;
+    });
+
+    // Cursor-anchored value tip — follows the mouse over any slider
+    // group and shows that slider's live formatted value. Positioned
+    // via fixed offset, not inside the row, so the mixer's row layout
+    // is unaffected by hover state.
+    el._mixerEl.addEventListener('mousemove', (e) => {
+        const group = e.target.closest('.pn-mixer-slider-group');
+        const tip = ensureSliderTip();
+        if (!group) {
+            tip.style.opacity = '0';
+            tipSlider = null;
+            return;
+        }
+        const slider = group.querySelector('.pn-mixer-slider');
+        if (!slider) return;
+        tipSlider = slider;
+        tip.textContent = formatSliderReadout(slider.className, slider.value);
+        const pad = 12;
+        tip.style.left = `${e.clientX + pad}px`;
+        tip.style.top  = `${e.clientY - pad}px`;
+        tip.style.opacity = '1';
+    });
+    el._mixerEl.addEventListener('mouseleave', () => {
+        if (sliderTip) sliderTip.style.opacity = '0';
+        tipSlider = null;
     });
 }
 
@@ -661,12 +706,13 @@ export function hitsOptionsHtml(selected, sizeCap) {
 
 export function mixerSlidersHtml(netId, isPercussion) {
     const decDefault = isPercussion ? 100 : 5;
-    const readout = (cls, val) => `<span class="pn-mixer-slider-readout">${formatSliderReadout(cls, val)}</span>`;
+    // No inline readout span: the value floats near the cursor via
+    // the single .pn-slider-tip element below so tail icons stay
+    // perfectly aligned across rows regardless of hover state.
     return `
             <div class="pn-mixer-slider-group">
                 <span>Pan</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-pan" data-net-id="${netId}" data-default="64" min="0" max="127" value="64" aria-label="${netId} pan" title="Pan">
-                ${readout('pn-mixer-pan', 64)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Vol</span>
@@ -675,32 +721,26 @@ export function mixerSlidersHtml(netId, isPercussion) {
                         `<option value="${v}"${v === 80 ? ' selected' : ''}>${v}</option>`
                     ).join('')
                 }</select>
-                ${readout('pn-mixer-vol', 80)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HP</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-locut" data-net-id="${netId}" data-default="0" min="0" max="100" value="0" aria-label="${netId} high-pass cutoff" title="Low cut (high-pass)">
-                ${readout('pn-mixer-locut', 0)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HPR</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-loreso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} high-pass resonance" title="Low cut resonance">
-                ${readout('pn-mixer-loreso', 5)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LP</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-cutoff" data-net-id="${netId}" data-default="100" min="0" max="100" value="100" aria-label="${netId} low-pass cutoff" title="High cut (low-pass)">
-                ${readout('pn-mixer-cutoff', 100)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LPR</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-reso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} low-pass resonance" title="High cut resonance">
-                ${readout('pn-mixer-reso', 5)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Dec</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-decay" data-net-id="${netId}" data-default="${decDefault}" min="5" max="300" value="${decDefault}" aria-label="${netId} envelope decay" title="Envelope decay">
-                ${readout('pn-mixer-decay', decDefault)}
             </div>
             `;
 }

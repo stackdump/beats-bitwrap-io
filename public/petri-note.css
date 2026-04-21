@@ -549,21 +549,24 @@ petri-note.pn-midi-enabled .pn-mixer-output {
     flex-shrink: 0;
 }
 
-/* Live value readout — sits to the right of the slider, visible only
- * on hover so the mixer stays compact at rest. "width: auto" overrides
- * the default 24px width on .pn-mixer-slider-group span. */
-.pn-mixer-slider-group .pn-mixer-slider-readout {
-    width: auto;
-    min-width: 28px;
+/* Cursor-anchored slider value tip — a single element appended to
+ * <body> and positioned via JS (mousemove handler in mixer.js). Lives
+ * outside the mixer row flow so hover never shifts the tail icons. */
+.pn-slider-tip {
+    position: fixed;
+    z-index: 1500;
+    padding: 3px 7px;
+    background: rgba(15, 20, 40, 0.92);
+    border: 1px solid rgba(74, 144, 217, 0.35);
+    border-radius: 4px;
     color: #9ad;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
+    pointer-events: none;
     opacity: 0;
-    transition: opacity 0.1s;
-    text-align: left;
-    font-size: 10px;
-}
-.pn-mixer-slider-group:hover .pn-mixer-slider-readout {
-    opacity: 1;
+    transition: opacity 0.08s;
+    white-space: nowrap;
 }
 
 .pn-mixer-slider {
