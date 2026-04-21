@@ -2468,6 +2468,10 @@ input[type="range"][data-default] {
 .pn-stage-panel.muted {
     opacity: 0.25;
 }
+.pn-stage-overlay.hide-backs .pn-stage-panel {
+    background: transparent;
+    border-color: transparent;
+}
 .pn-stage-meta {
     position: absolute;
     inset: 0;

@@ -30,6 +30,7 @@ export function openStage(el) {
             <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
             <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
+            <button class="pn-stage-backs active" aria-pressed="true" title="Show/hide panel backgrounds">&#9632;</button>
             <select class="pn-stage-structure" title="Track structure (bars)">
                 <option value="">Loop</option>
                 <option value="ab">A/B</option>
@@ -90,6 +91,12 @@ export function openStage(el) {
     layoutRing(session);
 
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
+    overlay.querySelector('.pn-stage-backs').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const on = overlay.classList.toggle('hide-backs');
+        btn.classList.toggle('active', !on);
+        btn.setAttribute('aria-pressed', String(!on));
+    });
     overlay.querySelector('.pn-stage-scale').addEventListener('change', (e) => {
         session.scale = e.target.value;
         layoutRing(session);
