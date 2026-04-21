@@ -8,7 +8,7 @@
 // `el._mixerEl` / `el._channelInstruments` / `el._mutedNets` etc.
 
 import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
-import { MIXER_SLIDERS } from './mixer-sliders.js';
+import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
 
 // --- Render ---
@@ -86,12 +86,12 @@ export function renderMixer(el) {
 
         const allManualMuted = netIds.every(nid => el._manualMutedNets.has(nid));
         row.innerHTML = `
-            <input type="checkbox" class="pn-mixer-solo" data-riff-group="${group}" title="Permanent mute" ${allManualMuted ? 'checked' : ''}>
+            <input type="checkbox" class="pn-mixer-solo" data-riff-group="${group}" title="Lock mute — persists across regenerates" aria-label="Lock mute" ${allManualMuted ? 'checked' : ''}>
             <button class="pn-mixer-mute ${allMuted ? 'muted' : ''}" data-net-id="${netIds[0]}" data-riff-group="${group}" title="${allMuted ? 'Unmute all' : 'Mute all'}">
                 ${allMuted ? '\u{1F507}' : '\u{1F50A}'}
             </button>
             <span class="pn-mixer-name">${group}</span>
-            <span class="pn-riff-variants">${variantLabelsHtml}</span>
+            <span class="pn-riff-variants" title="Active riff variant — the letter shows which A/B/C subnet is playing">${variantLabelsHtml}</span>
             <select class="pn-mixer-instrument" data-net-id="${netIds[0]}" data-riff-group="${group}">
                 ${instruments.map(inst => `
                     <option value="${inst}" ${currentInstrument === inst ? 'selected' : ''}>
@@ -353,6 +353,10 @@ function bindMixerEvents(el) {
         const drumRole = isDrumChannel(ch) ? (net.riffGroup || row?.dataset.riffGroup || netId) : null;
 
         saveMixerSliderState(el, netId);
+
+        // Live-update the on-hover readout for this group.
+        const readout = slider.parentElement?.querySelector('.pn-mixer-slider-readout');
+        if (readout) readout.textContent = formatSliderReadout(slider.className, slider.value);
 
         const v = parseInt(slider.value);
         for (const [cls, , applyFactory] of MIXER_SLIDERS) {
@@ -650,10 +654,12 @@ export function hitsOptionsHtml(selected, sizeCap) {
 
 export function mixerSlidersHtml(netId, isPercussion) {
     const decDefault = isPercussion ? 100 : 5;
+    const readout = (cls, val) => `<span class="pn-mixer-slider-readout">${formatSliderReadout(cls, val)}</span>`;
     return `
             <div class="pn-mixer-slider-group">
                 <span>Pan</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-pan" data-net-id="${netId}" data-default="64" min="0" max="127" value="64" aria-label="${netId} pan" title="Pan">
+                ${readout('pn-mixer-pan', 64)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Vol</span>
@@ -662,26 +668,32 @@ export function mixerSlidersHtml(netId, isPercussion) {
                         `<option value="${v}"${v === 80 ? ' selected' : ''}>${v}</option>`
                     ).join('')
                 }</select>
+                ${readout('pn-mixer-vol', 80)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HP</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-locut" data-net-id="${netId}" data-default="0" min="0" max="100" value="0" aria-label="${netId} high-pass cutoff" title="Low cut (high-pass)">
+                ${readout('pn-mixer-locut', 0)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HPR</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-loreso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} high-pass resonance" title="Low cut resonance">
+                ${readout('pn-mixer-loreso', 5)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LP</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-cutoff" data-net-id="${netId}" data-default="100" min="0" max="100" value="100" aria-label="${netId} low-pass cutoff" title="High cut (low-pass)">
+                ${readout('pn-mixer-cutoff', 100)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LPR</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-reso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} low-pass resonance" title="High cut resonance">
+                ${readout('pn-mixer-reso', 5)}
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Dec</span>
                 <input type="range" class="pn-mixer-slider pn-mixer-decay" data-net-id="${netId}" data-default="${decDefault}" min="5" max="300" value="${decDefault}" aria-label="${netId} envelope decay" title="Envelope decay">
+                ${readout('pn-mixer-decay', decDefault)}
             </div>
             `;
 }
@@ -699,12 +711,12 @@ export function createMixerRow(el, id, instruments) {
 
     const isManualMuted = el._manualMutedNets.has(id);
     row.innerHTML = `
-        <input type="checkbox" class="pn-mixer-solo" data-net-id="${id}" title="Permanent mute" ${isManualMuted ? 'checked' : ''}>
+        <input type="checkbox" class="pn-mixer-solo" data-net-id="${id}" title="Lock mute — persists across regenerates" aria-label="Lock mute" ${isManualMuted ? 'checked' : ''}>
         <button class="pn-mixer-mute ${isMuted ? 'muted' : ''}" data-net-id="${id}" title="${isMuted ? 'Unmute' : 'Mute'}">
             ${isMuted ? '\u{1F507}' : '\u{1F50A}'}
         </button>
         <span class="pn-mixer-name">${id}</span>
-        <span class="pn-riff-variants"><span class="pn-riff-label active">A</span></span>
+        <span class="pn-riff-variants" title="Active riff variant — the letter shows which A/B/C subnet is playing"><span class="pn-riff-label active">A</span></span>
         <select class="pn-mixer-instrument" data-net-id="${id}">
             ${instruments.map(inst => `
                 <option value="${inst}" ${currentInstrument === inst ? 'selected' : ''}>

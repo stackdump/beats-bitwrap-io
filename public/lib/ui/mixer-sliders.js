@@ -11,6 +11,31 @@ export function hpFreq(val) { return 20 * Math.pow(250, val / 100); }
 export function lpFreq(val) { return 100 * Math.pow(200, val / 100); }
 export function qCurve(val) { return 0.5 + (Math.pow(val / 100, 2) * 49.5); }
 
+// Format a slider's raw 0–max value into a display string the user
+// recognizes (Hz for filters, ms for decay, L/C/R for pan, plain %
+// for volume, Q-like number for resonance). Used by the on-hover
+// readout.
+export function formatSliderReadout(cls, v) {
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n)) return '';
+    if (cls.includes('pn-mixer-pan')) {
+        if (n === 64) return 'C';
+        if (n < 64) return `L${64 - n}`;
+        return `R${n - 64}`;
+    }
+    if (cls.includes('pn-mixer-vol'))   return `${n}`;
+    if (cls.includes('pn-mixer-locut')) return fmtHz(hpFreq(n));
+    if (cls.includes('pn-mixer-cutoff'))return fmtHz(lpFreq(n));
+    if (cls.includes('pn-mixer-loreso') || cls.includes('pn-mixer-reso')) return `Q${qCurve(n).toFixed(1)}`;
+    if (cls.includes('pn-mixer-decay')) return `${n}ms`;
+    return String(n);
+}
+
+function fmtHz(hz) {
+    if (hz >= 1000) return `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)}k`;
+    return `${Math.round(hz)}`;
+}
+
 export const MIXER_SLIDERS = [
     ['pn-mixer-vol',    'vol',   (ch) => v => toneEngine.controlChange(ch, 7, Math.round(v * 127 / 100))],
     ['pn-mixer-pan',    'pan',   (ch) => v => toneEngine.controlChange(ch, 10, v)],

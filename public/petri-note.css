@@ -69,6 +69,15 @@ petri-note {
     background: #223;
     border-color: #4a90d9;
 }
+.pn-track-nav button:disabled {
+    opacity: 0.25;
+    cursor: default;
+    color: #556;
+}
+.pn-track-nav button:disabled:hover {
+    background: none;
+    border-color: #334;
+}
 
 .pn-track-label {
     font-size: 13px;
@@ -540,6 +549,23 @@ petri-note.pn-midi-enabled .pn-mixer-output {
     flex-shrink: 0;
 }
 
+/* Live value readout — sits to the right of the slider, visible only
+ * on hover so the mixer stays compact at rest. "width: auto" overrides
+ * the default 24px width on .pn-mixer-slider-group span. */
+.pn-mixer-slider-group .pn-mixer-slider-readout {
+    width: auto;
+    min-width: 28px;
+    color: #9ad;
+    font-variant-numeric: tabular-nums;
+    opacity: 0;
+    transition: opacity 0.1s;
+    text-align: left;
+    font-size: 10px;
+}
+.pn-mixer-slider-group:hover .pn-mixer-slider-readout {
+    opacity: 1;
+}
+
 .pn-mixer-slider {
     width: 80px;
     height: 4px;
@@ -825,6 +851,15 @@ input[type="range"][data-default] {
 .pn-feel-puck.dragging {
     r: 13;
     filter: drop-shadow(0 0 10px rgba(233, 69, 96, 1));
+}
+
+.pn-feel-ghost-puck {
+    fill: none;
+    stroke: rgba(233, 69, 96, 0.6);
+    stroke-width: 2;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+    filter: drop-shadow(0 0 4px rgba(233, 69, 96, 0.4));
 }
 
 .pn-feel-modal.disengaged .pn-feel-corner,
@@ -1659,6 +1694,14 @@ input[type="range"][data-default] {
     box-shadow: 0 0 20px #e94560;
 }
 
+/* Persistent playhead — the last-fired transition stays lit until the
+ * next one fires, so the beat's position on the ring reads at a glance.
+ * Softer than .firing so repeated fires still "flash" on top. */
+.pn-transition.playhead .pn-transition-rect {
+    border-color: #ffd36a;
+    box-shadow: 0 0 14px rgba(255, 211, 106, 0.7), inset 0 0 6px rgba(255, 211, 106, 0.35);
+}
+
 .pn-transition.has-midi .pn-transition-rect {
     background: linear-gradient(135deg, #1a1a2e 50%, #2d1f3d 50%);
 }
@@ -2378,6 +2421,11 @@ input[type="range"][data-default] {
     overflow: hidden;
     aspect-ratio: 1 / 1;
     transition: opacity 280ms ease;
+    /* Sit above the flame + pulse layers in the meta SVG so beat
+     * particles emerging from a panel's center appear to pass BEHIND
+     * the ring outlines and reappear in the composition's negative
+     * space, instead of floating on top of the rings. */
+    z-index: 2;
 }
 .pn-stage-panel.muted {
     opacity: 0.25;

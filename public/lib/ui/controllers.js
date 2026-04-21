@@ -420,6 +420,7 @@ export function openFeelModal(el) {
                     ${cornerSwatches}
                     ${CORNERS.map(cornerLabelEl).join('')}
                     <g class="pn-feel-constellation">${constellationMarkup(el)}</g>
+                    <circle class="pn-feel-ghost-puck" r="11" style="display:none"/>
                     <circle class="pn-feel-puck" r="11"/>
                 </svg>
             </div>
@@ -501,28 +502,30 @@ export function openFeelModal(el) {
     svg.addEventListener('pointermove', onMove);
     svg.addEventListener('pointerup',   onUp);
 
-    // Constellation hover preview — moving the mouse over a genre star
-    // floats the puck there without engaging Feel or pushing values.
-    // Leaving the star restores the puck to its anchored spot. Click
-    // still snaps + commits via the existing pointerdown path.
+    // Constellation hover preview — hovering a genre star shows a
+    // dimmer "ghost" puck at that coordinate without moving the real
+    // puck or engaging Feel. Click still snaps + commits via the
+    // existing pointerdown path.
     const constellation = overlay.querySelector('.pn-feel-constellation');
-    if (constellation) {
+    const ghostPuckEl = overlay.querySelector('.pn-feel-ghost-puck');
+    if (constellation && ghostPuckEl) {
         constellation.addEventListener('pointerover', (e) => {
             if (dragging) return;
             const star = e.target.closest('.pn-feel-star');
             if (!star) return;
             const x = +star.dataset.x, y = +star.dataset.y;
             if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-            puck = [x, y];
-            redraw();
+            const [sx, sy] = puckToSvg([x, y]);
+            ghostPuckEl.setAttribute('cx', sx);
+            ghostPuckEl.setAttribute('cy', sy);
+            ghostPuckEl.style.display = '';
         });
         constellation.addEventListener('pointerout', (e) => {
             if (dragging) return;
             const star = e.target.closest('.pn-feel-star');
             const into = e.relatedTarget?.closest?.('.pn-feel-star');
             if (!star || into === star) return;
-            puck = [...(el._feelState?.puck ?? snapshotPuck)];
-            redraw();
+            ghostPuckEl.style.display = 'none';
         });
     }
     svg.addEventListener('pointercancel', onUp);

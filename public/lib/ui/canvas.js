@@ -14,6 +14,8 @@ export function renderNet(el) {
     // Clear stage.
     el._stage.innerHTML = '';
     el._nodes = {};
+    // Drop stale playhead reference — it pointed into the just-cleared DOM.
+    el._playheadTransitionNode = null;
 
     // Render places.
     for (const [id, place] of Object.entries(net.places)) {

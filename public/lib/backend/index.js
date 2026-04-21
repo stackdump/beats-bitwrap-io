@@ -493,6 +493,14 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi) {
         if (node) {
             node.classList.add('firing');
             setTimeout(() => node.classList.remove('firing'), 100);
+            // Persistent playhead — keep one "you are here" highlight on
+            // the last-fired transition until the next one fires, so
+            // beats are readable at a glance during performance.
+            if (el._playheadTransitionNode && el._playheadTransitionNode !== node) {
+                el._playheadTransitionNode.classList.remove('playhead');
+            }
+            node.classList.add('playhead');
+            el._playheadTransitionNode = node;
         }
     }
 

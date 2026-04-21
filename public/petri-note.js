@@ -1310,6 +1310,10 @@ class PetriNote extends HTMLElement {
         const pos = this._trackIndex + 1;
         label.textContent = total > 0 ? `${pos}/${total}` : '—';
         label.title = name;
+        const prev = this.querySelector('.pn-track-prev');
+        const next = this.querySelector('.pn-track-next');
+        if (prev) prev.disabled = total <= 1 || this._trackIndex <= 0;
+        if (next) next.disabled = total <= 1 || this._trackIndex >= total - 1;
         this._updateProjectNameDisplay();
     }
 
