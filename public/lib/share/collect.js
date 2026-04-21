@@ -123,6 +123,18 @@ export function collectHitState(el) {
     return out;
 }
 
+// Loop / crop region — shared only when the user has narrowed it away
+// from the full track range. Full-range (0 … totalSteps) is the
+// default and would just bloat every payload.
+export function collectLoopRegion(el) {
+    const start = el._loopStart;
+    const end   = el._loopEnd;
+    const total = el._totalSteps;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || !total) return null;
+    if (start <= 0 && end >= total) return null;
+    return { startTick: start, endTick: end };
+}
+
 // Non-mix UI state that still affects the listening experience —
 // playback mode (single/repeat/shuffle) + which side panels are open.
 export function collectUiState(el) {
@@ -187,5 +199,7 @@ export function buildSharePayload(el) {
     if (Object.keys(hits).length) payload.hits = hits;
     const ui = collectUiState(el);
     if (Object.keys(ui).length) payload.ui = ui;
+    const loop = collectLoopRegion(el);
+    if (loop) payload.loop = loop;
     return payload;
 }

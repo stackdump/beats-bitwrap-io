@@ -52,6 +52,14 @@
         "showMacros":   { "type": "boolean" },
         "showOneShots": { "type": "boolean" }
       }
+    },
+    "loop": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "startTick": { "type": "integer", "minimum": 0 },
+        "endTick":   { "type": "integer", "minimum": 1 }
+      }
     }
   },
   "$defs": {

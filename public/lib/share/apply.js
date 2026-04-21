@@ -107,6 +107,16 @@ export function applyTrackOverrides(el, tracksByChannel) {
     }
 }
 
+export function applyLoopRegion(el, loop) {
+    if (!loop) return;
+    const { startTick, endTick } = loop;
+    if (!Number.isFinite(startTick) || !Number.isFinite(endTick)) return;
+    el._loopStart = startTick;
+    el._loopEnd   = endTick;
+    el._sendWs({ type: 'loop', startTick, endTick });
+    el._updateLoopMarkers?.();
+}
+
 export function applyHitState(el, hits) {
     if (!hits) return;
     for (const [id, cfg] of Object.entries(hits)) {
@@ -158,4 +168,5 @@ export function applyShareOverrides(el, ov) {
     // panel DOM, which only exists when showOneShots is true.
     if (ov.ui) applyUiState(el, ov.ui);
     if (ov.hits) applyHitState(el, ov.hits);
+    if (ov.loop) applyLoopRegion(el, ov.loop);
 }
