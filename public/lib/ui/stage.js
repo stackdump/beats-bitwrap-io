@@ -347,7 +347,15 @@ function layoutRing(s) {
         });
     }
 
-    if (meta) renderMetaNet(meta, w, h, transitionCenters, placeCenters, side, placeR);
+    // The meta-net (inner place ring + radial arcs) only reads as a
+    // Petri-net at low N. Beyond ~16 panels the place circles overlap
+    // into a thick blue band and the radial arrows dominate the view,
+    // drowning out the panels themselves. Skip rendering it at high N
+    // and let the panels carry the composition on their own.
+    if (meta) {
+        if (n > 16) meta.innerHTML = '';
+        else renderMetaNet(meta, w, h, transitionCenters, placeCenters, side, placeR);
+    }
 }
 
 function renderMetaNet(svg, w, h, transitions, places, side, placeR) {
