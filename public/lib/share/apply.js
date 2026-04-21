@@ -107,6 +107,36 @@ export function applyTrackOverrides(el, tracksByChannel) {
     }
 }
 
+export function applyHitState(el, hits) {
+    if (!hits) return;
+    for (const [id, cfg] of Object.entries(hits)) {
+        const bars  = el.querySelector(`.pn-os-bars[data-macro="${id}"]`);
+        const pitch = el.querySelector(`.pn-os-pitch[data-macro="${id}"]`);
+        const pair  = el.querySelector(`.pn-os-pair[data-macro="${id}"]`);
+        if (bars  && cfg.bars  != null) bars.value  = String(cfg.bars);
+        if (pitch && cfg.pitch != null) pitch.value = String(cfg.pitch);
+        if (pair  && cfg.pair  != null) pair.value  = cfg.pair;
+    }
+}
+
+export function applyUiState(el, ui) {
+    if (!ui) return;
+    if (ui.playbackMode && ui.playbackMode !== el._playbackMode) {
+        // _cyclePlaybackMode walks single → repeat → shuffle; cycle until
+        // we land on the requested mode. Bounded by the 3-mode cycle.
+        for (let i = 0; i < 3 && el._playbackMode !== ui.playbackMode; i++) {
+            el._cyclePlaybackMode?.();
+        }
+    }
+    const togglePanel = (want, current, btnSelector) => {
+        if (want === current) return;
+        el.querySelector(btnSelector)?.click();
+    };
+    if (typeof ui.showFx === 'boolean')       togglePanel(ui.showFx,       el._showFx,       '.pn-effects-btn');
+    if (typeof ui.showMacros === 'boolean')   togglePanel(ui.showMacros,   el._showMacros,   '.pn-macros-btn');
+    if (typeof ui.showOneShots === 'boolean') togglePanel(ui.showOneShots, el._showOneShots, '.pn-oneshots-btn');
+}
+
 // Apply every override block onto the just-synced project + DOM.
 // Called at the tail of _applyProjectSync when a pending share payload
 // is waiting — one-shot: cleared after application.
@@ -124,4 +154,8 @@ export function applyShareOverrides(el, ov) {
         el._project.initialMutes = [...ov.initialMutes];
         el._sendWs({ type: 'mute-state', mutes: ov.initialMutes });
     }
+    // UI panel toggles must run before hits — hits live inside the Beats
+    // panel DOM, which only exists when showOneShots is true.
+    if (ov.ui) applyUiState(el, ov.ui);
+    if (ov.hits) applyHitState(el, ov.hits);
 }

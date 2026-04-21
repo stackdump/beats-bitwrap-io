@@ -104,6 +104,36 @@ export function collectInitialMutes(el) {
     return Array.isArray(el._project?.initialMutes) ? [...el._project.initialMutes] : [];
 }
 
+// Per-hit Fire pad config (bars, pitch, paired FX). Keyed by hit slot
+// id so a v2 Beats panel that adds/removes slots doesn't scramble the
+// mapping.
+export function collectHitState(el) {
+    const out = {};
+    for (const id of ['hit1', 'hit2', 'hit3', 'hit4']) {
+        if (!el._project?.nets?.[id]) continue;
+        const bars  = parseInt(el.querySelector(`.pn-os-bars[data-macro="${id}"]`)?.value, 10);
+        const pitch = parseInt(el.querySelector(`.pn-os-pitch[data-macro="${id}"]`)?.value, 10);
+        const pair  = el.querySelector(`.pn-os-pair[data-macro="${id}"]`)?.value || '';
+        const entry = {};
+        if (Number.isFinite(bars) && bars !== 2) entry.bars = bars;   // 2 is default
+        if (Number.isFinite(pitch) && pitch !== 0) entry.pitch = pitch; // 0 is default
+        if (pair) entry.pair = pair;
+        if (Object.keys(entry).length) out[id] = entry;
+    }
+    return out;
+}
+
+// Non-mix UI state that still affects the listening experience —
+// playback mode (single/repeat/shuffle) + which side panels are open.
+export function collectUiState(el) {
+    const out = {};
+    if (el._playbackMode && el._playbackMode !== 'single') out.playbackMode = el._playbackMode;
+    if (el._showFx === false) out.showFx = false;           // FX panel defaults open
+    if (el._showMacros) out.showMacros = true;
+    if (el._showOneShots) out.showOneShots = true;
+    return out;
+}
+
 // Build the `share-v1` JSON-LD payload from the live UI + project.
 // Reproducibility contract: genre + params regenerate nets; overrides
 // carry everything not reconstructible from the recipe alone.
@@ -153,5 +183,9 @@ export function buildSharePayload(el) {
     if (disabled.length) payload.macrosDisabled = disabled;
     const mutes = collectInitialMutes(el);
     if (mutes.length) payload.initialMutes = mutes;
+    const hits = collectHitState(el);
+    if (Object.keys(hits).length) payload.hits = hits;
+    const ui = collectUiState(el);
+    if (Object.keys(ui).length) payload.ui = ui;
     return payload;
 }
