@@ -516,14 +516,17 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi) {
     if (midi) {
         // Apply client-side humanization.
         let m = humanizeNote(el, midi);
-        // Stinger Fire-pad pitch offset: while a hit's Fire macro window
-        // is active, transpose every note fired by that net by the
-        // selected semitones. Drums: keep the same velocity but let the
-        // note-level transpose pass through (channel has per-voice pitch
-        // handling, so offset still lands as tuning not drum-role change).
-        const semi = el._stingerPitchOffsets?.[netId];
-        if (Number.isFinite(semi) && semi !== 0) {
-            m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
+        // Hit-pad live pitch: the .pn-os-pitch dropdown in the Beats
+        // panel acts as a transpose for the stinger track whenever it's
+        // unmuted — via Fire, the 1–4 hotkey, or the mixer mute button.
+        // Reading the DOM every fire keeps the dropdown as the single
+        // source of truth, no timer reconciliation needed.
+        if (typeof netId === 'string' && netId.startsWith('hit')) {
+            const pitchSel = el.querySelector(`.pn-os-pitch[data-macro="${netId}"]`);
+            const semi = parseInt(pitchSel?.value, 10);
+            if (Number.isFinite(semi) && semi !== 0) {
+                m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
+            }
         }
         const delay = swingDelay(el);
 

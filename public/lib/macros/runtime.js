@@ -209,26 +209,14 @@ export function executeMacro(el, id) {
         el._tempoSweep(macro.finalBpm, durationMs);
     } else if (macro.kind === 'one-shot') {
         // Fire pad is an N-bar macro: unmute the stinger net for the
-        // selected bar count so its Petri ring pulses every beat, apply
-        // the Pit transpose to that track for the window, optionally
-        // stack a paired FX macro for the same duration, then re-mute
-        // and restore pitch on release.
+        // selected bar count so its Petri ring pulses every beat, then
+        // re-mute on timer. The Pit dropdown is read live per-note in
+        // onRemoteTransitionFired — not stashed here — so manual unmute
+        // via hotkey 1–4 or the mixer mute button respects the same
+        // pitch setting without a separate code path.
         const barsSel = el.querySelector(`.pn-os-bars[data-macro="${id}"]`);
         const bars = parseInt(barsSel?.value, 10) || 2;
-        const pitchSel = el.querySelector(`.pn-os-pitch[data-macro="${id}"]`);
-        const pitch = parseInt(pitchSel?.value, 10) || 0;
         const windowMs = bars * el._msPerBar();
-
-        // Pitch: stash an offset on the element, read in the note-play
-        // path, and clear on release. Prior timer gets cancelled so a
-        // re-fire on the same pad extends the window instead of racing.
-        el._stingerPitchOffsets ||= {};
-        el._stingerPitchTimers  ||= {};
-        el._stingerPitchOffsets[id] = pitch;
-        clearTimeout(el._stingerPitchTimers[id]);
-        el._stingerPitchTimers[id] = setTimeout(() => {
-            delete el._stingerPitchOffsets[id];
-        }, windowMs);
 
         // Unmute for the window (track re-mutes on timer expiry). Skip
         // when the track is 'unbound' (silent slot) — the paired FX is
