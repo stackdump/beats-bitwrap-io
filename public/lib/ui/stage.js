@@ -235,7 +235,17 @@ export function stageOnProjectSync(el) {
 
 export function stageOnMuteStateChange(el) {
     if (!session) return;
+    const nets = el._project?.nets || {};
     for (const p of session.panels) {
+        // If this panel represents a riffGroup and a *different* variant
+        // is now the unmuted one, swap the displayed net (A→B slot flip
+        // at a section boundary). Skip for panels with no riffGroup.
+        if (p.riffGroup) {
+            const groupIds = Object.keys(nets).filter(id => nets[id]?.riffGroup === p.riffGroup);
+            const active = groupIds.find(id =>
+                !el._mutedNets?.has(id) && !el._manualMutedNets?.has(id));
+            if (active && active !== p.netId) repanel(p, active);
+        }
         const muted = el._mutedNets?.has(p.netId) || el._manualMutedNets?.has(p.netId);
         p.root.classList.toggle('muted', !!muted);
     }
@@ -434,12 +444,28 @@ function eligibleNetIds(el) {
         }
         ids.push(id);
     }
-    ids.sort((a, b) => {
+    // Collapse riffGroup variants (A/B/C slot alternates) to a single
+    // panel per logical track, matching the mixer's collapsed view.
+    // Pick whichever variant is currently unmuted; fall back to the
+    // first one so all-muted groups still render a dimmed placeholder.
+    const picked = [];
+    const seenGroup = new Set();
+    for (const id of ids) {
+        const group = nets[id]?.riffGroup;
+        if (!group) { picked.push(id); continue; }
+        if (seenGroup.has(group)) continue;
+        seenGroup.add(group);
+        const groupIds = ids.filter(x => nets[x]?.riffGroup === group);
+        const active = groupIds.find(x =>
+            !el._mutedNets?.has(x) && !el._manualMutedNets?.has(x));
+        picked.push(active || groupIds[0]);
+    }
+    picked.sort((a, b) => {
         const ca = nets[a]?.track?.channel ?? 0;
         const cb = nets[b]?.track?.channel ?? 0;
         return ca - cb;
     });
-    return distributeEvenly(ids);
+    return distributeEvenly(picked);
 }
 
 // Deterministic golden-ratio stride permutation. Panels arriving in
@@ -498,13 +524,32 @@ function buildOnePanel(el, grid, netId) {
     const angleVelDps = sign * (3 + Math.random() * 6); // 3–9 °/s drift
 
     const entry = {
-        netId, root, canvas, ctx, stage, nodes,
+        netId, riffGroup: net.riffGroup || '', root, canvas, ctx, stage, nodes,
         dpr: window.devicePixelRatio || 1,
         view: { scale: 1, tx: 0, ty: 0 },
         angle: 0,
         angleVelDps,
     };
     return entry;
+}
+
+// Swap a panel's displayed net (riffGroup slot flip) in-place: wipe
+// stage DOM + nodes and rebuild from the new net so activate-slot at a
+// section boundary updates the ring without a full panel tear-down.
+function repanel(entry, newNetId) {
+    const net = session?.el?._project?.nets?.[newNetId];
+    if (!net) return;
+    entry.netId = newNetId;
+    entry.root.dataset.netId = newNetId;
+    entry.stage.innerHTML = '';
+    const nodes = {};
+    for (const [id, place] of Object.entries(net.places)) createPlaceNode(entry.stage, nodes, id, place);
+    for (const [id, trans] of Object.entries(net.transitions)) createTransitionNode(entry.stage, nodes, id, trans);
+    entry.nodes = nodes;
+    const label = net.riffGroup || net.track?.instrument || newNetId;
+    const labelEl = entry.root.querySelector('.pn-stage-label');
+    if (labelEl) labelEl.textContent = String(label);
+    layoutPanel(entry);
 }
 
 // Translate a panel sub-node's screen position into coordinates used by
