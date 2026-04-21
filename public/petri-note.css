@@ -2412,7 +2412,7 @@ input[type="range"][data-default] {
 .pn-stage-menu .pn-stage-scale:focus { outline: none; border-color: rgba(74,144,217,0.55); }
 .pn-stage-stats {
     position: absolute;
-    top: 18px;
+    bottom: 18px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 3;
