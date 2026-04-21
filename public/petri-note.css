@@ -2338,10 +2338,6 @@ input[type="range"][data-default] {
         display: none;
     }
 
-    /* Download/upload/share: hide on tablets */
-    .pn-download-btn,
-    .pn-upload-btn,
-    .pn-share-btn,
     .pn-upload-input {
         display: none;
     }
