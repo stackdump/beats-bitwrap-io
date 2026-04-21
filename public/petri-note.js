@@ -839,6 +839,14 @@ class PetriNote extends HTMLElement {
             case 's': e.preventDefault(); this.querySelector('.pn-shuffle-btn')?.click(); return;
             case 'f': e.preventDefault(); this._openFeelModal(); return;
             case 'm': e.preventDefault(); this._toggleStage(); return;
+            case 'j': {
+                const cb = this.querySelector('.pn-autodj-enable');
+                if (!cb) return;
+                e.preventDefault();
+                cb.checked = !cb.checked;
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
             case 't': e.preventDefault(); this._tapTempo(); return;
             case '?': e.preventDefault(); this.querySelector('.pn-help-btn')?.click(); return;
             case '1': case '2': case '3': case '4': {

@@ -296,7 +296,7 @@ export function showHelpModal(el) {
             <ul>
                 <li><b>Space</b> &mdash; play / stop</li>
                 <li><b>G</b> &mdash; generate new track &middot; <b>S</b> &mdash; shuffle instruments</li>
-                <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage</li>
+                <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage &middot; <b>J</b> &mdash; toggle Auto-DJ Run</li>
                 <li><b>T</b> &mdash; tap tempo (3+ taps sets BPM; pause 2s to reset)</li>
                 <li><b>1</b>&ndash;<b>4</b> &mdash; toggle hit1&ndash;hit4 stinger tracks on/off (steady pulse when on)</li>
                 <li><b>[</b> / <b>]</b> &mdash; previous / next track</li>
