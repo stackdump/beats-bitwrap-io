@@ -857,6 +857,13 @@ class PetriNote extends HTMLElement {
         // drop taps older than 2s — that's a new count-in
         this._tapHistory = this._tapHistory.filter(t => now - t < 2000);
         this._tapHistory.push(now);
+        // Brief flash so the user sees the tap landed.
+        const btn = this.querySelector('.pn-tap-tempo');
+        if (btn) {
+            btn.classList.add('tapping');
+            clearTimeout(this._tapFlashTimer);
+            this._tapFlashTimer = setTimeout(() => btn.classList.remove('tapping'), 80);
+        }
         if (this._tapHistory.length < 2) return;
         const intervals = [];
         for (let i = 1; i < this._tapHistory.length; i++) {

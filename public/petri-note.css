@@ -136,8 +136,12 @@ petri-note {
     color: #888;
 }
 
-.pn-tap-tempo {
-    padding: 4px 8px;
+/* Higher specificity than .pn-transport button so the auto-square
+ * dimensions don't apply to the text pill. */
+.pn-transport .pn-tap-tempo {
+    width: auto;
+    height: auto;
+    padding: 4px 10px;
     border: 1px solid #0f3460;
     border-radius: 4px;
     background: transparent;
@@ -145,11 +149,21 @@ petri-note {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.5px;
+    text-transform: uppercase;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.pn-tap-tempo:hover { background: #0f3460; color: #fff; }
-.pn-tap-tempo:active { background: #533483; color: #fff; }
+.pn-transport .pn-tap-tempo:hover {
+    background: #0f3460;
+    border-color: #1a4a7a;
+    color: #fff;
+}
+.pn-transport .pn-tap-tempo:active,
+.pn-transport .pn-tap-tempo.tapping {
+    background: #533483;
+    border-color: #6a47a3;
+    color: #fff;
+}
 
 /* Genre traits display */
 .pn-genre-traits {
