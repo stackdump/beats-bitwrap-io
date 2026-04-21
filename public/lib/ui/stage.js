@@ -75,7 +75,7 @@ export function openStage(el) {
         pulses: [],           // { x0, y0, cx, cy, born, life }  for pulse mode
         tiltAngle: 0,         // accumulator for tilt mode
         ringCenter: { x: 0, y: 0 },
-        flameBuckets: new Float32Array(64), // radial energy for flame mode
+        flameEnergy: new Map(), // netId -> energy (0..1) for flame mode
         flameCanvas: null,
         flameCtx: null,
         scale: 'loop',        // panel-size scale: loop (default) / s / m / l / xl
@@ -137,7 +137,7 @@ export function openStage(el) {
             session.tiltAngle = 0;
         }
         if (mode === 'flame' && on) {
-            session.flameBuckets.fill(0);
+            session.flameEnergy.clear();
             if (session.flameCtx && session.flameCanvas) {
                 session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
             }
@@ -178,34 +178,29 @@ export function stageOnTransitionFired(el, netId, transitionId) {
         node.classList.add('firing');
         setTimeout(() => node.classList.remove('firing'), 100);
     }
-    // Pulse mode: spawn a particle at the panel's outer ring position
-    // and let it fade toward the ring center — "beat flying into the
-    // void". Cap the pulse list so a flurry of transitions doesn't
-    // accumulate unbounded SVG nodes.
+    // Pulse mode: spawn a particle at the fired transition's actual
+    // position on its sub-ring (not just the panel center), and let it
+    // fade toward the ring center — "beat flying into the void". Cap
+    // the pulse list so a flurry of transitions doesn't accumulate
+    // unbounded SVG nodes.
     if (session.vizModes.has('pulse') && panel?.ringX != null) {
+        const origin = nodeCenterInStage(session, node) || { x: panel.ringX, y: panel.ringY };
         if (session.pulses.length > 64) session.pulses.shift();
         session.pulses.push({
-            x0: panel.ringX, y0: panel.ringY,
+            x0: origin.x, y0: origin.y,
             cx: session.ringCenter.x, cy: session.ringCenter.y,
             born: performance.now(),
             life: 700,
         });
     }
-    // Flame: bump the radial bar at the panel's angle (plus neighbours
-    // for a soft shoulder so the flame "licks" sideways, not a single
-    // spike).
+    // Flame: bump this panel's radial beam. One beam per panel, aimed
+    // exactly at the panel's angle, so firings line up with visible
+    // panel positions regardless of how many are on stage.
     if (session.vizModes.has('flame') && panel?.ringX != null) {
-        const dx = panel.ringX - session.ringCenter.x;
-        const dy = panel.ringY - session.ringCenter.y;
-        const theta = Math.atan2(dy, dx);        // -π … π
-        const N = session.flameBuckets.length;
-        const center = Math.floor(((theta + Math.PI) / (2 * Math.PI)) * N) % N;
-        const buckets = session.flameBuckets;
-        for (let k = -2; k <= 2; k++) {
-            const idx = ((center + k) % N + N) % N;
-            const w = Math.max(0, 1 - Math.abs(k) / 3);
-            buckets[idx] = Math.min(1, buckets[idx] + 0.9 * w);
-        }
+        const prev = session.flameEnergy.get(panel.netId) || 0;
+        session.flameEnergy.set(panel.netId, Math.min(1, prev + 0.9));
+        const origin = nodeCenterInStage(session, node);
+        if (origin) panel.flameOrigin = origin;
     }
 }
 
@@ -223,7 +218,7 @@ export function stageOnProjectSync(el) {
     for (const p of session.panels) p.root.remove();
     session.panels.length = 0;
     session.pulses.length = 0;
-    session.flameBuckets.fill(0);
+    session.flameEnergy.clear();
     for (const entry of buildPanels(el, grid)) session.panels.push(entry);
     // Sync structure dropdown to whatever the header now shows.
     const structSel = session.overlay.querySelector('.pn-stage-structure');
@@ -508,6 +503,19 @@ function buildOnePanel(el, grid, netId) {
     return entry;
 }
 
+// Translate a panel sub-node's screen position into coordinates used by
+// the stage-level canvas/svg overlays (which are children of
+// `.pn-stage-grid`). Used by pulse/flame to originate effects from the
+// actual fired transition rather than the panel center.
+function nodeCenterInStage(s, node) {
+    if (!node) return null;
+    const grid = s.overlay?.querySelector('.pn-stage-grid');
+    if (!grid) return null;
+    const nr = node.getBoundingClientRect();
+    const gr = grid.getBoundingClientRect();
+    return { x: nr.left + nr.width / 2 - gr.left, y: nr.top + nr.height / 2 - gr.top };
+}
+
 function createPlaceNode(stage, nodes, id, place) {
     const node = document.createElement('div');
     node.className = 'pn-node pn-place';
@@ -663,10 +671,10 @@ function startLoop() {
         if (pulseOn || session.pulses.length) renderPulses(now);
         // Flame: decay buckets + draw the radial equalizer.
         if (session.vizModes.has('flame')) renderFlame(dt);
-        else if (session.flameCtx && session.flameCanvas && session.flameBuckets.some(v => v > 0)) {
+        else if (session.flameCtx && session.flameCanvas && session.flameEnergy.size > 0) {
             // One-shot clear when the mode is toggled off.
             session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
-            session.flameBuckets.fill(0);
+            session.flameEnergy.clear();
         }
         for (const p of session.panels) {
             if (flowOn) p.angle += p.angleVelDps * dt;
@@ -698,30 +706,38 @@ function renderFlame(dt) {
     const w = session.flameCanvas.width / (window.devicePixelRatio || 1);
     const h = session.flameCanvas.height / (window.devicePixelRatio || 1);
     ctx.clearRect(0, 0, w, h);
-    const buckets = session.flameBuckets;
-    const N = buckets.length;
+    const cx = session.ringCenter.x;
+    const cy = session.ringCenter.y;
     // Exponential decay — half-life ~180ms. Tweak if the flame is too
     // twitchy or too sticky.
     const decay = Math.exp(-dt * 4);
-    const cx = session.ringCenter.x;
-    const cy = session.ringCenter.y;
-    const maxLen = Math.min(cx, cy, w - cx, h - cy) * 0.6;
+    const n = session.panels.length;
+    const halfAng = n > 0 ? (Math.PI / n) * 0.6 : 0.05;
     const innerR = Math.min(cx, cy) * 0.10;
-    for (let i = 0; i < N; i++) {
-        buckets[i] *= decay;
-        const v = buckets[i];
-        if (v < 0.01) continue;
-        const theta = (i / N) * Math.PI * 2 - Math.PI;
-        const barLen = innerR + maxLen * v;
-        const halfAng = (Math.PI / N) * 0.9; // bar width as angle
+    for (const p of session.panels) {
+        const v = (session.flameEnergy.get(p.netId) || 0) * decay;
+        if (v < 0.01) { session.flameEnergy.delete(p.netId); continue; }
+        session.flameEnergy.set(p.netId, v);
+        if (p.ringX == null) continue;
+        // Prefer the last fired transition node's position so the beam
+        // emerges from a point on the sub-ring, not the panel center.
+        const tx = p.flameOrigin?.x ?? p.ringX;
+        const ty = p.flameOrigin?.y ?? p.ringY;
+        const dx = tx - cx;
+        const dy = ty - cy;
+        const dist = Math.hypot(dx, dy) || 1;
+        const theta = Math.atan2(dy, dx);
+        // Beam reaches almost to the panel edge so the flame visibly
+        // terminates at the panel that fired.
+        const barLen = Math.max(innerR + 4, dist * (0.55 + 0.4 * v));
         const x1 = cx + innerR * Math.cos(theta - halfAng);
         const y1 = cy + innerR * Math.sin(theta - halfAng);
         const x2 = cx + innerR * Math.cos(theta + halfAng);
         const y2 = cy + innerR * Math.sin(theta + halfAng);
-        const x3 = cx + barLen * Math.cos(theta + halfAng * 0.4);
-        const y3 = cy + barLen * Math.sin(theta + halfAng * 0.4);
-        const x4 = cx + barLen * Math.cos(theta - halfAng * 0.4);
-        const y4 = cy + barLen * Math.sin(theta - halfAng * 0.4);
+        const x3 = cx + barLen * Math.cos(theta + halfAng * 0.35);
+        const y3 = cy + barLen * Math.sin(theta + halfAng * 0.35);
+        const x4 = cx + barLen * Math.cos(theta - halfAng * 0.35);
+        const y4 = cy + barLen * Math.sin(theta - halfAng * 0.35);
         const tipX = cx + barLen * Math.cos(theta);
         const tipY = cy + barLen * Math.sin(theta);
         const grad = ctx.createLinearGradient(cx, cy, tipX, tipY);
