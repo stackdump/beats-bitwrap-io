@@ -292,15 +292,10 @@ function layoutRing(s) {
     let baseFrac = n <= 3 ? 0.42 : n <= 5 ? 0.30 : n <= 8 ? 0.24 : 0.20;
     const scaleMult = { loop: 1, s: 0.65, m: 0.85, l: 1.25, xl: 1.6 }[s.scale] ?? 1;
     baseFrac *= scaleMult;
-    // Geometry fit: for a ring of radius r with N tangential panels of edge
-    // `side`, angular slot ≈ side/r, summing to 2π → side = 2πr/N. With r
-    // bounded by the viewport (r = R - side/2), solve side = 2πR/(N+π).
-    // Take 0.88× so adjacent panels don't kiss. Keeps the layout readable
-    // at large N (e.g. Extended structure with 30+ nets).
-    const R = Math.min(w, h) / 2 - 24;
-    const geomSide = (2 * Math.PI * R) / (n + Math.PI) * 0.88;
-    const aesthetic = Math.max(80, Math.min(520, Math.min(w, h) * baseFrac));
-    const side = Math.max(40, Math.min(aesthetic, geomSide));
+    // Panels are intentionally allowed to overlap at high N — the
+    // interleaved sub-nets form a mandala. overflow:visible on the
+    // panel box (see CSS) lets each sub-net render at full size.
+    const side = Math.max(140, Math.min(520, Math.min(w, h) * baseFrac));
     const radius = Math.min(w, h) / 2 - side / 2 - 24;
     const cx = w / 2, cy = h / 2;
 
