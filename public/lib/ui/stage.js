@@ -565,14 +565,14 @@ function drawPanel(entry) {
     ctx.translate(view.tx, view.ty);
     ctx.scale(view.scale, view.scale);
 
-    // Rotation: drift around the places centroid.
-    let sx = 0, sy = 0, n = 0;
-    for (const p of Object.values(net.places || {})) { sx += p.x; sy += p.y; n++; }
-    if (n > 0) {
-        const rx = sx / n, ry = sy / n;
-        ctx.translate(rx, ry);
+    // Rotation: spin around the same point the DOM stage transform
+    // uses (view.cx/cy = bounding-box center). Using a different pivot
+    // here (e.g. places centroid) would make the canvas arcs drift
+    // relative to the DOM nodes over time.
+    if (Number.isFinite(view.cx) && Number.isFinite(view.cy)) {
+        ctx.translate(view.cx, view.cy);
         ctx.rotate(entry.angle * Math.PI / 180);
-        ctx.translate(-rx, -ry);
+        ctx.translate(-view.cx, -view.cy);
     }
 
     ctx.globalAlpha = 0.6;
