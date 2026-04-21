@@ -69,6 +69,10 @@ Each genre defines BPM, scale type, root note, Euclidean drum parameters, melody
 - **Universal hover-scroll** — every slider, dropdown, and number input nudges by 1 on mouse wheel
 - **Instrument shuffle** — randomize synth patches per track from genre-curated sets
 - **Download/upload** — export projects as JSON-LD, re-import later
+- **Feel modal** — XY morph pad with four corner snapshots (Ambient / Euphoric / Chill / Drive). Genre constellation plots all 19 presets on the pad so you can see where each lives before dragging; click a star to snap the puck there.
+- **Stage mode** — full-page animated view of every unmuted music net. Each track renders as a live sub-Petri ring, arranged as a meta-net with connector places + arrows. Four stackable viz modes: Flow (panels drift), Pulse (beats fly to center), Flame (radial equalizer), Tilt (3D perspective rotation).
+- **Keyboard shortcuts** — `Space` play/stop · `G` generate · `S` shuffle · `F` Feel · `M` Stage · `J` Auto-DJ Run · `A` animate-only · `P` panic · `B` FX bypass · `R` FX reset · `T` tap tempo · `,` / `.` BPM −1 / +1 · `1`–`4` toggle hit tracks · `[` / `]` prev / next track · `←↑→↓` nudge hovered slider · `?` help.
+- **Shareable links** — the Share button mints a content-addressed `?cid=…` URL that captures the full listening experience (genre + seed + mix + FX + Feel + Auto-DJ + Fire pads + loop region). Short-link mode uploads canonical JSON to the server; self-contained mode inlines a gzipped payload so the link works offline or if the store is purged.
 
 ## Build & Run
 

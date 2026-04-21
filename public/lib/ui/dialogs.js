@@ -325,10 +325,30 @@ export function showHelpModal(el) {
             <ul>
                 <li>Pick any instrument on the hit row &mdash; curated set of airhorn / laser / subdrop / booj stingers, plus percussion, stabs, bells, bass hits, short leads</li>
                 <li>Pick <b>Unbound</b> to silence the slot while keeping the net running (useful for pairing macros without sound)</li>
-                <li>The <b>Fire</b> pad manually triggers the slot via the track's channel (vol / pan / filter apply, bypasses mute)</li>
-                <li><b>Pit</b> dropdown transposes in semitones &mdash; also applied by the row's test-note (&#9835;) button</li>
-                <li><b>FX</b> dropdown pairs any macro with the Fire click &mdash; sound + effect in one tap</li>
+                <li><b>Fire</b> is an N-bar macro: unmutes the track for the selected bar count (default 2) so it pulses every beat, then re-mutes. Re-firing resets the window</li>
+                <li><b>bars</b> dropdown (1 / 2 / 4 / 8) sets the Fire window length</li>
+                <li><b>Pit</b> dropdown transposes the track in semitones &mdash; active whenever the track is unmuted (Fire, hotkey <b>1</b>&ndash;<b>4</b>, or the mixer mute button), read live on every beat</li>
+                <li><b>FX</b> dropdown pairs any macro with the Fire click &mdash; runs for the same N bars as the Fire window (not the macro's own default)</li>
                 <li><b>&raquo;</b> on a hit's mixer row cycles through non-percussion instruments</li>
+                <li>Press <b>1</b>&ndash;<b>4</b> anywhere to toggle hit1&ndash;hit4 mute directly &mdash; same behavior as clicking the mixer row's mute button</li>
+            </ul>
+
+            <h3>Feel modal</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Click the &#9672; next to the genre select (or press <b>F</b>). XY morph pad with four corner snapshots &mdash; Chill (bottom-left), Drive (bottom-right), Ambient (top-left), Euphoric (top-right). Drag the puck to bilinearly blend tempo / master FX / Auto-DJ / swing / humanize in real time.</p>
+            <ul>
+                <li><b>Genre constellation</b>: all 19 presets plotted on the pad by their natural vibe. Hover a star to preview with a dashed ghost puck (no commit); click to snap the puck there and engage Feel</li>
+                <li><b>Engage / disengage</b>: Feel overrides the genre defaults only while engaged. <b>Cancel</b> fully restores the pre-open state</li>
+                <li>The current genre's star glows gold so you can see where you are on the map at a glance</li>
+            </ul>
+
+            <h3>Stage mode</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Click the <b>&#9635; Stage</b> pill (or press <b>M</b>) for a full-page animated view. Every unmuted music net renders as its own live sub-Petri ring; they're arranged as a meta-Petri-net with connector place-circles + arrows between panels. Read-only; audio keeps playing.</p>
+            <ul>
+                <li><b>Flow</b> &mdash; each panel drifts slowly around its own center (on by default)</li>
+                <li><b>Pulse</b> &mdash; beat particles fly from each panel to the composition center; the panel rings sit in front so particles appear to emerge from behind them</li>
+                <li><b>Flame</b> &mdash; per-panel radial beam aimed at each panel's exact angle, heat decays between fires</li>
+                <li><b>Tilt</b> &mdash; 3D perspective rotation of the whole grid</li>
+                <li>All four modes stack independently. <b>Esc</b> closes</li>
             </ul>
 
             <h3>Auto-DJ</h3>
