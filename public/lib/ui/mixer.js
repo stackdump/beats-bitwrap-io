@@ -653,11 +653,11 @@ export function mixerSlidersHtml(netId, isPercussion) {
     return `
             <div class="pn-mixer-slider-group">
                 <span>Pan</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-pan" data-net-id="${netId}" data-default="64" min="0" max="127" value="64">
+                <input type="range" class="pn-mixer-slider pn-mixer-pan" data-net-id="${netId}" data-default="64" min="0" max="127" value="64" aria-label="${netId} pan" title="Pan">
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Vol</span>
-                <select class="pn-mixer-slider pn-mixer-vol" data-net-id="${netId}" data-default="80">${
+                <select class="pn-mixer-slider pn-mixer-vol" data-net-id="${netId}" data-default="80" aria-label="${netId} volume" title="Volume">${
                     Array.from({ length: 101 }, (_, v) =>
                         `<option value="${v}"${v === 80 ? ' selected' : ''}>${v}</option>`
                     ).join('')
@@ -665,23 +665,23 @@ export function mixerSlidersHtml(netId, isPercussion) {
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HP</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-locut" data-net-id="${netId}" data-default="0" min="0" max="100" value="0" title="Low cut (high-pass)">
+                <input type="range" class="pn-mixer-slider pn-mixer-locut" data-net-id="${netId}" data-default="0" min="0" max="100" value="0" aria-label="${netId} high-pass cutoff" title="Low cut (high-pass)">
             </div>
             <div class="pn-mixer-slider-group">
                 <span>HPR</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-loreso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" title="Low cut resonance">
+                <input type="range" class="pn-mixer-slider pn-mixer-loreso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} high-pass resonance" title="Low cut resonance">
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LP</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-cutoff" data-net-id="${netId}" data-default="100" min="0" max="100" value="100" title="High cut (low-pass)">
+                <input type="range" class="pn-mixer-slider pn-mixer-cutoff" data-net-id="${netId}" data-default="100" min="0" max="100" value="100" aria-label="${netId} low-pass cutoff" title="High cut (low-pass)">
             </div>
             <div class="pn-mixer-slider-group">
                 <span>LPR</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-reso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" title="High cut resonance">
+                <input type="range" class="pn-mixer-slider pn-mixer-reso" data-net-id="${netId}" data-default="5" min="0" max="100" value="5" aria-label="${netId} low-pass resonance" title="High cut resonance">
             </div>
             <div class="pn-mixer-slider-group">
                 <span>Dec</span>
-                <input type="range" class="pn-mixer-slider pn-mixer-decay" data-net-id="${netId}" data-default="${decDefault}" min="5" max="300" value="${decDefault}" title="Envelope decay">
+                <input type="range" class="pn-mixer-slider pn-mixer-decay" data-net-id="${netId}" data-default="${decDefault}" min="5" max="300" value="${decDefault}" aria-label="${netId} envelope decay" title="Envelope decay">
             </div>
             `;
 }

@@ -500,6 +500,31 @@ export function openFeelModal(el) {
     svg.addEventListener('pointerdown', onDown);
     svg.addEventListener('pointermove', onMove);
     svg.addEventListener('pointerup',   onUp);
+
+    // Constellation hover preview — moving the mouse over a genre star
+    // floats the puck there without engaging Feel or pushing values.
+    // Leaving the star restores the puck to its anchored spot. Click
+    // still snaps + commits via the existing pointerdown path.
+    const constellation = overlay.querySelector('.pn-feel-constellation');
+    if (constellation) {
+        constellation.addEventListener('pointerover', (e) => {
+            if (dragging) return;
+            const star = e.target.closest('.pn-feel-star');
+            if (!star) return;
+            const x = +star.dataset.x, y = +star.dataset.y;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            puck = [x, y];
+            redraw();
+        });
+        constellation.addEventListener('pointerout', (e) => {
+            if (dragging) return;
+            const star = e.target.closest('.pn-feel-star');
+            const into = e.relatedTarget?.closest?.('.pn-feel-star');
+            if (!star || into === star) return;
+            puck = [...(el._feelState?.puck ?? snapshotPuck)];
+            redraw();
+        });
+    }
     svg.addEventListener('pointercancel', onUp);
 
     const close = () => { el._feelPreviewMode = false; overlay.remove(); };

@@ -683,7 +683,7 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">{{.Seed}}</text>
 
-      <text x="340" y="410" font-size="18" fill="#888">KEY · MODE</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
       <text x="340" y="440" font-size="28" fill="#ccc">{{if .Key}}{{.Key}}{{else}}&#8212;{{end}} · {{svgEscape .Mode}}</text>
     </g>
   </g>

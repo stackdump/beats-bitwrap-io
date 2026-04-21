@@ -181,7 +181,7 @@ export function renderShareCardSvg(opts) {
       <text x="70" y="340" font-size="56" font-weight="700" fill="#eee">${tempo}<tspan font-size="28" fill="#888"> BPM</tspan></text>
       <text x="70" y="410" font-size="18" fill="#888">SEED</text>
       <text x="70" y="440" font-size="28" fill="#ccc">${seed}</text>
-      <text x="340" y="410" font-size="18" fill="#888">KEY · MODE</text>
+      <text x="340" y="410" font-size="18" fill="#888">KEY · BARS</text>
       <text x="340" y="440" font-size="28" fill="#ccc">${svgEscape(keyLabel(rootNote, scaleName) || '—')} · ${svgEscape(barLabel(bars, structureMode))}</text>
     </g>
   </g>

@@ -292,6 +292,18 @@ export function showHelpModal(el) {
                 <li><b>&star;</b> on any mixer row opens its Preset Manager to save / apply / delete tone presets (pan, vol, filters, decay) &mdash; saved to browser storage, scoped by channel</li>
             </ul>
 
+            <h3>Keyboard Shortcuts</h3>
+            <ul>
+                <li><b>Space</b> &mdash; play / stop</li>
+                <li><b>G</b> &mdash; generate new track &middot; <b>S</b> &mdash; shuffle instruments</li>
+                <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage</li>
+                <li><b>T</b> &mdash; tap tempo (3+ taps sets BPM; pause 2s to reset)</li>
+                <li><b>1</b>&ndash;<b>4</b> &mdash; fire hit1&ndash;hit4 stinger pads</li>
+                <li><b>[</b> / <b>]</b> &mdash; previous / next track</li>
+                <li><b>&larr;</b> / <b>&rarr;</b> / <b>&uarr;</b> / <b>&darr;</b> &mdash; nudge the hovered slider by 1</li>
+                <li><b>?</b> &mdash; open this help &middot; <b>Esc</b> &mdash; close modal</li>
+            </ul>
+
             <h3>Tabs</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The four toggle buttons above the mixer &mdash; <b>FX</b>, <b>Macros</b>, <b>Beats</b>, <b>Auto-DJ</b> &mdash; each open independently. Stacked top-to-bottom in that order.</p>
 

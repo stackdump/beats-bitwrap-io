@@ -620,6 +620,7 @@ class PetriNote extends HTMLElement {
             const step = e.deltaY < 0 ? 1 : -1;
             this._setTempo(parseInt(input.value, 10) + step);
         }, { passive: false });
+        this.querySelector('.pn-tap-tempo')?.addEventListener('click', () => this._tapTempo());
 
         // Track navigation
         this.querySelector('.pn-track-prev').addEventListener('click', () => this._navTrack(-1));
@@ -807,12 +808,18 @@ class PetriNote extends HTMLElement {
     _onWheel(e) {}
 
     _onKeyDown(e) {
-        // Space to play/stop
-        if (e.key === ' ' && e.target.tagName !== 'INPUT') {
+        const tag = e.target.tagName;
+        const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target.isContentEditable;
+        const modalOpen = !!document.querySelector('.pn-modal-overlay, .pn-welcome-modal, .pn-stage-overlay');
+
+        // Space to play/stop (works anywhere except text fields)
+        if (e.key === ' ' && !inInput) {
             e.preventDefault();
             this._togglePlay();
+            return;
         }
-        // Arrow keys adjust hovered slider
+
+        // Arrow keys adjust hovered slider — always active
         if (this._hoveredSlider && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
             e.preventDefault();
             const slider = this._hoveredSlider;
@@ -821,7 +828,43 @@ class PetriNote extends HTMLElement {
             const max = parseInt(slider.max) || 127;
             slider.value = Math.max(min, Math.min(max, parseInt(slider.value) + step));
             slider.dispatchEvent(new Event('input', { bubbles: true }));
+            return;
         }
+
+        // Single-letter shortcuts — skip when typing or when a modal owns keys
+        if (inInput || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+        const k = e.key.toLowerCase();
+        switch (k) {
+            case 'g': e.preventDefault(); this.querySelector('.pn-generate-btn')?.click(); return;
+            case 's': e.preventDefault(); this.querySelector('.pn-shuffle-btn')?.click(); return;
+            case 'f': e.preventDefault(); this._openFeelModal(); return;
+            case 'm': e.preventDefault(); this._toggleStage(); return;
+            case 't': e.preventDefault(); this._tapTempo(); return;
+            case '?': e.preventDefault(); this.querySelector('.pn-help-btn')?.click(); return;
+            case '1': case '2': case '3': case '4': {
+                const pad = this.querySelector(`.pn-os-fire[data-macro="hit${k}"]`);
+                if (pad) { e.preventDefault(); pad.click(); }
+                return;
+            }
+            case '[': e.preventDefault(); this.querySelector('.pn-track-prev')?.click(); return;
+            case ']': e.preventDefault(); this.querySelector('.pn-track-next')?.click(); return;
+        }
+    }
+
+    _tapTempo() {
+        const now = performance.now();
+        if (!this._tapHistory) this._tapHistory = [];
+        // drop taps older than 2s — that's a new count-in
+        this._tapHistory = this._tapHistory.filter(t => now - t < 2000);
+        this._tapHistory.push(now);
+        if (this._tapHistory.length < 2) return;
+        const intervals = [];
+        for (let i = 1; i < this._tapHistory.length; i++) {
+            intervals.push(this._tapHistory[i] - this._tapHistory[i - 1]);
+        }
+        const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        const bpm = Math.round(60000 / avgMs);
+        if (bpm >= 40 && bpm <= 240) this._setTempo(bpm);
     }
 
     _loadUploadedProject(proj) { return loadUploadedProject(this, proj); }
@@ -1270,11 +1313,10 @@ class PetriNote extends HTMLElement {
     // marks the dropdown tilde + icon glow until the user regenerates.
     _updateProjectNameDisplay() {
         const el = this.querySelector('.pn-project-name');
-        if (!el) return;
         const name = this._project?.name || 'Untitled';
-        el.textContent = this._project?._feelsApplied
-            ? `${name} · feels`
-            : name;
+        const display = this._project?._feelsApplied ? `${name} · feels` : name;
+        if (el) el.textContent = display;
+        document.title = this._project ? `${display} — beats-btw` : 'beats-btw';
     }
 
     // === MIDI ===

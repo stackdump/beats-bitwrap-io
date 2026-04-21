@@ -136,7 +136,7 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 	drawText(dc, false, 16, 70, 410, 0.53, 0.53, 0.53, "SEED")
 	drawText(dc, false, 24, 70, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%d", p.Seed))
 
-	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "KEY · MODE")
+	drawText(dc, false, 16, 340, 410, 0.53, 0.53, 0.53, "KEY · BARS")
 	keyStr := keyLabel(p.RootNote, p.ScaleName)
 	if keyStr == "" {
 		keyStr = "—"

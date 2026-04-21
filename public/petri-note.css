@@ -136,6 +136,21 @@ petri-note {
     color: #888;
 }
 
+.pn-tap-tempo {
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.pn-tap-tempo:hover { background: #0f3460; color: #fff; }
+.pn-tap-tempo:active { background: #533483; color: #fff; }
+
 /* Genre traits display */
 .pn-genre-traits {
     display: flex;
@@ -816,7 +831,6 @@ input[type="range"][data-default] {
     font-weight: 500;
     letter-spacing: 0.3px;
     text-transform: uppercase;
-    pointer-events: none;
     user-select: none;
 }
 .pn-feel-constellation .pn-feel-star:hover circle {
@@ -1978,6 +1992,22 @@ input[type="range"][data-default] {
 
 .pn-shuffle-btn:hover {
     background: #16213e;
+    color: #fff;
+}
+
+.pn-stage-btn {
+    padding: 6px 12px;
+    border: 1px solid #533483;
+    border-radius: 4px;
+    background: transparent;
+    color: #c3a6ff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+.pn-stage-btn:hover {
+    background: #533483;
     color: #fff;
 }
 
