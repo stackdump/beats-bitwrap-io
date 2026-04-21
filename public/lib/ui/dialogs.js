@@ -298,7 +298,7 @@ export function showHelpModal(el) {
                 <li><b>G</b> &mdash; generate new track &middot; <b>S</b> &mdash; shuffle instruments</li>
                 <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage</li>
                 <li><b>T</b> &mdash; tap tempo (3+ taps sets BPM; pause 2s to reset)</li>
-                <li><b>1</b>&ndash;<b>4</b> &mdash; fire hit1&ndash;hit4 stinger pads</li>
+                <li><b>1</b>&ndash;<b>4</b> &mdash; toggle hit1&ndash;hit4 stinger tracks on/off (steady pulse when on)</li>
                 <li><b>[</b> / <b>]</b> &mdash; previous / next track</li>
                 <li><b>&larr;</b> / <b>&rarr;</b> / <b>&uarr;</b> / <b>&darr;</b> &mdash; nudge the hovered slider by 1</li>
                 <li><b>?</b> &mdash; open this help &middot; <b>Esc</b> &mdash; close modal</li>

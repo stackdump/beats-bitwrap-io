@@ -842,8 +842,11 @@ class PetriNote extends HTMLElement {
             case 't': e.preventDefault(); this._tapTempo(); return;
             case '?': e.preventDefault(); this.querySelector('.pn-help-btn')?.click(); return;
             case '1': case '2': case '3': case '4': {
-                const pad = this.querySelector(`.pn-os-fire[data-macro="hit${k}"]`);
-                if (pad) { e.preventDefault(); pad.click(); }
+                const netId = `hit${k}`;
+                if (this._project?.nets?.[netId]) {
+                    e.preventDefault();
+                    this._toggleMute(netId);
+                }
                 return;
             }
             case '[': e.preventDefault(); this.querySelector('.pn-track-prev')?.click(); return;
