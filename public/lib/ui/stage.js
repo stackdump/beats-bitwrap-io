@@ -31,6 +31,7 @@ export function openStage(el) {
             <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
             <button class="pn-stage-feel" title="Feel (F)">&#9672;</button>
+            <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
             <select class="pn-stage-structure" title="Track structure (bars)">
@@ -80,6 +81,7 @@ export function openStage(el) {
         flameCanvas: null,
         flameCtx: null,
         scale: 'loop',        // panel-size scale: loop (default) / s / m / l / xl
+        expandVariants: false, // false = collapse riffGroup → one panel; true = one panel per variant
     };
 
     session.onKey = (e) => { if (e.key === 'Escape') closeStage(el); };
@@ -95,6 +97,13 @@ export function openStage(el) {
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
     overlay.querySelector('.pn-stage-feel').addEventListener('click', () => {
         el._openFeelModal();
+    });
+    overlay.querySelector('.pn-stage-expand').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        session.expandVariants = !session.expandVariants;
+        btn.classList.toggle('active', session.expandVariants);
+        btn.setAttribute('aria-pressed', String(session.expandVariants));
+        stageOnProjectSync(el);
     });
     overlay.querySelector('.pn-stage-backs').addEventListener('click', (e) => {
         const btn = e.currentTarget;
@@ -446,19 +455,23 @@ function eligibleNetIds(el) {
     }
     // Collapse riffGroup variants (A/B/C slot alternates) to a single
     // panel per logical track, matching the mixer's collapsed view.
-    // Pick whichever variant is currently unmuted; fall back to the
-    // first one so all-muted groups still render a dimmed placeholder.
-    const picked = [];
-    const seenGroup = new Set();
-    for (const id of ids) {
-        const group = nets[id]?.riffGroup;
-        if (!group) { picked.push(id); continue; }
-        if (seenGroup.has(group)) continue;
-        seenGroup.add(group);
-        const groupIds = ids.filter(x => nets[x]?.riffGroup === group);
-        const active = groupIds.find(x =>
-            !el._mutedNets?.has(x) && !el._manualMutedNets?.has(x));
-        picked.push(active || groupIds[0]);
+    // Toolbar ⇄ button disables this and shows every variant.
+    let picked;
+    if (session?.expandVariants) {
+        picked = ids.slice();
+    } else {
+        picked = [];
+        const seenGroup = new Set();
+        for (const id of ids) {
+            const group = nets[id]?.riffGroup;
+            if (!group) { picked.push(id); continue; }
+            if (seenGroup.has(group)) continue;
+            seenGroup.add(group);
+            const groupIds = ids.filter(x => nets[x]?.riffGroup === group);
+            const active = groupIds.find(x =>
+                !el._mutedNets?.has(x) && !el._manualMutedNets?.has(x));
+            picked.push(active || groupIds[0]);
+        }
     }
     picked.sort((a, b) => {
         const ca = nets[a]?.track?.channel ?? 0;
