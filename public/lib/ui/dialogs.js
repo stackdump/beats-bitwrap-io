@@ -296,8 +296,10 @@ export function showHelpModal(el) {
             <ul>
                 <li><b>Space</b> &mdash; play / stop</li>
                 <li><b>G</b> &mdash; generate new track &middot; <b>S</b> &mdash; shuffle instruments</li>
-                <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage &middot; <b>J</b> &mdash; toggle Auto-DJ Run</li>
-                <li><b>T</b> &mdash; tap tempo (3+ taps sets BPM; pause 2s to reset)</li>
+                <li><b>F</b> &mdash; open Feel modal &middot; <b>M</b> &mdash; toggle Stage</li>
+                <li><b>J</b> &mdash; Auto-DJ Run &middot; <b>A</b> &mdash; Auto-DJ Animate only</li>
+                <li><b>P</b> &mdash; Panic (cancel all macros) &middot; <b>B</b> &mdash; FX Bypass &middot; <b>R</b> &mdash; FX Reset</li>
+                <li><b>T</b> &mdash; tap tempo (3+ taps sets BPM; pause 2s to reset) &middot; <b>,</b> / <b>.</b> &mdash; nudge BPM &minus;1 / +1</li>
                 <li><b>1</b>&ndash;<b>4</b> &mdash; toggle hit1&ndash;hit4 stinger tracks on/off (steady pulse when on)</li>
                 <li><b>[</b> / <b>]</b> &mdash; previous / next track</li>
                 <li><b>&larr;</b> / <b>&rarr;</b> / <b>&uarr;</b> / <b>&darr;</b> &mdash; nudge the hovered slider by 1</li>
