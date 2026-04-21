@@ -22,7 +22,7 @@ export function openStage(el) {
     if (!el._project || !el._project.nets) return;
 
     const overlay = document.createElement('div');
-    overlay.className = 'pn-stage-overlay';
+    overlay.className = 'pn-stage-overlay hide-backs';
     overlay.dataset.pnStage = '1';
     overlay.innerHTML = `
         <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
@@ -30,7 +30,7 @@ export function openStage(el) {
             <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
             <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
-            <button class="pn-stage-backs active" aria-pressed="true" title="Show/hide panel backgrounds">&#9632;</button>
+            <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <select class="pn-stage-structure" title="Track structure (bars)">
                 <option value="">Loop</option>
                 <option value="ab">A/B</option>
