@@ -562,11 +562,17 @@ export function openPresetManager(el, netId) {
         `;
     };
     render();
+    overlay.tabIndex = -1;
     el.appendChild(overlay);
+    overlay.focus();
 
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+    };
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay || e.target.classList.contains('close')) {
-            overlay.remove();
+            close();
             return;
         }
         if (e.target.classList.contains('save')) {
@@ -577,7 +583,7 @@ export function openPresetManager(el, netId) {
         const applyBtn = e.target.closest('.pn-preset-apply');
         if (applyBtn) {
             applyPreset(el, netId, applyBtn.dataset.presetId);
-            overlay.remove();
+            close();
             return;
         }
         const delBtn = e.target.closest('.pn-preset-delete');
@@ -592,9 +598,10 @@ export function openPresetManager(el, netId) {
             return;
         }
     });
-    overlay.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
-    });
+    const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+    };
+    document.addEventListener('keydown', onKey);
 }
 
 export function presetSelectHtml(el, instrument, channel) {
