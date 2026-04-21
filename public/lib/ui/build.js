@@ -12,6 +12,31 @@ import { toneEngine } from '../../audio/tone-engine.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
+import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
+
+// Live label for a master-FX slider. Mirrors the inline-span formats
+// the panel used to show, now surfaced via the floating cursor tip
+// so the panel itself stays narrow.
+function formatFxValue(fxName, val) {
+    const n = Number.isFinite(val) ? val : 0;
+    switch (fxName) {
+        case 'delay-time':   return (n / 100).toFixed(2) + 's';
+        case 'master-pitch': return (n > 0 ? '+' : '') + n + ' st';
+        case 'hp-freq':
+        case 'lp-freq': {
+            const f = fxName === 'hp-freq' ? hpFreq(n) : lpFreq(n);
+            return f < 1000 ? Math.round(f) + 'Hz' : (f / 1000).toFixed(1) + 'kHz';
+        }
+        case 'phaser-freq': {
+            if (n === 0) return 'Off';
+            const rate = 0.1 + (n / 100) * 9.9;
+            return rate.toFixed(1) + 'Hz';
+        }
+        case 'crush-bits':
+            return n === 0 ? 'Off' : Math.max(1, Math.round(16 - (n / 100) * 15)) + '-bit';
+        default: return n + '%';
+    }
+}
 
 export function buildUI(el) {
     el.innerHTML = '';
@@ -304,7 +329,6 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Vol</span>
                     <input type="range" class="pn-fx-slider" data-fx="master-vol" data-default="80" min="0" max="100" value="80">
-                    <span class="pn-fx-value" data-fx-val="master-vol">80%</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -312,17 +336,14 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Size</span>
                     <input type="range" class="pn-fx-slider" data-fx="reverb-size" data-default="50" min="0" max="100" value="50">
-                    <span class="pn-fx-value" data-fx-val="reverb-size">50%</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Damp</span>
                     <input type="range" class="pn-fx-slider" data-fx="reverb-damp" data-default="30" min="0" max="100" value="30">
-                    <span class="pn-fx-value" data-fx-val="reverb-damp">30%</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Mix</span>
                     <input type="range" class="pn-fx-slider" data-fx="reverb-wet" data-default="20" min="0" max="100" value="20">
-                    <span class="pn-fx-value" data-fx-val="reverb-wet">20%</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -330,17 +351,14 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Time</span>
                     <input type="range" class="pn-fx-slider" data-fx="delay-time" data-default="25" min="1" max="100" value="25">
-                    <span class="pn-fx-value" data-fx-val="delay-time">0.25s</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Feedback</span>
                     <input type="range" class="pn-fx-slider" data-fx="delay-feedback" data-default="25" min="0" max="90" value="25">
-                    <span class="pn-fx-value" data-fx-val="delay-feedback">25%</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Mix</span>
                     <input type="range" class="pn-fx-slider" data-fx="delay-wet" data-default="15" min="0" max="100" value="15">
-                    <span class="pn-fx-value" data-fx-val="delay-wet">15%</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -348,7 +366,6 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Drive</span>
                     <input type="range" class="pn-fx-slider" data-fx="distortion" data-default="0" min="0" max="100" value="0">
-                    <span class="pn-fx-value" data-fx-val="distortion">0%</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -356,7 +373,6 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Semi</span>
                     <input type="range" class="pn-fx-slider" data-fx="master-pitch" data-default="0" min="-12" max="12" step="1" value="0">
-                    <span class="pn-fx-value" data-fx-val="master-pitch">0</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -364,12 +380,10 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Lo Cut</span>
                     <input type="range" class="pn-fx-slider" data-fx="hp-freq" data-default="0" min="0" max="100" value="0">
-                    <span class="pn-fx-value" data-fx-val="hp-freq">20Hz</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Hi Cut</span>
                     <input type="range" class="pn-fx-slider" data-fx="lp-freq" data-default="100" min="0" max="100" value="100">
-                    <span class="pn-fx-value" data-fx-val="lp-freq">20kHz</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -377,17 +391,14 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Rate</span>
                     <input type="range" class="pn-fx-slider" data-fx="phaser-freq" data-default="0" min="0" max="100" value="0">
-                    <span class="pn-fx-value" data-fx-val="phaser-freq">Off</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Depth</span>
                     <input type="range" class="pn-fx-slider" data-fx="phaser-depth" data-default="50" min="0" max="100" value="50">
-                    <span class="pn-fx-value" data-fx-val="phaser-depth">50%</span>
                 </div>
                 <div class="pn-fx-control">
                     <span>Mix</span>
                     <input type="range" class="pn-fx-slider" data-fx="phaser-wet" data-default="0" min="0" max="100" value="0">
-                    <span class="pn-fx-value" data-fx-val="phaser-wet">0%</span>
                 </div>
             </div>
             <div class="pn-fx-group">
@@ -395,7 +406,6 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Bits</span>
                     <input type="range" class="pn-fx-slider" data-fx="crush-bits" data-default="0" min="0" max="100" value="0">
-                    <span class="pn-fx-value" data-fx-val="crush-bits">Off</span>
                 </div>
             </div>
         </div>
@@ -623,77 +633,22 @@ export function buildUI(el) {
     let _fxThrottleId = null;
     const _fxPending = new Map();   // fxKey -> latest value awaiting engine dispatch
     const applyFx = (fxName, val) => {
-        const valEl = el.querySelector(`[data-fx-val="${fxName}"]`);
         switch (fxName) {
-            case 'reverb-size':
-                toneEngine.setReverbSize(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'reverb-damp':
-                toneEngine.setReverbDampening(10000 - (val / 100) * 9800);
-                valEl.textContent = val + '%';
-                break;
-            case 'reverb-wet':
-                toneEngine.setReverbWet(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'delay-time':
-                toneEngine.setDelayTime(val / 100);
-                valEl.textContent = (val / 100).toFixed(2) + 's';
-                break;
-            case 'delay-feedback':
-                toneEngine.setDelayFeedback(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'delay-wet':
-                toneEngine.setDelayWet(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'master-vol': {
-                const db = val === 0 ? -60 : -60 + (val / 100) * 60;
-                toneEngine.setMasterVolume(db);
-                valEl.textContent = val + '%';
-                break;
-            }
-            case 'distortion':
-                toneEngine.setDistortion(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'master-pitch':
-                toneEngine.setMasterPitch(val);
-                valEl.textContent = (val > 0 ? '+' : '') + val + ' st';
-                break;
-            case 'hp-freq': {
-                const freq = hpFreq(val);
-                toneEngine.setHighpassFreq(freq);
-                valEl.textContent = freq < 1000 ? Math.round(freq) + 'Hz' : (freq / 1000).toFixed(1) + 'kHz';
-                break;
-            }
-            case 'lp-freq': {
-                const freq = lpFreq(val);
-                toneEngine.setLowpassFreq(freq);
-                valEl.textContent = freq < 1000 ? Math.round(freq) + 'Hz' : (freq / 1000).toFixed(1) + 'kHz';
-                break;
-            }
-            case 'phaser-freq': {
-                const rate = val === 0 ? 0 : 0.1 + (val / 100) * 9.9;
-                toneEngine.setPhaserFreq(rate);
-                valEl.textContent = val === 0 ? 'Off' : rate.toFixed(1) + 'Hz';
-                break;
-            }
-            case 'phaser-depth':
-                toneEngine.setPhaserDepth(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'phaser-wet':
-                toneEngine.setPhaserWet(val / 100);
-                valEl.textContent = val + '%';
-                break;
-            case 'crush-bits': {
-                toneEngine.setCrush(val / 100);
-                valEl.textContent = val === 0 ? 'Off' : Math.max(1, Math.round(16 - (val / 100) * 15)) + '-bit';
-                break;
-            }
+            case 'reverb-size':    toneEngine.setReverbSize(val / 100); break;
+            case 'reverb-damp':    toneEngine.setReverbDampening(10000 - (val / 100) * 9800); break;
+            case 'reverb-wet':     toneEngine.setReverbWet(val / 100); break;
+            case 'delay-time':     toneEngine.setDelayTime(val / 100); break;
+            case 'delay-feedback': toneEngine.setDelayFeedback(val / 100); break;
+            case 'delay-wet':      toneEngine.setDelayWet(val / 100); break;
+            case 'master-vol':     toneEngine.setMasterVolume(val === 0 ? -60 : -60 + (val / 100) * 60); break;
+            case 'distortion':     toneEngine.setDistortion(val / 100); break;
+            case 'master-pitch':   toneEngine.setMasterPitch(val); break;
+            case 'hp-freq':        toneEngine.setHighpassFreq(hpFreq(val)); break;
+            case 'lp-freq':        toneEngine.setLowpassFreq(lpFreq(val)); break;
+            case 'phaser-freq':    toneEngine.setPhaserFreq(val === 0 ? 0 : 0.1 + (val / 100) * 9.9); break;
+            case 'phaser-depth':   toneEngine.setPhaserDepth(val / 100); break;
+            case 'phaser-wet':     toneEngine.setPhaserWet(val / 100); break;
+            case 'crush-bits':     toneEngine.setCrush(val / 100); break;
         }
     };
     fx.addEventListener('input', (e) => {
@@ -705,18 +660,9 @@ export function buildUI(el) {
         // so a multi-slider dispatch (e.g. a macro touching wet + size in the
         // same rAF tick) can't silently drop one value by overwriting another.
         _fxPending.set(key, val);
-        // Update label immediately for responsiveness
-        const valEl = el.querySelector(`[data-fx-val="${key}"]`);
-        if (valEl && key === 'delay-time') {
-            valEl.textContent = (val / 100).toFixed(2) + 's';
-        } else if (valEl && (key === 'hp-freq' || key === 'lp-freq')) {
-            const freq = key === 'hp-freq' ? hpFreq(val) : lpFreq(val);
-            valEl.textContent = freq < 1000 ? Math.round(freq) + 'Hz' : (freq / 1000).toFixed(1) + 'kHz';
-        } else if (valEl && key === 'master-pitch') {
-            valEl.textContent = (val > 0 ? '+' : '') + val + ' st';
-        } else if (valEl) {
-            valEl.textContent = val + '%';
-        }
+        // Keep the floating cursor tip in sync when the user drags the
+        // currently-hovered FX slider.
+        syncSliderTip(slider, formatFxValue(key, val));
         // Throttle engine calls to ~30fps — but flush every pending key
         if (!_fxThrottleId) {
             _fxThrottleId = setTimeout(() => {
@@ -726,6 +672,18 @@ export function buildUI(el) {
             }, 33);
         }
     });
+
+    // Cursor-anchored tip for FX sliders — same pattern as the mixer.
+    // No inline value spans, so the row stays compact and hover state
+    // never affects layout.
+    fx.addEventListener('mousemove', (e) => {
+        const control = e.target.closest('.pn-fx-control');
+        if (!control) { hideSliderTip(); return; }
+        const slider = control.querySelector('.pn-fx-slider');
+        if (!slider) return;
+        showSliderTip(slider, formatFxValue(slider.dataset.fx, parseInt(slider.value)), e.clientX, e.clientY);
+    });
+    fx.addEventListener('mouseleave', () => hideSliderTip());
 
     // Track hovered FX slider for MIDI CC binding
     fx.addEventListener('mouseover', (e) => {

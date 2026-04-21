@@ -10,22 +10,7 @@
 import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
-
-// Cursor-anchored slider tooltip — a single document-level element
-// that floats near the mouse to show the hovered slider's live value
-// (Hz / Q / L-C-R / ms / %). Module-scoped so any mixer row can
-// drive the same tip without reserving layout space inside the row.
-let sliderTip = null;
-let tipSlider = null;
-
-function ensureSliderTip() {
-    if (sliderTip) return sliderTip;
-    sliderTip = document.createElement('div');
-    sliderTip.className = 'pn-slider-tip';
-    sliderTip.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(sliderTip);
-    return sliderTip;
-}
+import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 
 // --- Render ---
 
@@ -373,9 +358,7 @@ function bindMixerEvents(el) {
         // Keep the floating slider tip in sync with drags / wheel /
         // keyboard nudges — only if the user is currently hovering
         // the same slider.
-        if (sliderTip && tipSlider === slider) {
-            sliderTip.textContent = formatSliderReadout(slider.className, slider.value);
-        }
+        syncSliderTip(slider, formatSliderReadout(slider.className, slider.value));
 
         const v = parseInt(slider.value);
         for (const [cls, , applyFactory] of MIXER_SLIDERS) {
@@ -421,25 +404,12 @@ function bindMixerEvents(el) {
     // is unaffected by hover state.
     el._mixerEl.addEventListener('mousemove', (e) => {
         const group = e.target.closest('.pn-mixer-slider-group');
-        const tip = ensureSliderTip();
-        if (!group) {
-            tip.style.opacity = '0';
-            tipSlider = null;
-            return;
-        }
+        if (!group) { hideSliderTip(); return; }
         const slider = group.querySelector('.pn-mixer-slider');
         if (!slider) return;
-        tipSlider = slider;
-        tip.textContent = formatSliderReadout(slider.className, slider.value);
-        const pad = 12;
-        tip.style.left = `${e.clientX + pad}px`;
-        tip.style.top  = `${e.clientY - pad}px`;
-        tip.style.opacity = '1';
+        showSliderTip(slider, formatSliderReadout(slider.className, slider.value), e.clientX, e.clientY);
     });
-    el._mixerEl.addEventListener('mouseleave', () => {
-        if (sliderTip) sliderTip.style.opacity = '0';
-        tipSlider = null;
-    });
+    el._mixerEl.addEventListener('mouseleave', () => hideSliderTip());
 }
 
 export function patternSelectsHtml(net, targetId) {
