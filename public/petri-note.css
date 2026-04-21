@@ -2370,6 +2370,9 @@ input[type="range"][data-default] {
     z-index: 1100;
     display: flex;
 }
+/* Feel modal floats above Stage so it can be opened from the stage
+   toolbar (or via the F hotkey) without being occluded by the overlay. */
+.pn-feel-overlay { z-index: 1200; }
 .pn-stage-menu {
     position: absolute;
     top: 12px;
