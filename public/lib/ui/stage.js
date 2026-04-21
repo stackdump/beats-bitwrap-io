@@ -774,7 +774,9 @@ function renderFlame(dt) {
     // twitchy or too sticky.
     const decay = Math.exp(-dt * 4);
     const n = session.panels.length;
-    const halfAng = n > 0 ? (Math.PI / n) * 0.6 : 0.05;
+    // Narrow, fixed beam width — scaling to (π/n) made flames fan out
+    // to ~40° when n was small. Cap at ~6° half-angle regardless of N.
+    const halfAng = Math.min(0.10, n > 0 ? (Math.PI / n) * 0.15 : 0.10);
     const innerR = Math.min(cx, cy) * 0.10;
     for (const p of session.panels) {
         const v = (session.flameEnergy.get(p.netId) || 0) * decay;
@@ -796,10 +798,10 @@ function renderFlame(dt) {
         const y1 = cy + innerR * Math.sin(theta - halfAng);
         const x2 = cx + innerR * Math.cos(theta + halfAng);
         const y2 = cy + innerR * Math.sin(theta + halfAng);
-        const x3 = cx + barLen * Math.cos(theta + halfAng * 0.35);
-        const y3 = cy + barLen * Math.sin(theta + halfAng * 0.35);
-        const x4 = cx + barLen * Math.cos(theta - halfAng * 0.35);
-        const y4 = cy + barLen * Math.sin(theta - halfAng * 0.35);
+        const x3 = cx + barLen * Math.cos(theta + halfAng * 0.25);
+        const y3 = cy + barLen * Math.sin(theta + halfAng * 0.25);
+        const x4 = cx + barLen * Math.cos(theta - halfAng * 0.25);
+        const y4 = cy + barLen * Math.sin(theta - halfAng * 0.25);
         const tipX = cx + barLen * Math.cos(theta);
         const tipY = cy + barLen * Math.sin(theta);
         const grad = ctx.createLinearGradient(cx, cy, tipX, tipY);
