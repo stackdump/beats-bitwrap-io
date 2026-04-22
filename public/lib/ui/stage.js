@@ -41,7 +41,6 @@ export function openStage(el) {
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
             <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (great for recordings)">&#x2710;</button>
             <button class="pn-stage-bolts active" aria-pressed="true" title="Lightning during macros (flame mode)">&#9889;&#xFE0E;</button>
-            <button class="pn-stage-fullscreen" aria-pressed="false" title="Fullscreen">&#9974;</button>
             <button class="pn-stage-help" title="What am I looking at?">?</button>
             <select class="pn-stage-bgmode" title="Background">
                 <option value="void" selected>Void</option>
@@ -67,6 +66,7 @@ export function openStage(el) {
             </select>
         </div>
         <div class="pn-stage-stats" aria-live="polite"></div>
+        <button class="pn-stage-fullscreen" aria-pressed="false" title="Fullscreen">&#9974;</button>
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
         <canvas class="pn-stage-bg" aria-hidden="true"></canvas>
         <div class="pn-stage-grid">
@@ -107,6 +107,7 @@ export function openStage(el) {
         bgCanvas: null,
         bgCtx: null,
         bgStars: [],
+        bgPlanets: [],
         bgAuroraPhase: 0,
     };
 
@@ -1065,6 +1066,48 @@ function spawnStars() {
         });
     }
     session.bgStars = stars;
+    spawnPlanets();
+}
+
+// A few ringed planets tucked into the corners — atmosphere for the
+// `stars` background. Kept small, off-center, and desaturated so they
+// read as scenery; the meta-diagram stays the subject. Rings tilt
+// slowly over time via a per-planet tiltRate. Colors are the
+// muted-dark palette from renderAurora.
+function spawnPlanets() {
+    const palette = [
+        { body: '#5a3e8c', ring: 'rgba(200, 180, 240,' },  // dusty violet
+        { body: '#3e5a8c', ring: 'rgba(170, 200, 240,' },  // cool slate blue
+        { body: '#8c5a3e', ring: 'rgba(240, 200, 170,' },  // dim rust
+        { body: '#3e8c6d', ring: 'rgba(170, 240, 210,' },  // sea-foam
+    ];
+    // Two or three planets; tucked away from the center. Biased toward
+    // corners (x & y near 0 or 1) so they don't crowd the meta-ring.
+    const slots = [
+        { x: 0.12, y: 0.18 },
+        { x: 0.88, y: 0.22 },
+        { x: 0.18, y: 0.82 },
+        { x: 0.84, y: 0.78 },
+    ];
+    const shuffled = slots.slice().sort(() => Math.random() - 0.5);
+    const count = 2 + (Math.random() < 0.5 ? 0 : 1);
+    const planets = [];
+    for (let i = 0; i < count; i++) {
+        const slot = shuffled[i];
+        const pal = palette[Math.floor(Math.random() * palette.length)];
+        planets.push({
+            x: slot.x + (Math.random() - 0.5) * 0.05,
+            y: slot.y + (Math.random() - 0.5) * 0.05,
+            r: 22 + Math.random() * 26,           // body radius in px
+            ringRatio: 1.8 + Math.random() * 0.6, // ring outer = r * ratio
+            ringWidth: 0.18 + Math.random() * 0.12,
+            tilt: Math.random() * Math.PI,        // rings rotate about planet
+            tiltRate: (Math.random() < 0.5 ? -1 : 1) * (0.03 + Math.random() * 0.04),
+            body: pal.body,
+            ring: pal.ring,
+        });
+    }
+    session.bgPlanets = planets;
 }
 
 // Night-sky starfield. Palette borrowed from pilot.pflow.xyz: deep
@@ -1088,6 +1131,8 @@ function renderStars(dt) {
     ctx.fillRect(0, 0, w, h);
     session.bgAuroraPhase = (session.bgAuroraPhase || 0) + dt;
     const t = session.bgAuroraPhase;
+    // Planets sit under the stars so twinkles are foreground.
+    renderPlanets(ctx, w, h, t);
     for (const s of session.bgStars) {
         const twinkle = 0.55 + 0.45 * Math.sin(t * s.twinkleRate + s.phase);
         const alpha = (s.bright * twinkle).toFixed(3);
@@ -1095,6 +1140,62 @@ function renderStars(dt) {
         ctx.beginPath();
         ctx.arc(s.x * w, s.y * h, s.size, 0, Math.PI * 2);
         ctx.fill();
+    }
+}
+
+function renderPlanets(ctx, w, h, t) {
+    if (!session.bgPlanets || session.bgPlanets.length === 0) return;
+    for (const p of session.bgPlanets) {
+        const cx = p.x * w;
+        const cy = p.y * h;
+        // Planet body: radial gradient for a bit of terminator shading —
+        // lit side on the upper-left, deep shadow on the lower-right.
+        const bodyGrad = ctx.createRadialGradient(
+            cx - p.r * 0.35, cy - p.r * 0.35, p.r * 0.1,
+            cx, cy, p.r
+        );
+        bodyGrad.addColorStop(0, p.body);
+        bodyGrad.addColorStop(1, '#05041a');
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        // Ring: a thin tilted annulus drawn as a stroked ellipse. Split
+        // into back-half (behind the planet) and front-half (in front)
+        // so the ring appears to wrap the planet. Slow rotation via
+        // tiltRate so the planets feel "ringing" rather than static.
+        const tilt = p.tilt + t * p.tiltRate;
+        const outer = p.r * p.ringRatio;
+        const inner = outer * (1 - p.ringWidth);
+        const ringMid = (outer + inner) * 0.5;
+        const ringThickness = (outer - inner);
+        const ringY = ringMid * 0.22;   // flatten into an ellipse
+        // Back half — behind the planet body; dimmer so it reads as occluded.
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(tilt);
+        ctx.strokeStyle = p.ring + '0.18)';
+        ctx.lineWidth = ringThickness;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, ringMid, ringY, 0, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        // Re-draw the planet on top to cover the back half where it
+        // passes behind the body (cheap occlusion without clipping).
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        // Front half — brighter than the back so the ring reads as a solid band.
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(tilt);
+        ctx.strokeStyle = p.ring + '0.42)';
+        ctx.lineWidth = ringThickness;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, ringMid, ringY, 0, 0, Math.PI);
+        ctx.stroke();
+        ctx.restore();
     }
 }
 

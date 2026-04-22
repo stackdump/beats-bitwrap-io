@@ -2670,8 +2670,9 @@ input[type="range"][data-default] {
      * viewport after successive track changes. */
     transform-style: preserve-3d;
 }
-.pn-stage-close {
-    position: absolute; top: 10px; right: 14px;
+.pn-stage-close,
+.pn-stage-overlay > .pn-stage-fullscreen {
+    position: absolute; top: 10px;
     width: 32px; height: 32px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.15);
@@ -2679,7 +2680,16 @@ input[type="range"][data-default] {
     border-radius: 50%; cursor: pointer;
     z-index: 2;
 }
-.pn-stage-close:hover { background: rgba(255,255,255,0.12); }
+.pn-stage-close { right: 14px; }
+.pn-stage-overlay > .pn-stage-fullscreen { right: 54px; }
+.pn-stage-close:hover,
+.pn-stage-overlay > .pn-stage-fullscreen:hover { background: rgba(255,255,255,0.12); }
+/* Desktops have Esc; hide the floating × there. Touch devices
+   (phones/tablets — `pointer: coarse`) keep the button because
+   there's no practical keyboard fallback. */
+@media (hover: hover) and (pointer: fine) {
+    .pn-stage-close { display: none; }
+}
 /* Ring-of-rings composition: each sub-net panel is a square placed
    around a big circle. Positions are set inline from JS (stage.js
    layoutRing) because they depend on panel count + viewport. */
