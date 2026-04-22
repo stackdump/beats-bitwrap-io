@@ -2684,6 +2684,15 @@ input[type="range"][data-default] {
 .pn-stage-overlay > .pn-stage-fullscreen { right: 54px; }
 .pn-stage-close:hover,
 .pn-stage-overlay > .pn-stage-fullscreen:hover { background: rgba(255,255,255,0.12); }
+/* External fullscreen button used to sit inside .pn-stage-menu, which
+   styled its .active state. Moving it out orphaned that feedback, so
+   clicks looked no-op on an already-filling overlay. Restore an
+   obvious active treatment. */
+.pn-stage-overlay > .pn-stage-fullscreen.active {
+    color: #fff;
+    background: rgba(74,144,217,0.30);
+    border-color: rgba(74,144,217,0.7);
+}
 /* Desktops have Esc; hide the floating × there. Touch devices
    (phones/tablets — `pointer: coarse`) keep the button because
    there's no practical keyboard fallback. */
