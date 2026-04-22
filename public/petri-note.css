@@ -2544,8 +2544,8 @@ input[type="range"][data-default] {
     top: 56px;
     right: 14px;
     z-index: 4;
-    width: 320px;
-    max-width: 42vw;
+    width: 560px;
+    max-width: 70vw;
     background: rgba(10,12,26,0.85);
     border: 1px solid rgba(74,144,217,0.35);
     border-radius: 10px;
