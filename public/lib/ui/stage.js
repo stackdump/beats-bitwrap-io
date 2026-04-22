@@ -38,6 +38,7 @@ export function openStage(el) {
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
             <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (great for recordings)">&#x2710;</button>
+            <button class="pn-stage-bolts active" aria-pressed="true" title="Lightning during macros (flame mode)">&#9889;</button>
             <button class="pn-stage-help" title="What am I looking at?">?</button>
             <select class="pn-stage-bgmode" title="Background">
                 <option value="void" selected>Void</option>
@@ -96,6 +97,7 @@ export function openStage(el) {
         metaRotation: 0,      // current in-plane rotation of the whole meta-diagram (degrees)
         metaRotationTarget: 0,// bumped by 90° on every genuine track change
         bolts: [],            // electric-bolt flashes spawned by macro-driven firings
+        boltsEnabled: true,   // toolbar toggle — disable to silence lightning during macros
         seeds: [],            // seed-sparks dropped where a bolt strikes the dark planet
         cardOnChange: false,  // when true, flash the share card for a few seconds at each track change
         bgMode: 'void',       // 'void' | 'stars' | 'aurora' — background layer behind the meta-diagram
@@ -150,6 +152,14 @@ export function openStage(el) {
         const on = overlay.classList.toggle('hide-backs');
         btn.classList.toggle('active', !on);
         btn.setAttribute('aria-pressed', String(!on));
+    });
+    overlay.querySelector('.pn-stage-bolts').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        session.boltsEnabled = !session.boltsEnabled;
+        btn.classList.toggle('active', session.boltsEnabled);
+        btn.setAttribute('aria-pressed', String(session.boltsEnabled));
+        // Drain any in-flight bolts/seeds so disabling reads as "off now".
+        if (!session.boltsEnabled) { session.bolts.length = 0; session.seeds.length = 0; }
     });
     overlay.querySelector('.pn-stage-labels').addEventListener('click', (e) => {
         const btn = e.currentTarget;
@@ -273,7 +283,7 @@ export function stageOnTransitionFired(el, netId, transitionId) {
         // bolt from the same origin toward the ring center. Bolts are
         // rendered on top of the flame gradient and live ~500 ms so a
         // macro reads as crackling arcs across the meta-diagram.
-        if (el._runningMacro && origin) {
+        if (el._runningMacro && origin && session.boltsEnabled) {
             session.bolts.push({
                 origin: { x: origin.x, y: origin.y },
                 born: performance.now(),
