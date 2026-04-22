@@ -1,0 +1,22 @@
+{
+  "@context": "https://beats.bitwrap.io/schema/beats-share",
+  "@type": "BeatsShare",
+  "v": 1,
+  "genre": "dnb",
+  "seed": 1337,
+  "tempo": 174,
+  "swing": 12,
+  "humanize": 8,
+  "structure": "drop",
+  "ui": {
+    "playbackMode": "repeat",
+    "showFx": true,
+    "showMacros": false,
+    "showOneShots": false
+  },
+  "autoDj": {
+    "run": true,
+    "rate": 16,
+    "stack": 2
+  }
+}

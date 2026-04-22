@@ -1,0 +1,7 @@
+{
+  "@context": "https://beats.bitwrap.io/schema/beats-share",
+  "@type": "BeatsShare",
+  "v": 1,
+  "genre": "techno",
+  "seed": 42
+}

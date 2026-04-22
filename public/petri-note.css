@@ -2209,6 +2209,95 @@ input[type="range"][data-default] {
     color: #fff;
 }
 
+/* "Using with AI" modal — copyable prompt; invoked from both the main
+   help modal and the Stage help modal. Top-level overlay on body so it
+   layers above either caller. */
+.pn-ai-prompt-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.pn-ai-prompt-box {
+    position: relative;
+    max-width: 640px;
+    width: 100%;
+    max-height: 86vh;
+    overflow-y: auto;
+    background: linear-gradient(180deg, #0d1026 0%, #060814 100%);
+    border: 1px solid rgba(74,144,217,0.3);
+    border-radius: 12px;
+    padding: 28px 32px 24px;
+    color: #dce3f0;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.pn-ai-prompt-box h2 { margin: 0 0 10px; font-size: 19px; color: #fff; font-weight: 600; }
+.pn-ai-prompt-lede { color: #cfd6e5; margin: 0 0 14px; }
+.pn-ai-prompt-lede code {
+    background: rgba(255,255,255,0.07);
+    padding: 1px 5px; border-radius: 3px; font-size: 12px;
+}
+.pn-ai-prompt-actions { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.pn-ai-prompt-copy {
+    background: rgba(74,144,217,0.22);
+    border: 1px solid rgba(74,144,217,0.55);
+    color: #dce3f0;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.pn-ai-prompt-copy:hover { background: rgba(74,144,217,0.35); color: #fff; }
+.pn-ai-prompt-feedback { color: #64ffda; font-size: 12px; }
+.pn-ai-prompt-text {
+    width: 100%;
+    min-height: 260px;
+    box-sizing: border-box;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #cfe0f6;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+}
+.pn-ai-prompt-foot { color: #8a93a6; margin: 12px 0 0; font-size: 12px; }
+.pn-ai-prompt-foot a { color: #4a90d9; text-decoration: none; }
+.pn-ai-prompt-foot a:hover { color: #a8d0ff; text-decoration: underline; }
+.pn-ai-prompt-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #eee;
+    font-size: 20px; line-height: 1;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0;
+}
+.pn-ai-prompt-close:hover { background: rgba(255,255,255,0.12); }
+
+/* Inline link-style button used in help bodies to trigger the AI prompt modal. */
+.pn-link-btn {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #4a90d9;
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.pn-link-btn:hover { color: #a8d0ff; }
+
 /* Help modal */
 .pn-help-overlay {
     position: fixed;

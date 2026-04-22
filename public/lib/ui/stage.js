@@ -8,6 +8,7 @@
 
 import { renderCurrentCard } from '../share/card.js';
 import { buildShareUrlForms } from '../share/url.js';
+import { openAiPromptModal } from './ai-prompt.js';
 
 const BG = '#0a0a1a';
 const ARC_COLOR = '#4a90d9';
@@ -1490,6 +1491,15 @@ function openHelp(overlay) {
                 <li><a href="https://blog.stackdump.com/posts/tense-type-theory" target="_blank" rel="noopener">The Zipper Whose Hole Is a Universe</a> — the hole in a data structure points outward at everything that could fill it; same idea, different shape as our dark planet.</li>
             </ul>
 
+            <h3>Using with AI</h3>
+            <p>
+                Share-v1 is a deterministic IR — any producer, including
+                an LLM, can emit valid JSON and get byte-identical
+                playback. <button class="pn-stage-help-ai pn-link-btn">Copy the prompt</button>
+                and paste it into any chat model to compose tracks from
+                text.
+            </p>
+
             <p class="pn-stage-help-foot">
                 The audio never stops while you browse tools — Stage is a
                 read-only window over the same sequencer that's playing.
@@ -1498,6 +1508,7 @@ function openHelp(overlay) {
     `;
     overlay.appendChild(modal);
     modal.querySelector('.pn-stage-help-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.pn-stage-help-ai').addEventListener('click', () => openAiPromptModal());
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 

@@ -5,6 +5,7 @@
 
 import { noteToName, nameToNote } from '../audio/note-name.js';
 import { renderCurrentCard } from '../share/card.js';
+import { openAiPromptModal } from './ai-prompt.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -418,6 +419,9 @@ export function showHelpModal(el) {
                 <li><b>Scroll</b> &mdash; fine-tune any slider, number, or dropdown under the cursor</li>
             </ul>
 
+            <h3>Using with AI</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The share-v1 format is a deterministic IR &mdash; any producer, including an LLM, can emit valid JSON and get byte-identical playback. <button class="pn-help-ai pn-link-btn">Copy a ready-made prompt</button> and paste it into Claude, ChatGPT, or any chat model to compose tracks from text.</p>
+
             <h3>Found a bug?</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Open Share, copy the <code>?cid=…</code> URL, and paste it in the report &mdash; the CID carries the exact track state so we can reproduce in one click.</p>
             <p style="margin:0 0 16px"><a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" style="color:#0af">Report a bug on GitHub &rarr;</a></p>
@@ -431,6 +435,7 @@ export function showHelpModal(el) {
         </div>
     `;
     overlay.addEventListener('click', (e) => {
+        if (e.target.closest('.pn-help-ai')) { openAiPromptModal(); return; }
         if (e.target === overlay || e.target.closest('.pn-help-close')) {
             overlay.remove();
         }

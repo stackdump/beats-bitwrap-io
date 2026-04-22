@@ -165,6 +165,30 @@ When adding a new user-tunable knob: ask "would the author expect this setting t
   - `Accept: text/html` → rendered HTML term glossary
 - Static paths always work: `/schema/beats-share.context.jsonld`, `/schema/beats-share.schema.json`.
 
+## Generating a share payload (agents / LLMs / non-UI front-ends)
+
+The share envelope is the IR. Any producer — a human, an LLM, a CLI — that emits valid JSON against `public/schema/beats-share.schema.json` gets the same deterministic playback, the same `?cid=…`, the same offline-playable artifact. The schema is the contract; CLAUDE.md is just a pointer.
+
+**Minimum valid payload** (see `examples/minimal.json`):
+
+```json
+{
+  "@context": "https://beats.bitwrap.io/schema/beats-share",
+  "@type": "BeatsShare",
+  "v": 1,
+  "genre": "techno",
+  "seed": 42
+}
+```
+
+Everything else is an optional override. Omit defaults to keep CIDs stable across producers.
+
+**Realistic payload with overrides**: `examples/overrides.json`.
+
+**Valid `genre` values** are the options in `public/lib/ui/build.js` (`.pn-genre-select`): ambient · blues · bossa · country · dnb · dubstep · edm · funk · garage · house · jazz · lofi · metal · reggae · speedcore · synthwave · techno · trance · trap. A genre outside this list regenerates as the fallback preset.
+
+**Playback**: POST the JSON to `PUT /o/{cid}` (server will re-verify the CID) or just open `?cid=z…&z=<base64url-gzip-json>`. No AI, no model, no backend call during playback.
+
 ## Build & Run
 
 ```bash
