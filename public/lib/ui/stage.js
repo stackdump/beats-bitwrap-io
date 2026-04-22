@@ -31,8 +31,8 @@ export function openStage(el) {
         <button class="pn-stage-burger" title="Menu" aria-label="Open stage menu" aria-expanded="false">&#8226;</button>
         <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
             <button data-viz="flow" class="active" aria-pressed="true" title="Flow — panels drift">&#9676;</button>
-            <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
-            <button data-viz="flame" aria-pressed="false" title="Flame — radial equalizer from center">&#9660;</button>
+            <button data-viz="pulse" class="active" aria-pressed="true" title="Pulse — beats fade toward center">&#9678;</button>
+            <button data-viz="flame" class="active" aria-pressed="true" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
             <button class="pn-stage-feel" title="Feel (F)">&#9672;</button>
             <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
@@ -87,7 +87,7 @@ export function openStage(el) {
         el, overlay, panels, rafId: 0, onKey: null, onResize: null,
         // Multi-select viz modes. Flow is on by default; pulse and tilt
         // layer on top independently.
-        vizModes: new Set(['flow']),
+        vizModes: new Set(['flow', 'pulse', 'flame']),
         pulses: [],           // { x0, y0, cx, cy, born, life }  for pulse mode
         tiltAngle: 0,         // accumulator for tilt mode
         ringCenter: { x: 0, y: 0 },
