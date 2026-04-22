@@ -93,7 +93,18 @@ Requires Go 1.23+. No npm, no node_modules, no bundler.
 
 ## Schema
 
-Project files use JSON-LD with the schema at [`beats.bitwrap.io/schema`](https://beats.bitwrap.io/schema/petri-note.schema.json). A project contains Petri nets (places, transitions, arcs), MIDI bindings, control bindings, and track metadata.
+Two JSON-Schema documents ship with the app:
+
+- [`/schema/beats-share`](https://beats.bitwrap.io/schema/beats-share.schema.json) — content-negotiated envelope for share-v1 payloads (`@context`, `@type: BeatsShare`, `v`, genre, seed, plus optional overrides). JSON-LD context at `/schema/beats-share.context.jsonld`.
+- [`/schema/petri-note`](https://beats.bitwrap.io/schema/petri-note.schema.json) — the nested project shape: nets, places, transitions, arcs, MIDI bindings, track metadata.
+
+Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json).
+
+## Using with AI
+
+The share-v1 format is an IR — any producer that emits valid JSON against the schema gets byte-identical playback. Open the in-app help menu (`?`) and follow **Using with AI** to copy a ready-made prompt into Claude / ChatGPT / any chat model; the model replies with a share-v1 blob. Determinism lives in the IR, not the generator, so the same blob plays the same track forever, offline, with no model in the loop.
+
+> *A prompt is a wish. A Petri net is a score.*
 
 ## Acknowledgments
 

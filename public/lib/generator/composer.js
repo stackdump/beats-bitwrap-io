@@ -309,6 +309,14 @@ export const GenreInstrumentSets = {
 };
 
 // --- Track name generator ---
+// A small fraction of names nod to the Petri-net + category-theory
+// authors this whole system stands on: Petri himself (places /
+// transitions), Meseguer & Montanari ("Petri Nets are Monoids"),
+// Murata (the 1989 survey), Best + Baccelli (theory + stochastic
+// PNs), Baez / Fong / Spivak (compositionality / network theory),
+// Yoneda (the dark-planet reading), Noether, Lawvere, Brouwer.
+// Nouns lean into the categorical vocabulary we use in the Stage
+// help modal — functors, colimits, sheaves, operads.
 function generateTrackName(genre, rng) {
     const adjectives = [
         'Neon', 'Velvet', 'Crystal', 'Midnight', 'Golden',
@@ -317,6 +325,10 @@ function generateTrackName(genre, rng) {
         'Hollow', 'Iron', 'Violet', 'Crimson', 'Silver',
         'Amber', 'Azure', 'Jade', 'Obsidian', 'Ivory',
         'Rusted', 'Wired', 'Broken', 'Floating', 'Endless',
+        // Mathematician nods — rare enough to feel like an easter egg.
+        'Petri', 'Yoneda', 'Meseguer', 'Montanari', 'Murata',
+        'Baez', 'Fong', 'Spivak', 'Best', 'Baccelli',
+        'Noether', 'Lawvere', 'Brouwer',
     ];
     const nouns = [
         'Drift', 'Pulse', 'Echo', 'Haze', 'Bloom',
@@ -325,6 +337,12 @@ function generateTrackName(genre, rng) {
         'Vapor', 'Ember', 'Fracture', 'Horizon', 'Spine',
         'Flicker', 'Reverb', 'Cipher', 'Arc', 'Lattice',
         'Prism', 'Rust', 'Grain', 'Thread', 'Void',
+        // Categorical / Petri-net vocabulary. 'Monad' is a double
+        // meaning — music monad + category-theory monad — which is
+        // the only reason it earns a slot.
+        'Functor', 'Morphism', 'Colimit', 'Sheaf', 'Topos',
+        'Monad', 'Adjoint', 'Fibration', 'Operad', 'Stalk',
+        'Cone', 'Simplex', 'Quiver',
     ];
     const adj = adjectives[rng.nextInt(adjectives.length)];
     const noun = nouns[rng.nextInt(nouns.length)];
