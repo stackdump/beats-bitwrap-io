@@ -2389,6 +2389,27 @@ input[type="range"][data-default] {
     border-radius: 999px;
     padding: 4px;
 }
+/* Force monochrome rendering on emoji-presentation glyphs (⚡, etc.)
+   so they pick up the toolbar's color rather than the OS yellow. */
+.pn-stage-menu button { font-variant-emoji: text; }
+/* Burger: single dot mirroring the close × on the opposite side.
+   Tapping it expands the full toolbar. Starts collapsed so the
+   stage is mostly bare visual space by default. */
+.pn-stage-burger {
+    position: absolute; top: 10px; left: 14px;
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #eee; font-size: 22px; line-height: 1;
+    border-radius: 50%; cursor: pointer;
+    z-index: 4;
+    padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 120ms;
+}
+.pn-stage-burger:hover { background: rgba(255,255,255,0.12); }
+.pn-stage-overlay.menu-collapsed .pn-stage-menu { display: none; }
+.pn-stage-overlay:not(.menu-collapsed) .pn-stage-burger { display: none; }
 .pn-stage-menu button {
     width: 32px; height: 32px;
     background: transparent;

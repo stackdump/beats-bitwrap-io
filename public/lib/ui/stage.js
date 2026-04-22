@@ -25,9 +25,10 @@ export function openStage(el) {
     if (!el._project || !el._project.nets) return;
 
     const overlay = document.createElement('div');
-    overlay.className = 'pn-stage-overlay hide-backs hide-labels';
+    overlay.className = 'pn-stage-overlay hide-backs hide-labels menu-collapsed';
     overlay.dataset.pnStage = '1';
     overlay.innerHTML = `
+        <button class="pn-stage-burger" title="Menu" aria-label="Open stage menu" aria-expanded="false">&#8226;</button>
         <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
             <button data-viz="flow" class="active" aria-pressed="true" title="Flow — panels drift">&#9676;</button>
             <button data-viz="pulse" aria-pressed="false" title="Pulse — beats fade toward center">&#9678;</button>
@@ -38,7 +39,8 @@ export function openStage(el) {
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
             <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (great for recordings)">&#x2710;</button>
-            <button class="pn-stage-bolts active" aria-pressed="true" title="Lightning during macros (flame mode)">&#9889;</button>
+            <button class="pn-stage-bolts active" aria-pressed="true" title="Lightning during macros (flame mode)">&#9889;&#xFE0E;</button>
+            <button class="pn-stage-fullscreen" aria-pressed="false" title="Fullscreen">&#9974;</button>
             <button class="pn-stage-help" title="What am I looking at?">?</button>
             <select class="pn-stage-bgmode" title="Background">
                 <option value="void" selected>Void</option>
@@ -125,6 +127,31 @@ export function openStage(el) {
     layoutRing(session);
 
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
+    const burger = overlay.querySelector('.pn-stage-burger');
+    burger.addEventListener('click', () => {
+        const collapsed = overlay.classList.toggle('menu-collapsed');
+        burger.setAttribute('aria-expanded', String(!collapsed));
+    });
+    // Clicking outside the menu (but still on the overlay) collapses it again.
+    overlay.addEventListener('click', (e) => {
+        if (overlay.classList.contains('menu-collapsed')) return;
+        if (e.target.closest('.pn-stage-menu, .pn-stage-burger')) return;
+        overlay.classList.add('menu-collapsed');
+        burger.setAttribute('aria-expanded', 'false');
+    });
+    const fsBtn = overlay.querySelector('.pn-stage-fullscreen');
+    fsBtn.addEventListener('click', async () => {
+        try {
+            if (!document.fullscreenElement) await overlay.requestFullscreen();
+            else await document.exitFullscreen();
+        } catch (err) { /* user gesture / permission / unsupported — leave state alone */ }
+    });
+    session.onFsChange = () => {
+        const on = document.fullscreenElement === overlay;
+        fsBtn.classList.toggle('active', on);
+        fsBtn.setAttribute('aria-pressed', String(on));
+    };
+    document.addEventListener('fullscreenchange', session.onFsChange);
     overlay.querySelector('.pn-stage-help').addEventListener('click', () => openHelp(overlay));
     overlay.querySelector('.pn-stage-cardflash').addEventListener('click', (e) => {
         const btn = e.currentTarget;
@@ -241,6 +268,11 @@ export function closeStage(el) {
     if (session.rafId) cancelAnimationFrame(session.rafId);
     if (session.onKey) document.removeEventListener('keydown', session.onKey);
     if (session.onResize) window.removeEventListener('resize', session.onResize);
+    if (session.onFsChange) document.removeEventListener('fullscreenchange', session.onFsChange);
+    if (document.fullscreenElement === session.overlay) {
+        // Exit fullscreen so closing Stage also exits fullscreen mode.
+        document.exitFullscreen?.().catch(() => {});
+    }
     session.overlay.querySelector('.pn-stage-cardbox')?._killTimers?.();
     session.overlay.remove();
     session = null;
