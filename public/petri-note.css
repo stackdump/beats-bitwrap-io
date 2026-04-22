@@ -2187,6 +2187,10 @@ input[type="range"][data-default] {
     font-weight: bold;
     cursor: pointer;
     padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
 
 .pn-help-btn:hover {
