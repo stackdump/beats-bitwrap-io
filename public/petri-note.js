@@ -810,7 +810,13 @@ class PetriNote extends HTMLElement {
     _onKeyDown(e) {
         const tag = e.target.tagName;
         const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target.isContentEditable;
-        const modalOpen = !!document.querySelector('.pn-modal-overlay, .pn-welcome-modal, .pn-stage-overlay');
+        // Stage is a full-screen overlay but NOT a modal — the passive
+        // listener still wants G/S/F/M/J/A/P/B/R/T/,/./1-4/[/]/? to work
+        // without closing Stage first. Only true modals (welcome, help,
+        // share, save, Feel) and the Stage help modal actually own keys.
+        const modalOpen = !!document.querySelector(
+            '.pn-modal-overlay, .pn-welcome-modal, .pn-stage-help-modal, .pn-feel-overlay'
+        );
 
         // Space to play/stop (works anywhere except text fields)
         if (e.key === ' ' && !inInput) {

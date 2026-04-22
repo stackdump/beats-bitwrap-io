@@ -6,6 +6,9 @@
 // State is module-scoped (not on `el`) so it can't collide with the
 // single-net renderer in canvas.js, which owns el._stage/_nodes/_view.
 
+import { renderCurrentCard } from '../share/card.js';
+import { buildShareUrlForms } from '../share/url.js';
+
 const BG = '#0a0a1a';
 const ARC_COLOR = '#4a90d9';
 const PAD = 40;
@@ -34,6 +37,13 @@ export function openStage(el) {
             <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
+            <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (great for recordings)">&#x2710;</button>
+            <button class="pn-stage-help" title="What am I looking at?">?</button>
+            <select class="pn-stage-bgmode" title="Background">
+                <option value="void" selected>Void</option>
+                <option value="stars">Stars</option>
+                <option value="aurora">Aurora</option>
+            </select>
             <select class="pn-stage-structure" title="Track structure (bars)">
                 <option value="">Loop</option>
                 <option value="ab">A/B</option>
@@ -54,6 +64,7 @@ export function openStage(el) {
         </div>
         <div class="pn-stage-stats" aria-live="polite"></div>
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
+        <canvas class="pn-stage-bg" aria-hidden="true"></canvas>
         <div class="pn-stage-grid">
             <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
             <svg class="pn-stage-meta" aria-hidden="true"></svg>
@@ -82,12 +93,29 @@ export function openStage(el) {
         flameCtx: null,
         scale: 'loop',        // panel-size scale: loop (default) / s / m / l / xl
         expandVariants: false, // false = collapse riffGroup → one panel; true = one panel per variant
+        metaRotation: 0,      // current in-plane rotation of the whole meta-diagram (degrees)
+        metaRotationTarget: 0,// bumped by 90° on every genuine track change
+        bolts: [],            // electric-bolt flashes spawned by macro-driven firings
+        seeds: [],            // seed-sparks dropped where a bolt strikes the dark planet
+        cardOnChange: false,  // when true, flash the share card for a few seconds at each track change
+        bgMode: 'void',       // 'void' | 'stars' | 'aurora' — background layer behind the meta-diagram
+        bgCanvas: null,
+        bgCtx: null,
+        bgStars: [],
+        bgAuroraPhase: 0,
     };
 
-    session.onKey = (e) => { if (e.key === 'Escape') closeStage(el); };
+    session.onKey = (e) => {
+        if (e.key === 'Escape') {
+            const help = overlay.querySelector('.pn-stage-help-modal');
+            if (help) { help.remove(); return; }
+            closeStage(el);
+        }
+    };
     document.addEventListener('keydown', session.onKey);
 
     session.onResize = () => {
+        sizeBgCanvas();
         layoutRing(session);
         for (const p of session.panels) layoutPanel(p);
     };
@@ -95,6 +123,16 @@ export function openStage(el) {
     layoutRing(session);
 
     overlay.querySelector('.pn-stage-close').addEventListener('click', () => closeStage(el));
+    overlay.querySelector('.pn-stage-help').addEventListener('click', () => openHelp(overlay));
+    overlay.querySelector('.pn-stage-cardflash').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        session.cardOnChange = !session.cardOnChange;
+        btn.classList.toggle('active', session.cardOnChange);
+        btn.setAttribute('aria-pressed', String(session.cardOnChange));
+        // Preview the card immediately on first enable so the user
+        // knows what they opted into.
+        if (session.cardOnChange) flashShareCard(el);
+    });
     overlay.querySelector('.pn-stage-feel').addEventListener('click', () => {
         el._openFeelModal();
     });
@@ -103,7 +141,9 @@ export function openStage(el) {
         session.expandVariants = !session.expandVariants;
         btn.classList.toggle('active', session.expandVariants);
         btn.setAttribute('aria-pressed', String(session.expandVariants));
-        stageOnProjectSync(el);
+        // Rebuild panels without bumping the meta-rotation — toggling the
+        // view is not a track change.
+        rebuildStagePanels(el);
     });
     overlay.querySelector('.pn-stage-backs').addEventListener('click', (e) => {
         const btn = e.currentTarget;
@@ -116,6 +156,20 @@ export function openStage(el) {
         const on = overlay.classList.toggle('hide-labels');
         btn.classList.toggle('active', !on);
         btn.setAttribute('aria-pressed', String(!on));
+    });
+    // Background canvas sizes itself to match the overlay; re-sized on
+    // resize. The bg renderer runs every frame regardless of mode so
+    // switching is instant (no stale pixels left on screen).
+    const bg = overlay.querySelector('.pn-stage-bg');
+    session.bgCanvas = bg;
+    session.bgCtx = bg.getContext('2d');
+    sizeBgCanvas();
+    overlay.querySelector('.pn-stage-bgmode').addEventListener('change', (e) => {
+        session.bgMode = e.target.value;
+        // Clear on switch so the prior mode's pixels don't linger one
+        // frame into the next.
+        if (session.bgCtx) session.bgCtx.clearRect(0, 0, session.bgCanvas.width, session.bgCanvas.height);
+        if (session.bgMode === 'stars' && session.bgStars.length === 0) spawnStars();
     });
     overlay.querySelector('.pn-stage-scale').addEventListener('change', (e) => {
         session.scale = e.target.value;
@@ -177,6 +231,7 @@ export function closeStage(el) {
     if (session.rafId) cancelAnimationFrame(session.rafId);
     if (session.onKey) document.removeEventListener('keydown', session.onKey);
     if (session.onResize) window.removeEventListener('resize', session.onResize);
+    session.overlay.querySelector('.pn-stage-cardbox')?._killTimers?.();
     session.overlay.remove();
     session = null;
 }
@@ -197,7 +252,7 @@ export function stageOnTransitionFired(el, netId, transitionId) {
     // the pulse list so a flurry of transitions doesn't accumulate
     // unbounded SVG nodes.
     if (session.vizModes.has('pulse') && panel?.ringX != null) {
-        const origin = nodeCenterInStage(session, node) || { x: panel.ringX, y: panel.ringY };
+        const origin = nodeCenterInStage(session, panel, transitionId) || { x: panel.ringX, y: panel.ringY };
         if (session.pulses.length > 64) session.pulses.shift();
         session.pulses.push({
             x0: origin.x, y0: origin.y,
@@ -212,8 +267,21 @@ export function stageOnTransitionFired(el, netId, transitionId) {
     if (session.vizModes.has('flame') && panel?.ringX != null) {
         const prev = session.flameEnergy.get(panel.netId) || 0;
         session.flameEnergy.set(panel.netId, Math.min(1, prev + 0.9));
-        const origin = nodeCenterInStage(session, node);
+        const origin = nodeCenterInStage(session, panel, transitionId);
         if (origin) panel.flameOrigin = origin;
+        // While a macro is running, also spawn a white-blue electric
+        // bolt from the same origin toward the ring center. Bolts are
+        // rendered on top of the flame gradient and live ~500 ms so a
+        // macro reads as crackling arcs across the meta-diagram.
+        if (el._runningMacro && origin) {
+            session.bolts.push({
+                origin: { x: origin.x, y: origin.y },
+                born: performance.now(),
+                life: 480,
+                seed: Math.random() * 1000,
+            });
+            if (session.bolts.length > 32) session.bolts.shift();
+        }
     }
 }
 
@@ -226,14 +294,30 @@ export function stageOnTransitionFired(el, netId, transitionId) {
 // panels point at stale nets after a structure change / regenerate.
 export function stageOnProjectSync(el) {
     if (!session) return;
+    // External entry: a genuine track change just landed (structure
+    // change, regenerate, Auto-DJ swap). Quarter-turn the whole
+    // meta-diagram so the viewer can feel that a new section started
+    // without any text cue. The rAF loop eases metaRotation toward this
+    // target over ~half a second.
+    session.metaRotationTarget += 90;
+    rebuildStagePanels(el);
+    if (session.cardOnChange) flashShareCard(el);
+}
+
+// Rebuild panels in place without signaling a track change. Used by
+// stageOnProjectSync (after it bumps the rotation) and by the ⇄ expand
+// toggle (which must NOT rotate).
+function rebuildStagePanels(el) {
+    if (!session) return;
     const grid = session.overlay.querySelector('.pn-stage-grid');
     // Preserve the canvas + svg overlays; only wipe panel divs.
     for (const p of session.panels) p.root.remove();
     session.panels.length = 0;
     session.pulses.length = 0;
+    session.bolts.length = 0;
+    if (session.seeds) session.seeds.length = 0;
     session.flameEnergy.clear();
     for (const entry of buildPanels(el, grid)) session.panels.push(entry);
-    // Sync structure dropdown to whatever the header now shows.
     const structSel = session.overlay.querySelector('.pn-stage-structure');
     const headerStruct = el.querySelector('.pn-structure-select');
     if (structSel && headerStruct) structSel.value = headerStruct.value || '';
@@ -246,10 +330,13 @@ export function stageOnMuteStateChange(el) {
     if (!session) return;
     const nets = el._project?.nets || {};
     for (const p of session.panels) {
-        // If this panel represents a riffGroup and a *different* variant
-        // is now the unmuted one, swap the displayed net (A→B slot flip
-        // at a section boundary). Skip for panels with no riffGroup.
-        if (p.riffGroup) {
+        // Collapsed mode: each riffGroup has exactly one panel, so swap
+        // its displayed net to the currently-active variant at section
+        // boundaries (A→B slot flip). Expanded mandala mode: every
+        // variant already owns its own panel — swapping would collapse
+        // the whole group back onto the active variant's netId, leaving
+        // all sibling panels as duplicates of the same net.
+        if (p.riffGroup && !session.expandVariants) {
             const groupIds = Object.keys(nets).filter(id => nets[id]?.riffGroup === p.riffGroup);
             const active = groupIds.find(id =>
                 !el._mutedNets?.has(id) && !el._manualMutedNets?.has(id));
@@ -295,7 +382,14 @@ function layoutRing(s) {
     const grid = s.overlay.querySelector('.pn-stage-grid');
     const meta = s.overlay.querySelector('.pn-stage-meta');
     if (!grid) return;
+    // Tilt mode applies a 3D transform to the grid, which warps
+    // getBoundingClientRect into projected screen dims. Strip it for
+    // the measurement and restore — the rAF loop re-applies it next
+    // frame, so no visible flash.
+    const savedTransform = grid.style.transform;
+    if (savedTransform) grid.style.transform = '';
     const rect = grid.getBoundingClientRect();
+    if (savedTransform) grid.style.transform = savedTransform;
     const w = rect.width, h = rect.height;
     const n = s.panels.length;
     if (n === 0) return;
@@ -358,6 +452,13 @@ function layoutRing(s) {
     // the outer ring, places on an inner ring).
     const placeR = Math.max(22, side * 0.12);
     const placeRadius = radius * 0.35;
+    // Dark-planet radius — the implied center object. Bolts and
+    // pulses terminate on its perimeter so they spell the planet's
+    // shape out by implication (Yoneda: the object is what all
+    // morphisms into it say it is). Kept just inside the inner
+    // place ring so the dark planet reads as a gravitational body
+    // sitting between the place circles and the void.
+    s.darkPlanetRadius = Math.max(18, placeRadius - Math.max(22, placeR) - 4);
     const placeCenters = [];
     for (let i = 0; i < n; i++) {
         const theta = ((i + 0.5) / n) * Math.PI * 2 - Math.PI / 2;
@@ -490,10 +591,19 @@ function eligibleNetIds(el) {
 function distributeEvenly(ids) {
     const n = ids.length;
     if (n < 4) return ids;
-    let stride = Math.max(1, Math.round(n * 0.381966));
-    while (gcd(stride, n) !== 1) {
-        stride++;
-        if (stride >= n) { stride = 1; break; }
+    // Pick the coprime-to-n integer closest to n/φ² (≈ n · 0.381966).
+    // The previous version only walked UP from round(n · 0.381966), so on
+    // composite n where the nearest coprime sits below the ideal, stride
+    // drifted upward and same-channel variants could clump on one arc.
+    // Ties prefer the smaller stride.
+    const ideal = n * 0.381966;
+    let stride = n - 1;
+    let bestDist = Infinity;
+    // Skip k=1 (identity) and prefer the coprime-to-n closest to ideal.
+    for (let k = 2; k < n; k++) {
+        if (gcd(k, n) !== 1) continue;
+        const d = Math.abs(k - ideal);
+        if (d < bestDist) { bestDist = d; stride = k; }
     }
     const out = new Array(n);
     for (let i = 0; i < n; i++) out[(i * stride) % n] = ids[i];
@@ -565,17 +675,27 @@ function repanel(entry, newNetId) {
     layoutPanel(entry);
 }
 
-// Translate a panel sub-node's screen position into coordinates used by
-// the stage-level canvas/svg overlays (which are children of
-// `.pn-stage-grid`). Used by pulse/flame to originate effects from the
-// actual fired transition rather than the panel center.
-function nodeCenterInStage(s, node) {
-    if (!node) return null;
-    const grid = s.overlay?.querySelector('.pn-stage-grid');
-    if (!grid) return null;
-    const nr = node.getBoundingClientRect();
-    const gr = grid.getBoundingClientRect();
-    return { x: nr.left + nr.width / 2 - gr.left, y: nr.top + nr.height / 2 - gr.top };
+// Compute a transition node's grid-local center by replaying the same
+// affine the rAF loop applies to `.pn-stage-stage` — no
+// getBoundingClientRect. Tilt sets a 3D transform on `.pn-stage-grid`,
+// so rect-based capture would return post-projection screen coords and
+// then get re-projected on paint (the flame canvas + meta svg are
+// children of the rotated grid), which is how beams + pulses drifted
+// more and more as tiltAngle accumulated.
+function nodeCenterInStage(s, panel, transitionId) {
+    const net = s?.el?._project?.nets?.[panel?.netId];
+    const t = net?.transitions?.[transitionId];
+    if (!t || !panel?.view) return null;
+    const { tx, ty, scale, cx, cy } = panel.view;
+    if (!Number.isFinite(scale) || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+    const a = (panel.angle || 0) * Math.PI / 180;
+    const dx = t.x - cx, dy = t.y - cy;
+    const rx = dx * Math.cos(a) - dy * Math.sin(a) + cx;
+    const ry = dx * Math.sin(a) + dy * Math.cos(a) + cy;
+    return {
+        x: panel.root.offsetLeft + rx * scale + tx,
+        y: panel.root.offsetTop + ry * scale + ty,
+    };
 }
 
 function createPlaceNode(stage, nodes, id, place) {
@@ -608,7 +728,13 @@ function layoutPanel(entry) {
     if (!net) return;
     const { canvas, root } = entry;
 
+    // Same tilt guard as layoutRing: root is inside .pn-stage-grid, so
+    // an active 3D transform on the grid warps its getBoundingClientRect.
+    const grid = session?.overlay?.querySelector('.pn-stage-grid');
+    const savedTransform = grid?.style.transform;
+    if (grid && savedTransform) grid.style.transform = '';
     const rect = root.getBoundingClientRect();
+    if (grid && savedTransform) grid.style.transform = savedTransform;
     const w = Math.max(120, rect.width);
     const h = Math.max(120, rect.height);
     entry.dpr = window.devicePixelRatio || 1;
@@ -717,15 +843,50 @@ function startLoop() {
         const flowOn = session.vizModes.has('flow');
         const tiltOn = session.vizModes.has('tilt');
         const pulseOn = session.vizModes.has('pulse');
+        // Background layer (void/stars/aurora) renders first — it sits
+        // behind the meta-diagram and all viz overlays. Void skips the
+        // draw entirely since the overlay's CSS background is already
+        // the right color.
+        if (session.bgMode === 'stars') renderStars(dt);
+        else if (session.bgMode === 'aurora') renderAurora(dt);
+        // Ease the meta-diagram's in-plane rotation toward its target.
+        // stageOnProjectSync bumps the target by 90° on every genuine
+        // track change; this loop walks metaRotation toward target over
+        // ~0.5 s with exponential approach.
+        {
+            const delta = session.metaRotationTarget - session.metaRotation;
+            if (Math.abs(delta) > 0.05) {
+                session.metaRotation += delta * Math.min(1, dt * 4);
+            } else if (session.metaRotation !== session.metaRotationTarget) {
+                session.metaRotation = session.metaRotationTarget;
+            }
+            // Wrap both values once we've caught up so they don't drift
+            // to big numbers after many track changes. Normalizing to
+            // [0, 360) keeps the CSS transform string compact.
+            if (session.metaRotation === session.metaRotationTarget &&
+                (session.metaRotation >= 360 || session.metaRotation < 0)) {
+                const wrapped = ((session.metaRotation % 360) + 360) % 360;
+                session.metaRotation = wrapped;
+                session.metaRotationTarget = wrapped;
+            }
+        }
         // Tilt: accumulate a slow rotation around X and drift Y so the
-        // whole composition feels 3D without becoming seasick.
-        if (tiltOn) {
-            session.tiltAngle += dt * 12; // deg/sec
+        // whole composition feels 3D without becoming seasick. Tilt and
+        // metaRotation compose into a single transform string so the
+        // rAF loop is the single writer of grid.style.transform.
+        if (tiltOn) session.tiltAngle += dt * 12; // deg/sec
+        {
             const grid = session.overlay.querySelector('.pn-stage-grid');
-            const rx = 18 * Math.sin(session.tiltAngle * Math.PI / 180 * 0.6);
-            const ry = 22 * Math.cos(session.tiltAngle * Math.PI / 180 * 0.4);
-            grid.style.transform =
-                `perspective(1400px) rotateX(${rx}deg) rotateY(${ry}deg)`;
+            const rotZ = session.metaRotation;
+            if (tiltOn) {
+                const rx = 18 * Math.sin(session.tiltAngle * Math.PI / 180 * 0.6);
+                const ry = 22 * Math.cos(session.tiltAngle * Math.PI / 180 * 0.4);
+                grid.style.transform =
+                    `perspective(1400px) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rotZ}deg)`;
+            } else if (Math.abs(rotZ) > 0.01 || session._hadTransform) {
+                grid.style.transform = rotZ ? `rotateZ(${rotZ}deg)` : '';
+                session._hadTransform = !!rotZ;
+            }
         }
         // Pulse: update the pulse-particle SVG layer. Keep rendering
         // after the mode is toggled off so in-flight particles drain
@@ -737,6 +898,19 @@ function startLoop() {
             // One-shot clear when the mode is toggled off.
             session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
             session.flameEnergy.clear();
+        }
+        // Electric bolts draw on top of the flame canvas when they're
+        // alive — whether or not flame mode is on. They only spawn
+        // during macros (see stageOnTransitionFired), so there's no
+        // per-frame cost outside of those moments. Seeds may outlive
+        // their parent bolt by a fraction of a second, so we give
+        // them their own drain path once bolts are gone.
+        if (session.bolts.length) renderBolts(now);
+        else if (session.seeds && session.seeds.length) {
+            if (!session.vizModes.has('flame')) {
+                session.flameCtx?.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
+            }
+            renderSeeds(now, session.ringCenter.x, session.ringCenter.y, session.darkPlanetRadius || 48);
         }
         for (const p of session.panels) {
             if (flowOn) p.angle += p.angleVelDps * dt;
@@ -819,6 +993,260 @@ function renderFlame(dt) {
     }
 }
 
+// Background canvas sizing + initial star pool. Called at open, on
+// resize, and when switching to Stars for the first time.
+function sizeBgCanvas() {
+    if (!session?.bgCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth, h = window.innerHeight;
+    session.bgCanvas.width = Math.round(w * dpr);
+    session.bgCanvas.height = Math.round(h * dpr);
+    session.bgCanvas.style.width = `${w}px`;
+    session.bgCanvas.style.height = `${h}px`;
+    session.bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function spawnStars() {
+    // Stationary sparse starfield — inspired by pilot.pflow.xyz.
+    // No motion; each star just twinkles at its own slow rate.
+    const count = 150;
+    const stars = [];
+    for (let i = 0; i < count; i++) {
+        stars.push({
+            x: Math.random(),
+            y: Math.random(),
+            size: 0.6 + Math.random() * 1.4,
+            bright: 0.25 + Math.random() * 0.55,
+            twinkleRate: 0.3 + Math.random() * 1.1,
+            phase: Math.random() * Math.PI * 2,
+        });
+    }
+    session.bgStars = stars;
+}
+
+// Night-sky starfield. Palette borrowed from pilot.pflow.xyz: deep
+// indigo base with a slight upper-center glow, tiny faint stars that
+// twinkle independently. Strictly a mood layer — no streaking, no
+// parallax — so the meta-diagram always wins the viewer's attention.
+function renderStars(dt) {
+    const ctx = session.bgCtx;
+    const canvas = session.bgCanvas;
+    if (!ctx || !canvas) return;
+    if (session.bgStars.length === 0) spawnStars();
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    // Dark indigo gradient — lighter toward upper-center, fading to
+    // near-black at the edges.
+    const grad = ctx.createRadialGradient(w * 0.5, h * 0.32, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.85);
+    grad.addColorStop(0, '#161530');
+    grad.addColorStop(0.6, '#0c0b20');
+    grad.addColorStop(1, '#05041a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    session.bgAuroraPhase = (session.bgAuroraPhase || 0) + dt;
+    const t = session.bgAuroraPhase;
+    for (const s of session.bgStars) {
+        const twinkle = 0.55 + 0.45 * Math.sin(t * s.twinkleRate + s.phase);
+        const alpha = (s.bright * twinkle).toFixed(3);
+        ctx.fillStyle = `rgba(210, 220, 250, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(s.x * w, s.y * h, s.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// Aurora: slow interference pattern of large colored blobs drifting
+// across the screen — deep blues and magentas, very low contrast so
+// the ring reads cleanly on top. Implemented as additive radial
+// gradients whose centers orbit independently.
+function renderAurora(dt) {
+    const ctx = session.bgCtx;
+    const canvas = session.bgCanvas;
+    if (!ctx || !canvas) return;
+    session.bgAuroraPhase = (session.bgAuroraPhase || 0) + dt;
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    // Solid base fill so switching from stars doesn't leave speckle.
+    ctx.fillStyle = '#07061a';
+    ctx.fillRect(0, 0, w, h);
+    const p = session.bgAuroraPhase;
+    // Dark palette — the meta-diagram is the subject; aurora is a
+    // barely-there mood wash, not scenery. Opacities kept low and the
+    // colors muted-dark so the viewer sees hue shifts, not brightness.
+    const blobs = [
+        { cx: 0.25 + 0.12 * Math.sin(p * 0.09),       cy: 0.30 + 0.15 * Math.cos(p * 0.07),    r: 0.55, color: 'rgba(30, 22, 90, 0.18)'  },
+        { cx: 0.78 + 0.10 * Math.sin(p * 0.11 + 1.5), cy: 0.40 + 0.12 * Math.cos(p * 0.06 + 2), r: 0.50, color: 'rgba(90, 18, 60, 0.14)'  },
+        { cx: 0.50 + 0.18 * Math.sin(p * 0.05 + 3),   cy: 0.80 + 0.10 * Math.cos(p * 0.08 + 1), r: 0.60, color: 'rgba(12, 45, 90, 0.18)'  },
+        { cx: 0.65 + 0.14 * Math.sin(p * 0.075 + 4),  cy: 0.15 + 0.10 * Math.cos(p * 0.095),    r: 0.45, color: 'rgba(70, 30, 10, 0.10)'  },
+    ];
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of blobs) {
+        const x = b.cx * w, y = b.cy * h;
+        const rad = b.r * Math.max(w, h);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        g.addColorStop(0, b.color);
+        g.addColorStop(1, 'rgba(7, 6, 26, 0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+}
+
+// Jagged bolt overlay. Shares the flame canvas so bolts render above
+// the gradient beams. Each bolt is a polyline from the fired
+// transition's position toward the ring center, with perpendicular
+// sinusoidal jitter that reshuffles each frame so the line "crackles".
+function renderBolts(now) {
+    const ctx = session.flameCtx;
+    const canvas = session.flameCanvas;
+    if (!ctx || !canvas) return;
+    // If flame mode is off, renderFlame didn't clear the canvas this
+    // frame — clear it here so bolts don't leave trails.
+    if (!session.vizModes.has('flame')) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    const cx = session.ringCenter.x;
+    const cy = session.ringCenter.y;
+    const darkPlanetR = session.darkPlanetRadius || 48;
+    const alive = [];
+    // Aggregate bolt energy so the dark planet's halo brightens with
+    // how hard the macros are firing — the center object "condenses"
+    // into view out of the live arrows and dims back into the void
+    // once the burst ends.
+    let boltEnergy = 0;
+    for (const b of session.bolts) {
+        const t = (now - b.born) / b.life;
+        if (t >= 1) continue;
+        alive.push(b);
+        const alpha = Math.max(0, 1 - t);
+        boltEnergy += alpha;
+        const ox = b.origin.x, oy = b.origin.y;
+        // Bolt points from origin toward center; stop short of the
+        // center on the dark planet's surface so the planet itself
+        // is never crossed by an arrow. If the origin is *inside*
+        // the planet (shouldn't happen with real panel positions,
+        // but guard) just skip drawing so we don't invert direction.
+        const dxAll = cx - ox, dyAll = cy - oy;
+        const distOrigin = Math.hypot(dxAll, dyAll);
+        if (distOrigin <= darkPlanetR + 2) continue;
+        const ux = dxAll / distOrigin, uy = dyAll / distOrigin;
+        const endX = cx - ux * darkPlanetR;
+        const endY = cy - uy * darkPlanetR;
+        const dx = endX - ox, dy = endY - oy;
+        const len = Math.hypot(dx, dy);
+        if (len < 2) continue;
+        const nx = -uy, ny = ux;
+        const segs = 12;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = `rgba(200, 225, 255, ${(0.85 * alpha).toFixed(3)})`;
+        ctx.shadowColor = `rgba(120, 180, 255, ${(0.9 * alpha).toFixed(3)})`;
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(ox, oy);
+        for (let i = 1; i < segs; i++) {
+            const f = i / segs;
+            const taper = 1 - Math.abs(f - 0.5) * 2;        // 0..1..0
+            const amp = 26 * taper;
+            const jitter = Math.sin(b.seed + i * 11.3 + now * 0.035) * amp
+                         + Math.sin(b.seed * 0.7 + i * 3.1 + now * 0.07) * amp * 0.35;
+            const x = ox + dx * f + nx * jitter;
+            const y = oy + dy * f + ny * jitter;
+            ctx.lineTo(x, y);
+        }
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        // Hot core — draw a second thinner, whiter pass.
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.9 * alpha).toFixed(3)})`;
+        ctx.shadowBlur = 4;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+        // Seed: once per bolt, drop a spark at the strike point the
+        // first time we render it. The spark lingers briefly after
+        // the bolt fades, drifting inward — the "hole drilled into
+        // the planet to seed a note" reading the user gave us.
+        if (!b.seeded) {
+            b.seeded = true;
+            if (!session.seeds) session.seeds = [];
+            session.seeds.push({
+                x: endX, y: endY,
+                ux, uy,                 // inward direction
+                born: now,
+                life: 1100,
+            });
+            if (session.seeds.length > 48) session.seeds.shift();
+        }
+    }
+    session.bolts = alive;
+    renderSeeds(now, cx, cy, darkPlanetR);
+
+    // The dark planet: a soft luminous body the bolts are all
+    // pointing at. Only rendered while bolts exist; intensity
+    // scales with aggregate bolt energy so the center object
+    // visibly condenses out of the crackling arrows and dissolves
+    // once the macro burst ends.
+    if (boltEnergy > 0) {
+        const glow = Math.min(1, boltEnergy * 0.55);
+        ctx.save();
+        // Soft halo only — no perimeter stroke. Two radial washes:
+        // a warm inner glow that fades to transparent, and a cooler
+        // atmospheric rim that peaks right at the dark planet's
+        // surface so its boundary reads without a hard line.
+        const inner = ctx.createRadialGradient(cx, cy, 0, cx, cy, darkPlanetR);
+        inner.addColorStop(0, `rgba(150, 190, 255, ${(0.22 * glow).toFixed(3)})`);
+        inner.addColorStop(1, 'rgba(120, 180, 255, 0)');
+        ctx.fillStyle = inner;
+        ctx.beginPath();
+        ctx.arc(cx, cy, darkPlanetR, 0, Math.PI * 2);
+        ctx.fill();
+        const rim = ctx.createRadialGradient(cx, cy, darkPlanetR * 0.6, cx, cy, darkPlanetR * 1.25);
+        rim.addColorStop(0, 'rgba(120, 180, 255, 0)');
+        rim.addColorStop(0.55, `rgba(180, 210, 255, ${(0.18 * glow).toFixed(3)})`);
+        rim.addColorStop(1, 'rgba(120, 180, 255, 0)');
+        ctx.fillStyle = rim;
+        ctx.beginPath();
+        ctx.arc(cx, cy, darkPlanetR * 1.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// Seeds: tiny sparks left on the dark planet's surface where a bolt
+// struck, then drifting slowly inward before fading. They give the
+// impression the lightning drilled a hole into the planet and is
+// depositing a note there. Safe no-op when session.seeds is empty.
+function renderSeeds(now, cx, cy, planetR) {
+    if (!session || !session.seeds || session.seeds.length === 0) return;
+    const ctx = session.flameCtx;
+    if (!ctx) return;
+    const alive = [];
+    ctx.save();
+    for (const s of session.seeds) {
+        const t = (now - s.born) / s.life;
+        if (t >= 1) continue;
+        alive.push(s);
+        // Drift inward: a small amount of the planet radius over the
+        // seed's lifetime, easing out so the motion feels settled.
+        const inward = planetR * 0.35 * (1 - Math.pow(1 - t, 2));
+        const x = s.x + s.ux * inward;
+        const y = s.y + s.uy * inward;
+        const alpha = Math.max(0, 1 - t);
+        // Core spark — warm white, bright at strike then fading.
+        const core = Math.max(0.8, 2.2 * (1 - t) + 0.5);
+        ctx.shadowColor = `rgba(255, 220, 150, ${(0.8 * alpha).toFixed(3)})`;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = `rgba(255, 240, 210, ${(0.95 * alpha).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, core, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+    session.seeds = alive;
+}
+
 // Repaint active pulse particles as a top-layer overlay on the meta svg.
 // Reuses the same <svg> node; we just rewrite a dedicated <g class="pulses">
 // each frame so dead particles drop cleanly.
@@ -848,6 +1276,187 @@ function renderPulses(now) {
         meta.appendChild(layer);
     }
     layer.innerHTML = parts.join('');
+}
+
+// Stage is aimed at a passive listener treating the app like a
+// screensaver — they might tweak a knob every few minutes but mostly
+// want to watch it breathe. The help modal explains what each symbol
+// on the toolbar does and how to read the composition as a Petri net.
+// Flash the share card for ~6 seconds as a corner overlay. Used at
+// track change when the toolbar toggle is on — lets a recording
+// capture the genre/seed/key/tempo plus a scannable QR so someone
+// watching later can reopen the exact track. The QR is only accurate
+// after upload, so we seal the payload first; if sealing fails we
+// fall back to the inline ?cid=…&z=… URL which always works.
+function flashShareCard(el) {
+    if (!session) return;
+    const overlay = session.overlay;
+    // Remove any in-flight card — only one at a time; if track changes
+    // come faster than 6 s (Auto-DJ bursts), the newest wins.
+    overlay.querySelector('.pn-stage-cardbox')?.remove();
+    const box = document.createElement('div');
+    box.className = 'pn-stage-cardbox';
+    overlay.appendChild(box);
+    // Kick off the seal + URL build; the card re-renders with the real
+    // cid once that resolves. Show a temporary placeholder so the user
+    // sees something immediately.
+    try {
+        box.innerHTML = renderCurrentCard(el, '');
+    } catch (err) { box.innerHTML = ''; }
+    buildShareUrlForms(el).then(({ shortUrl, fullUrl, stored }) => {
+        if (!session || !box.isConnected) return;
+        // Sync URL bar so the cid from the freshly-sealed payload is
+        // the one the QR reflects (renderCurrentCard reads the cid
+        // from location.search).
+        try {
+            const url = stored ? shortUrl : fullUrl;
+            history.replaceState(null, '', url);
+            box.innerHTML = renderCurrentCard(el, '');
+        } catch (err) { /* swallow; placeholder stays */ }
+    }).catch(() => { /* placeholder is fine */ });
+    // Auto-dismiss after 6 s with a short fade so it doesn't feel abrupt.
+    const fadeAt = setTimeout(() => box.classList.add('fading'), 5400);
+    const killAt = setTimeout(() => { clearTimeout(fadeAt); box.remove(); }, 6000);
+    // If Stage closes first, clean up the timers.
+    box._killTimers = () => { clearTimeout(fadeAt); clearTimeout(killAt); };
+}
+
+function openHelp(overlay) {
+    if (overlay.querySelector('.pn-stage-help-modal')) return;
+    const modal = document.createElement('div');
+    modal.className = 'pn-stage-help-modal';
+    modal.innerHTML = `
+        <div class="pn-stage-help-box">
+            <button class="pn-stage-help-close" title="Close (Esc)">&times;</button>
+            <h2>Stage — what you're watching</h2>
+            <p class="pn-stage-help-lede">
+                Every shape on screen is part of one big Petri net — a visual
+                grammar for rhythm. Tokens circulate; each firing is a note.
+                The piece plays itself while you watch.
+            </p>
+
+            <h3>Reading the composition</h3>
+            <ul>
+                <li><b>Sub-rings (panels)</b> — each is one track's one-bar
+                    pattern. Squares <span class="pn-help-sym square"></span>
+                    are <i>transitions</i> (the notes that fire); circles
+                    <span class="pn-help-sym circle"></span> are <i>places</i>
+                    (state between firings). Arrows are the flow of tokens.</li>
+                <li><b>Meta-ring</b> — the larger geometry connecting the
+                    panels (inner blue circles + radial arrows) is itself a
+                    Petri net: the whole Stage reads as N transitions ↔ N
+                    places around one giant loop.</li>
+                <li><b>Playhead glow</b> — the last transition to fire stays
+                    softly lit so you can see the beat travel around each ring.</li>
+                <li><b>Dimmed panels</b> — muted tracks. Arrangement control
+                    nets unmute variants over time; that's how a one-bar ring
+                    becomes a multi-bar song.</li>
+                <li><b>Mandala view</b> — with <b>⇄</b> on, every riffGroup
+                    variant (bass-0, bass-1, …) is visible at once. A 48-bar
+                    song is built from many one-bar riffs; arrangement picks
+                    which ones are live at each moment.</li>
+            </ul>
+
+            <h3>Viz layers (stackable)</h3>
+            <ul>
+                <li><b>◌ Flow</b> — each sub-ring spins at its own slow drift
+                    rate. Ambient motion; clockwise or counter per panel.</li>
+                <li><b>◎ Pulse</b> — every fired transition spawns a particle
+                    that falls toward the composition center. Traffic of the
+                    beat, fading as it converges.</li>
+                <li><b>▼ Flame</b> — a narrow radial beam per panel, brightened
+                    by recent firings, decaying each frame. The louder a track
+                    is playing, the longer its beam.</li>
+                <li><b>⊝ Tilt</b> — slow 3D perspective orbit of the whole
+                    Stage. Pair with Flow for a maximum-drift screensaver.</li>
+            </ul>
+
+            <h3>Tools</h3>
+            <ul>
+                <li><b>◈ Feel</b> — opens the 4-corner performance pad (Chill,
+                    Drive, Ambient, Euphoric). Drag the puck to blend tempo,
+                    FX, Auto-DJ, swing, and humanize into a mood.</li>
+                <li><b>⇄ Expand</b> — toggles mandala mode (all variants
+                    shown) vs. collapsed (one panel per logical track).</li>
+                <li><b>■ Backs</b> — toggle panel background fills. Off is
+                    cleaner; on gives each sub-ring its own window.</li>
+                <li><b>A Labels</b> — show/hide track names.</li>
+                <li><b>Structure</b> — Loop / A-B / Drop / Build / Jam /
+                    Minimal / Standard / Extended. Triggers a fresh
+                    arrangement with that form.</li>
+                <li><b>Scale</b> — Fit auto-sizes panels to the ring; S/M/L/XL
+                    forces a size if you want denser overlap (mandala) or
+                    fewer, bigger rings.</li>
+                <li><b>Background</b> — Void (solid), Stars (warp-speed
+                    starfield streaming outward from the composition
+                    center), Aurora (slow drifting blue-magenta light).</li>
+                <li><b>✐ Card on change</b> — flash the share card (title,
+                    seed, tempo, key, QR) for a few seconds on every track
+                    change. Good for recording a session — the QR in the
+                    video lets a viewer reopen the exact track.</li>
+                <li><b>Macro bolts</b> — while a macro is running, every
+                    firing also spawns a jagged white-blue electric bolt
+                    from the panel toward the center. No toggle — it
+                    follows the Macros panel automatically.</li>
+                <li><b>Track-change spin</b> — the whole meta-diagram spins
+                    a quarter-turn on every genuine track change so the
+                    new arrangement feels distinct from the previous one.</li>
+                <li><b>×</b> or <kbd>Esc</kbd> — close Stage.</li>
+            </ul>
+
+            <h3>Hotkeys</h3>
+            <p>
+                All of the app's keyboard shortcuts still work while
+                Stage is open — try them without closing:
+            </p>
+            <ul>
+                <li><kbd>Space</kbd> play / stop · <kbd>M</kbd> close Stage · <kbd>Esc</kbd> close modal or Stage</li>
+                <li><kbd>G</kbd> generate · <kbd>S</kbd> shuffle instruments · <kbd>F</kbd> Feel pad</li>
+                <li><kbd>J</kbd> Auto-DJ run · <kbd>A</kbd> Auto-DJ animate-only · <kbd>P</kbd> panic (cancel macros)</li>
+                <li><kbd>B</kbd> FX bypass · <kbd>R</kbd> FX reset · <kbd>T</kbd> tap tempo · <kbd>,</kbd> / <kbd>.</kbd> BPM ∓1</li>
+                <li><kbd>1</kbd>–<kbd>4</kbd> toggle hit tracks · <kbd>[</kbd> / <kbd>]</kbd> prev / next track</li>
+                <li><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> nudge hovered slider (works on any control under the cursor)</li>
+                <li><kbd>?</kbd> open main app help</li>
+            </ul>
+
+            <h3>Theory</h3>
+            <p>
+                The <b>dark planet</b> at the center of the meta-diagram
+                is on purpose. It's the <i>center object</i> — the piece
+                itself — and the panels around it are all the ways that
+                object reveals itself in play. Each sub-ring is a
+                different morphism <i>into</i> the dark planet: kick
+                says "hit the one," bass says "walk the low end,"
+                melody says "climb the scale." Read together, the panels
+                specify the planet by implication, not by drawing it.
+            </p>
+            <p>
+                That's the <b>Yoneda lemma</b> as ambient music: an
+                object is fully determined by how every other object
+                maps to it. The dark planet is left un-drawn because
+                the sum of the ways-notes-can-play already determines
+                what's playing; a literal rendering would be redundant.
+                During macro bursts the bolt arrows pile up until the
+                planet's soft halo visibly condenses out of them, then
+                fades as the burst ends.
+            </p>
+            <p>
+                Related reading on <b>blog.stackdump.com</b>:
+            </p>
+            <ul>
+                <li><a href="https://blog.stackdump.com/posts/petri-net-sequencer" target="_blank" rel="noopener">Petri Nets as a Music Sequencer</a> — the architecture this Stage visualizes.</li>
+                <li><a href="https://blog.stackdump.com/posts/tense-type-theory" target="_blank" rel="noopener">The Zipper Whose Hole Is a Universe</a> — the hole in a data structure points outward at everything that could fill it; same idea, different shape as our dark planet.</li>
+            </ul>
+
+            <p class="pn-stage-help-foot">
+                The audio never stops while you browse tools — Stage is a
+                read-only window over the same sequencer that's playing.
+            </p>
+        </div>
+    `;
+    overlay.appendChild(modal);
+    modal.querySelector('.pn-stage-help-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 function escapeHtml(s) {
