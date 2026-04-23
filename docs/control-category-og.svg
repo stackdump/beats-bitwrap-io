@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <radialGradient id="bg" cx="70%" cy="55%" r="75%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+    <radialGradient id="beatGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#67e8f9" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#0891b2" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Left: title block -->
+  <g>
+    <text x="60" y="110" font-size="20" fill="#94a3b8" letter-spacing="3">BEATS · BITWRAP · IO</text>
+    <text x="60" y="190" font-size="62" font-weight="700" fill="#f8fafc" letter-spacing="-0.5">control category</text>
+    <text x="60" y="232" font-size="22" fill="#cbd5e1">every beat is a transition firing.</text>
+    <text x="60" y="262" font-size="22" fill="#cbd5e1">branches rejoin through macros + control actions.</text>
+
+    <g font-size="15" fill="#94a3b8">
+      <text x="60" y="340">71 instruments · 34 macros</text>
+      <text x="60" y="365">10 control actions · 19 genres</text>
+      <text x="60" y="390">9-field arrange DSL</text>
+    </g>
+
+    <text x="60" y="560" font-size="14" fill="#64748b" letter-spacing="1">beats.bitwrap.io / docs / control-category</text>
+  </g>
+
+  <!-- Right: radial diagram preview (centered around 860, 315) -->
+  <g transform="translate(860, 315)">
+    <circle r="240" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="2 4" opacity="0.4"/>
+
+    <!-- spokes -->
+    <g stroke="#475569" stroke-width="1.2" opacity="0.6" fill="none">
+      <line x1="0" y1="0" x2="0" y2="-210"/>
+      <line x1="0" y1="0" x2="164" y2="-131"/>
+      <line x1="0" y1="0" x2="205" y2="47"/>
+      <line x1="0" y1="0" x2="91" y2="189"/>
+      <line x1="0" y1="0" x2="-91" y2="189"/>
+      <line x1="0" y1="0" x2="-205" y2="47"/>
+      <line x1="0" y1="0" x2="-164" y2="-131"/>
+    </g>
+
+    <!-- beat center -->
+    <circle cx="0" cy="0" r="70" fill="url(#beatGlow)" filter="url(#soft)"/>
+    <circle cx="0" cy="0" r="36" fill="#0ea5e9" stroke="#67e8f9" stroke-width="2" filter="url(#shadow)"/>
+    <text x="0" y="4" text-anchor="middle" font-size="16" font-weight="700" fill="#f0f9ff">beat</text>
+
+    <!-- 7 branch labels at ring -->
+    <g font-size="15" font-weight="600">
+      <g transform="translate(0, -230)">
+        <rect x="-52" y="-16" width="104" height="32" rx="8" fill="#0f766e" stroke="#2dd4bf" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#f0fdfa">Generate</text>
+      </g>
+      <g transform="translate(180, -144)">
+        <rect x="-45" y="-16" width="90" height="32" rx="8" fill="#3f6212" stroke="#a3e635" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#ecfccb">Arrange</text>
+      </g>
+      <g transform="translate(225, 52)">
+        <rect x="-60" y="-16" width="120" height="32" rx="8" fill="#92400e" stroke="#f59e0b" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#fef3c7">Instruments</text>
+      </g>
+      <g transform="translate(100, 208)">
+        <polygon points="-50,0 -38,-16 38,-16 50,0 38,16 -38,16" fill="#831843" stroke="#ec4899" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#fce7f3">Macros</text>
+      </g>
+      <g transform="translate(-100, 208)">
+        <polygon points="-50,0 -38,-16 38,-16 50,0 38,16 -38,16" fill="#4c1d95" stroke="#a78bfa" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#ede9fe">Control</text>
+      </g>
+      <g transform="translate(-225, 52)">
+        <rect x="-48" y="-16" width="96" height="32" rx="8" fill="#334155" stroke="#94a3b8" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#e2e8f0">Perform</text>
+      </g>
+      <g transform="translate(-180, -144)">
+        <rect x="-40" y="-16" width="80" height="32" rx="8" fill="#713f12" stroke="#fbbf24" stroke-width="1.5"/>
+        <text text-anchor="middle" y="5" fill="#fef3c7">Share</text>
+      </g>
+    </g>
+
+    <!-- a couple rejoin arcs for flavor -->
+    <g fill="none" stroke-width="1.4" stroke-dasharray="5 3" opacity="0.7">
+      <path d="M 100 208 C 200 120, 230 60, 225 52" stroke="#ec4899"/>
+      <path d="M -100 208 C -170 120, -210 60, -225 52" stroke="#a78bfa"/>
+    </g>
+  </g>
+</svg>

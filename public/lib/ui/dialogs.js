@@ -442,6 +442,7 @@ export function showHelpModal(el) {
             <ul>
                 <li><b><a href="https://tonejs.github.io/" target="_blank" rel="noopener" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
                 <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms as token rings</li>
+                <li><b><a href="/docs/control-category.html" target="_blank" rel="noopener" style="color:#0af">Control category map &rarr;</a></b> &mdash; diagram of how <code>beat</code> fans out through generators, instruments, macros, and control actions</li>
             </ul>
         </div>
     `;

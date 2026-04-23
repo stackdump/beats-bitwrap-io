@@ -1,5 +1,6 @@
 beats-bitwrap-io
 *.png
 !docs/*.png
+!public/docs/*.png
 .playwright-mcp/
 data/

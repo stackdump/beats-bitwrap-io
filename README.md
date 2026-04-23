@@ -29,6 +29,10 @@ tone-engine.js (audio)                 ├── pflow.js (Petri net engine)
 
 The sequencer runs in a **Web Worker** so timing stays accurate even when the tab is backgrounded. The worker posts `transition-fired` messages to the main thread, which plays sounds via Tone.js. Zero backend involvement during playback.
 
+[![control category map](docs/control-category.png)](docs/control-category.svg)
+
+See [`docs/categorical-index.md`](docs/categorical-index.md) for a full category-theory-style index — `beat` at the root, generators / instruments / macros / control actions / arrange / perform / share as branches, with file:line anchors for every leaf.
+
 ## Genres
 
 19 genre presets with distinct scales, chord progressions, drum patterns, and instrument palettes:
