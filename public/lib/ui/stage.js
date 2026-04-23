@@ -142,18 +142,52 @@ export function openStage(el) {
         burger.setAttribute('aria-expanded', 'false');
     });
     const fsBtn = overlay.querySelector('.pn-stage-fullscreen');
+    // Cross-browser entry + exit. Safari < 16.4 and iOS Safari need
+    // the webkit prefix; iPad touch-devices also land here. Mobile
+    // Safari on iPhone doesn't support div fullscreen at all, so
+    // fall back to a CSS class that simulates it (hides everything
+    // outside the overlay) rather than doing nothing visibly.
+    const reqFullscreen = (el) => {
+        if (el.requestFullscreen) return el.requestFullscreen();
+        if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+        if (el.webkitEnterFullscreen) return el.webkitEnterFullscreen();
+        return Promise.reject(new Error('Fullscreen API not supported'));
+    };
+    const exitFullscreen = () =>
+        document.exitFullscreen?.() ||
+        document.webkitExitFullscreen?.() ||
+        Promise.resolve();
+    const currentFsEl = () =>
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        null;
     fsBtn.addEventListener('click', async () => {
+        const isOn = overlay.classList.contains('pn-stage-pseudo-fs') || !!currentFsEl();
         try {
-            if (!document.fullscreenElement) await overlay.requestFullscreen();
-            else await document.exitFullscreen();
-        } catch (err) { /* user gesture / permission / unsupported — leave state alone */ }
+            if (!isOn) {
+                await reqFullscreen(overlay);
+            } else {
+                await exitFullscreen();
+                overlay.classList.remove('pn-stage-pseudo-fs');
+                fsBtn.classList.remove('active');
+                fsBtn.setAttribute('aria-pressed', 'false');
+            }
+        } catch (err) {
+            // Real fullscreen refused (iOS Safari on iPhone, sandboxed
+            // iframes, kiosk windows). Emulate with a CSS class so the
+            // user at least gets the chrome-free view they wanted.
+            overlay.classList.add('pn-stage-pseudo-fs');
+            fsBtn.classList.add('active');
+            fsBtn.setAttribute('aria-pressed', 'true');
+        }
     });
     session.onFsChange = () => {
-        const on = document.fullscreenElement === overlay;
+        const on = currentFsEl() === overlay || overlay.classList.contains('pn-stage-pseudo-fs');
         fsBtn.classList.toggle('active', on);
         fsBtn.setAttribute('aria-pressed', String(on));
     };
     document.addEventListener('fullscreenchange', session.onFsChange);
+    document.addEventListener('webkitfullscreenchange', session.onFsChange);
     overlay.querySelector('.pn-stage-help').addEventListener('click', () => openHelp(overlay));
     overlay.querySelector('.pn-stage-cardflash').addEventListener('click', (e) => {
         const btn = e.currentTarget;

@@ -1227,6 +1227,42 @@ input[type="range"][data-default] {
     color: #aaa;
 }
 
+.pn-macro-edit-group { min-width: 120px; }
+
+.pn-macros-edit {
+    padding: 6px 10px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pn-macros-edit:hover { border-color: #f5a623; color: #f5a623; }
+.pn-macros-edit.active {
+    background: #f5a623;
+    color: #1a1a2e;
+    border-color: #f5a623;
+}
+
+.pn-macro-edit-hint {
+    font-size: 10px;
+    color: #9aa;
+    display: none;
+}
+.pn-macros-panel.pn-edit-mode .pn-macro-edit-hint { display: block; }
+
+/* In edit mode, tiles look "tappable to toggle" rather than "firing" */
+.pn-macros-panel.pn-edit-mode .pn-macro-btn {
+    border-style: dashed;
+    border-color: #f5a623;
+}
+.pn-macros-panel.pn-edit-mode .pn-macro-btn:hover {
+    background: #2a2030;
+    color: #f5a623;
+}
+
 .pn-macro-btn.queued {
     border-color: #f5a623;
     color: #f5a623;
@@ -2692,6 +2728,14 @@ input[type="range"][data-default] {
     color: #fff;
     background: rgba(74,144,217,0.30);
     border-color: rgba(74,144,217,0.7);
+}
+/* Pseudo-fullscreen fallback — Stage already position:fixed fills the
+   viewport, so when the real Fullscreen API is refused (iOS Safari on
+   iPhone, sandboxed iframes, kiosk windows) we hide body scroll and
+   force the overlay's z-index above anything else. Visually near-
+   identical to real fullscreen for this specific overlay. */
+.pn-stage-overlay.pn-stage-pseudo-fs {
+    z-index: 2147483647;
 }
 /* Desktops have Esc; hide the floating × there. Touch devices
    (phones/tablets — `pointer: coarse`) keep the button because
