@@ -98,7 +98,9 @@ Two JSON-Schema documents ship with the app:
 - [`/schema/beats-share`](https://beats.bitwrap.io/schema/beats-share.schema.json) — content-negotiated envelope for share-v1 payloads (`@context`, `@type: BeatsShare`, `v`, genre, seed, plus optional overrides). JSON-LD context at `/schema/beats-share.context.jsonld`.
 - [`/schema/petri-note`](https://beats.bitwrap.io/schema/petri-note.schema.json) — the nested project shape: nets, places, transitions, arcs, MIDI bindings, track metadata.
 
-Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json), and [`examples/hand-authored.json`](examples/hand-authored.json) for a raw-nets share.
+A third, richer reference schema with Scenes / inter-net connections / inhibitor arcs / silent transitions ships in [`schema/`](schema/README.md) as a test fixture for the petri-note v1 JSON-LD shape — it is **not** the wire format; see `CLAUDE.md` → **Three schemas in this repo** for which to use when.
+
+Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json), and [`examples/hand-authored.json`](examples/hand-authored.json) for a raw-nets share. Several full hand-authored tracks (`blade-blood-rave`, `ivory-circuit`, `jurassic-park`, `life-aquatic`, `stranger-things`, `tiesto-adagio`, `upside-down-ii`) live alongside as larger reference payloads.
 
 ## Local authoring (Claude MCP + MIDI)
 

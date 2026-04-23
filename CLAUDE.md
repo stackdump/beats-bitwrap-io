@@ -92,13 +92,23 @@ export function fireMacro(el, id) { /* actual implementation */ }
 ### Server (Go)
 | Path | Role |
 |------|------|
-| `main.go` | Static file server, CORS, `/schema/beats-share` content-negotiated handler |
-| `seal.go` | Content-addressed share store (`PUT /o/{cid}`), HMAC-anonymized per-IP rate limit, global rate limit, JSON-Schema validation |
-| `canonical.go` | Go port of JS `_canonicalizeJSON` so Go can mint CIDs identical to the browser |
-| `schema_handler.go` | `/schema/beats-share` serves JSON-LD / JSON-Schema / HTML glossary based on Accept header |
-| `seal_test.go` | End-to-end store tests + canonical-JSON parity test |
-| `public/schema/beats-share.{context.jsonld,schema.json}` | JSON-LD context + Draft 2020-12 schema for the share-v1 envelope |
-| `public/schema/petri-note.schema.json` | JSON-Schema describing the *project* shape (nets/places/transitions) |
+| `main.go` | Flag parsing, static file server, CORS, share-store wiring, `-authoring`-gated mount of sequencer/ws/routes/MIDI |
+| `internal/share/seal.go` | Content-addressed share store (`PUT /o/{cid}`), HMAC-anonymized per-IP rate limit, global rate limit, JSON-Schema validation |
+| `internal/share/canonical.go` | Go port of JS `_canonicalizeJSON` so Go can mint CIDs identical to the browser |
+| `internal/share/schema_handler.go` | `/schema/beats-share` serves JSON-LD / JSON-Schema / HTML glossary based on Accept header |
+| `internal/share/{share_page,share_card_png,qr}*.go` | Decorated root, OG share-card PNGs, QR codes |
+| `internal/share/seal_test.go` | End-to-end store tests + canonical-JSON parity test |
+| `internal/sequencer/sequencer.go` | Authoritative Petri-net executor — Play/Stop/Pause, Seek, SetLoop/GetLoop, CropProject, SetDeterministicLoop, FireTransition, SetMuted/SetGroupMuted, SetInstrument, ShuffleInstruments |
+| `internal/ws/{hub,protocol,sequencer}.go` | `/ws` hub + JSON message protocol mirroring the in-page worker; broadcasts `transition-fired` / `state-sync` / `mute-state` / `loop-changed` / `preview-ready` |
+| `internal/routes/routes.go` | All `/api/*` HTTP handlers (catalog, generate, transport, share-gallery) |
+| `internal/routes/eth.go` | EIP-191 signature verify backing the `/api/vote` upvote path |
+| `internal/midiout/midiout.go` | CoreMIDI/ALSA output — single-port, per-net virtual ports, fanout with role-priority pre-assignment, `AllNotesOff` panic |
+| `internal/mcp/server.go` | `./beats-bitwrap-io mcp` stdio MCP server (11 tools) |
+| `internal/pflow/{adapter,cid}.go` | Project model + JSON round-trip + CID hashing shared between sequencer and share path |
+| `internal/generator/*` | Go port of the 19-genre composer (composer/euclidean/markov/theory/structure/arrange/variety/riffs/stingers/threering) |
+| `public/schema/beats-share.{context.jsonld,schema.json}` | JSON-LD context + Draft 2020-12 schema for the share-v1 envelope (the wire format) |
+| `public/schema/petri-note.schema.json` | JSON-Schema describing the *worker project* shape (nets/places/transitions/arcs) — what `nets:` round-trips through |
+| `schema/petri-note.schema.json` + `schema/README.md` | **Reference** petri-note v1 JSON-LD (with Scenes / inter-net connections) inherited from the petri-note merge. Test-only — `internal/pflow/schema_test.go` validates the bundled `schema/example-*.json` fixtures against it. Not the wire format. |
 
 ## How Petri nets drive everything
 
@@ -164,6 +174,14 @@ When adding a new user-tunable knob: ask "would the author expect this setting t
   - `Accept: application/schema+json` → Draft 2020-12 JSON-Schema
   - `Accept: text/html` → rendered HTML term glossary
 - Static paths always work: `/schema/beats-share.context.jsonld`, `/schema/beats-share.schema.json`.
+
+### Three schemas in this repo (don't confuse them)
+
+| Path | Status | Purpose |
+|---|---|---|
+| `public/schema/beats-share.{context.jsonld,schema.json}` | **Wire format.** Served at `/schema/beats-share`. | Validates the share-v1 envelope (`?cid=…` payloads). The contract for any agent producing playable links. |
+| `public/schema/petri-note.schema.json` | **Runtime project shape.** | What `nets:` round-trips through — `parseNetBundle` consumes this. Used by `internal/share` to validate hand-authored `nets` blocks before sealing. |
+| `schema/petri-note.schema.json` + `schema/README.md` | **Reference / vestigial.** Test-only. | The richer petri-note v1 JSON-LD shape (Scenes, inter-net `connections`, inhibitor arcs, silent transitions) inherited from the merged petri-note repo. `internal/pflow/schema_test.go` validates `schema/example-*.json` against it. Not served, not enforced at runtime — kept because `/api/song.jsonld` and a future Scenes-aware authoring path target this shape. |
 
 ## Generating a share payload (agents / LLMs / non-UI front-ends)
 
@@ -256,14 +274,27 @@ Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema c
 
 **Local-binary alternative**: the same repo can run in authoring mode (`./beats-bitwrap-io -authoring`; see "Running locally" below) which exposes `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}`. That wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere without the Go binary.
 
+### Worked examples (`examples/*.json`)
+
+Drop-in starting points for `curl -d @examples/<name>.json http://localhost:8080/api/project` (sequencer load) or `… /o/{cid}` (direct share-store seal):
+
+| File | What it shows |
+|---|---|
+| `minimal.json` | Smallest valid share — just `genre` + `seed`. CID-stable across producers. |
+| `overrides.json` | Realistic share with `tempo` / `fx` / `feel` / `tracks` overrides on top of `(genre, seed)`. |
+| `hand-authored.json` | Raw-`nets` share — bespoke topology, no composer involvement. Use as the template when porting an external sequence. |
+| `blade-blood-rave.json`, `ivory-circuit.json`, `jurassic-park.json`, `life-aquatic.json`, `stranger-things.json`, `tiesto-adagio.json`, `upside-down-ii.json` | Hand-authored full tracks shipped with the merge — useful regression fixtures and reference for the raw-`nets` shape at scale. |
+
 ## Running locally for hand-authored tracks
 
 The same binary that serves `beats.bitwrap.io` can run locally as a **full authoring engine** under a single `-authoring` flag. This wakes up:
 
-- `/api/project`, `/api/generate`, `/api/tempo`, `/api/transport`, `/api/mute`, `/api/instrument`, `/api/shuffle-instruments`, `/api/arrange` — HTTP control of a local Petri-net sequencer written in Go.
+- **Sequencer control** — `/api/project` (GET/POST current project), `/api/generate` (compose from genre+seed+params), `/api/transport` (play/stop/pause), `/api/tempo`, `/api/mute`, `/api/instrument`, `/api/shuffle-instruments`, `/api/arrange` (regenerate song structure).
+- **Read-only catalog** — `/api/genres` (genres + their tunable parameters, drives the dropdown), `/api/instruments` (synth catalog), `/api/midi-routing` (current MIDI mode + net→port assignments when fanout is on).
+- **Preview without loading** — `/api/generate-preview` renders a fresh project but does not swap it into the live sequencer; `/api/song.jsonld` is the JSON-LD-envelope variant of `/api/project` for interop with the petri-note v1 schema.
+- **Local saved-track gallery** — `/api/save` (POST a project, stores it on disk under its CID with a tag and metadata), `/api/tracks` (list, sorted by upvotes), `/api/tracks/{cid}.jsonld` (load one back), `/api/vote` (record an EIP-191 / MetaMask-signed upvote — see `internal/routes/eth.go`).
+- **Share + mirror** — `/api/project-share` seals the currently-loaded project as a share-v1 envelope with raw nets + optional mirror PUTs to remote hosts in one call. `/api/mirror-cid` replays an already-sealed local CID to `beats.bitwrap.io` (or any other seal host).
 - `/ws` — the same message protocol the in-page worker speaks, so a browser pointed at `data-backend="ws"` drives its audio through the Go sequencer instead of Tone.js alone.
-- `/api/project-share` — seal the currently-loaded project as a share-v1 envelope with raw nets + optional mirror PUTs to remote hosts in one call.
-- `/api/mirror-cid` — replay an already-sealed local CID to `beats.bitwrap.io` (or any other seal host).
 - Server-side MIDI output via `gitlab.com/gomidi/midi/v2` — stream sequencer fires to CoreMIDI (macOS), ALSA (Linux), or a virtual port so headless hosts can drive a DAW.
 - `./beats-bitwrap-io mcp` — stdio MCP server so Claude Code can generate, audition, and seal tracks via 11 curated tools (`generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`).
 
@@ -274,11 +305,18 @@ make build
 ./beats-bitwrap-io -authoring -addr :8080
 ```
 
-Optional MIDI flags (mutually exclusive):
-- `-midi "IAC"` — send to one multi-channel port, substring-matched.
-- `-midi-per-net` — create one virtual port per net (`petri-note-kick`, `petri-note-bass`, …).
-- `-midi-fanout "petri-note Bus"` — round-robin nets across matching-prefix ports.
-- `-midi-list` — print available ports and exit.
+Server flags (apply with or without `-authoring`):
+- `-addr ":8089"` — listen address.
+- `-public ""` — serve from disk instead of embedded files (use this when iterating on `public/lib/*` so changes don't require a rebuild).
+- `-data "./data"` — content-addressed share-store directory.
+- `-max-store-bytes 268435456` — hard cap on total share-store bytes (default 256 MiB).
+- `-put-per-min 10` / `-global-put-per-min 120` — share-store rate limits (per-IP, then global; `0` disables the global cap).
+
+MIDI flags (mutually exclusive routing modes; require `-authoring`):
+- `-midi "IAC"` — send to one multi-channel port, substring-matched. Add `-midi-virtual` to create a virtual port with that name when no existing port matches.
+- `-midi-per-net` — create one virtual port per net. Name prefix is configurable via `-midi-prefix "petri-note"` (yielding `petri-note-kick`, `petri-note-bass`, …).
+- `-midi-fanout "petri-note Bus"` — open every existing output port whose name starts with the given prefix and pin nets to ports by **musical role priority** (drums → bass → melody/lead → arp/pads → others alphabetical). Deterministic across restarts so in-DAW per-channel filters keep working. `GET /api/midi-routing` returns the live netID → port map.
+- `-midi-list` — print available ports and exit (no server starts).
 
 Without `-authoring` the same binary runs the production configuration (static + share store only); all authoring routes return 404 and MIDI flags emit a warning.
 
@@ -352,7 +390,7 @@ Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx. 
 
 ## Roadmap — Remote Conductor (WS backend)
 
-Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and sends/receives the same JSON message types as the in-page worker (`generate`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`, `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`, `loop`, `seek`, `crop`, `deterministic-loop`, `shuffle-instruments`; responses: `ready`, `project-sync`, `state-sync`, `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`, `instruments-changed`, `track-pattern-updated`, `track-pattern-error`, `preview-ready`, `playback-complete`). Full catalogue in `lib/backend/index.js::handleWsMessage`.
+Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and sends/receives the same JSON message types as the in-page worker. Client→server: `generate`, `generate-preview`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`, `instrument-change`, `shuffle-instruments`, `arrange`, `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`, `loop`, `seek`, `crop`, `deterministic-loop`, `edit`. Server→client: `ready`, `project-sync`, `state-sync`, `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`, `instruments-changed`, `track-pattern-updated`, `track-pattern-error`, `loop-changed`, `preview-ready`, `playback-complete`. Authoritative dispatch in `internal/ws/hub.go`; client-side handlers in `lib/backend/index.js::handleWsMessage`.
 
 - **Production `beats.bitwrap.io` does NOT run the WS endpoint.** The deployed binary starts without `-authoring`, so `/ws` returns 404 and the frontend stays on the in-page worker. This keeps the public host's attack surface minimal.
 - **Run it locally** with `./beats-bitwrap-io -authoring` (see "Running locally" above). The same binary then serves `/ws` backed by the Go sequencer in `internal/sequencer`, `internal/ws`, and `internal/routes`, and optionally streams server-side MIDI via `-midi*` flags — useful for live sets driven by external hardware, collaborative jams, or headless rendering.
