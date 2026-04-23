@@ -442,12 +442,17 @@ export function showHelpModal(el) {
             <ul>
                 <li><b><a href="https://tonejs.github.io/" target="_blank" rel="noopener" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
                 <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms as token rings</li>
-                <li><b><a href="/docs/control-category.html" target="_blank" rel="noopener" style="color:#0af">Control category map &rarr;</a></b> &mdash; diagram of how <code>beat</code> fans out through generators, instruments, macros, and control actions</li>
+                <li><b><button class="pn-help-category pn-link-btn" style="color:#0af">Control category map &rarr;</button></b> &mdash; diagram of how <code>beat</code> fans out through generators, instruments, macros, and control actions</li>
             </ul>
         </div>
     `;
     overlay.addEventListener('click', (e) => {
         if (e.target.closest('.pn-help-ai')) { openAiPromptModal(); return; }
+        if (e.target.closest('.pn-help-category')) {
+            overlay.remove();
+            showCategoryModal(el);
+            return;
+        }
         if (e.target === overlay || e.target.closest('.pn-help-close')) {
             overlay.remove();
         }
@@ -476,4 +481,32 @@ export function showHelpModal(el) {
             }
         })();
     }
+}
+
+export function showCategoryModal(el) {
+    el.querySelector('.pn-help-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'pn-help-overlay pn-category-overlay';
+    overlay.tabIndex = -1;
+    overlay.innerHTML = `
+        <div class="pn-help-modal" style="max-width:1200px;width:96vw">
+            <button class="pn-help-close" title="Close (Esc)">&times;</button>
+            <h2 style="margin:0 0 4px">Control category map</h2>
+            <p style="margin:0 0 12px;color:#aaa;font-size:0.9em">Every beat is a transition firing; branches fan out through deterministic functors and rejoin through macros and control actions.</p>
+            <div style="background:#0a0f1e;border:1px solid #334155;border-radius:8px;padding:8px">
+                <object type="image/svg+xml" data="/docs/control-category.svg" style="width:100%;height:auto;display:block" aria-label="control category diagram"></object>
+            </div>
+            <p style="margin:10px 0 0;color:#64748b;font-size:0.82em">Source: <code>docs/control-category.svg</code> · Index: <code>docs/categorical-index.md</code></p>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('.pn-help-close')) {
+            overlay.remove();
+        }
+    });
+    overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+    });
+    el.appendChild(overlay);
+    overlay.focus();
 }

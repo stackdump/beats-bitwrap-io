@@ -51,7 +51,7 @@ import {
 } from './lib/ui/canvas.js';
 import {
     openMidiEditor, fireTransition,
-    showQuickstartModal, showHelpModal, showWelcomeCard,
+    showQuickstartModal, showHelpModal, showCategoryModal, showWelcomeCard,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
 import { toggleStage } from './lib/ui/stage.js';
@@ -823,6 +823,12 @@ class PetriNote extends HTMLElement {
             this._showHelpModal();
         });
 
+        // Control category map
+        this.querySelector('.pn-category-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._showCategoryModal();
+        });
+
         // Full-page Stage
         this.querySelector('.pn-stage-btn')?.addEventListener('click', () => {
             this._toggleStage();
@@ -1509,6 +1515,7 @@ class PetriNote extends HTMLElement {
     _showQuickstartModal() { return showQuickstartModal(this); }
     _showWelcomeCard() { return showWelcomeCard(this); }
     _showHelpModal() { return showHelpModal(this); }
+    _showCategoryModal() { return showCategoryModal(this); }
     _toggleStage() { return toggleStage(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
