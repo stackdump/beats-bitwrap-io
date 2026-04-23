@@ -664,6 +664,36 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		}
 	}
 
+	// Tag every music net with its mixer-section group so the frontend
+	// can draw explicit section dividers. Rules: `hitN` → "stinger",
+	// drum roles → "drums", then bass/melody/harmony/arp map literally.
+	// Anything unrecognized is left ungrouped (shows up under "main").
+	for netId, bundle := range proj.Nets {
+		if bundle == nil || bundle.Role == "control" {
+			continue
+		}
+		group := groupForRole(netId, bundle.RiffGroup)
+		if group != "" {
+			bundle.Track.Group = group
+		}
+		// Fallback instrumentSet when the genre preset didn't populate one
+		// (Chorus-added harmony, custom roles, etc.) so the mixer's `»`
+		// rotate button renders on every music row.
+		if len(bundle.Track.InstrumentSet) < 2 {
+			key := group
+			if key == "" {
+				key = bundle.RiffGroup
+				if key == "" {
+					key = netId
+				}
+			}
+			bundle.Track.InstrumentSet = fallbackInstrumentSet(key, bundle.Track.Instrument)
+			if bundle.Track.Instrument == "" && len(bundle.Track.InstrumentSet) > 0 {
+				bundle.Track.Instrument = bundle.Track.InstrumentSet[0]
+			}
+		}
+	}
+
 	// === Arrangement options ===
 
 	// Chorus applies in both structure and loop modes (it adds a music track)
@@ -1011,6 +1041,75 @@ func ControlTrack(targetNet string, hits, steps int, seed int64) *Result {
 		Bundle: nb,
 		NetID:  "ctrl-" + targetNet,
 	}
+}
+
+// fallbackInstrumentSet mirrors public/lib/generator/composer.js —
+// returns a pool of candidate voices per mixer-section group so the `»`
+// rotate button always has ≥2 entries to cycle through on the mixer row.
+func fallbackInstrumentSet(groupOrRole, current string) []string {
+	var set []string
+	switch groupOrRole {
+	case "drums":
+		set = []string{"drums", "drums-v8", "drums-808", "drums-cr78", "drums-breakbeat", "drums-lofi"}
+	case "bass":
+		set = []string{"sub-bass", "fm-bass", "reese", "acid", "wobble-bass", "rubber-bass", "drop-bass", "808-bass"}
+	case "melody", "lead":
+		set = []string{"sync-lead", "square-lead", "supersaw", "pwm-lead", "tape-lead", "bright-pluck", "distorted-lead", "scream-lead"}
+	case "arp":
+		set = []string{"bright-pluck", "pluck", "muted-pluck", "edm-pluck", "chiptune", "kalimba", "music-box"}
+	case "harmony", "chords", "chord":
+		set = []string{"warm-pad", "dark-pad", "strings", "pad", "glass-pad", "choir", "organ", "rave-stab", "rave-organ"}
+	case "pad":
+		set = []string{"warm-pad", "dark-pad", "strings", "pad", "glass-pad", "choir"}
+	case "stinger":
+		return append([]string(nil), StingerInstrumentSet...)
+	}
+	if len(set) < 2 {
+		// Generic fallback — keeps the rotate button visible on any role.
+		set = []string{"piano", "electric-piano", "bass", "sub-bass", "lead", "sync-lead", "pad", "warm-pad", "strings", "organ", "fm-bell", "marimba"}
+	}
+	if current != "" {
+		// Keep the current instrument at the front so it stays selected.
+		found := false
+		for _, s := range set {
+			if s == current {
+				found = true
+				break
+			}
+		}
+		if !found {
+			set = append([]string{current}, set...)
+		}
+	}
+	return set
+}
+
+// groupForRole maps a composer-generated net id (or its riffGroup tag)
+// to the mixer-section group that should own it. Keeps the convention
+// of drum tracks under "drums", melodic roles under their literal
+// names, and hit1..hitN pads under "stinger" so the Beats tab still
+// filters correctly when nothing else is set.
+func groupForRole(netId, riffGroup string) string {
+	key := riffGroup
+	if key == "" {
+		key = netId
+	}
+	switch key {
+	case "kick", "snare", "hihat", "clap", "tom", "perc":
+		return "drums"
+	case "bass":
+		return "bass"
+	case "melody", "lead":
+		return "melody"
+	case "arp":
+		return "arp"
+	case "pad", "chord", "chords", "harmony":
+		return "harmony"
+	}
+	if len(key) >= 4 && key[:3] == "hit" {
+		return "stinger"
+	}
+	return ""
 }
 
 // generateTrackName creates a random creative name like "ambient · Neon Drift"

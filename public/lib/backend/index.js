@@ -347,6 +347,32 @@ export function handleWsMessage(el, msg) {
             } else {
                 el._applyProjectSync(msg.project, false);
             }
+            // Fire any pending arrange overlay now that the composer's
+            // generate has produced a project. One-shot per share load.
+            // Runs in-process via the JS port of ArrangeWithOpts so
+            // production hosts without `-authoring` still render the
+            // overlay DSL. The call mutates el._project in place, then
+            // we project-load it back into the worker.
+            if (el._pendingOverlay) {
+                const overlay = el._pendingOverlay;
+                el._pendingOverlay = null;
+                console.log('[overlay] firing with', overlay);
+                import('../generator/arrange.js').then(mod => {
+                    try {
+                        mod.arrangeWithOpts(el._project, overlay.genre, '', {
+                            overlayOnly: true,
+                            fadeIn: overlay.fadeIn,
+                            drumBreak: overlay.drumBreak,
+                            feelCurve: overlay.feelCurve,
+                            macroCurve: overlay.macroCurve,
+                        });
+                        console.log('[overlay] post-arrange netCount', Object.keys(el._project.nets).length);
+                        el._sendWs({ type: 'project-load', project: el._project });
+                    } catch (err) {
+                        console.warn('overlay arrange failed:', err);
+                    }
+                });
+            }
             break;
         case 'track-pattern-updated':
             if (el._project && el._project.nets && msg.netId && msg.net) {
@@ -369,15 +395,27 @@ export function handleWsMessage(el, msg) {
             break;
         case 'control-fired':
             // Transition-fire control net triggered — dispatch the
-            // baked-in macro through the main-thread queue. macroId is
-            // stashed in targetNet because JSON serialization only
-            // preserves {action, targetNet, targetNote}.
-            if (msg.control?.action === 'fire-macro' && msg.control.targetNet) {
-                const macroId = msg.control.targetNet;
-                el._fireMacro(macroId);
-                const label = MACROS.find(m => m.id === macroId)?.label || macroId;
-                const statusEl = el.querySelector('.pn-autodj-status');
-                if (statusEl) statusEl.textContent = `⟳ ${label}`;
+            // baked-in macro through the main-thread queue. Canonical
+            // field is `macro` (per schema); `targetNet` is accepted as
+            // a legacy fallback.
+            if (msg.control?.action === 'fire-macro') {
+                const macroId = msg.control.macro || msg.control.targetNet;
+                if (macroId) {
+                    const opts = {};
+                    if (msg.control.macroBars) opts.duration = msg.control.macroBars;
+                    el._fireMacro(macroId, opts);
+                    const label = MACROS.find(m => m.id === macroId)?.label || macroId;
+                    const statusEl = el.querySelector('.pn-autodj-status');
+                    if (statusEl) statusEl.textContent = `⟳ ${label}`;
+                }
+            }
+            // Arrangement feelCurve — snap the Feel XY puck at section
+            // boundaries. macroParams carries {x, y} in [0,1]².
+            if (msg.control?.action === 'set-feel' && el._applyFeel) {
+                const params = msg.control.macroParams || {};
+                const x = typeof params.x === 'number' ? params.x : 0.5;
+                const y = typeof params.y === 'number' ? params.y : 0.5;
+                el._applyFeel([x, y]);
             }
             // Visual feedback for control events.
             if (msg.netId === el._activeNetId) {

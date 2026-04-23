@@ -15,6 +15,7 @@
     "@type":    { "const": "BeatsShare" },
     "v":        { "const": 1 },
     "genre":    { "type": "string", "minLength": 1, "maxLength": 64 },
+    "name":     { "type": ["string", "null"], "maxLength": 128 },
     "seed":     { "type": "integer" },
     "tempo":    { "type": "integer", "minimum": 20, "maximum": 300 },
     "swing":    { "type": "integer", "minimum": 0,  "maximum": 100 },
@@ -22,7 +23,61 @@
     "rootNote": { "type": ["integer", "null"], "minimum": 0, "maximum": 127 },
     "scaleName":{ "type": ["string", "null"], "maxLength": 32 },
     "bars":     { "type": ["integer", "null"], "minimum": 0, "maximum": 4096 },
-    "structure":{ "type": ["string", "null"] },
+    "structure":{ "type": ["string", "null"], "maxLength": 32 },
+    "arrangeSeed": { "type": ["integer", "null"], "minimum": 0, "maximum": 2147483647 },
+    "velocityDeltas": {
+      "type": ["object", "null"],
+      "description": "Per-variant velocity offsets keyed by riff letter (A/B/C). Defaults to {A:0, B:15, C:-15}.",
+      "additionalProperties": { "type": "integer", "minimum": -127, "maximum": 127 }
+    },
+    "maxVariants": { "type": ["integer", "null"], "minimum": 1, "maximum": 8, "description": "Cap on distinct riff variants per role. 0/absent = blueprint-driven." },
+    "fadeIn":      { "type": ["array", "null"], "items": { "type": "string", "maxLength": 64 }, "maxItems": 32, "description": "Roles that start muted and unmute mid-intro." },
+    "drumBreak":   { "type": ["integer", "null"], "minimum": 0, "maximum": 64, "description": "Bars of drum-only break injected at track midpoint. 0 = disabled." },
+    "sections": {
+      "type": ["array", "null"],
+      "description": "Author-supplied section blueprint. When set, overrides the built-in blueprints.",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "steps"],
+        "properties": {
+          "name":   { "type": "string", "maxLength": 32 },
+          "steps":  { "type": "integer", "minimum": 16, "maximum": 4096 },
+          "active": { "type": "array", "items": { "type": "string", "maxLength": 64 }, "maxItems": 32 }
+        }
+      }
+    },
+    "feelCurve": {
+      "type": ["array", "null"],
+      "description": "Snap the Feel XY puck at the start of named sections. Each entry: {section, x in [0,1], y in [0,1]}.",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "x", "y"],
+        "properties": {
+          "section": { "type": "string", "maxLength": 32 },
+          "x":       { "type": "number", "minimum": 0, "maximum": 1 },
+          "y":       { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "macroCurve": {
+      "type": ["array", "null"],
+      "description": "Schedule fire-macro events at section starts. Each entry: {section, macro id from catalog, bars duration}.",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "macro"],
+        "properties": {
+          "section": { "type": "string", "maxLength": 32 },
+          "macro":   { "type": "string", "maxLength": 64 },
+          "bars":    { "type": "number", "minimum": 0, "maximum": 1024 }
+        }
+      }
+    },
     "traits":   { "type": ["object", "null"] },
     "tracks": {
       "type": ["object", "null"],
@@ -138,7 +193,8 @@
               "type": "array",
               "maxItems": 64,
               "items": { "type": "string", "maxLength": 64 }
-            }
+            },
+            "group":           { "type": "string", "maxLength": 32, "description": "Mixer-section group (drums/bass/chords/harmony/lead/melody/arp/pad/stinger or freeform). Controls how rows section up in the UI." }
           }
         },
         "places": {
@@ -190,7 +246,8 @@
                     "enum": [
                       "mute-track", "unmute-track", "toggle-track",
                       "mute-note",  "unmute-note",  "toggle-note",
-                      "activate-slot", "stop-transport", "fire-macro"
+                      "activate-slot", "stop-transport", "fire-macro",
+                      "set-feel"
                     ]
                   },
                   "targetNet":  { "type": "string", "maxLength": 128 },

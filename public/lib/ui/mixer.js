@@ -12,6 +12,24 @@ import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 
+// Resolve the section grouping for a net. Explicit `track.group` wins;
+// otherwise we infer from the id (`hit*` → "stinger") so legacy shares
+// that predate the group attribute still split out their beat-fire
+// tracks into the Beats panel. Missing entirely → "main".
+// Shared between the mixer (which uses it for divider placement and
+// the _showOneShots hide filter) and build.js (which uses it to decide
+// whether the Beats tab button is visible).
+export function sectionGroupForNet(id, net) {
+    const explicit = net?.track?.group;
+    if (explicit) return explicit;
+    if (/^hit\d+$/.test(id)) return 'stinger';
+    return 'main';
+}
+
+export function isStingerTrack(id, net) {
+    return sectionGroupForNet(id, net) === 'stinger';
+}
+
 // --- Render ---
 
 export function renderMixer(el) {
@@ -31,11 +49,13 @@ export function renderMixer(el) {
     const groups = new Map();
     const ungrouped = [];
 
-    // Hide `hit*` (Beats) tracks unless the Beats tab is toggled on.
+    const sectionGroupFor = sectionGroupForNet;
+
+    // Hide `stinger`-group tracks unless the Beats tab is toggled on.
     const hitsHidden = !el._showOneShots;
     for (const [id, net] of Object.entries(el._project.nets)) {
         if (net.role === 'control') continue;
-        if (hitsHidden && id.startsWith('hit')) continue;
+        if (hitsHidden && sectionGroupFor(id, net) === 'stinger') continue;
         if (net.riffGroup) {
             if (!groups.has(net.riffGroup)) groups.set(net.riffGroup, []);
             groups.get(net.riffGroup).push(id);
@@ -50,6 +70,14 @@ export function renderMixer(el) {
     const roleIdx = (name) => {
         const i = roleOrder.indexOf(name);
         return i >= 0 ? i : roleOrder.length;
+    };
+    // Section ordering for dividers. Explicit groups slot in after the
+    // built-in role order; unknown group names fall to the end alphabetically.
+    const sectionOrder = ['drums', 'percussion', 'bass', 'chords', 'harmony', 'lead', 'melody', 'arp', 'pad', 'texture', 'stinger'];
+    const sectionIdx = (section) => {
+        if (section === 'main') return -1; // main goes first, no divider
+        const i = sectionOrder.indexOf(section);
+        return i >= 0 ? i : sectionOrder.length;
     };
     const sortedGroups = [...groups.entries()].sort(([a], [b]) => roleIdx(a) - roleIdx(b));
 
@@ -133,21 +161,48 @@ export function renderMixer(el) {
         }
     }
 
-    // Divider between standard and extra (stinger/beats) tracks.
-    const rows = [...el._mixerEl.children];
-    const firstExtraIdx = rows.findIndex(node => {
-        const nodeRole = node.dataset.riffGroup || node.dataset.netId;
-        return roleIdx(nodeRole) >= roleOrder.length;
-    });
-    if (firstExtraIdx >= 0 && firstExtraIdx < rows.length) {
-        const extraIds = rows.slice(firstExtraIdx)
-            .map(node => node.dataset.riffGroup || node.dataset.netId)
-            .filter(Boolean);
-        const divider = document.createElement('div');
-        divider.className = 'pn-mixer-divider';
-        divider.innerHTML = `<span class="pn-mixer-divider-label">Beats</span>` +
-            `<span class="pn-mixer-divider-list">${extraIds.join(' · ')}</span>`;
-        el._mixerEl.insertBefore(divider, rows[firstExtraIdx]);
+    // Sort rows into sections by resolved track.group, then insert a
+    // divider between each section. "main" is the default bucket and
+    // gets no header. Section order is explicit per `sectionOrder`;
+    // unknown group names fall to the end alphabetically.
+    const rowOf = (node) => {
+        // For both grouped and ungrouped rows the data-net-id on the row
+        // points at a representative net; use its track.group (or the
+        // hit-name fallback) to decide which mixer section it belongs to.
+        const nid = node.dataset.netId;
+        const net = el._project.nets[nid];
+        return { node, section: net ? sectionGroupFor(nid, net) : 'main' };
+    };
+    const children = [...el._mixerEl.children];
+    const sorted = children
+        .map(rowOf)
+        .sort((a, b) => {
+            const da = sectionIdx(a.section);
+            const db = sectionIdx(b.section);
+            if (da !== db) return da - db;
+            // Within a section, keep the existing role-based order.
+            const roleA = a.node.dataset.riffGroup || a.node.dataset.netId;
+            const roleB = b.node.dataset.riffGroup || b.node.dataset.netId;
+            return roleIdx(roleA) - roleIdx(roleB);
+        });
+    // Detach + reinsert in order, injecting dividers on section changes.
+    for (const row of children) el._mixerEl.removeChild(row);
+    let lastSection = null;
+    for (const { node, section } of sorted) {
+        if (section !== 'main' && section !== lastSection) {
+            const label = section.charAt(0).toUpperCase() + section.slice(1);
+            const membersInSection = sorted
+                .filter(r => r.section === section)
+                .map(r => r.node.dataset.riffGroup || r.node.dataset.netId)
+                .filter(Boolean);
+            const divider = document.createElement('div');
+            divider.className = 'pn-mixer-divider';
+            divider.innerHTML = `<span class="pn-mixer-divider-label">${label}</span>` +
+                `<span class="pn-mixer-divider-list">${membersInSection.join(' · ')}</span>`;
+            el._mixerEl.appendChild(divider);
+        }
+        lastSection = section;
+        el._mixerEl.appendChild(node);
     }
 
     el._populateAudioOutputs();

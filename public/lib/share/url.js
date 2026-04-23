@@ -38,7 +38,7 @@ export async function parseShareFromUrl(el) {
                 if (expectedCid !== cid) {
                     console.warn('share CID mismatch', { url: cid, computed: expectedCid });
                 } else {
-                    return shareFromPayload(payload);
+                    return shareFromPayload(payload, cid);
                 }
             }
         } catch (err) {
@@ -69,7 +69,7 @@ export async function parseShareFromUrl(el) {
 // Lower a `share-v1` payload to the `{ genre, params, overrides }`
 // shape the boot path already consumes. Overrides are stashed and
 // applied after the worker returns project-sync.
-export function shareFromPayload(payload) {
+export function shareFromPayload(payload, cid) {
     const params = {};
     if (typeof payload.seed === 'number') params.seed = payload.seed;
     if (payload.structure) params.structure = payload.structure;
@@ -86,6 +86,7 @@ export function shareFromPayload(payload) {
     if (typeof payload.humanize === 'number') overrides.humanize = payload.humanize;
     return {
         genre: payload.genre,
+        name: payload.name || null,
         params,
         overrides: Object.keys(overrides).length ? overrides : null,
         // Raw nets escape hatch — present only when the payload author
@@ -93,6 +94,21 @@ export function shareFromPayload(payload) {
         // The boot path skips `generate` and goes straight to
         // `project-load` when this is set.
         nets: payload.nets || null,
+        // Arrangement directive — when set (and not "loop"), the boot
+        // path calls /api/arrange after loading raw nets to expand the
+        // track into structured sections. Deterministic via arrangeSeed.
+        structure: payload.structure || null,
+        arrangeSeed: typeof payload.arrangeSeed === 'number' ? payload.arrangeSeed : null,
+        velocityDeltas: payload.velocityDeltas || null,
+        maxVariants: typeof payload.maxVariants === 'number' ? payload.maxVariants : null,
+        fadeIn: Array.isArray(payload.fadeIn) ? payload.fadeIn : null,
+        drumBreak: typeof payload.drumBreak === 'number' ? payload.drumBreak : null,
+        sections: Array.isArray(payload.sections) ? payload.sections : null,
+        feelCurve: Array.isArray(payload.feelCurve) ? payload.feelCurve : null,
+        macroCurve: Array.isArray(payload.macroCurve) ? payload.macroCurve : null,
+        // CID is threaded through so hand-authored payloads without
+        // an explicit `name` can derive a deterministic one from it.
+        cid: cid || null,
     };
 }
 

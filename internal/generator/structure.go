@@ -139,6 +139,11 @@ var genreFamilies = map[string]structureFamily{
 	"bossa":     familyJazz,
 	"ambient":   familyChill,
 	"lofi":      familyChill,
+	// "wrapped" is the hand-authored share tag. Default it to EDM-family
+	// blueprints (buildup/drop/breakdown) since authored tracks typically
+	// skew that direction; authors can always pass an explicit genre hint
+	// to /api/arrange if they want verse/chorus or jazz-style structures.
+	"wrapped":   familyEDM,
 }
 
 // structureBlueprints defines possible section sequences per family and size.

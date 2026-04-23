@@ -4,6 +4,9 @@
  */
 
 // --- Layout recompute (regenerates x/y when absent) ---
+// Prefers arc-walk order so transitions sit between their pre/post places —
+// naming like `Bb2`/`br1` scrambles a parseInt sort but walks fine.
+// Falls back to label sort for non-cycle topologies.
 function recomputeLayout(nb) {
     const n = Object.keys(nb.places).length;
     if (n === 0) return;
@@ -11,27 +14,76 @@ function recomputeLayout(nb) {
     if (radius < 150) radius = 150;
     const cx = radius + 80, cy = radius + 80;
 
-    const placeLabels = Object.keys(nb.places).sort((a, b) => {
-        const na = parseInt(a.replace(/\D/g, ''), 10) || 0;
-        const nb2 = parseInt(b.replace(/\D/g, ''), 10) || 0;
-        return na - nb2;
-    });
-    for (let i = 0; i < placeLabels.length; i++) {
-        const angle = (i / n) * 2 * Math.PI;
-        nb.places[placeLabels[i]].x = cx + radius * 0.7 * Math.cos(angle);
-        nb.places[placeLabels[i]].y = cy + radius * 0.7 * Math.sin(angle);
+    const walk = walkCycleOrder(nb);
+    let placeOrder, transOrder;
+    if (walk) {
+        placeOrder = walk.places;
+        transOrder = walk.transitions;
+    } else {
+        const cmp = (a, b) => {
+            const na = parseInt(a.replace(/\D/g, ''), 10) || 0;
+            const nb2 = parseInt(b.replace(/\D/g, ''), 10) || 0;
+            return na - nb2;
+        };
+        placeOrder = Object.keys(nb.places).sort(cmp);
+        transOrder = Object.keys(nb.transitions).sort(cmp);
     }
 
-    const transLabels = Object.keys(nb.transitions).sort((a, b) => {
-        const na = parseInt(a.replace(/\D/g, ''), 10) || 0;
-        const nb2 = parseInt(b.replace(/\D/g, ''), 10) || 0;
-        return na - nb2;
-    });
-    for (let i = 0; i < transLabels.length; i++) {
-        const angle = ((i + 0.5) / transLabels.length) * 2 * Math.PI;
-        nb.transitions[transLabels[i]].x = cx + radius * Math.cos(angle);
-        nb.transitions[transLabels[i]].y = cy + radius * Math.sin(angle);
+    for (let i = 0; i < placeOrder.length; i++) {
+        const angle = (i / placeOrder.length) * 2 * Math.PI;
+        nb.places[placeOrder[i]].x = cx + radius * 0.7 * Math.cos(angle);
+        nb.places[placeOrder[i]].y = cy + radius * 0.7 * Math.sin(angle);
     }
+    for (let i = 0; i < transOrder.length; i++) {
+        const angle = ((i + 0.5) / transOrder.length) * 2 * Math.PI;
+        nb.transitions[transOrder[i]].x = cx + radius * Math.cos(angle);
+        nb.transitions[transOrder[i]].y = cy + radius * Math.sin(angle);
+    }
+}
+
+// Walk place→transition→place following arcs. Returns interleaved order
+// when the net is a single simple cycle (one out-arc per node, covers all
+// places and transitions), otherwise null.
+function walkCycleOrder(nb) {
+    const placeIds = Object.keys(nb.places);
+    const transIds = Object.keys(nb.transitions);
+    if (!placeIds.length || !transIds.length) return null;
+
+    const nextFrom = {};
+    for (const arc of nb.arcs) {
+        if (arc.inhibit) return null;
+        if (nextFrom[arc.source]) return null; // branching — not a simple cycle
+        nextFrom[arc.source] = arc.target;
+    }
+
+    const startInit = placeIds.find(id => {
+        const init = nb.places[id].initial || [];
+        return init.some(v => v > 0);
+    });
+    const start = startInit || placeIds[0];
+
+    const places = [], transitions = [];
+    const seenP = new Set(), seenT = new Set();
+    let cur = start;
+    for (let step = 0; step < (placeIds.length + transIds.length) * 2; step++) {
+        if (cur in nb.places) {
+            if (seenP.has(cur)) break;
+            seenP.add(cur);
+            places.push(cur);
+        } else if (cur in nb.transitions) {
+            if (seenT.has(cur)) break;
+            seenT.add(cur);
+            transitions.push(cur);
+        } else {
+            return null;
+        }
+        const nxt = nextFrom[cur];
+        if (!nxt) return null;
+        cur = nxt;
+    }
+    if (places.length !== placeIds.length) return null;
+    if (transitions.length !== transIds.length) return null;
+    return { places, transitions };
 }
 
 // --- Arc weight helper ---
@@ -175,6 +227,10 @@ export function parseNetBundle(data) {
     };
     // Mix settings passthrough
     if (t.mix) nb.track.mix = t.mix;
+    // Explicit mixer section group (drums/bass/melody/harmony/stinger/…).
+    // Hand-authored tracks set this to control how mixer rows section up;
+    // composer output seeds it per role.
+    if (typeof t.group === 'string' && t.group) nb.track.group = t.group;
     // Pattern recipe passthrough (for regenerateTrack)
     if (typeof t.generator === 'string') nb.track.generator = t.generator;
     if (typeof t.ringSize === 'number') nb.track.ringSize = t.ringSize;
@@ -218,11 +274,19 @@ export function parseNetBundle(data) {
 
             // Control binding
             if (tData.control && typeof tData.control === 'object') {
-                nb.controlBindings[id] = {
+                const cb = {
                     action: getString(tData.control, 'action', 'toggle-track'),
                     targetNet: getString(tData.control, 'targetNet', ''),
                     targetNote: getInt(tData.control, 'targetNote', 0),
                 };
+                const macro = getString(tData.control, 'macro', '');
+                if (macro) cb.macro = macro;
+                const macroBars = getFloat(tData.control, 'macroBars', 0);
+                if (macroBars) cb.macroBars = macroBars;
+                if (tData.control.macroParams && typeof tData.control.macroParams === 'object') {
+                    cb.macroParams = tData.control.macroParams;
+                }
+                nb.controlBindings[id] = cb;
             }
         }
     }
@@ -356,6 +420,7 @@ function bundleToJSON(nb) {
     if (typeof nb.track.rotation === 'number' && nb.track.rotation !== 0) trackMap.rotation = nb.track.rotation;
     if (typeof nb.track.note === 'number') trackMap.note = nb.track.note;
     if (nb.track.generatorParams) trackMap.generatorParams = nb.track.generatorParams;
+    if (nb.track.group) trackMap.group = nb.track.group;
 
     const result = { track: trackMap };
     if (nb.role && nb.role !== 'music') result.role = nb.role;
@@ -391,8 +456,12 @@ function bundleToJSON(nb) {
         }
         if (nb.controlBindings[label]) {
             const c = nb.controlBindings[label];
-            const cm = { action: c.action, targetNet: c.targetNet };
+            const cm = { action: c.action };
+            if (c.targetNet) cm.targetNet = c.targetNet;
             if (c.targetNote > 0) cm.targetNote = c.targetNote;
+            if (c.macro) cm.macro = c.macro;
+            if (c.macroBars) cm.macroBars = c.macroBars;
+            if (c.macroParams) cm.macroParams = c.macroParams;
             t.control = cm;
         }
         transitions[label] = t;

@@ -1054,6 +1054,60 @@ input[type="range"][data-default] {
     color: #e94560;
 }
 
+.pn-arrange-btn {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.pn-arrange-btn:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.pn-arrange-btn.active {
+    background: #0f3460;
+    color: #e94560;
+}
+
+.pn-arrange-panel {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 14px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+    font-size: 11px;
+    color: #ccc;
+    flex-wrap: wrap;
+}
+
+.pn-arrange-apply {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.pn-arrange-apply:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.pn-arrange-status {
+    color: #888;
+    font-style: italic;
+}
+
 .pn-autodj-panel {
     display: flex;
     align-items: center;

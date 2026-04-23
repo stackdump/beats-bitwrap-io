@@ -317,7 +317,7 @@ export const GenreInstrumentSets = {
 // Yoneda (the dark-planet reading), Noether, Lawvere, Brouwer.
 // Nouns lean into the categorical vocabulary we use in the Stage
 // help modal — functors, colimits, sheaves, operads.
-function generateTrackName(genre, rng) {
+export function generateTrackName(genre, rng) {
     const adjectives = [
         'Neon', 'Velvet', 'Crystal', 'Midnight', 'Golden',
         'Electric', 'Cosmic', 'Faded', 'Phantom', 'Solar',
@@ -684,6 +684,35 @@ export function compose(genreName, overrides = {}) {
         }
     }
 
+    // Tag every music net with its mixer-section group so the frontend
+    // can draw explicit section dividers. Mirrors groupForRole in
+    // internal/generator/composer.go. Also guarantee every music net
+    // has an instrumentSet with ≥2 choices so the mixer's `»` rotate
+    // button renders on every row (composer rule).
+    for (const [netId, bundle] of Object.entries(proj.nets)) {
+        if (bundle.role === 'control') continue;
+        const key = bundle.riffGroup || netId;
+        let group = null;
+        if (['kick', 'snare', 'hihat', 'clap', 'tom', 'perc'].includes(key)) group = 'drums';
+        else if (key === 'bass') group = 'bass';
+        else if (key === 'melody' || key === 'lead') group = 'melody';
+        else if (key === 'arp') group = 'arp';
+        else if (['pad', 'chord', 'chords', 'harmony'].includes(key)) group = 'harmony';
+        else if (/^hit\d+$/.test(key)) group = 'stinger';
+        if (group) {
+            bundle.track = bundle.track || {};
+            bundle.track.group = group;
+        }
+        // Fallback instrumentSet when the genre preset didn't populate one
+        // (e.g. the Chorus-added harmony track, or custom roles that the
+        // GenreInstrumentSets map doesn't know about).
+        bundle.track = bundle.track || {};
+        if (!Array.isArray(bundle.track.instrumentSet) || bundle.track.instrumentSet.length < 2) {
+            bundle.track.instrumentSet = fallbackInstrumentSet(group || key, bundle.track.instrument);
+            if (!bundle.track.instrument) bundle.track.instrument = bundle.track.instrumentSet[0];
+        }
+    }
+
     // Override instruments
     if (overrides.instruments && typeof overrides.instruments === 'object') {
         for (const [netId, bundle] of Object.entries(proj.nets)) {
@@ -736,6 +765,7 @@ export function compose(genreName, overrides = {}) {
             const totalSteps = (proj.structure || []).reduce((s, sec) => s + (sec?.steps || 0), 0);
             if (totalSteps > 0) proj.bars = Math.max(1, Math.round(totalSteps / 16));
             addStingerTracks(proj, rng.nextInt63());
+            ensureGroupAndInstrumentSet(proj);
             return proj;
         }
     }
@@ -759,7 +789,41 @@ export function compose(genreName, overrides = {}) {
 
     addStingerTracks(proj, rng.nextInt63());
 
+    // Final pass: every music net must have group tag + instrumentSet ≥ 2
+    // so the mixer's `»` rotate button renders on every row. Running this
+    // after chorus / stingers / structure catches everything added by
+    // arrangement passes, not just the primary-role generators.
+    ensureGroupAndInstrumentSet(proj);
+
     return proj;
+}
+
+// Shared helper — stamp `track.group` based on id/riffGroup and fall
+// back to a pooled instrumentSet when the genre preset didn't provide
+// one. Called once at the very end of compose() so late-added tracks
+// (chorus harmony, stingers) are covered.
+function ensureGroupAndInstrumentSet(proj) {
+    for (const [netId, bundle] of Object.entries(proj.nets)) {
+        if (!bundle || bundle.role === 'control') continue;
+        bundle.track = bundle.track || {};
+        const key = bundle.riffGroup || netId;
+        if (!bundle.track.group) {
+            let group = null;
+            if (['kick', 'snare', 'hihat', 'clap', 'tom', 'perc'].includes(key)) group = 'drums';
+            else if (key === 'bass') group = 'bass';
+            else if (key === 'melody' || key === 'lead') group = 'melody';
+            else if (key === 'arp') group = 'arp';
+            else if (['pad', 'chord', 'chords', 'harmony'].includes(key)) group = 'harmony';
+            else if (/^hit\d+$/.test(key)) group = 'stinger';
+            if (group) bundle.track.group = group;
+        }
+        if (!Array.isArray(bundle.track.instrumentSet) || bundle.track.instrumentSet.length < 2) {
+            bundle.track.instrumentSet = fallbackInstrumentSet(bundle.track.group || key, bundle.track.instrument);
+            if (!bundle.track.instrument && bundle.track.instrumentSet.length > 0) {
+                bundle.track.instrument = bundle.track.instrumentSet[0];
+            }
+        }
+    }
 }
 
 // Stinger tracks — airhorn / laser / subdrop / booj as real tracks that
@@ -801,6 +865,38 @@ const STINGER_INSTRUMENT_SET = [
     'square-lead', 'sync-lead', 'scream-lead',
 ];
 
+// Fallback instrument pools per group. Used when a music net doesn't
+// land in any GenreInstrumentSets entry — guarantees the mixer's rotate
+// (») button always has candidates to cycle through.
+const FALLBACK_SETS = {
+    drums:   ['drums', 'drums-v8', 'drums-808', 'drums-cr78', 'drums-breakbeat', 'drums-lofi'],
+    bass:    ['sub-bass', 'fm-bass', 'reese', 'acid', 'wobble-bass', 'rubber-bass', 'drop-bass', '808-bass'],
+    melody:  ['sync-lead', 'square-lead', 'supersaw', 'pwm-lead', 'tape-lead', 'bright-pluck', 'distorted-lead', 'scream-lead'],
+    lead:    ['sync-lead', 'square-lead', 'supersaw', 'pwm-lead', 'tape-lead', 'bright-pluck', 'distorted-lead'],
+    arp:     ['bright-pluck', 'pluck', 'muted-pluck', 'edm-pluck', 'chiptune', 'kalimba', 'music-box'],
+    harmony: ['warm-pad', 'dark-pad', 'strings', 'pad', 'glass-pad', 'choir', 'organ', 'rave-stab', 'rave-organ'],
+    chords:  ['warm-pad', 'dark-pad', 'strings', 'pad', 'glass-pad', 'choir', 'organ'],
+    pad:     ['warm-pad', 'dark-pad', 'strings', 'pad', 'glass-pad', 'choir'],
+    stinger: null,  // stingers have their own STINGER_INSTRUMENT_SET
+};
+
+export function fallbackInstrumentSet(groupOrRole, currentInstrument) {
+    if (groupOrRole === 'stinger') return STINGER_INSTRUMENT_SET;
+    const set = FALLBACK_SETS[groupOrRole];
+    if (set && set.length > 1) {
+        if (currentInstrument && !set.includes(currentInstrument)) {
+            return [currentInstrument, ...set];
+        }
+        return set.slice();
+    }
+    // Last-ditch generic fallback — keeps the button visible.
+    return [
+        currentInstrument || 'piano',
+        'piano', 'electric-piano', 'bass', 'sub-bass', 'lead', 'sync-lead',
+        'pad', 'warm-pad', 'strings', 'organ', 'fm-bell', 'marimba',
+    ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+}
+
 export function addStingerTracks(proj, seed) {
     for (const spec of STINGER_SPECS) {
         if (proj.nets[spec.id]) continue;    // don't clobber manual additions
@@ -813,6 +909,7 @@ export function addStingerTracks(proj, seed) {
         bundle.track = bundle.track || {};
         bundle.track.instrument = spec.defaultInstrument;
         bundle.track.instrumentSet = STINGER_INSTRUMENT_SET;
+        bundle.track.group = 'stinger';
         proj.nets[spec.id] = bundle;
         if (!proj.initialMutes.includes(spec.id)) proj.initialMutes.push(spec.id);
     }

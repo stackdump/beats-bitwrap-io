@@ -43,6 +43,7 @@ type sharePayload struct {
 	Type      string `json:"@type"`
 	V         int    `json:"v"`
 	Genre     string `json:"genre"`
+	Name      string `json:"name,omitempty"`
 	Seed      int64  `json:"seed"`
 	Tempo     int    `json:"tempo"`
 	Swing     int    `json:"swing"`
@@ -219,6 +220,11 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		// Build the injection block from the payload.
 		origin := schemeHost(r)
 		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
+		// Hand-authored payloads can carry a `name` — use it as the default
+		// title when no ?title= override was supplied on the card URL.
+		if userTitle == "" && p.Name != "" {
+			userTitle = sanitizeTitle(p.Name)
+		}
 		genreCap := titleCase(p.Genre)
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
 		cardPNG := fmt.Sprintf("%s/share-card/%s.png", origin, cid)

@@ -366,8 +366,17 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			return
 		}
 		var req struct {
-			Project map[string]any `json:"project"`
-			Mirror  []string       `json:"mirror"`
+			Project        map[string]any `json:"project"`
+			Mirror         []string       `json:"mirror"`
+			Structure      string         `json:"structure"`
+			ArrangeSeed    *int64         `json:"arrangeSeed"`
+			VelocityDeltas map[string]int `json:"velocityDeltas"`
+			MaxVariants    int            `json:"maxVariants"`
+			FadeIn         []string       `json:"fadeIn"`
+			DrumBreak      int            `json:"drumBreak"`
+			Sections       []any          `json:"sections"`
+			FeelCurve      []any          `json:"feelCurve"`
+			MacroCurve     []any          `json:"macroCurve"`
 		}
 		if r.ContentLength > 0 {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -384,6 +393,35 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			}
 		}
 		envelope := buildShareEnvelope(project)
+		// Optional arrangement directive — carried in the envelope so the
+		// client can re-expand the track deterministically on load.
+		if req.Structure != "" && req.Structure != "loop" {
+			envelope["structure"] = req.Structure
+			if req.ArrangeSeed != nil {
+				envelope["arrangeSeed"] = *req.ArrangeSeed
+			}
+			if len(req.VelocityDeltas) > 0 {
+				envelope["velocityDeltas"] = req.VelocityDeltas
+			}
+			if req.MaxVariants > 0 {
+				envelope["maxVariants"] = req.MaxVariants
+			}
+			if len(req.FadeIn) > 0 {
+				envelope["fadeIn"] = req.FadeIn
+			}
+			if req.DrumBreak > 0 {
+				envelope["drumBreak"] = req.DrumBreak
+			}
+			if len(req.Sections) > 0 {
+				envelope["sections"] = req.Sections
+			}
+			if len(req.FeelCurve) > 0 {
+				envelope["feelCurve"] = req.FeelCurve
+			}
+			if len(req.MacroCurve) > 0 {
+				envelope["macroCurve"] = req.MacroCurve
+			}
+		}
 		cid, canonical, err := share.CanonicalCID(envelope)
 		if err != nil {
 			http.Error(w, "canonicalize: "+err.Error(), http.StatusInternalServerError)
@@ -398,12 +436,25 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			origin = "https://" + r.Host
 		}
 		mirrors := mirrorCIDToHosts(cid, canonical, req.Mirror)
+		backlog := pflow.AnalyzeMacroBacklog(pflow.ParseProject(project))
+		backlogReport := make([]map[string]any, 0, len(backlog))
+		for _, b := range backlog {
+			backlogReport = append(backlogReport, map[string]any{
+				"netId":           b.NetID,
+				"fireCount":       b.FireCount,
+				"drainTicks":      b.DrainTicks,
+				"cycleTicks":      b.CycleTicks,
+				"ratio":           b.Ratio,
+				"overrunPerCycle": b.OverrunPerCycle,
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cid":      cid,
-			"shortUrl": origin + "/?cid=" + cid,
-			"bytes":    len(canonical),
-			"mirrors":  mirrors,
+			"cid":           cid,
+			"shortUrl":      origin + "/?cid=" + cid,
+			"bytes":         len(canonical),
+			"mirrors":       mirrors,
+			"macroBacklog":  backlogReport,
 		})
 	}
 }
@@ -465,13 +516,28 @@ func midiRoutingHandler(single *midiout.Output, multi *midiout.MultiOutput, fan 
 // --- share envelope helpers (formerly in cmd/petri-note/main.go) ---
 
 func buildShareEnvelope(project map[string]any) map[string]any {
+	// project["name"] looks like "techno · Velvet Shade" for composer output
+	// and "Untitled" (or missing) for hand-authored projects. Split off the
+	// genre prefix when present and carry the full name as a separate field.
+	name := asStringOr(project["name"], "")
+	// "wrapped" tags hand-authored projects (ties into bitwrap — the net
+	// is wrapped tokens rather than synthesized from a preset). Keeps the
+	// genre field non-empty per schema and distinguishes raw-nets shares
+	// from the 19 composer presets (techno/ambient/trance/…).
+	genre := "wrapped"
+	if idx := strings.Index(name, " · "); idx > 0 {
+		genre = name[:idx]
+	}
 	envelope := map[string]any{
 		"@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
 		"@type":    "BeatsShare",
 		"v":        1,
-		"genre":    asStringOr(project["name"], "custom"),
+		"genre":    genre,
 		"seed":     0,
 		"nets":     project["nets"],
+	}
+	if name != "" && name != "Untitled" {
+		envelope["name"] = name
 	}
 	if t, ok := project["tempo"].(float64); ok {
 		envelope["tempo"] = int(t)

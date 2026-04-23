@@ -1594,9 +1594,15 @@ class ToneEngine {
                     instrument = new Tone.Synth().connect(dest);
             }
 
-            // Raise PolySynth ceiling — voice stealing in playNote() handles the real cap
+            // Raise PolySynth ceiling. playNote() does NOT implement
+            // voice stealing — Tone's PolySynth reuses voices after their
+            // release phase but drops notes when onsets pile up
+            // simultaneously. 256 gives headroom for arranged wrapped
+            // tracks (3 variants × long pad tails × multiple roles on
+            // one channel) without implementing explicit stealing.
+            // See TODO.md § Polyphony exhaustion for the principled fix.
             if (instrument.maxPolyphony !== undefined) {
-                instrument.maxPolyphony = 64;
+                instrument.maxPolyphony = 256;
             }
             this._instruments.set(channel, instrument);
             this._channelConfigs.set(channel, { name: instrumentName, config });
@@ -1646,7 +1652,7 @@ class ToneEngine {
                 default:
                     instrument = new Tone.Synth().connect(normGain);
             }
-            if (instrument.maxPolyphony !== undefined) instrument.maxPolyphony = 64;
+            if (instrument.maxPolyphony !== undefined) instrument.maxPolyphony = 256;
         } catch (err) {
             normGain.dispose();
             console.error(`Failed to preload ${instrumentName}:`, err);

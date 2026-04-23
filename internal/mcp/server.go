@@ -10,12 +10,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const defaultBaseURL = "http://localhost:8080"
+func baseURL() string {
+	if v := os.Getenv("BEATS_BTW_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:8080"
+}
 
 // apiCall makes a request to the petri-note HTTP server.
 func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
@@ -28,7 +34,8 @@ func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 		reqBody = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, defaultBaseURL+path, reqBody)
+	base := baseURL()
+	req, err := http.NewRequest(method, base+path, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +45,7 @@ func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("petri-note server not reachable at %s: %v", defaultBaseURL, err)
+		return nil, fmt.Errorf("petri-note server not reachable at %s: %v", base, err)
 	}
 	defer resp.Body.Close()
 

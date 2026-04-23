@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"time"
 
 	"beats-bitwrap-io/internal/pflow"
@@ -16,34 +17,428 @@ import (
 // with song structure (control nets, variants, sections). This allows
 // hand-composed Petri nets to become full tracks with intro/verse/drop/etc.
 func Arrange(proj *pflow.Project, genre, size string) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	ArrangeSeeded(proj, genre, size, time.Now().UnixNano())
+}
 
-	// Collect music net IDs (skip any existing control nets)
-	var musicRoles []string
-	for netId, nb := range proj.Nets {
-		if nb.Role == "control" {
-			continue
+// ArrangeSeeded is the deterministic form — shares carrying a structure
+// directive pass a fixed seed so the same (nets, structure, seed) tuple
+// always expands to the same full track byte-for-byte.
+func ArrangeSeeded(proj *pflow.Project, genre, size string, seed int64) {
+	ArrangeWithOpts(proj, genre, size, ArrangeOpts{Seed: seed})
+}
+
+// ArrangeOpts carries the extensible arrange vocabulary. New knobs get
+// added as fields here without breaking signatures of existing callers.
+type ArrangeOpts struct {
+	// Seed controls RNG-driven choices (blueprint pick, phrase variety,
+	// velocity humanization). Fixed seed = deterministic expansion.
+	Seed int64
+
+	// VelocityDeltas overrides per-variant velocity offsets. Keyed by
+	// riff-variant letter: {"A":0, "B":15, "C":-15} is the default.
+	// Lets authors make the drop hit harder or the breakdown sit further
+	// back without changing the blueprint.
+	VelocityDeltas map[string]int
+
+	// MaxVariants caps the number of distinct riff-variant letters per
+	// role. 0 = no cap (use whatever the blueprint asks for). Useful for
+	// wrapped tracks that only want A/B and never a third variant.
+	MaxVariants int
+
+	// FadeIn lists roles that should start muted and unmute mid-intro.
+	// Uses the existing FadeIn helper to inject a control net that fires
+	// unmute-track at a hit position inside the first section.
+	FadeIn []string
+
+	// DrumBreak injects a fixed-length drum-only break at the midpoint
+	// of the track. BreakBars = 0 disables. Non-drum roles are muted
+	// for BreakBars, drums keep playing, then everyone returns.
+	DrumBreak int
+
+	// Sections, when non-empty, bypasses the built-in blueprint pick
+	// and uses the supplied section list directly. Each entry names
+	// the section, duration in ticks, and which roles should play.
+	Sections []AuthorSection
+
+	// FeelCurve snaps the Feel XY puck to a point at the start of each
+	// listed section. Each entry carries the section name and a puck
+	// in [0,1]² ([x, y] for Chill/Drive/Ambient/Euphoric blending).
+	// Fires via a control net → frontend applyFeel on set-feel events.
+	FeelCurve []FeelPoint
+
+	// MacroCurve schedules `fire-macro` control events at section starts.
+	// Each entry names the macro id (from the frontend catalog — e.g.
+	// "riser", "beat-repeat", "reverb-wash") plus the duration in bars.
+	// Resolves via a dedicated "macro-curve" control net, same mechanism
+	// as feel-curve but dispatching fire-macro.
+	MacroCurve []MacroPoint
+
+	// OverlayOnly skips blueprint pick + variant expansion + section
+	// control-net generation, using the project's existing `Structure`
+	// field as the section map. Only runs the overlay passes
+	// (fadeIn/drumBreak/feelCurve/macroCurve). This is how composer-
+	// generated tracks get arrange-time curves layered on top of their
+	// already-expanded structure without a destructive re-arrange.
+	OverlayOnly bool
+}
+
+// AuthorSection is an author-supplied entry for ArrangeOpts.Sections.
+// When provided, these replace the blueprint-derived sections entirely.
+type AuthorSection struct {
+	Name   string   `json:"name"`
+	Steps  int      `json:"steps"`
+	Active []string `json:"active"`
+}
+
+// FeelPoint is one entry in a FeelCurve — which section to snap on,
+// and the target puck [x, y] (each in [0,1]).
+type FeelPoint struct {
+	Section string  `json:"section"`
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+}
+
+// MacroPoint is one entry in a MacroCurve — which section to fire at,
+// the macro id (looked up in public/lib/macros/catalog.js on the client),
+// and the auto-release duration in bars. Matches the ControlBinding
+// shape the runtime already consumes.
+type MacroPoint struct {
+	Section string  `json:"section"`
+	Macro   string  `json:"macro"`
+	Bars    float64 `json:"bars,omitempty"`
+}
+
+// ArrangeWithOpts is the canonical entry point — other forms wrap it.
+func ArrangeWithOpts(proj *pflow.Project, genre, size string, opts ArrangeOpts) {
+	// Overlay mode: skip structure + variant expansion, only run the
+	// overlay passes against the project's existing Structure. This is
+	// how composer-generated tracks receive arrange-time curves layered
+	// on top of their already-expanded structure.
+	if opts.OverlayOnly {
+		tmpl := projectStructureToTemplate(proj)
+		if tmpl == nil {
+			return
 		}
-		musicRoles = append(musicRoles, netId)
+		applyArrangeOverlays(proj, tmpl, sortedMusicNetIDs(proj), opts)
+		return
 	}
+
+	rng := rand.New(rand.NewSource(opts.Seed))
+
+	// Collect music net IDs in sorted order — Go map iteration is
+	// intentionally randomised, but `seed` is a determinism contract
+	// with share-envelope callers, so we sort before touching rng.
+	musicRoles := sortedMusicNetIDs(proj)
 
 	// Generate structure template, scoped to the roles we actually have
-	tmpl := generateArrangeStructure(genre, size, musicRoles, rng)
+	var tmpl *SongTemplate
+	if len(opts.Sections) > 0 {
+		tmpl = authorSectionsToTemplate(opts.Sections, musicRoles)
+	} else {
+		tmpl = generateArrangeStructure(genre, size, musicRoles, rng)
+	}
+
+	// Apply MaxVariants cap by collapsing late letters back to "A".
+	if opts.MaxVariants > 0 {
+		capVariantLetters(tmpl, opts.MaxVariants)
+	}
 
 	// Create variants: clone each music net as A, tweak copies for B/C
-	expandArrangeVariants(proj, tmpl, musicRoles, rng)
+	expandArrangeVariantsOpts(proj, tmpl, musicRoles, rng, opts)
 
-	// Collect all net IDs after variant expansion
-	var allNets []string
-	for netId, nb := range proj.Nets {
-		if nb.Role != "control" {
-			allNets = append(allNets, netId)
-		}
-	}
+	// Collect all net IDs after variant expansion (also sorted).
+	allNets := sortedMusicNetIDs(proj)
 
 	// Build control nets and get initial mutes
 	initialMutes := SongStructure(proj, tmpl, allNets)
 	proj.InitialMutes = initialMutes
+
+	applyArrangeOverlays(proj, tmpl, allNets, opts)
+}
+
+// applyArrangeOverlays runs the non-structural passes — fadeIn,
+// drumBreak, feelCurve, macroCurve — shared between the full-arrange
+// path and the overlay-only path.
+func applyArrangeOverlays(proj *pflow.Project, tmpl *SongTemplate, allNets []string, opts ArrangeOpts) {
+	if len(opts.FadeIn) > 0 {
+		introSteps := 128
+		if len(tmpl.Sections) > 0 {
+			introSteps = tmpl.Sections[0].Steps
+		}
+		var variantTargets []string
+		for _, role := range opts.FadeIn {
+			for _, id := range allNets {
+				if id == role || (len(id) > len(role) && id[:len(role)+1] == role+"-") {
+					variantTargets = append(variantTargets, id)
+				}
+			}
+		}
+		if len(variantTargets) > 0 {
+			fadeMutes := FadeIn(proj, variantTargets, introSteps, opts.Seed)
+			proj.InitialMutes = append(proj.InitialMutes, fadeMutes...)
+		}
+	}
+
+	if opts.DrumBreak > 0 {
+		var drumTargets []string
+		for _, id := range allNets {
+			nb := proj.Nets[id]
+			if nb == nil {
+				continue
+			}
+			if isDrumRoleName(id) {
+				continue
+			}
+			// Stinger tracks stay muted at all times — the Beats-tab
+			// Fire pads are the only legitimate way to unmute them.
+			// Excluding from drum-break so the break-end unmute doesn't
+			// secretly turn every hit* voice on.
+			if pflow.IsStingerNet(id, nb) {
+				continue
+			}
+			drumTargets = append(drumTargets, id)
+		}
+		totalSteps := 0
+		for _, sec := range tmpl.Sections {
+			totalSteps += sec.Steps
+		}
+		if totalSteps > 0 {
+			DrumBreak(proj, drumTargets, totalSteps, opts.DrumBreak*16, opts.Seed)
+		}
+	}
+
+	if len(opts.FeelCurve) > 0 {
+		injectFeelCurve(proj, tmpl, opts.FeelCurve)
+	}
+
+	if len(opts.MacroCurve) > 0 {
+		injectMacroCurve(proj, tmpl, opts.MacroCurve)
+	}
+}
+
+// projectStructureToTemplate rebuilds a SongTemplate from proj.Structure
+// so overlay-mode arrange can reuse the same tick-position math the full
+// arrange path uses. Returns nil when the project has no structure set.
+func projectStructureToTemplate(proj *pflow.Project) *SongTemplate {
+	if len(proj.Structure) == 0 {
+		return nil
+	}
+	sections := make([]Section, len(proj.Structure))
+	for i, s := range proj.Structure {
+		sections[i] = Section{Name: s.Name, Steps: s.Steps, Phrases: s.Phrases}
+	}
+	return &SongTemplate{Name: "overlay", Sections: sections}
+}
+
+// authorSectionsToTemplate builds a SongTemplate from a user-supplied
+// sections list. Any role not listed in Active is marked inactive for
+// that section (i.e. muted there).
+func authorSectionsToTemplate(authored []AuthorSection, roles []string) *SongTemplate {
+	sections := make([]Section, len(authored))
+	for i, a := range authored {
+		active := make(map[string]bool)
+		activeSet := make(map[string]bool, len(a.Active))
+		for _, r := range a.Active {
+			activeSet[r] = true
+		}
+		for _, r := range roles {
+			if activeSet[r] {
+				active[r] = true
+			}
+		}
+		steps := a.Steps
+		if steps <= 0 {
+			steps = 128
+		}
+		sections[i] = sectionWithPhrases(a.Name, steps, active)
+	}
+	return &SongTemplate{Name: "authored", Sections: sections}
+}
+
+// isDrumRoleName matches net IDs that look like drum tracks. Matches the
+// frontend convention (kick/snare/hat/hihat/clap/cymbal/drum prefixes).
+func isDrumRoleName(id string) bool {
+	for _, prefix := range []string{"kick", "snare", "hat", "hihat", "clap", "cymbal", "tom", "drum", "perc"} {
+		if len(id) >= len(prefix) && id[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// injectFeelCurve adds a single control net named "feel-curve" whose
+// transitions fire set-feel actions at the tick boundaries of the
+// named sections. The worker broadcasts control-fired; the frontend
+// applyFeel handler snaps the puck.
+func injectFeelCurve(proj *pflow.Project, tmpl *SongTemplate, curve []FeelPoint) {
+	// Map section name → start tick.
+	startTicks := make(map[string]int, len(tmpl.Sections))
+	cum := 0
+	for _, sec := range tmpl.Sections {
+		if _, seen := startTicks[sec.Name]; !seen {
+			startTicks[sec.Name] = cum
+		}
+		cum += sec.Steps
+	}
+	totalSteps := cum
+	if totalSteps == 0 {
+		return
+	}
+
+	// Filter curve entries to those whose section exists; compute ticks.
+	type resolved struct {
+		tick int
+		x, y float64
+	}
+	var points []resolved
+	for _, fp := range curve {
+		if t, ok := startTicks[fp.Section]; ok {
+			points = append(points, resolved{tick: t, x: fp.X, y: fp.Y})
+		}
+	}
+	if len(points) == 0 {
+		return
+	}
+	// Sort by tick ascending.
+	sort.Slice(points, func(i, j int) bool { return points[i].tick < points[j].tick })
+
+	// Build a linear-chain control net of length totalSteps. Place an
+	// initial token at p0, token advances one step per tick. At each
+	// resolved tick, the transition fires set-feel{x,y}.
+	net := petri.NewPetriNet()
+	bindings := make(map[string]*pflow.MidiBinding)
+	controlBindings := make(map[string]*pflow.ControlBinding)
+
+	for i := 0; i < totalSteps; i++ {
+		var initial any
+		if i == 0 {
+			initial = []float64{1}
+		}
+		net.AddPlace(fmt.Sprintf("fp%d", i), initial, nil, 0, 0, nil)
+		net.AddTransition(fmt.Sprintf("ft%d", i), "", 0, 0, nil)
+		net.AddArc(fmt.Sprintf("fp%d", i), fmt.Sprintf("ft%d", i), []float64{1}, false)
+		next := (i + 1) % totalSteps
+		net.AddArc(fmt.Sprintf("ft%d", i), fmt.Sprintf("fp%d", next), []float64{1}, false)
+	}
+	for _, p := range points {
+		controlBindings[fmt.Sprintf("ft%d", p.tick)] = &pflow.ControlBinding{
+			Action: "set-feel",
+			MacroParams: map[string]any{
+				"x": p.x,
+				"y": p.y,
+			},
+		}
+	}
+
+	nb := pflow.NewNetBundle(net, pflow.Track{Channel: 16}, bindings)
+	nb.Role = "control"
+	nb.ControlBindings = controlBindings
+	proj.Nets["feel-curve"] = nb
+}
+
+// injectMacroCurve adds a single control net "macro-curve" whose
+// transitions fire fire-macro actions at the tick boundaries of the
+// named sections. Runtime dispatches through the frontend's existing
+// fire-macro handler, so any macro id the client catalog knows about
+// is valid ("riser", "beat-repeat", "reverb-wash", etc.).
+func injectMacroCurve(proj *pflow.Project, tmpl *SongTemplate, curve []MacroPoint) {
+	startTicks := make(map[string]int, len(tmpl.Sections))
+	cum := 0
+	for _, sec := range tmpl.Sections {
+		if _, seen := startTicks[sec.Name]; !seen {
+			startTicks[sec.Name] = cum
+		}
+		cum += sec.Steps
+	}
+	totalSteps := cum
+	if totalSteps == 0 {
+		return
+	}
+
+	type resolved struct {
+		tick  int
+		macro string
+		bars  float64
+	}
+	var points []resolved
+	for _, mp := range curve {
+		if mp.Macro == "" {
+			continue
+		}
+		if t, ok := startTicks[mp.Section]; ok {
+			points = append(points, resolved{tick: t, macro: mp.Macro, bars: mp.Bars})
+		}
+	}
+	if len(points) == 0 {
+		return
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].tick < points[j].tick })
+
+	net := petri.NewPetriNet()
+	bindings := make(map[string]*pflow.MidiBinding)
+	controlBindings := make(map[string]*pflow.ControlBinding)
+
+	for i := 0; i < totalSteps; i++ {
+		var initial any
+		if i == 0 {
+			initial = []float64{1}
+		}
+		net.AddPlace(fmt.Sprintf("mp%d", i), initial, nil, 0, 0, nil)
+		net.AddTransition(fmt.Sprintf("mt%d", i), "", 0, 0, nil)
+		net.AddArc(fmt.Sprintf("mp%d", i), fmt.Sprintf("mt%d", i), []float64{1}, false)
+		next := (i + 1) % totalSteps
+		net.AddArc(fmt.Sprintf("mt%d", i), fmt.Sprintf("mp%d", next), []float64{1}, false)
+	}
+	for _, p := range points {
+		cb := &pflow.ControlBinding{
+			Action: "fire-macro",
+			Macro:  p.macro,
+		}
+		if p.bars > 0 {
+			cb.MacroBars = p.bars
+		}
+		controlBindings[fmt.Sprintf("mt%d", p.tick)] = cb
+	}
+
+	nb := pflow.NewNetBundle(net, pflow.Track{Channel: 16}, bindings)
+	nb.Role = "control"
+	nb.ControlBindings = controlBindings
+	proj.Nets["macro-curve"] = nb
+}
+
+// capVariantLetters rewrites any phrase letter beyond the first N of
+// the alphabet back to "A". E.g. MaxVariants=2 collapses C/D→A so only
+// A and B ever spawn as distinct variants.
+func capVariantLetters(tmpl *SongTemplate, max int) {
+	if max <= 0 {
+		return
+	}
+	allowed := make(map[string]bool, max)
+	for i := 0; i < max; i++ {
+		allowed[string(rune('A'+i))] = true
+	}
+	for _, sec := range tmpl.Sections {
+		for role, phrases := range sec.Phrases {
+			for i, letter := range phrases {
+				if !allowed[letter] {
+					phrases[i] = "A"
+				}
+			}
+			sec.Phrases[role] = phrases
+		}
+	}
+}
+
+func sortedMusicNetIDs(proj *pflow.Project) []string {
+	ids := make([]string, 0, len(proj.Nets))
+	for netID, nb := range proj.Nets {
+		if nb.Role == "control" {
+			continue
+		}
+		ids = append(ids, netID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // generateArrangeStructure creates a SongTemplate scoped to the roles present.
@@ -104,8 +499,18 @@ func generateArrangeStructure(genreName, size string, roles []string, rng *rand.
 	return &SongTemplate{Name: size, Sections: sections}
 }
 
+// expandArrangeVariantsOpts is the opts-aware form. Thin wrapper:
+// resolves velocity deltas from opts, then calls the core expander.
+func expandArrangeVariantsOpts(proj *pflow.Project, tmpl *SongTemplate, roles []string, rng *rand.Rand, opts ArrangeOpts) {
+	deltas := opts.VelocityDeltas
+	if deltas == nil {
+		deltas = map[string]int{"A": 0, "B": 15, "C": -15}
+	}
+	expandArrangeVariants(proj, tmpl, roles, rng, deltas)
+}
+
 // expandArrangeVariants clones existing music nets into A/B/C variants.
-func expandArrangeVariants(proj *pflow.Project, tmpl *SongTemplate, roles []string, rng *rand.Rand) {
+func expandArrangeVariants(proj *pflow.Project, tmpl *SongTemplate, roles []string, rng *rand.Rand, deltas map[string]int) {
 	tmpl.SlotMap = make(map[string][][]int)
 
 	rolesInPhrases := make(map[string]bool)
@@ -121,6 +526,12 @@ func expandArrangeVariants(proj *pflow.Project, tmpl *SongTemplate, roles []stri
 		}
 		baseBundle, ok := proj.Nets[role]
 		if !ok {
+			continue
+		}
+		// Stingers never get variant-expanded. The Beats-tab Fire pads
+		// look up `hit1`/`hit2`/... by exact ID, so cloning them into
+		// hit1-0/hit1-1/hit1-2 would leave those pads targetless.
+		if pflow.IsStingerNet(role, baseBundle) {
 			continue
 		}
 
@@ -167,11 +578,8 @@ func expandArrangeVariants(proj *pflow.Project, tmpl *SongTemplate, roles []stri
 			clone.RiffGroup = role
 			clone.RiffVariant = letter
 
-			switch letter {
-			case "B":
-				tweakVelocity(clone, 15)
-			case "C":
-				tweakVelocity(clone, -15)
+			if d, ok := deltas[letter]; ok && d != 0 {
+				tweakVelocity(clone, d)
 			}
 			proj.Nets[slotNetId] = clone
 		}

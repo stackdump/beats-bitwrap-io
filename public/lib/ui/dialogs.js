@@ -308,7 +308,7 @@ export function showHelpModal(el) {
             </ul>
 
             <h3>Tabs</h3>
-            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The four toggle buttons above the mixer &mdash; <b>FX</b>, <b>Macros</b>, <b>Beats</b>, <b>Auto-DJ</b> &mdash; each open independently. Stacked top-to-bottom in that order.</p>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Five toggle buttons above the mixer &mdash; <b>FX</b>, <b>Macros</b>, <b>Beats</b>, <b>Auto-DJ</b>, <b>Arrange</b> &mdash; each open independently. Stacked top-to-bottom in that order. <b>Beats</b> only appears when the current project has stinger tracks (<code>hit1</code>&ndash;<code>hit4</code> or any track tagged <code>group: "stinger"</code>).</p>
 
             <h3>Macros (live tricks)</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Macros queue serially &mdash; tapping while another runs adds it to the queue (orange badge shows depth). Click the same one to extend. Every macro pulses the UI element it touches in a chase pattern and returns that element to its pre-macro value on release.</p>
@@ -363,6 +363,17 @@ export function showHelpModal(el) {
                 <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap, with Tone.js synths pre-warmed into a side pool so the swap is a pointer flip — no audio stutter</li>
                 <li>Status line shows the last picks (→ for rate fires, ⟳ for transitions), pre-load activity, or why a cycle was skipped</li>
                 <li><b>Right-click any macro tile</b> to mark it disabled (long-press on touch, or toggle <b>Edit Excludes</b> in the Macros panel then tap tiles) — Auto-DJ and Transition both skip disabled macros (line-through mark, persisted)</li>
+            </ul>
+
+            <h3>Arrange (structure DSL)</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Drive the composer's arrangement directly: pick a structure size, choose which roles tape-fade in, schedule a drum-only break, and overlay curve presets that morph the Feel puck and schedule macro fires at section boundaries. Everything runs in-process &mdash; no server round-trip &mdash; via the JS port of <code>ArrangeWithOpts</code>.</p>
+            <ul>
+                <li><b>Structure</b> &mdash; loop / ab / minimal / standard / extended / drop / build / jam. Overlay mode preserves an existing structure; otherwise a fresh blueprint runs</li>
+                <li><b>Fade In</b> &mdash; checkbox per role (<code>pad</code> / <code>melody</code> / <code>arp</code> / <code>lead</code> / <code>bass</code>). Those roles start muted, inject a control net that unmutes mid-intro</li>
+                <li><b>Drum Break</b> &mdash; bars of drum-only break at the track midpoint (off / 2 / 4 / 8). Stingers are excluded from the break; they stay muted per the usual rule</li>
+                <li><b>Feel Curve</b> &mdash; preset XY puck path across sections (<i>EDM arc</i>, <i>Chill wave</i>, <i>Euphoric</i>). At each section start the puck snaps, morphing tempo/FX/swing/humanize</li>
+                <li><b>Macro Curve</b> &mdash; preset macro schedule (<i>EDM classic</i>, <i>Drop heavy</i>, <i>Downtempo</i>). Fires <code>reverb-wash</code>/<code>riser</code>/<code>beat-repeat</code>/etc. at section boundaries without needing the Macros panel</li>
+                <li><b>Arrange &#8635;</b> applies the selection. Runs overlay mode when the track already has a structure; otherwise does a full expansion</li>
             </ul>
 
             <h3>MIDI Pad &amp; CC Learn</h3>

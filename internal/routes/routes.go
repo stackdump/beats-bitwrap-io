@@ -157,8 +157,17 @@ func (s *Server) handleArrange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Genre     string `json:"genre"`
-		Structure string `json:"structure"`
+		Genre          string                     `json:"genre"`
+		Structure      string                     `json:"structure"`
+		Seed           *int64                     `json:"arrangeSeed"`
+		VelocityDeltas map[string]int             `json:"velocityDeltas"`
+		MaxVariants    int                        `json:"maxVariants"`
+		FadeIn         []string                   `json:"fadeIn"`
+		DrumBreak      int                        `json:"drumBreak"`
+		Sections       []generator.AuthorSection  `json:"sections"`
+		FeelCurve      []generator.FeelPoint      `json:"feelCurve"`
+		MacroCurve     []generator.MacroPoint     `json:"macroCurve"`
+		OverlayOnly    bool                       `json:"overlay"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -179,7 +188,22 @@ func (s *Server) handleArrange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proj := pflow.ParseProject(projJSON)
-	generator.Arrange(proj, req.Genre, req.Structure)
+	opts := generator.ArrangeOpts{
+		VelocityDeltas: req.VelocityDeltas,
+		MaxVariants:    req.MaxVariants,
+		FadeIn:         req.FadeIn,
+		DrumBreak:      req.DrumBreak,
+		Sections:       req.Sections,
+		FeelCurve:      req.FeelCurve,
+		MacroCurve:     req.MacroCurve,
+		OverlayOnly:    req.OverlayOnly,
+	}
+	if req.Seed != nil {
+		opts.Seed = *req.Seed
+	} else {
+		opts.Seed = time.Now().UnixNano()
+	}
+	generator.ArrangeWithOpts(proj, req.Genre, req.Structure, opts)
 
 	s.seq.Stop()
 	s.seq.LoadPflowProject(proj)

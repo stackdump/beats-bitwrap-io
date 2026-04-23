@@ -81,6 +81,7 @@ func AddStingerTracks(proj *pflow.Project, seed int64) {
 		bundle := res.Bundle
 		bundle.Track.Instrument = spec.DefaultInstrument
 		bundle.Track.InstrumentSet = append([]string(nil), StingerInstrumentSet...)
+		bundle.Track.Group = "stinger"
 		proj.Nets[spec.ID] = bundle
 		if !containsString(proj.InitialMutes, spec.ID) {
 			proj.InitialMutes = append(proj.InitialMutes, spec.ID)

@@ -149,22 +149,25 @@ export function panicMacros(el) {
 
 // --- Fire + execute ---
 
-export function fireMacro(el, id) {
+export function fireMacro(el, id, opts) {
     // Serial execution: if anything is running, push onto the FIFO queue.
     el._macroQueue ||= [];
     if (el._runningMacro) {
-        el._macroQueue.push(id);
+        el._macroQueue.push(opts ? { id, opts } : id);
         updateQueuedBadges(el);
         return;
     }
-    executeMacro(el, id);
+    executeMacro(el, id, opts);
 }
 
-export function executeMacro(el, id) {
+export function executeMacro(el, id, opts) {
     const macro = MACROS.find(m => m.id === id);
     if (!macro) return;
+    // Prefer explicit override (e.g. from a control-net fire-macro), then
+    // the panel UI select, then the macro's default. Kept in units the
+    // macro declares (bars or ticks) and converted below.
     const sel = el.querySelector(`.pn-macro-bars[data-macro="${id}"]`);
-    const duration = parseInt(sel?.value, 10) || macro.defaultDuration;
+    const duration = (opts && opts.duration) || parseInt(sel?.value, 10) || macro.defaultDuration;
     const durationTicks = macro.durationUnit === 'tick' ? duration : duration * 16;
     const msPerTick = el._msPerBar() / 16;
     const durationMs = durationTicks * msPerTick;
@@ -719,7 +722,8 @@ export function markMacroRunning(el, id, durationMs) {
         const next = (el._macroQueue || []).shift();
         if (next !== undefined) {
             updateQueuedBadges(el);
-            executeMacro(el, next);
+            if (typeof next === 'string') executeMacro(el, next);
+            else executeMacro(el, next.id, next.opts);
         } else {
             el.querySelectorAll('.pn-macro-btn.queued').forEach(b => b.classList.remove('queued'));
             el.querySelectorAll('.pn-macro-queue-badge').forEach(b => b.remove());
@@ -729,7 +733,10 @@ export function markMacroRunning(el, id, durationMs) {
 
 export function updateQueuedBadges(el) {
     const counts = new Map();
-    for (const qid of (el._macroQueue || [])) counts.set(qid, (counts.get(qid) || 0) + 1);
+    for (const entry of (el._macroQueue || [])) {
+        const qid = typeof entry === 'string' ? entry : entry.id;
+        counts.set(qid, (counts.get(qid) || 0) + 1);
+    }
     for (const btn of el.querySelectorAll('.pn-macro-btn')) {
         const qid = btn.dataset.macro;
         const count = counts.get(qid) || 0;

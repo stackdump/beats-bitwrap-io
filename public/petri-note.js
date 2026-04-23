@@ -19,6 +19,9 @@ import {
     oneShotSpec, prettifyInstrumentName,
 } from './lib/audio/oneshots.js';
 import { GENRE_INSTRUMENTS } from './lib/generator/genre-instruments.js';
+import { generateTrackName } from './lib/generator/composer.js';
+import { createRng } from './lib/generator/core.js';
+import { arrangeWithOpts as jsArrangeWithOpts } from './lib/generator/arrange.js';
 import {
     collectFxState, collectFeelState, collectAutoDjState,
     collectDisabledMacros, collectTrackOverrides, collectInitialMutes,
@@ -95,6 +98,7 @@ import {
     savePadBindings, hitsOptionsHtml, mixerSlidersHtml, createMixerRow,
     saveMixerSliderState, restoreMixerSliderState, saveFxState, restoreFxState,
     addDefaultNotches, toneReset, randomToneConfig, toneNav,
+    isStingerTrack,
 } from './lib/ui/mixer.js';
 import {
     updateTraits, initTraitClicks, traitMeta, genreTraitDefault, openTraitEditor,
@@ -106,6 +110,25 @@ import {
 
 
 // Diagram is read-only — all changes come from generator/shuffle
+
+// Derive a deterministic `genre · Adjective Noun` name for a hand-authored
+// share that didn't carry an explicit `name`. Seed from the CID (preferred —
+// content-addressed, so the same payload always names the same) with a
+// fallback to numeric seed when the CID isn't available.
+function deriveShareName(share) {
+    const genre = share.genre || 'custom';
+    let seed = 0;
+    if (share.cid) {
+        // djb2 on the cid string; xor into a 32-bit seed.
+        let h = 5381;
+        for (let i = 0; i < share.cid.length; i++) h = (h * 33) ^ share.cid.charCodeAt(i);
+        seed = h >>> 0;
+    } else if (typeof share.params?.seed === 'number') {
+        seed = share.params.seed >>> 0;
+    }
+    if (seed === 0) seed = 1; // mulberry32 degenerates at 0
+    return generateTrackName(genre, createRng(seed));
+}
 
 class PetriNote extends HTMLElement {
     constructor() {
@@ -335,6 +358,18 @@ class PetriNote extends HTMLElement {
             this._normalizeNet(net);
         }
 
+        // Stinger-group tracks always start muted — regardless of whether
+        // they came from the composer's addStingerTracks (which already
+        // adds hit1..hit4 to initialMutes) or from a hand-authored share
+        // that tagged its own stingers. The Fire pads on the Beats tab
+        // unmute them for their N-bar windows; baseline should be silent.
+        p.initialMutes ||= [];
+        for (const [id, net] of Object.entries(p.nets)) {
+            if (net.role === 'control') continue;
+            if (!isStingerTrack(id, net)) continue;
+            if (!p.initialMutes.includes(id)) p.initialMutes.push(id);
+        }
+
         this._tempo = p.tempo;
         this._swing = p.swing || 0;
         this._humanize = p.humanize || 0;
@@ -381,23 +416,60 @@ class PetriNote extends HTMLElement {
         if (radius < 150) radius = 150;
         const cx = radius + 80, cy = radius + 80;
 
-        const placeLabels = Object.keys(net.places).sort((a, b) => {
-            return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0);
-        });
+        const walk = this._walkCycleOrder(net);
+        let placeLabels, transLabels;
+        if (walk) {
+            placeLabels = walk.places;
+            transLabels = walk.transitions;
+        } else {
+            const cmp = (a, b) => (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0);
+            placeLabels = Object.keys(net.places).sort(cmp);
+            transLabels = Object.keys(net.transitions).sort(cmp);
+        }
+
         for (let i = 0; i < placeLabels.length; i++) {
-            const angle = (i / n) * 2 * Math.PI;
+            const angle = (i / placeLabels.length) * 2 * Math.PI;
             net.places[placeLabels[i]].x = cx + radius * 0.7 * Math.cos(angle);
             net.places[placeLabels[i]].y = cy + radius * 0.7 * Math.sin(angle);
         }
-
-        const transLabels = Object.keys(net.transitions).sort((a, b) => {
-            return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0);
-        });
         for (let i = 0; i < transLabels.length; i++) {
             const angle = ((i + 0.5) / transLabels.length) * 2 * Math.PI;
             net.transitions[transLabels[i]].x = cx + radius * Math.cos(angle);
             net.transitions[transLabels[i]].y = cy + radius * Math.sin(angle);
         }
+    }
+
+    _walkCycleOrder(net) {
+        const placeIds = Object.keys(net.places);
+        const transIds = Object.keys(net.transitions);
+        if (!placeIds.length || !transIds.length) return null;
+        const nextFrom = {};
+        for (const arc of net.arcs) {
+            if (arc.inhibit) return null;
+            if (nextFrom[arc.source]) return null;
+            nextFrom[arc.source] = arc.target;
+        }
+        const startInit = placeIds.find(id => {
+            const init = net.places[id].initial || [];
+            return Array.isArray(init) ? init.some(v => v > 0) : init > 0;
+        });
+        let cur = startInit || placeIds[0];
+        const places = [], transitions = [];
+        const seenP = new Set(), seenT = new Set();
+        for (let step = 0; step < (placeIds.length + transIds.length) * 2; step++) {
+            if (cur in net.places) {
+                if (seenP.has(cur)) break;
+                seenP.add(cur); places.push(cur);
+            } else if (cur in net.transitions) {
+                if (seenT.has(cur)) break;
+                seenT.add(cur); transitions.push(cur);
+            } else return null;
+            const nxt = nextFrom[cur];
+            if (!nxt) return null;
+            cur = nxt;
+        }
+        if (places.length !== placeIds.length || transitions.length !== transIds.length) return null;
+        return { places, transitions };
     }
 
     _createEmptyNet() {
@@ -442,7 +514,7 @@ class PetriNote extends HTMLElement {
 
     _musicNets() { return musicNets(this); }
     _panicMacros() { return panicMacros(this); }
-    _fireMacro(id) { return fireMacro(this, id); }
+    _fireMacro(id, opts) { return fireMacro(this, id, opts); }
     _executeMacro(id) { return executeMacro(this, id); }
     static get _ONESHOT_SLIDER_KEYS() { return ONESHOT_SLIDER_KEYS; }
     _snapshotOneShot(macroId) { return snapshotOneShot(this, macroId); }
@@ -1271,7 +1343,7 @@ class PetriNote extends HTMLElement {
             // nets, initialMutes, fx) from the share payload fields.
             if (share.nets) {
                 const proj = {
-                    name:  share.name  || `${share.genre} · shared`,
+                    name:  share.name || deriveShareName(share),
                     tempo: share.overrides?.tempo ?? 120,
                     swing: share.overrides?.swing ?? 0,
                     humanize: share.overrides?.humanize ?? 0,
@@ -1279,10 +1351,49 @@ class PetriNote extends HTMLElement {
                 };
                 if (share.overrides?.initialMutes) proj.initialMutes = share.overrides.initialMutes;
                 if (share.overrides?.fx)           proj.fx           = share.overrides.fx;
+                // Arrangement directive — expand the wrapped source into
+                // full song structure. Runs in-process via the JS port
+                // of ArrangeWithOpts (Go/JS parity), so production hosts
+                // without `-authoring` still reconstitute the full DSL.
+                // The call mutates `proj` in place.
+                if (share.structure && share.structure !== 'loop') {
+                    const opts = {
+                        seed: share.arrangeSeed ?? 0,
+                        velocityDeltas: share.velocityDeltas || undefined,
+                        maxVariants: share.maxVariants || 0,
+                        fadeIn: share.fadeIn || undefined,
+                        drumBreak: share.drumBreak || 0,
+                        sections: share.sections || undefined,
+                        feelCurve: share.feelCurve || undefined,
+                        macroCurve: share.macroCurve || undefined,
+                    };
+                    try {
+                        jsArrangeWithOpts(proj, share.genre || 'wrapped', share.structure, opts);
+                    } catch (err) {
+                        console.warn('JS arrange failed:', err);
+                    }
+                }
                 this._sendWs({ type: 'project-load', project: proj });
                 return;
             }
             this._sendWs({ type: 'generate', genre: share.genre, params: share.params });
+            // Composer path: if the share carries arrange-time overlay
+            // directives (curves / fades / breaks), schedule a follow-up
+            // /api/arrange with `overlay:true` once the generate has
+            // produced a project. The server's seq will hold the just-
+            // generated project, so the overlay runs against it and the
+            // broadcast pushes the updated nets back to the worker.
+            const hasOverlay = share.fadeIn || share.drumBreak || share.feelCurve || share.macroCurve;
+            if (hasOverlay) {
+                this._pendingOverlay = {
+                    genre: share.genre || 'wrapped',
+                    overlay: true,
+                    fadeIn: share.fadeIn || undefined,
+                    drumBreak: share.drumBreak || undefined,
+                    feelCurve: share.feelCurve || undefined,
+                    macroCurve: share.macroCurve || undefined,
+                };
+            }
             return;
         }
         const params = { seed: Math.floor(Math.random() * 0x7fffffff) };

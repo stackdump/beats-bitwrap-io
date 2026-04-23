@@ -8,6 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pflow-xyz/go-pflow/petri"
@@ -27,6 +30,12 @@ type Track struct {
 	DefaultVelocity int      `json:"defaultVelocity"`
 	Instrument      string   `json:"instrument,omitempty"`
 	InstrumentSet   []string `json:"instrumentSet,omitempty"`
+	// Group names the mixer section this track belongs to
+	// (drums/bass/chords/harmony/lead/pad/stinger/…). Composer output
+	// seeds it per role; hand-authored tracks can set it freely. When
+	// absent the mixer falls back to the legacy hit-name convention and
+	// groups everything else as "main".
+	Group string `json:"group,omitempty"`
 }
 
 // ControlBinding defines a control action for a transition.
@@ -212,28 +221,41 @@ func ParseProject(data map[string]interface{}) *Project {
 		proj.Nets[netId] = parseNetBundle(netMap)
 	}
 
-	// Parse structure sections
-	if sections, ok := data["structure"].([]interface{}); ok {
-		for _, s := range sections {
-			if sm, ok := s.(map[string]interface{}); ok {
-				ss := StructureSection{
-					Name:  getString(sm, "name", ""),
-					Steps: int(getFloat(sm, "steps", 0)),
-				}
-				if phrases, ok := sm["phrases"].(map[string]interface{}); ok {
-					ss.Phrases = make(map[string][]string)
-					for role, arr := range phrases {
-						if varr, ok := arr.([]interface{}); ok {
-							for _, v := range varr {
-								if vs, ok := v.(string); ok {
-									ss.Phrases[role] = append(ss.Phrases[role], vs)
-								}
-							}
+	// Parse structure sections. Accept both the JSON-decoded shape
+	// ([]interface{}) and the native Go shape ([]map[string]interface{})
+	// that ToJSON emits — when /api/arrange is invoked, seq.GetProject()
+	// returns the native shape without a JSON round-trip.
+	parseSection := func(sm map[string]interface{}) {
+		ss := StructureSection{
+			Name:  getString(sm, "name", ""),
+			Steps: int(getFloat(sm, "steps", 0)),
+		}
+		if phrases, ok := sm["phrases"].(map[string]interface{}); ok {
+			ss.Phrases = make(map[string][]string)
+			for role, arr := range phrases {
+				if varr, ok := arr.([]interface{}); ok {
+					for _, v := range varr {
+						if vs, ok := v.(string); ok {
+							ss.Phrases[role] = append(ss.Phrases[role], vs)
 						}
 					}
+				} else if varr, ok := arr.([]string); ok {
+					ss.Phrases[role] = append(ss.Phrases[role], varr...)
 				}
-				proj.Structure = append(proj.Structure, ss)
 			}
+		}
+		proj.Structure = append(proj.Structure, ss)
+	}
+	switch sections := data["structure"].(type) {
+	case []interface{}:
+		for _, s := range sections {
+			if sm, ok := s.(map[string]interface{}); ok {
+				parseSection(sm)
+			}
+		}
+	case []map[string]interface{}:
+		for _, sm := range sections {
+			parseSection(sm)
 		}
 	}
 
@@ -243,6 +265,28 @@ func ParseProject(data map[string]interface{}) *Project {
 			if s, ok := m.(string); ok {
 				proj.InitialMutes = append(proj.InitialMutes, s)
 			}
+		}
+	} else if mutes, ok := data["initialMutes"].([]string); ok {
+		proj.InitialMutes = append(proj.InitialMutes, mutes...)
+	}
+
+	// Stinger-group tracks always start muted — the Beats tab's Fire
+	// pads unmute them for their N-bar window, so the baseline is
+	// silence. Matches the JS _normalizeProject enforcement.
+	seen := make(map[string]bool, len(proj.InitialMutes))
+	for _, m := range proj.InitialMutes {
+		seen[m] = true
+	}
+	for id, nb := range proj.Nets {
+		if nb == nil || nb.Role == "control" {
+			continue
+		}
+		if !IsStingerNet(id, nb) {
+			continue
+		}
+		if !seen[id] {
+			proj.InitialMutes = append(proj.InitialMutes, id)
+			seen[id] = true
 		}
 	}
 
@@ -267,6 +311,7 @@ func parseNetBundle(data map[string]interface{}) *NetBundle {
 	if t, ok := data["track"].(map[string]interface{}); ok {
 		track.Channel = getInt(t, "channel", 1)
 		track.DefaultVelocity = getInt(t, "defaultVelocity", 100)
+		track.Group = getString(t, "group", "")
 		track.Instrument = getString(t, "instrument", "")
 		if arr, ok := t["instrumentSet"].([]interface{}); ok {
 			for _, v := range arr {
@@ -350,7 +395,190 @@ func parseNetBundle(data map[string]interface{}) *NetBundle {
 	nb.RiffGroup = getString(data, "riffGroup", "")
 	nb.RiffVariant = getString(data, "riffVariant", "")
 	nb.ControlBindings = controlBindings
+
+	if !hasLayout(net) {
+		recomputeLayout(net)
+	}
 	return nb
+}
+
+// IsStingerNet mirrors public/lib/ui/mixer.js::isStingerTrack —
+// explicit track.group="stinger" OR legacy hitN naming convention.
+func IsStingerNet(id string, nb *NetBundle) bool {
+	if nb != nil && nb.Track.Group == "stinger" {
+		return true
+	}
+	// hit<digits>
+	if len(id) < 4 || id[:3] != "hit" {
+		return false
+	}
+	for _, r := range id[3:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func hasLayout(net *petri.PetriNet) bool {
+	for _, p := range net.Places {
+		if p.X != 0 || p.Y != 0 {
+			return true
+		}
+	}
+	for _, t := range net.Transitions {
+		if t.X != 0 || t.Y != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// recomputeLayout places places (radius*0.7) and transitions (radius) around
+// a ring. Prefers arc-walk order so transitions sit between their pre/post
+// places — parseInt-style label sort scrambles labels like `Bb2`/`br1`.
+// Mirrors public/lib/pflow.js::recomputeLayout.
+func recomputeLayout(net *petri.PetriNet) {
+	n := len(net.Places)
+	if n == 0 {
+		return
+	}
+	radius := float64(n) * 70.0 / (2 * math.Pi * 0.7)
+	if radius < 150 {
+		radius = 150
+	}
+	cx, cy := radius+80, radius+80
+
+	placeOrder, transOrder := walkCycleOrder(net)
+	if placeOrder == nil {
+		placeOrder = sortedByDigits(mapKeysPlaces(net))
+		transOrder = sortedByDigits(mapKeysTransitions(net))
+	}
+
+	for i, id := range placeOrder {
+		angle := float64(i) / float64(len(placeOrder)) * 2 * math.Pi
+		net.Places[id].X = cx + radius*0.7*math.Cos(angle)
+		net.Places[id].Y = cy + radius*0.7*math.Sin(angle)
+	}
+	for i, id := range transOrder {
+		angle := (float64(i) + 0.5) / float64(len(transOrder)) * 2 * math.Pi
+		net.Transitions[id].X = cx + radius*math.Cos(angle)
+		net.Transitions[id].Y = cy + radius*math.Sin(angle)
+	}
+}
+
+// walkCycleOrder returns place/transition IDs in arc-walk order when the net
+// is a single simple cycle (one out-arc per node, covers all nodes),
+// otherwise nil/nil.
+func walkCycleOrder(net *petri.PetriNet) ([]string, []string) {
+	if len(net.Places) == 0 || len(net.Transitions) == 0 {
+		return nil, nil
+	}
+	nextFrom := make(map[string]string, len(net.Arcs))
+	for _, arc := range net.Arcs {
+		if arc.InhibitTransition {
+			return nil, nil
+		}
+		if _, dup := nextFrom[arc.Source]; dup {
+			return nil, nil
+		}
+		nextFrom[arc.Source] = arc.Target
+	}
+	// Start from a place holding an initial token if any; otherwise any place.
+	start := ""
+	for id, p := range net.Places {
+		for _, v := range p.Initial {
+			if v > 0 {
+				start = id
+				break
+			}
+		}
+		if start != "" {
+			break
+		}
+	}
+	if start == "" {
+		for id := range net.Places {
+			start = id
+			break
+		}
+	}
+	var places, transitions []string
+	seenP := make(map[string]bool)
+	seenT := make(map[string]bool)
+	cur := start
+	limit := (len(net.Places) + len(net.Transitions)) * 2
+	for step := 0; step < limit; step++ {
+		if _, ok := net.Places[cur]; ok {
+			if seenP[cur] {
+				break
+			}
+			seenP[cur] = true
+			places = append(places, cur)
+		} else if _, ok := net.Transitions[cur]; ok {
+			if seenT[cur] {
+				break
+			}
+			seenT[cur] = true
+			transitions = append(transitions, cur)
+		} else {
+			return nil, nil
+		}
+		nxt, ok := nextFrom[cur]
+		if !ok {
+			return nil, nil
+		}
+		cur = nxt
+	}
+	if len(places) != len(net.Places) || len(transitions) != len(net.Transitions) {
+		return nil, nil
+	}
+	return places, transitions
+}
+
+func mapKeysPlaces(net *petri.PetriNet) []string {
+	keys := make([]string, 0, len(net.Places))
+	for k := range net.Places {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func mapKeysTransitions(net *petri.PetriNet) []string {
+	keys := make([]string, 0, len(net.Transitions))
+	for k := range net.Transitions {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func sortedByDigits(keys []string) []string {
+	type kv struct {
+		key string
+		n   int
+	}
+	pairs := make([]kv, len(keys))
+	for i, k := range keys {
+		var digits strings.Builder
+		for _, r := range k {
+			if r >= '0' && r <= '9' {
+				digits.WriteRune(r)
+			}
+		}
+		n, _ := strconv.Atoi(digits.String())
+		pairs[i] = kv{k, n}
+	}
+	// insertion sort — stable, small inputs
+	for i := 1; i < len(pairs); i++ {
+		for j := i; j > 0 && pairs[j-1].n > pairs[j].n; j-- {
+			pairs[j-1], pairs[j] = pairs[j], pairs[j-1]
+		}
+	}
+	out := make([]string, len(pairs))
+	for i, p := range pairs {
+		out[i] = p.key
+	}
+	return out
 }
 
 // ToJSON converts a Project back to the JSON format the frontend expects.
@@ -489,6 +717,9 @@ func bundleToJSON(nb *NetBundle) map[string]interface{} {
 	}
 	if len(nb.Track.InstrumentSet) > 0 {
 		trackMap["instrumentSet"] = nb.Track.InstrumentSet
+	}
+	if nb.Track.Group != "" {
+		trackMap["group"] = nb.Track.Group
 	}
 	result := map[string]interface{}{
 		"track": trackMap,

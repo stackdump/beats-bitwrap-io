@@ -12,6 +12,7 @@ import { toneEngine } from '../../audio/tone-engine.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
+import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 
 // Live label for a master-FX slider. Mirrors the inline-span formats
@@ -36,6 +37,108 @@ function formatFxValue(fxName, val) {
             return n === 0 ? 'Off' : Math.max(1, Math.round(16 - (n / 100) * 15)) + '-bit';
         default: return n + '%';
     }
+}
+
+// Curve presets surfaced from the Arrange tab. Each preset maps a known
+// section name → XY puck / fire-macro + bars. Only applied sections that
+// actually appear in the current track's blueprint take effect —
+// `injectFeelCurve` / `injectMacroCurve` silently skip unknown names.
+const FEEL_PRESETS = {
+    'edm-arc': [
+        { section: 'intro',    x: 0.2,  y: 0.7  },
+        { section: 'buildup',  x: 0.75, y: 0.35 },
+        { section: 'drop',     x: 0.95, y: 0.15 },
+        { section: 'breakdown',x: 0.15, y: 0.3  },
+        { section: 'chorus',   x: 0.85, y: 0.3  },
+        { section: 'outro',    x: 0.3,  y: 0.75 },
+    ],
+    'chill-wave': [
+        { section: 'intro',    x: 0.15, y: 0.85 },
+        { section: 'verse',    x: 0.3,  y: 0.7  },
+        { section: 'chorus',   x: 0.5,  y: 0.55 },
+        { section: 'breakdown',x: 0.2,  y: 0.4  },
+        { section: 'outro',    x: 0.1,  y: 0.85 },
+    ],
+    'euphoric': [
+        { section: 'intro',    x: 0.4,  y: 0.5  },
+        { section: 'buildup',  x: 0.8,  y: 0.3  },
+        { section: 'drop',     x: 0.95, y: 0.1  },
+        { section: 'chorus',   x: 0.9,  y: 0.2  },
+        { section: 'outro',    x: 0.55, y: 0.55 },
+    ],
+};
+
+const MACRO_PRESETS = {
+    'edm-classic': [
+        { section: 'intro',    macro: 'reverb-wash', bars: 2 },
+        { section: 'buildup',  macro: 'riser',       bars: 4 },
+        { section: 'drop',     macro: 'beat-repeat', bars: 1 },
+        { section: 'breakdown',macro: 'dub-delay',   bars: 2 },
+        { section: 'outro',    macro: 'cathedral',   bars: 4 },
+    ],
+    'drop-heavy': [
+        { section: 'buildup',  macro: 'riser',       bars: 4 },
+        { section: 'drop',     macro: 'beat-repeat', bars: 1 },
+        { section: 'chorus',   macro: 'sweep-lp',    bars: 4 },
+        { section: 'drop',     macro: 'delay-throw', bars: 1 },
+    ],
+    'downtempo': [
+        { section: 'intro',    macro: 'cathedral',   bars: 4 },
+        { section: 'verse',    macro: 'phaser-drone',bars: 4 },
+        { section: 'breakdown',macro: 'dub-delay',   bars: 2 },
+        { section: 'outro',    macro: 'reverb-wash', bars: 4 },
+    ],
+};
+
+function applyArrangeFromPanel(el, panel) {
+    const status = panel.querySelector('.pn-arrange-status');
+    if (!el._project || !Object.keys(el._project.nets || {}).length) {
+        if (status) status.textContent = '(no project loaded)';
+        return;
+    }
+    const structure = panel.querySelector('.pn-arrange-structure').value;
+    const fadeIn = [...panel.querySelectorAll('.pn-arrange-fade:checked')].map(cb => cb.value);
+    const drumBreak = parseInt(panel.querySelector('.pn-arrange-drumbreak').value, 10) || 0;
+    const feelPreset = panel.querySelector('.pn-arrange-feelcurve').value;
+    const macroPreset = panel.querySelector('.pn-arrange-macrocurve').value;
+
+    // Overlay mode only works when the loaded project already has a
+    // structure (from composer generate or a prior arrange). Otherwise
+    // run a full arrange — the user picked a structure, that's the
+    // directive they want applied.
+    const hasStructure = Array.isArray(el._project.structure) && el._project.structure.length > 0;
+    const body = {
+        overlay: hasStructure,
+        genre: el._project.name?.split(' ')[0] || 'wrapped',
+    };
+    if (structure && structure !== 'loop') body.structure = structure;
+    if (fadeIn.length > 0) body.fadeIn = fadeIn;
+    if (drumBreak > 0)     body.drumBreak = drumBreak;
+    if (feelPreset && FEEL_PRESETS[feelPreset])   body.feelCurve  = FEEL_PRESETS[feelPreset];
+    if (macroPreset && MACRO_PRESETS[macroPreset]) body.macroCurve = MACRO_PRESETS[macroPreset];
+
+    if (status) status.textContent = '…applying';
+    // Run the arrange via the in-process JS port — no HTTP round-trip
+    // needed; works on production hosts without `-authoring` mode.
+    import('../generator/arrange.js').then(mod => {
+        try {
+            const proj = JSON.parse(JSON.stringify(el._project));
+            mod.arrangeWithOpts(proj, body.genre, body.structure || 'standard', {
+                overlayOnly: !!body.overlay,
+                seed: 0,
+                fadeIn: body.fadeIn,
+                drumBreak: body.drumBreak,
+                feelCurve: body.feelCurve,
+                macroCurve: body.macroCurve,
+            });
+            proj.name = el._project?.name || proj.name;
+            el._sendWs({ type: 'project-load', project: proj });
+            if (status) status.textContent = `✓ ${Object.keys(proj.nets).length} nets`;
+        } catch (err) {
+            console.warn('arrange panel failed:', err);
+            if (status) status.textContent = '(failed — see console)';
+        }
+    });
 }
 
 export function buildUI(el) {
@@ -164,14 +267,23 @@ export function buildUI(el) {
     // Effects panel
     if (el._showFx === undefined) el._showFx = true;
     if (el._showOneShots === undefined) el._showOneShots = false;
+    // Beats tab is hidden when the project has no stinger tracks at all —
+    // the Fire pads need a real target net to unmute. Same predicate as
+    // `sectionGroupForNet` in mixer.js, so the tab visibility matches the
+    // mixer row hide/show exactly.
+    const hasStingers = Object.entries(el._project?.nets || {}).some(
+        ([id, nb]) => nb.role !== 'control' && isStingerTrack(id, nb)
+    );
+    if (!hasStingers) el._showOneShots = false;
     const fx = document.createElement('div');
     fx.className = 'pn-effects';
     fx.innerHTML = `
         <div class="pn-effects-toggle">
             <button class="pn-effects-btn ${el._showFx ? 'active' : ''}">FX</button>
             <button class="pn-macros-btn ${el._showMacros ? 'active' : ''}" title="Live performance macros">Macros</button>
-            <button class="pn-oneshots-btn ${el._showOneShots ? 'active' : ''}" title="Beat fire pads">Beats</button>
+            <button class="pn-oneshots-btn ${el._showOneShots ? 'active' : ''}" title="Beat fire pads" ${hasStingers ? '' : 'style="display:none"'}>Beats</button>
             <button class="pn-autodj-btn ${el._showAutoDj ? 'active' : ''}" title="Auto-DJ: fires random macros on a cadence">Auto-DJ</button>
+            <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
             <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
             <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
             <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
@@ -185,7 +297,16 @@ export function buildUI(el) {
         <div class="pn-oneshots-panel" style="display:${el._showOneShots ? 'flex' : 'none'}">
             ${(() => {
                 const opt = (v, label, def) => `<option value="${v}"${v===def?' selected':''}>${label}</option>`;
-                const oneShots = MACROS.filter(m => m.kind === 'one-shot');
+                // Only show Fire pads for one-shot macros whose target
+                // stinger track actually exists in the current project.
+                // Hand-authored tracks without hit1..hit4 (or without any
+                // stinger-group tracks) end up with an empty Beats panel
+                // instead of dead Fire buttons.
+                const nets = el._project?.nets || {};
+                const oneShots = MACROS.filter(m => m.kind === 'one-shot' && nets[m.id]);
+                if (oneShots.length === 0) {
+                    return `<div class="pn-os-empty">No stinger tracks in this project. Add a track with <code>track.group = "stinger"</code> to populate the Beats tab.</div>`;
+                }
                 const osCat = new Map();
                 for (const inst of ONESHOT_INSTRUMENTS) {
                     const g = inst.group || 'Other';
@@ -290,6 +411,49 @@ export function buildUI(el) {
             </label>
             <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now. Ignores Auto-DJ arm state.">Transition ⟳</button>
             <span class="pn-autodj-status">idle</span>
+        </div>
+        <div class="pn-arrange-panel" style="display:${el._showArrange ? 'flex' : 'none'}">
+            <label class="pn-autodj-field">
+                <span>Structure</span>
+                <select class="pn-arrange-structure" title="Section blueprint size">
+                    ${['loop','ab','minimal','standard','extended','drop','build','jam']
+                        .map(v => `<option value="${v}"${v==='standard'?' selected':''}>${v}</option>`).join('')}
+                </select>
+            </label>
+            <fieldset class="pn-autodj-pools pn-arrange-fades" title="Roles that start muted and unmute through the intro">
+                <legend>Fade In</legend>
+                <label><input type="checkbox" class="pn-arrange-fade" value="pad">pad</label>
+                <label><input type="checkbox" class="pn-arrange-fade" value="melody">melody</label>
+                <label><input type="checkbox" class="pn-arrange-fade" value="arp">arp</label>
+                <label><input type="checkbox" class="pn-arrange-fade" value="lead">lead</label>
+                <label><input type="checkbox" class="pn-arrange-fade" value="bass">bass</label>
+            </fieldset>
+            <label class="pn-autodj-field" title="Bars of drum-only break at the midpoint (0 disables)">
+                <span>Drum Break</span>
+                <select class="pn-arrange-drumbreak">
+                    ${[0,2,4,8].map(v => `<option value="${v}"${v===0?' selected':''}>${v===0?'off':v+' bars'}</option>`).join('')}
+                </select>
+            </label>
+            <label class="pn-autodj-field" title="Preset XY puck curve morphing tempo/FX across sections">
+                <span>Feel Curve</span>
+                <select class="pn-arrange-feelcurve">
+                    <option value="" selected>off</option>
+                    <option value="edm-arc">EDM arc</option>
+                    <option value="chill-wave">Chill wave</option>
+                    <option value="euphoric">Euphoric</option>
+                </select>
+            </label>
+            <label class="pn-autodj-field" title="Preset macro schedule fired at section boundaries">
+                <span>Macro Curve</span>
+                <select class="pn-arrange-macrocurve">
+                    <option value="" selected>off</option>
+                    <option value="edm-classic">EDM classic</option>
+                    <option value="drop-heavy">Drop heavy</option>
+                    <option value="downtempo">Downtempo</option>
+                </select>
+            </label>
+            <button class="pn-arrange-apply" title="Apply the selected arrangement as an overlay on the current track">Arrange ⟳</button>
+            <span class="pn-arrange-status">idle</span>
         </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
@@ -484,6 +648,22 @@ export function buildUI(el) {
     });
     // Hydrate the panel from the last-saved settings (if any)
     el._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
+
+    // Arrange tab — live-driven arrangement overlays. The panel collects
+    // a small DSL (structure / fadeIn / drumBreak / feelCurve preset /
+    // macroCurve preset) and POSTs it to /api/arrange with overlay=true
+    // against the currently loaded project. Server returns the expanded
+    // project; we project-load it back into the worker.
+    const arrangeBtn   = fx.querySelector('.pn-arrange-btn');
+    const arrangePanel = fx.querySelector('.pn-arrange-panel');
+    arrangeBtn.addEventListener('click', () => {
+        el._showArrange = !el._showArrange;
+        arrangePanel.style.display = el._showArrange ? 'flex' : 'none';
+        arrangeBtn.classList.toggle('active', el._showArrange);
+    });
+    arrangePanel.querySelector('.pn-arrange-apply')?.addEventListener('click', () => {
+        applyArrangeFromPanel(el, arrangePanel);
+    });
 
     // Feel icon (inside the traits row) opens a modal with the 4 sliders.
     // Slider positions are persisted so even without opening the modal
