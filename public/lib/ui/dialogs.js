@@ -497,6 +497,51 @@ export function showCategoryModal(el) {
                 <object type="image/svg+xml" data="/docs/control-category.svg" style="width:100%;height:auto;display:block" aria-label="control category diagram"></object>
             </div>
             <p style="margin:10px 0 0;color:#64748b;font-size:0.82em">Source: <code>docs/control-category.svg</code> · Index: <code>docs/categorical-index.md</code></p>
+
+            <h3 style="margin:24px 0 8px;color:#e2e8f0;font-size:1.05em;border-top:1px solid #334155;padding-top:18px">Reading the ring — Petri net notation</h3>
+            <p style="margin:0 0 12px;color:#aaa;font-size:0.9em">The track visualization is a real Petri net. Here's the alphabet, so the ring stops being decorative and starts being inspectable.</p>
+            <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+                <svg viewBox="0 0 420 170" style="flex:0 0 420px;max-width:100%;background:#0a0f1e;border:1px solid #334155;border-radius:8px" font-family="system-ui, sans-serif">
+                    <defs>
+                        <marker id="pn-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                            <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+                        </marker>
+                    </defs>
+                    <!-- p0 (marked) -->
+                    <circle cx="60" cy="85" r="22" fill="#0b1020" stroke="#67e8f9" stroke-width="2"/>
+                    <circle cx="60" cy="85" r="5" fill="#67e8f9"/>
+                    <text x="60" y="130" text-anchor="middle" font-size="11" fill="#94a3b8">place (marked)</text>
+                    <text x="60" y="144" text-anchor="middle" font-size="10" fill="#64748b">holds tokens</text>
+                    <!-- arc -->
+                    <line x1="85" y1="85" x2="145" y2="85" stroke="#94a3b8" stroke-width="1.8" marker-end="url(#pn-arr)"/>
+                    <text x="115" y="75" text-anchor="middle" font-size="10" fill="#64748b">arc</text>
+                    <!-- transition -->
+                    <rect x="150" y="65" width="18" height="40" fill="#f59e0b"/>
+                    <text x="159" y="130" text-anchor="middle" font-size="11" fill="#94a3b8">transition</text>
+                    <text x="159" y="144" text-anchor="middle" font-size="10" fill="#64748b">fires a beat</text>
+                    <!-- arc -->
+                    <line x1="170" y1="85" x2="230" y2="85" stroke="#94a3b8" stroke-width="1.8" marker-end="url(#pn-arr)"/>
+                    <!-- p1 (empty) -->
+                    <circle cx="255" cy="85" r="22" fill="#0b1020" stroke="#475569" stroke-width="2"/>
+                    <text x="255" y="130" text-anchor="middle" font-size="11" fill="#94a3b8">place (empty)</text>
+                    <text x="255" y="144" text-anchor="middle" font-size="10" fill="#64748b">no token yet</text>
+                    <!-- return arc -->
+                    <path d="M 255 63 C 255 25, 60 25, 60 63" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="0" marker-end="url(#pn-arr)"/>
+                    <text x="157" y="20" text-anchor="middle" font-size="10" fill="#64748b">return arc (ring closes)</text>
+                    <!-- caption -->
+                    <text x="365" y="85" text-anchor="middle" font-size="11" fill="#cbd5e1">= one</text>
+                    <text x="365" y="100" text-anchor="middle" font-size="11" fill="#cbd5e1">beat</text>
+                </svg>
+                <div style="flex:1 1 260px;min-width:260px;color:#cbd5e1;font-size:0.9em;line-height:1.6">
+                    <ul style="margin:0;padding-left:18px">
+                        <li><b style="color:#67e8f9">Place</b> (circle) — a slot that holds tokens. A <b>token</b> (filled dot) marks the place as active.</li>
+                        <li><b style="color:#f59e0b">Transition</b> (rectangle) — fires when every input place has a token. Firing consumes one token from each input and deposits one into each output. Each firing is one audible <b>beat</b>.</li>
+                        <li><b>Arc</b> (arrow) — connects places to transitions and back. Direction = flow of tokens.</li>
+                        <li><b>Token ring</b> — the drum / melody pattern shape. One token circulates through N places and N transitions; each pass around the ring = one bar.</li>
+                    </ul>
+                </div>
+            </div>
+            <p style="margin:14px 0 0;color:#aaa;font-size:0.88em">Euclidean drum patterns are just rings with transitions tagged at the hit positions; Markov melodies extend the same idea with branching transitions that compete for the token (conflict resolved randomly). Macros and control actions inject small linear-chain nets whose terminal transition carries a restore action.</p>
         </div>
     `;
     overlay.addEventListener('click', (e) => {
