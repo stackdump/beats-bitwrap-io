@@ -64,10 +64,9 @@
     "nets": {
       "description": "Optional full petri-net bundle. When present, the share boot path loads these nets directly and SKIPS the generator — used to round-trip hand-authored or heavily-edited projects that can't be recreated from (genre, seed) alone. Keys are net IDs; values are the same shape emitted by /api/project (track, places, transitions, arcs, role, riffGroup).",
       "type": ["object", "null"],
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "maxProperties": 256,
+      "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$" },
+      "additionalProperties": { "$ref": "#/$defs/Net" }
     }
   },
   "$defs": {
@@ -118,6 +117,115 @@
         "bars":  { "type": "integer", "minimum": 1, "maximum": 64 },
         "pitch": { "type": "integer", "minimum": -24, "maximum": 24 },
         "pair":  { "type": "string", "maxLength": 64 }
+      }
+    },
+    "Net": {
+      "description": "One entry inside the top-level `nets` map. Values are capped to keep pathological payloads from bogging the worker or the DOM; the 256 kB outer payload cap is the hard ceiling but these per-net caps provide defense-in-depth.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role":        { "enum": ["music", "control"] },
+        "riffGroup":   { "type": "string", "maxLength": 64 },
+        "riffVariant": { "type": "string", "maxLength": 16 },
+        "track": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "channel":         { "type": "integer", "minimum": 1, "maximum": 32 },
+            "defaultVelocity": { "type": "integer", "minimum": 0, "maximum": 127 },
+            "instrument":      { "type": "string", "maxLength": 64 },
+            "instrumentSet":   {
+              "type": "array",
+              "maxItems": 64,
+              "items": { "type": "string", "maxLength": 64 }
+            }
+          }
+        },
+        "places": {
+          "type": "object",
+          "maxProperties": 2048,
+          "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "initial": {
+                "oneOf": [
+                  { "type": "number" },
+                  { "type": "array", "items": { "type": "number" }, "maxItems": 8 }
+                ]
+              },
+              "x":     { "type": "number" },
+              "y":     { "type": "number" },
+              "label": { "type": "string", "maxLength": 64 }
+            }
+          }
+        },
+        "transitions": {
+          "type": "object",
+          "maxProperties": 2048,
+          "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x":     { "type": "number" },
+              "y":     { "type": "number" },
+              "label": { "type": "string", "maxLength": 64 },
+              "midi": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "note":     { "type": "integer", "minimum": 0, "maximum": 127 },
+                  "channel":  { "type": "integer", "minimum": 1, "maximum": 32 },
+                  "velocity": { "type": "integer", "minimum": 0, "maximum": 127 },
+                  "duration": { "type": "integer", "minimum": 0, "maximum": 60000 }
+                }
+              },
+              "control": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "mute-track", "unmute-track", "toggle-track",
+                      "mute-note",  "unmute-note",  "toggle-note",
+                      "activate-slot", "stop-transport", "fire-macro"
+                    ]
+                  },
+                  "targetNet":  { "type": "string", "maxLength": 128 },
+                  "targetNote": { "type": "integer", "minimum": 0, "maximum": 127 },
+                  "macro":      { "type": "string", "maxLength": 64 },
+                  "macroBars":  { "type": "number", "minimum": 0, "maximum": 1024 },
+                  "macroParams":{
+                    "type": "object",
+                    "maxProperties": 32,
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "arcs": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source":  { "type": "string", "maxLength": 128 },
+              "target":  { "type": "string", "maxLength": 128 },
+              "weight":  {
+                "oneOf": [
+                  { "type": "number" },
+                  { "type": "array", "items": { "type": "number" }, "maxItems": 8 }
+                ]
+              },
+              "inhibit": { "type": "boolean" }
+            }
+          }
+        }
       }
     }
   }

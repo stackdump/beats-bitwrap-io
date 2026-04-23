@@ -252,7 +252,7 @@ urllib.request.urlopen(urllib.request.Request(
 print(f"https://beats.bitwrap.io/?cid={cid}")
 ```
 
-Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
+Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: at most 256 nets per payload, 2048 places and 2048 transitions per net, 8192 arcs per net, 64-char net / place / transition IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). `control.action` must be one of `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro`. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
 
 **In-process alternative**: if you're driving a petri-note server instance, `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}` wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere.
 
