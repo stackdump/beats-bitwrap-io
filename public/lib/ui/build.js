@@ -292,6 +292,11 @@ export function buildUI(el) {
             <span class="pn-autodj-status">idle</span>
         </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
+            <div class="pn-macro-group pn-macro-edit-group">
+                <div class="pn-macro-group-label">Auto-DJ</div>
+                <button class="pn-macros-edit" title="Toggle edit mode — tap tiles to exclude them from Auto-DJ (right-click / long-press also works)">Edit Excludes</button>
+                <div class="pn-macro-edit-hint">Tap tiles to toggle</div>
+            </div>
             ${(() => {
                 const others = MACROS.filter(m => m.kind !== 'one-shot');
                 const byGroup = new Map();
@@ -521,10 +526,23 @@ export function buildUI(el) {
         btn.textContent = `Fire ${label}`;
     });
 
-    // Macro button clicks → fire the macro
+    // Edit-mode toggle: when active, tile taps toggle disabled instead of
+    // firing. Gives touch devices (iPad) a reliable way to exclude macros
+    // from Auto-DJ without relying on long-press, which is flaky under iOS
+    // Safari's native callout gesture.
+    const macrosEditBtn = mxPanel.querySelector('.pn-macros-edit');
+    macrosEditBtn?.addEventListener('click', () => {
+        const active = mxPanel.classList.toggle('pn-edit-mode');
+        macrosEditBtn.classList.toggle('active', active);
+    });
+    // Macro button clicks → fire the macro, unless we're in edit mode.
     mxPanel.addEventListener('click', (e) => {
         const btn = e.target.closest('.pn-macro-btn');
         if (!btn) return;
+        if (mxPanel.classList.contains('pn-edit-mode')) {
+            el._toggleMacroDisabled(btn.dataset.macro);
+            return;
+        }
         el._fireMacro(btn.dataset.macro);
     });
     // Right-click toggles a macro's "disabled" flag — Auto-DJ skips
