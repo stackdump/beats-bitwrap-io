@@ -2,7 +2,7 @@
     "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
     "@type": "BeatsShare",
     "v": 1,
-    "genre": "custom",
+    "genre": "wrapped",
     "seed": 0,
     "tempo": 92,
     "humanize": 4,
@@ -21,7 +21,7 @@
     "nets": {
         "arp": {
             "role": "music",
-            "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck" },
+            "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck", "group": "arp" },
             "places": {
                 "p0": { "initial": [1], "x": 0, "y": 0 },
                 "p1": { "initial": [0], "x": 60, "y": 0 },

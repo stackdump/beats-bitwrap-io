@@ -1,0 +1,2006 @@
+{
+    "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
+    "@type": "BeatsShare",
+    "v": 1,
+    "genre": "wrapped",
+    "seed": 0,
+    "tempo": 140,
+    "swing": 0,
+    "humanize": 3,
+    "fx": {
+        "reverbSize": 55,
+        "reverbDamp": 65,
+        "reverbWet": 18,
+        "delayTime": 38,
+        "delayFeedback": 38,
+        "delayWet": 14,
+        "phaserFreq": 6,
+        "phaserDepth": 55,
+        "phaserWet": 12,
+        "crushBits": 10,
+        "distortDrive": 28
+    },
+    "nets": {
+        "kick": {
+            "role": "music",
+            "track": {
+                "channel": 1,
+                "defaultVelocity": 120,
+                "instrument": "drums-808",
+                "group": "drums"
+            },
+            "places": {
+                "k0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "k1": {},
+                "k2": {},
+                "k3": {},
+                "k4": {},
+                "k5": {},
+                "k6": {},
+                "k7": {},
+                "k8": {},
+                "k9": {},
+                "k10": {},
+                "k11": {},
+                "k12": {},
+                "k13": {},
+                "k14": {},
+                "k15": {}
+            },
+            "transitions": {
+                "kt0": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 125,
+                        "duration": 90
+                    }
+                },
+                "kt1": {},
+                "kt2": {},
+                "kt3": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 90,
+                        "duration": 70
+                    }
+                },
+                "kt4": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 118,
+                        "duration": 90
+                    }
+                },
+                "kt5": {},
+                "kt6": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 95,
+                        "duration": 70
+                    }
+                },
+                "kt7": {},
+                "kt8": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 122,
+                        "duration": 90
+                    }
+                },
+                "kt9": {},
+                "kt10": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 85,
+                        "duration": 70
+                    }
+                },
+                "kt11": {},
+                "kt12": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 118,
+                        "duration": 90
+                    }
+                },
+                "kt13": {},
+                "kt14": {},
+                "kt15": {
+                    "midi": {
+                        "note": 36,
+                        "channel": 1,
+                        "velocity": 88,
+                        "duration": 60
+                    }
+                }
+            },
+            "arcs": [
+                {
+                    "source": "k0",
+                    "target": "kt0"
+                },
+                {
+                    "source": "kt0",
+                    "target": "k1"
+                },
+                {
+                    "source": "k1",
+                    "target": "kt1"
+                },
+                {
+                    "source": "kt1",
+                    "target": "k2"
+                },
+                {
+                    "source": "k2",
+                    "target": "kt2"
+                },
+                {
+                    "source": "kt2",
+                    "target": "k3"
+                },
+                {
+                    "source": "k3",
+                    "target": "kt3"
+                },
+                {
+                    "source": "kt3",
+                    "target": "k4"
+                },
+                {
+                    "source": "k4",
+                    "target": "kt4"
+                },
+                {
+                    "source": "kt4",
+                    "target": "k5"
+                },
+                {
+                    "source": "k5",
+                    "target": "kt5"
+                },
+                {
+                    "source": "kt5",
+                    "target": "k6"
+                },
+                {
+                    "source": "k6",
+                    "target": "kt6"
+                },
+                {
+                    "source": "kt6",
+                    "target": "k7"
+                },
+                {
+                    "source": "k7",
+                    "target": "kt7"
+                },
+                {
+                    "source": "kt7",
+                    "target": "k8"
+                },
+                {
+                    "source": "k8",
+                    "target": "kt8"
+                },
+                {
+                    "source": "kt8",
+                    "target": "k9"
+                },
+                {
+                    "source": "k9",
+                    "target": "kt9"
+                },
+                {
+                    "source": "kt9",
+                    "target": "k10"
+                },
+                {
+                    "source": "k10",
+                    "target": "kt10"
+                },
+                {
+                    "source": "kt10",
+                    "target": "k11"
+                },
+                {
+                    "source": "k11",
+                    "target": "kt11"
+                },
+                {
+                    "source": "kt11",
+                    "target": "k12"
+                },
+                {
+                    "source": "k12",
+                    "target": "kt12"
+                },
+                {
+                    "source": "kt12",
+                    "target": "k13"
+                },
+                {
+                    "source": "k13",
+                    "target": "kt13"
+                },
+                {
+                    "source": "kt13",
+                    "target": "k14"
+                },
+                {
+                    "source": "k14",
+                    "target": "kt14"
+                },
+                {
+                    "source": "kt14",
+                    "target": "k15"
+                },
+                {
+                    "source": "k15",
+                    "target": "kt15"
+                },
+                {
+                    "source": "kt15",
+                    "target": "k0"
+                }
+            ]
+        },
+        "snare": {
+            "role": "music",
+            "track": {
+                "channel": 2,
+                "defaultVelocity": 105,
+                "instrument": "drums",
+                "group": "drums"
+            },
+            "places": {
+                "s0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "s1": {},
+                "s2": {},
+                "s3": {},
+                "s4": {},
+                "s5": {},
+                "s6": {},
+                "s7": {},
+                "s8": {},
+                "s9": {},
+                "s10": {},
+                "s11": {},
+                "s12": {},
+                "s13": {},
+                "s14": {},
+                "s15": {}
+            },
+            "transitions": {
+                "st0": {},
+                "st1": {},
+                "st2": {
+                    "midi": {
+                        "note": 40,
+                        "channel": 2,
+                        "velocity": 65,
+                        "duration": 50
+                    }
+                },
+                "st3": {},
+                "st4": {
+                    "midi": {
+                        "note": 38,
+                        "channel": 2,
+                        "velocity": 115,
+                        "duration": 70
+                    }
+                },
+                "st5": {},
+                "st6": {},
+                "st7": {
+                    "midi": {
+                        "note": 40,
+                        "channel": 2,
+                        "velocity": 58,
+                        "duration": 50
+                    }
+                },
+                "st8": {},
+                "st9": {},
+                "st10": {
+                    "midi": {
+                        "note": 40,
+                        "channel": 2,
+                        "velocity": 62,
+                        "duration": 50
+                    }
+                },
+                "st11": {},
+                "st12": {
+                    "midi": {
+                        "note": 38,
+                        "channel": 2,
+                        "velocity": 118,
+                        "duration": 70
+                    }
+                },
+                "st13": {},
+                "st14": {
+                    "midi": {
+                        "note": 39,
+                        "channel": 2,
+                        "velocity": 85,
+                        "duration": 55
+                    }
+                },
+                "st15": {}
+            },
+            "arcs": [
+                {
+                    "source": "s0",
+                    "target": "st0"
+                },
+                {
+                    "source": "st0",
+                    "target": "s1"
+                },
+                {
+                    "source": "s1",
+                    "target": "st1"
+                },
+                {
+                    "source": "st1",
+                    "target": "s2"
+                },
+                {
+                    "source": "s2",
+                    "target": "st2"
+                },
+                {
+                    "source": "st2",
+                    "target": "s3"
+                },
+                {
+                    "source": "s3",
+                    "target": "st3"
+                },
+                {
+                    "source": "st3",
+                    "target": "s4"
+                },
+                {
+                    "source": "s4",
+                    "target": "st4"
+                },
+                {
+                    "source": "st4",
+                    "target": "s5"
+                },
+                {
+                    "source": "s5",
+                    "target": "st5"
+                },
+                {
+                    "source": "st5",
+                    "target": "s6"
+                },
+                {
+                    "source": "s6",
+                    "target": "st6"
+                },
+                {
+                    "source": "st6",
+                    "target": "s7"
+                },
+                {
+                    "source": "s7",
+                    "target": "st7"
+                },
+                {
+                    "source": "st7",
+                    "target": "s8"
+                },
+                {
+                    "source": "s8",
+                    "target": "st8"
+                },
+                {
+                    "source": "st8",
+                    "target": "s9"
+                },
+                {
+                    "source": "s9",
+                    "target": "st9"
+                },
+                {
+                    "source": "st9",
+                    "target": "s10"
+                },
+                {
+                    "source": "s10",
+                    "target": "st10"
+                },
+                {
+                    "source": "st10",
+                    "target": "s11"
+                },
+                {
+                    "source": "s11",
+                    "target": "st11"
+                },
+                {
+                    "source": "st11",
+                    "target": "s12"
+                },
+                {
+                    "source": "s12",
+                    "target": "st12"
+                },
+                {
+                    "source": "st12",
+                    "target": "s13"
+                },
+                {
+                    "source": "s13",
+                    "target": "st13"
+                },
+                {
+                    "source": "st13",
+                    "target": "s14"
+                },
+                {
+                    "source": "s14",
+                    "target": "st14"
+                },
+                {
+                    "source": "st14",
+                    "target": "s15"
+                },
+                {
+                    "source": "s15",
+                    "target": "st15"
+                },
+                {
+                    "source": "st15",
+                    "target": "s0"
+                }
+            ]
+        },
+        "hat": {
+            "role": "music",
+            "track": {
+                "channel": 3,
+                "defaultVelocity": 80,
+                "instrument": "drums-v8",
+                "group": "drums"
+            },
+            "places": {
+                "h0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "h1": {},
+                "h2": {},
+                "h3": {},
+                "h4": {},
+                "h5": {},
+                "h6": {},
+                "h7": {}
+            },
+            "transitions": {
+                "ht0": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 85,
+                        "duration": 30
+                    }
+                },
+                "ht1": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 55,
+                        "duration": 30
+                    }
+                },
+                "ht2": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 92,
+                        "duration": 30
+                    }
+                },
+                "ht3": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 58,
+                        "duration": 30
+                    }
+                },
+                "ht4": {
+                    "midi": {
+                        "note": 46,
+                        "channel": 3,
+                        "velocity": 98,
+                        "duration": 80
+                    }
+                },
+                "ht5": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 62,
+                        "duration": 30
+                    }
+                },
+                "ht6": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 88,
+                        "duration": 30
+                    }
+                },
+                "ht7": {
+                    "midi": {
+                        "note": 42,
+                        "channel": 3,
+                        "velocity": 55,
+                        "duration": 30
+                    }
+                }
+            },
+            "arcs": [
+                {
+                    "source": "h0",
+                    "target": "ht0"
+                },
+                {
+                    "source": "ht0",
+                    "target": "h1"
+                },
+                {
+                    "source": "h1",
+                    "target": "ht1"
+                },
+                {
+                    "source": "ht1",
+                    "target": "h2"
+                },
+                {
+                    "source": "h2",
+                    "target": "ht2"
+                },
+                {
+                    "source": "ht2",
+                    "target": "h3"
+                },
+                {
+                    "source": "h3",
+                    "target": "ht3"
+                },
+                {
+                    "source": "ht3",
+                    "target": "h4"
+                },
+                {
+                    "source": "h4",
+                    "target": "ht4"
+                },
+                {
+                    "source": "ht4",
+                    "target": "h5"
+                },
+                {
+                    "source": "h5",
+                    "target": "ht5"
+                },
+                {
+                    "source": "ht5",
+                    "target": "h6"
+                },
+                {
+                    "source": "h6",
+                    "target": "ht6"
+                },
+                {
+                    "source": "ht6",
+                    "target": "h7"
+                },
+                {
+                    "source": "h7",
+                    "target": "ht7"
+                },
+                {
+                    "source": "ht7",
+                    "target": "h0"
+                }
+            ]
+        },
+        "bass": {
+            "role": "music",
+            "track": {
+                "channel": 4,
+                "defaultVelocity": 108,
+                "instrument": "reese",
+                "group": "bass"
+            },
+            "places": {
+                "b0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "b1": {},
+                "b2": {},
+                "b3": {},
+                "b4": {},
+                "b5": {},
+                "b6": {},
+                "b7": {},
+                "b8": {},
+                "b9": {},
+                "b10": {},
+                "b11": {},
+                "b12": {},
+                "b13": {},
+                "b14": {},
+                "b15": {}
+            },
+            "transitions": {
+                "bt0": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 115,
+                        "duration": 180
+                    }
+                },
+                "bt1": {},
+                "bt2": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 90,
+                        "duration": 80
+                    }
+                },
+                "bt3": {
+                    "midi": {
+                        "note": 40,
+                        "channel": 4,
+                        "velocity": 95,
+                        "duration": 120
+                    }
+                },
+                "bt4": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 108,
+                        "duration": 180
+                    }
+                },
+                "bt5": {},
+                "bt6": {
+                    "midi": {
+                        "note": 34,
+                        "channel": 4,
+                        "velocity": 92,
+                        "duration": 100
+                    }
+                },
+                "bt7": {
+                    "midi": {
+                        "note": 38,
+                        "channel": 4,
+                        "velocity": 98,
+                        "duration": 120
+                    }
+                },
+                "bt8": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 118,
+                        "duration": 180
+                    }
+                },
+                "bt9": {},
+                "bt10": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 85,
+                        "duration": 80
+                    }
+                },
+                "bt11": {
+                    "midi": {
+                        "note": 41,
+                        "channel": 4,
+                        "velocity": 92,
+                        "duration": 120
+                    }
+                },
+                "bt12": {
+                    "midi": {
+                        "note": 33,
+                        "channel": 4,
+                        "velocity": 110,
+                        "duration": 180
+                    }
+                },
+                "bt13": {},
+                "bt14": {
+                    "midi": {
+                        "note": 38,
+                        "channel": 4,
+                        "velocity": 92,
+                        "duration": 100
+                    }
+                },
+                "bt15": {
+                    "midi": {
+                        "note": 40,
+                        "channel": 4,
+                        "velocity": 95,
+                        "duration": 100
+                    }
+                }
+            },
+            "arcs": [
+                {
+                    "source": "b0",
+                    "target": "bt0"
+                },
+                {
+                    "source": "bt0",
+                    "target": "b1"
+                },
+                {
+                    "source": "b1",
+                    "target": "bt1"
+                },
+                {
+                    "source": "bt1",
+                    "target": "b2"
+                },
+                {
+                    "source": "b2",
+                    "target": "bt2"
+                },
+                {
+                    "source": "bt2",
+                    "target": "b3"
+                },
+                {
+                    "source": "b3",
+                    "target": "bt3"
+                },
+                {
+                    "source": "bt3",
+                    "target": "b4"
+                },
+                {
+                    "source": "b4",
+                    "target": "bt4"
+                },
+                {
+                    "source": "bt4",
+                    "target": "b5"
+                },
+                {
+                    "source": "b5",
+                    "target": "bt5"
+                },
+                {
+                    "source": "bt5",
+                    "target": "b6"
+                },
+                {
+                    "source": "b6",
+                    "target": "bt6"
+                },
+                {
+                    "source": "bt6",
+                    "target": "b7"
+                },
+                {
+                    "source": "b7",
+                    "target": "bt7"
+                },
+                {
+                    "source": "bt7",
+                    "target": "b8"
+                },
+                {
+                    "source": "b8",
+                    "target": "bt8"
+                },
+                {
+                    "source": "bt8",
+                    "target": "b9"
+                },
+                {
+                    "source": "b9",
+                    "target": "bt9"
+                },
+                {
+                    "source": "bt9",
+                    "target": "b10"
+                },
+                {
+                    "source": "b10",
+                    "target": "bt10"
+                },
+                {
+                    "source": "bt10",
+                    "target": "b11"
+                },
+                {
+                    "source": "b11",
+                    "target": "bt11"
+                },
+                {
+                    "source": "bt11",
+                    "target": "b12"
+                },
+                {
+                    "source": "b12",
+                    "target": "bt12"
+                },
+                {
+                    "source": "bt12",
+                    "target": "b13"
+                },
+                {
+                    "source": "b13",
+                    "target": "bt13"
+                },
+                {
+                    "source": "bt13",
+                    "target": "b14"
+                },
+                {
+                    "source": "b14",
+                    "target": "bt14"
+                },
+                {
+                    "source": "bt14",
+                    "target": "b15"
+                },
+                {
+                    "source": "b15",
+                    "target": "bt15"
+                },
+                {
+                    "source": "bt15",
+                    "target": "b0"
+                }
+            ]
+        },
+        "stab": {
+            "role": "music",
+            "track": {
+                "channel": 5,
+                "defaultVelocity": 95,
+                "instrument": "rave-stab",
+                "group": "harmony"
+            },
+            "places": {
+                "sb0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "sb1": {},
+                "sb2": {},
+                "sb3": {},
+                "sb4": {},
+                "sb5": {},
+                "sb6": {},
+                "sb7": {}
+            },
+            "transitions": {
+                "sbt0": {
+                    "midi": {
+                        "note": 57,
+                        "channel": 5,
+                        "velocity": 100,
+                        "duration": 220
+                    }
+                },
+                "sbt1": {},
+                "sbt2": {
+                    "midi": {
+                        "note": 60,
+                        "channel": 5,
+                        "velocity": 88,
+                        "duration": 180
+                    }
+                },
+                "sbt3": {},
+                "sbt4": {
+                    "midi": {
+                        "note": 58,
+                        "channel": 5,
+                        "velocity": 95,
+                        "duration": 200
+                    }
+                },
+                "sbt5": {
+                    "midi": {
+                        "note": 65,
+                        "channel": 5,
+                        "velocity": 78,
+                        "duration": 140
+                    }
+                },
+                "sbt6": {
+                    "midi": {
+                        "note": 64,
+                        "channel": 5,
+                        "velocity": 92,
+                        "duration": 200
+                    }
+                },
+                "sbt7": {
+                    "midi": {
+                        "note": 60,
+                        "channel": 5,
+                        "velocity": 75,
+                        "duration": 140
+                    }
+                }
+            },
+            "arcs": [
+                {
+                    "source": "sb0",
+                    "target": "sbt0"
+                },
+                {
+                    "source": "sbt0",
+                    "target": "sb1"
+                },
+                {
+                    "source": "sb1",
+                    "target": "sbt1"
+                },
+                {
+                    "source": "sbt1",
+                    "target": "sb2"
+                },
+                {
+                    "source": "sb2",
+                    "target": "sbt2"
+                },
+                {
+                    "source": "sbt2",
+                    "target": "sb3"
+                },
+                {
+                    "source": "sb3",
+                    "target": "sbt3"
+                },
+                {
+                    "source": "sbt3",
+                    "target": "sb4"
+                },
+                {
+                    "source": "sb4",
+                    "target": "sbt4"
+                },
+                {
+                    "source": "sbt4",
+                    "target": "sb5"
+                },
+                {
+                    "source": "sb5",
+                    "target": "sbt5"
+                },
+                {
+                    "source": "sbt5",
+                    "target": "sb6"
+                },
+                {
+                    "source": "sb6",
+                    "target": "sbt6"
+                },
+                {
+                    "source": "sbt6",
+                    "target": "sb7"
+                },
+                {
+                    "source": "sb7",
+                    "target": "sbt7"
+                },
+                {
+                    "source": "sbt7",
+                    "target": "sb0"
+                }
+            ]
+        },
+        "lead": {
+            "role": "music",
+            "track": {
+                "channel": 6,
+                "defaultVelocity": 95,
+                "instrument": "sync-lead",
+                "group": "melody"
+            },
+            "places": {
+                "l0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "l1": {},
+                "l2": {},
+                "l3": {},
+                "l4": {},
+                "l5": {},
+                "l6": {},
+                "l7": {},
+                "l8": {},
+                "l9": {},
+                "l10": {},
+                "l11": {},
+                "l12": {},
+                "l13": {},
+                "l14": {},
+                "l15": {}
+            },
+            "transitions": {
+                "lt0": {
+                    "midi": {
+                        "note": 81,
+                        "channel": 6,
+                        "velocity": 102,
+                        "duration": 90
+                    }
+                },
+                "lt1": {
+                    "midi": {
+                        "note": 77,
+                        "channel": 6,
+                        "velocity": 78,
+                        "duration": 80
+                    }
+                },
+                "lt2": {
+                    "midi": {
+                        "note": 76,
+                        "channel": 6,
+                        "velocity": 92,
+                        "duration": 90
+                    }
+                },
+                "lt3": {
+                    "midi": {
+                        "note": 72,
+                        "channel": 6,
+                        "velocity": 85,
+                        "duration": 80
+                    }
+                },
+                "lt4": {
+                    "midi": {
+                        "note": 74,
+                        "channel": 6,
+                        "velocity": 95,
+                        "duration": 80
+                    }
+                },
+                "lt5": {
+                    "midi": {
+                        "note": 77,
+                        "channel": 6,
+                        "velocity": 88,
+                        "duration": 80
+                    }
+                },
+                "lt6": {
+                    "midi": {
+                        "note": 81,
+                        "channel": 6,
+                        "velocity": 98,
+                        "duration": 90
+                    }
+                },
+                "lt7": {
+                    "midi": {
+                        "note": 84,
+                        "channel": 6,
+                        "velocity": 105,
+                        "duration": 110
+                    }
+                },
+                "lt8": {
+                    "midi": {
+                        "note": 83,
+                        "channel": 6,
+                        "velocity": 95,
+                        "duration": 80
+                    }
+                },
+                "lt9": {
+                    "midi": {
+                        "note": 81,
+                        "channel": 6,
+                        "velocity": 82,
+                        "duration": 80
+                    }
+                },
+                "lt10": {
+                    "midi": {
+                        "note": 77,
+                        "channel": 6,
+                        "velocity": 92,
+                        "duration": 80
+                    }
+                },
+                "lt11": {
+                    "midi": {
+                        "note": 74,
+                        "channel": 6,
+                        "velocity": 78,
+                        "duration": 80
+                    }
+                },
+                "lt12": {
+                    "midi": {
+                        "note": 76,
+                        "channel": 6,
+                        "velocity": 88,
+                        "duration": 80
+                    }
+                },
+                "lt13": {
+                    "midi": {
+                        "note": 72,
+                        "channel": 6,
+                        "velocity": 82,
+                        "duration": 80
+                    }
+                },
+                "lt14": {
+                    "midi": {
+                        "note": 69,
+                        "channel": 6,
+                        "velocity": 75,
+                        "duration": 80
+                    }
+                },
+                "lt15": {
+                    "midi": {
+                        "note": 68,
+                        "channel": 6,
+                        "velocity": 88,
+                        "duration": 120
+                    }
+                }
+            },
+            "arcs": [
+                {
+                    "source": "l0",
+                    "target": "lt0"
+                },
+                {
+                    "source": "lt0",
+                    "target": "l1"
+                },
+                {
+                    "source": "l1",
+                    "target": "lt1"
+                },
+                {
+                    "source": "lt1",
+                    "target": "l2"
+                },
+                {
+                    "source": "l2",
+                    "target": "lt2"
+                },
+                {
+                    "source": "lt2",
+                    "target": "l3"
+                },
+                {
+                    "source": "l3",
+                    "target": "lt3"
+                },
+                {
+                    "source": "lt3",
+                    "target": "l4"
+                },
+                {
+                    "source": "l4",
+                    "target": "lt4"
+                },
+                {
+                    "source": "lt4",
+                    "target": "l5"
+                },
+                {
+                    "source": "l5",
+                    "target": "lt5"
+                },
+                {
+                    "source": "lt5",
+                    "target": "l6"
+                },
+                {
+                    "source": "l6",
+                    "target": "lt6"
+                },
+                {
+                    "source": "lt6",
+                    "target": "l7"
+                },
+                {
+                    "source": "l7",
+                    "target": "lt7"
+                },
+                {
+                    "source": "lt7",
+                    "target": "l8"
+                },
+                {
+                    "source": "l8",
+                    "target": "lt8"
+                },
+                {
+                    "source": "lt8",
+                    "target": "l9"
+                },
+                {
+                    "source": "l9",
+                    "target": "lt9"
+                },
+                {
+                    "source": "lt9",
+                    "target": "l10"
+                },
+                {
+                    "source": "l10",
+                    "target": "lt10"
+                },
+                {
+                    "source": "lt10",
+                    "target": "l11"
+                },
+                {
+                    "source": "l11",
+                    "target": "lt11"
+                },
+                {
+                    "source": "lt11",
+                    "target": "l12"
+                },
+                {
+                    "source": "l12",
+                    "target": "lt12"
+                },
+                {
+                    "source": "lt12",
+                    "target": "l13"
+                },
+                {
+                    "source": "l13",
+                    "target": "lt13"
+                },
+                {
+                    "source": "lt13",
+                    "target": "l14"
+                },
+                {
+                    "source": "l14",
+                    "target": "lt14"
+                },
+                {
+                    "source": "lt14",
+                    "target": "l15"
+                },
+                {
+                    "source": "l15",
+                    "target": "lt15"
+                },
+                {
+                    "source": "lt15",
+                    "target": "l0"
+                }
+            ]
+        },
+        "conductor": {
+            "role": "control",
+            "track": {
+                "channel": 16,
+                "defaultVelocity": 0
+            },
+            "places": {
+                "c0": {
+                    "initial": [
+                        1
+                    ]
+                },
+                "c1": {},
+                "c2": {},
+                "c3": {},
+                "c4": {},
+                "c5": {},
+                "c6": {},
+                "c7": {},
+                "c8": {},
+                "c9": {},
+                "c10": {},
+                "c11": {},
+                "c12": {},
+                "c13": {},
+                "c14": {},
+                "c15": {},
+                "c16": {},
+                "c17": {},
+                "c18": {},
+                "c19": {},
+                "c20": {},
+                "c21": {},
+                "c22": {},
+                "c23": {},
+                "c24": {},
+                "c25": {},
+                "c26": {},
+                "c27": {},
+                "c28": {},
+                "c29": {},
+                "c30": {},
+                "c31": {},
+                "c32": {},
+                "c33": {},
+                "c34": {},
+                "c35": {},
+                "c36": {},
+                "c37": {},
+                "c38": {},
+                "c39": {},
+                "c40": {},
+                "c41": {},
+                "c42": {},
+                "c43": {},
+                "c44": {},
+                "c45": {},
+                "c46": {},
+                "c47": {},
+                "c48": {},
+                "c49": {},
+                "c50": {},
+                "c51": {},
+                "c52": {},
+                "c53": {},
+                "c54": {},
+                "c55": {},
+                "c56": {},
+                "c57": {},
+                "c58": {},
+                "c59": {},
+                "c60": {},
+                "c61": {},
+                "c62": {},
+                "c63": {}
+            },
+            "transitions": {
+                "ct0": {
+                    "control": {
+                        "action": "fire-macro",
+                        "macro": "riser",
+                        "macroBars": 2
+                    }
+                },
+                "ct16": {
+                    "control": {
+                        "action": "fire-macro",
+                        "macro": "beat-repeat",
+                        "macroBars": 1
+                    }
+                },
+                "ct40": {
+                    "control": {
+                        "action": "fire-macro",
+                        "macro": "sweep-hp",
+                        "macroBars": 1
+                    }
+                },
+                "ct1": {},
+                "ct2": {},
+                "ct3": {},
+                "ct4": {},
+                "ct5": {},
+                "ct6": {},
+                "ct7": {},
+                "ct8": {},
+                "ct9": {},
+                "ct10": {},
+                "ct11": {},
+                "ct12": {},
+                "ct13": {},
+                "ct14": {},
+                "ct15": {},
+                "ct17": {},
+                "ct18": {},
+                "ct19": {},
+                "ct20": {},
+                "ct21": {},
+                "ct22": {},
+                "ct23": {},
+                "ct24": {},
+                "ct25": {},
+                "ct26": {},
+                "ct27": {},
+                "ct28": {},
+                "ct29": {},
+                "ct30": {},
+                "ct31": {},
+                "ct32": {},
+                "ct33": {},
+                "ct34": {},
+                "ct35": {},
+                "ct36": {},
+                "ct37": {},
+                "ct38": {},
+                "ct39": {},
+                "ct41": {},
+                "ct42": {},
+                "ct43": {},
+                "ct44": {},
+                "ct45": {},
+                "ct46": {},
+                "ct47": {},
+                "ct48": {},
+                "ct49": {},
+                "ct50": {},
+                "ct51": {},
+                "ct52": {},
+                "ct53": {},
+                "ct54": {},
+                "ct55": {},
+                "ct56": {},
+                "ct57": {},
+                "ct58": {},
+                "ct59": {},
+                "ct60": {},
+                "ct61": {},
+                "ct62": {},
+                "ct63": {}
+            },
+            "arcs": [
+                {
+                    "source": "c0",
+                    "target": "ct0"
+                },
+                {
+                    "source": "ct0",
+                    "target": "c1"
+                },
+                {
+                    "source": "c1",
+                    "target": "ct1"
+                },
+                {
+                    "source": "ct1",
+                    "target": "c2"
+                },
+                {
+                    "source": "c2",
+                    "target": "ct2"
+                },
+                {
+                    "source": "ct2",
+                    "target": "c3"
+                },
+                {
+                    "source": "c3",
+                    "target": "ct3"
+                },
+                {
+                    "source": "ct3",
+                    "target": "c4"
+                },
+                {
+                    "source": "c4",
+                    "target": "ct4"
+                },
+                {
+                    "source": "ct4",
+                    "target": "c5"
+                },
+                {
+                    "source": "c5",
+                    "target": "ct5"
+                },
+                {
+                    "source": "ct5",
+                    "target": "c6"
+                },
+                {
+                    "source": "c6",
+                    "target": "ct6"
+                },
+                {
+                    "source": "ct6",
+                    "target": "c7"
+                },
+                {
+                    "source": "c7",
+                    "target": "ct7"
+                },
+                {
+                    "source": "ct7",
+                    "target": "c8"
+                },
+                {
+                    "source": "c8",
+                    "target": "ct8"
+                },
+                {
+                    "source": "ct8",
+                    "target": "c9"
+                },
+                {
+                    "source": "c9",
+                    "target": "ct9"
+                },
+                {
+                    "source": "ct9",
+                    "target": "c10"
+                },
+                {
+                    "source": "c10",
+                    "target": "ct10"
+                },
+                {
+                    "source": "ct10",
+                    "target": "c11"
+                },
+                {
+                    "source": "c11",
+                    "target": "ct11"
+                },
+                {
+                    "source": "ct11",
+                    "target": "c12"
+                },
+                {
+                    "source": "c12",
+                    "target": "ct12"
+                },
+                {
+                    "source": "ct12",
+                    "target": "c13"
+                },
+                {
+                    "source": "c13",
+                    "target": "ct13"
+                },
+                {
+                    "source": "ct13",
+                    "target": "c14"
+                },
+                {
+                    "source": "c14",
+                    "target": "ct14"
+                },
+                {
+                    "source": "ct14",
+                    "target": "c15"
+                },
+                {
+                    "source": "c15",
+                    "target": "ct15"
+                },
+                {
+                    "source": "ct15",
+                    "target": "c16"
+                },
+                {
+                    "source": "c16",
+                    "target": "ct16"
+                },
+                {
+                    "source": "ct16",
+                    "target": "c17"
+                },
+                {
+                    "source": "c17",
+                    "target": "ct17"
+                },
+                {
+                    "source": "ct17",
+                    "target": "c18"
+                },
+                {
+                    "source": "c18",
+                    "target": "ct18"
+                },
+                {
+                    "source": "ct18",
+                    "target": "c19"
+                },
+                {
+                    "source": "c19",
+                    "target": "ct19"
+                },
+                {
+                    "source": "ct19",
+                    "target": "c20"
+                },
+                {
+                    "source": "c20",
+                    "target": "ct20"
+                },
+                {
+                    "source": "ct20",
+                    "target": "c21"
+                },
+                {
+                    "source": "c21",
+                    "target": "ct21"
+                },
+                {
+                    "source": "ct21",
+                    "target": "c22"
+                },
+                {
+                    "source": "c22",
+                    "target": "ct22"
+                },
+                {
+                    "source": "ct22",
+                    "target": "c23"
+                },
+                {
+                    "source": "c23",
+                    "target": "ct23"
+                },
+                {
+                    "source": "ct23",
+                    "target": "c24"
+                },
+                {
+                    "source": "c24",
+                    "target": "ct24"
+                },
+                {
+                    "source": "ct24",
+                    "target": "c25"
+                },
+                {
+                    "source": "c25",
+                    "target": "ct25"
+                },
+                {
+                    "source": "ct25",
+                    "target": "c26"
+                },
+                {
+                    "source": "c26",
+                    "target": "ct26"
+                },
+                {
+                    "source": "ct26",
+                    "target": "c27"
+                },
+                {
+                    "source": "c27",
+                    "target": "ct27"
+                },
+                {
+                    "source": "ct27",
+                    "target": "c28"
+                },
+                {
+                    "source": "c28",
+                    "target": "ct28"
+                },
+                {
+                    "source": "ct28",
+                    "target": "c29"
+                },
+                {
+                    "source": "c29",
+                    "target": "ct29"
+                },
+                {
+                    "source": "ct29",
+                    "target": "c30"
+                },
+                {
+                    "source": "c30",
+                    "target": "ct30"
+                },
+                {
+                    "source": "ct30",
+                    "target": "c31"
+                },
+                {
+                    "source": "c31",
+                    "target": "ct31"
+                },
+                {
+                    "source": "ct31",
+                    "target": "c32"
+                },
+                {
+                    "source": "c32",
+                    "target": "ct32"
+                },
+                {
+                    "source": "ct32",
+                    "target": "c33"
+                },
+                {
+                    "source": "c33",
+                    "target": "ct33"
+                },
+                {
+                    "source": "ct33",
+                    "target": "c34"
+                },
+                {
+                    "source": "c34",
+                    "target": "ct34"
+                },
+                {
+                    "source": "ct34",
+                    "target": "c35"
+                },
+                {
+                    "source": "c35",
+                    "target": "ct35"
+                },
+                {
+                    "source": "ct35",
+                    "target": "c36"
+                },
+                {
+                    "source": "c36",
+                    "target": "ct36"
+                },
+                {
+                    "source": "ct36",
+                    "target": "c37"
+                },
+                {
+                    "source": "c37",
+                    "target": "ct37"
+                },
+                {
+                    "source": "ct37",
+                    "target": "c38"
+                },
+                {
+                    "source": "c38",
+                    "target": "ct38"
+                },
+                {
+                    "source": "ct38",
+                    "target": "c39"
+                },
+                {
+                    "source": "c39",
+                    "target": "ct39"
+                },
+                {
+                    "source": "ct39",
+                    "target": "c40"
+                },
+                {
+                    "source": "c40",
+                    "target": "ct40"
+                },
+                {
+                    "source": "ct40",
+                    "target": "c41"
+                },
+                {
+                    "source": "c41",
+                    "target": "ct41"
+                },
+                {
+                    "source": "ct41",
+                    "target": "c42"
+                },
+                {
+                    "source": "c42",
+                    "target": "ct42"
+                },
+                {
+                    "source": "ct42",
+                    "target": "c43"
+                },
+                {
+                    "source": "c43",
+                    "target": "ct43"
+                },
+                {
+                    "source": "ct43",
+                    "target": "c44"
+                },
+                {
+                    "source": "c44",
+                    "target": "ct44"
+                },
+                {
+                    "source": "ct44",
+                    "target": "c45"
+                },
+                {
+                    "source": "c45",
+                    "target": "ct45"
+                },
+                {
+                    "source": "ct45",
+                    "target": "c46"
+                },
+                {
+                    "source": "c46",
+                    "target": "ct46"
+                },
+                {
+                    "source": "ct46",
+                    "target": "c47"
+                },
+                {
+                    "source": "c47",
+                    "target": "ct47"
+                },
+                {
+                    "source": "ct47",
+                    "target": "c48"
+                },
+                {
+                    "source": "c48",
+                    "target": "ct48"
+                },
+                {
+                    "source": "ct48",
+                    "target": "c49"
+                },
+                {
+                    "source": "c49",
+                    "target": "ct49"
+                },
+                {
+                    "source": "ct49",
+                    "target": "c50"
+                },
+                {
+                    "source": "c50",
+                    "target": "ct50"
+                },
+                {
+                    "source": "ct50",
+                    "target": "c51"
+                },
+                {
+                    "source": "c51",
+                    "target": "ct51"
+                },
+                {
+                    "source": "ct51",
+                    "target": "c52"
+                },
+                {
+                    "source": "c52",
+                    "target": "ct52"
+                },
+                {
+                    "source": "ct52",
+                    "target": "c53"
+                },
+                {
+                    "source": "c53",
+                    "target": "ct53"
+                },
+                {
+                    "source": "ct53",
+                    "target": "c54"
+                },
+                {
+                    "source": "c54",
+                    "target": "ct54"
+                },
+                {
+                    "source": "ct54",
+                    "target": "c55"
+                },
+                {
+                    "source": "c55",
+                    "target": "ct55"
+                },
+                {
+                    "source": "ct55",
+                    "target": "c56"
+                },
+                {
+                    "source": "c56",
+                    "target": "ct56"
+                },
+                {
+                    "source": "ct56",
+                    "target": "c57"
+                },
+                {
+                    "source": "c57",
+                    "target": "ct57"
+                },
+                {
+                    "source": "ct57",
+                    "target": "c58"
+                },
+                {
+                    "source": "c58",
+                    "target": "ct58"
+                },
+                {
+                    "source": "ct58",
+                    "target": "c59"
+                },
+                {
+                    "source": "c59",
+                    "target": "ct59"
+                },
+                {
+                    "source": "ct59",
+                    "target": "c60"
+                },
+                {
+                    "source": "c60",
+                    "target": "ct60"
+                },
+                {
+                    "source": "ct60",
+                    "target": "c61"
+                },
+                {
+                    "source": "c61",
+                    "target": "ct61"
+                },
+                {
+                    "source": "ct61",
+                    "target": "c62"
+                },
+                {
+                    "source": "c62",
+                    "target": "ct62"
+                },
+                {
+                    "source": "ct62",
+                    "target": "c63"
+                },
+                {
+                    "source": "c63",
+                    "target": "ct63"
+                },
+                {
+                    "source": "ct63",
+                    "target": "c0"
+                }
+            ]
+        }
+    }
+}
