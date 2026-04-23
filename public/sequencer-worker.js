@@ -446,6 +446,11 @@ function loadProject(data) {
             mutedNets[netId] = true;
         }
     }
+    // Echo the loaded project back so the main thread mirrors worker
+    // state. Without this, `project-load` messages apply in the worker
+    // but the UI keeps showing the previous project — which is how the
+    // share-v2 raw-nets boot path got swallowed silently.
+    post({ type: 'project-sync', project: projectToJSON(project) });
     broadcastMuteState();
 }
 
