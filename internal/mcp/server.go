@@ -52,7 +52,7 @@ func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 // Serve starts the MCP server on stdio.
 func Serve() error {
 	s := server.NewMCPServer(
-		"petri-note",
+		"beats-btw",
 		"0.1.0",
 		server.WithToolCapabilities(false),
 		server.WithRecovery(),

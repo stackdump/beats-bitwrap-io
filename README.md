@@ -110,7 +110,7 @@ The same Go binary runs in two modes. By default (`./beats-bitwrap-io`) it serve
 make build
 ./beats-bitwrap-io -authoring -addr :8080
 # then in Claude Code:
-claude mcp add petri-note ./beats-bitwrap-io mcp
+claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
 
 Hand-authored tracks round-trip through `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}` — seals the local project as a share-v1 envelope with raw nets and PUTs the canonical bytes to the public store in one call. See `CLAUDE.md` → **Running locally for hand-authored tracks** for the full set of HTTP routes + MCP tools + MIDI flags.

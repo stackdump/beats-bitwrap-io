@@ -323,7 +323,7 @@ Without `-authoring` the same binary runs the production configuration (static +
 ### Wire Claude Code to the MCP server
 
 ```bash
-claude mcp add petri-note ./beats-bitwrap-io mcp
+claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
 
 Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running in another shell. The MCP tools are the same ones documented in the in-app help modal under **Using with AI**; `generate` takes a genre + seed + variety params, `load_project` accepts a raw petri-net JSON (the hand-authored shape documented above), and so on.
