@@ -189,6 +189,73 @@ Everything else is an optional override. Omit defaults to keep CIDs stable acros
 
 **Playback**: POST the JSON to `PUT /o/{cid}` (server will re-verify the CID) or just open `?cid=z…&z=<base64url-gzip-json>`. No AI, no model, no backend call during playback.
 
+## Hand-authored payloads (raw `nets`)
+
+When a project can't be reduced to `(genre, seed)` + overrides — e.g. bespoke petri-net topologies, custom instrument routing, macro-scheduled control nets — the share envelope carries the literal nets in an optional `nets` field. On load, `public/lib/share/url.js::shareFromPayload` threads them through to the boot path, which dispatches `project-load` with the raw project instead of calling the composer. Inflates the URL (≈10-100 kB post-gzip), but is the only way to faithfully round-trip authored content.
+
+**Shape** — keys are net IDs, values match the JSON the worker's `parseNetBundle` (`lib/pflow.js`) already consumes:
+
+```json
+{
+  "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
+  "@type": "BeatsShare", "v": 1,
+  "genre": "custom", "seed": 0,
+  "tempo": 92, "humanize": 4,
+  "fx": { "reverbWet": 55, "delayWet": 40, "phaserWet": 28 },
+  "nets": {
+    "arp": {
+      "role": "music",
+      "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck" },
+      "places": { "p0": { "initial": [1], "x": 0, "y": 0 }, "p1": { "initial": [0], "x": 10, "y": 0 } },
+      "transitions": {
+        "t0": { "x": 5, "y": 0, "midi": { "note": 60, "channel": 4, "velocity": 90, "duration": 140 } }
+      },
+      "arcs": [ { "source": "p0", "target": "t0", "weight": [1] },
+                { "source": "t0", "target": "p1", "weight": [1] } ]
+    }
+  }
+}
+```
+
+Control-only nets set `"role": "control"` and use `"control": { "action": "...", ... }` on transitions instead of `"midi"`. Supported actions: `mute-track`, `unmute-track`, `toggle-track`, `activate-slot`, `stop-transport`, `fire-macro` (with optional `macro`, `macroBars`, `macroParams`). See `lib/macros/catalog.js` for the curated macro ID list.
+
+**Seal + publish end-to-end from an agent — no petri-note server required**:
+
+```python
+import hashlib, json, urllib.request
+
+payload = { "@context": "...", "@type": "BeatsShare", "v": 1,
+            "genre": "custom", "seed": 0, "nets": {...} }
+
+# Canonical JSON: recursively sort object keys, compact separators.
+def canon(v):
+    if isinstance(v, dict):  return {k: canon(v[k]) for k in sorted(v)}
+    if isinstance(v, list):  return [canon(x) for x in v]
+    return v
+canonical = json.dumps(canon(payload), separators=(',', ':'), ensure_ascii=False).encode()
+
+# CID: "z" + base58btc(0x01 0xa9 0x02 0x12 0x20 + sha256(canonical))
+h = hashlib.sha256(canonical).digest()
+cid_bytes = bytes([0x01, 0xa9, 0x02, 0x12, 0x20]) + h
+alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+n = int.from_bytes(cid_bytes, 'big')
+out = ""
+while n: n, r = divmod(n, 58); out = alphabet[r] + out
+cid = "z" + ("1" * next((i for i, b in enumerate(cid_bytes) if b), 0)) + out
+
+# PUT the bytes; server re-canonicalizes + verifies the CID match.
+urllib.request.urlopen(urllib.request.Request(
+    f"https://beats.bitwrap.io/o/{cid}",
+    data=canonical, method="PUT",
+    headers={"Content-Type": "application/ld+json"}))
+
+print(f"https://beats.bitwrap.io/?cid={cid}")
+```
+
+Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
+
+**In-process alternative**: if you're driving a petri-note server instance, `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}` wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere.
+
 ## Build & Run
 
 ```bash

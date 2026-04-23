@@ -1,0 +1,69 @@
+{
+    "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
+    "@type": "BeatsShare",
+    "v": 1,
+    "genre": "custom",
+    "seed": 0,
+    "tempo": 92,
+    "humanize": 4,
+    "fx": {
+        "reverbSize": 88,
+        "reverbDamp": 28,
+        "reverbWet": 55,
+        "delayTime": 48,
+        "delayFeedback": 55,
+        "delayWet": 40,
+        "phaserFreq": 14,
+        "phaserDepth": 50,
+        "phaserWet": 30,
+        "crushBits": 10
+    },
+    "nets": {
+        "arp": {
+            "role": "music",
+            "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck" },
+            "places": {
+                "p0": { "initial": [1], "x": 0, "y": 0 },
+                "p1": { "initial": [0], "x": 60, "y": 0 },
+                "p2": { "initial": [0], "x": 120, "y": 0 },
+                "p3": { "initial": [0], "x": 180, "y": 0 }
+            },
+            "transitions": {
+                "t0": { "x": 30,  "y": 0, "midi": { "note": 57, "channel": 4, "velocity": 90, "duration": 140 } },
+                "t1": { "x": 90,  "y": 0, "midi": { "note": 64, "channel": 4, "velocity": 90, "duration": 140 } },
+                "t2": { "x": 150, "y": 0, "midi": { "note": 69, "channel": 4, "velocity": 90, "duration": 140 } },
+                "t3": { "x": 210, "y": 0, "midi": { "note": 72, "channel": 4, "velocity": 90, "duration": 140 } }
+            },
+            "arcs": [
+                { "source": "p0", "target": "t0", "weight": [1] }, { "source": "t0", "target": "p1", "weight": [1] },
+                { "source": "p1", "target": "t1", "weight": [1] }, { "source": "t1", "target": "p2", "weight": [1] },
+                { "source": "p2", "target": "t2", "weight": [1] }, { "source": "t2", "target": "p3", "weight": [1] },
+                { "source": "p3", "target": "t3", "weight": [1] }, { "source": "t3", "target": "p0", "weight": [1] }
+            ]
+        },
+        "conductor": {
+            "role": "control",
+            "track": { "channel": 1, "defaultVelocity": 100 },
+            "places": {
+                "p0": { "initial": [1], "x": 0, "y": 100 },
+                "p1": { "initial": [0], "x": 100, "y": 100 }
+            },
+            "transitions": {
+                "t0": {
+                    "x": 50, "y": 100,
+                    "control": {
+                        "action": "fire-macro",
+                        "targetNet": "sweep-lp",
+                        "macro": "sweep-lp",
+                        "macroBars": 2,
+                        "macroParams": { "depth": 0.85 }
+                    }
+                }
+            },
+            "arcs": [
+                { "source": "p0", "target": "t0", "weight": [1] },
+                { "source": "t0", "target": "p1", "weight": [1] }
+            ]
+        }
+    }
+}
