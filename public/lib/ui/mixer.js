@@ -332,6 +332,12 @@ function bindMixerEvents(el) {
                     if (el._toneStarted) await toneEngine.loadInstrument(ch, instrument);
                 }
             }
+            // Mirror the swap to the backend so server-authoritative state
+            // tracks the dropdown and the change fans out to other clients.
+            // Worker-mode backends don't have an instrument-change handler,
+            // so the post is a no-op there. Sent after the local load so
+            // playback never stalls on the round-trip.
+            el._sendWs({ type: 'instrument-change', netId, riffGroup: riffGroup || '', instrument });
             const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
             if (fireBtn) {
                 const label = instrument === 'unbound'
