@@ -60,6 +60,14 @@
         "startTick": { "type": "integer", "minimum": 0 },
         "endTick":   { "type": "integer", "minimum": 1 }
       }
+    },
+    "nets": {
+      "description": "Optional full petri-net bundle. When present, the share boot path loads these nets directly and SKIPS the generator — used to round-trip hand-authored or heavily-edited projects that can't be recreated from (genre, seed) alone. Keys are net IDs; values are the same shape emitted by /api/project (track, places, transitions, arcs, role, riffGroup).",
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
     }
   },
   "$defs": {

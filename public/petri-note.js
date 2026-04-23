@@ -1265,6 +1265,23 @@ class PetriNote extends HTMLElement {
             // Stash the overrides block so _applyProjectSync can layer it
             // onto the regenerated project once the worker replies. One-shot.
             if (share.overrides) this._pendingShareOverrides = share.overrides;
+            // Hand-authored escape hatch: share payload carried raw nets,
+            // so skip the composer and load the literal project. Assemble
+            // the same envelope shape /api/project accepts (name, tempo,
+            // nets, initialMutes, fx) from the share payload fields.
+            if (share.nets) {
+                const proj = {
+                    name:  share.name  || `${share.genre} · shared`,
+                    tempo: share.overrides?.tempo ?? 120,
+                    swing: share.overrides?.swing ?? 0,
+                    humanize: share.overrides?.humanize ?? 0,
+                    nets:  share.nets,
+                };
+                if (share.overrides?.initialMutes) proj.initialMutes = share.overrides.initialMutes;
+                if (share.overrides?.fx)           proj.fx           = share.overrides.fx;
+                this._sendWs({ type: 'project-load', project: proj });
+                return;
+            }
             this._sendWs({ type: 'generate', genre: share.genre, params: share.params });
             return;
         }

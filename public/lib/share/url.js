@@ -88,6 +88,11 @@ export function shareFromPayload(payload) {
         genre: payload.genre,
         params,
         overrides: Object.keys(overrides).length ? overrides : null,
+        // Raw nets escape hatch — present only when the payload author
+        // couldn't reduce the project to (genre, seed) + overrides.
+        // The boot path skips `generate` and goes straight to
+        // `project-load` when this is set.
+        nets: payload.nets || null,
     };
 }
 

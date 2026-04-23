@@ -201,5 +201,14 @@ export function buildSharePayload(el) {
     if (Object.keys(ui).length) payload.ui = ui;
     const loop = collectLoopRegion(el);
     if (loop) payload.loop = loop;
+    // Hand-authored escape hatch: when there's no (genre, seed) recipe to
+    // reconstruct from, dump the raw nets so the share URL round-trips
+    // the literal petri net authoring. Inflates the URL (≈10-100 kB
+    // post-gzip depending on size) but is the only way to share tracks
+    // that came in via POST /api/project or were post-edited past the
+    // point where `tracks`/`fx` overrides can re-derive them.
+    if (!el._currentGen && el._project?.nets && Object.keys(el._project.nets).length) {
+        payload.nets = el._project.nets;
+    }
     return payload;
 }
