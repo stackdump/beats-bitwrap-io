@@ -58,7 +58,7 @@ export function fireMacro(el, id) { /* actual implementation */ }
 | `public/lib/generator/markov.js` | Markov-chain melodies with chord-tone targeting |
 | `public/lib/generator/theory.js` | Scales, chord progressions, voice leading, modal interchange |
 | `public/lib/generator/structure.js` | Song sections (intro/verse/chorus/drop/bridge/outro) |
-| `public/lib/generator/arrange.js` | Control nets that mute/unmute tracks at section boundaries |
+| `public/lib/generator/arrange.js` | **Full JS port of `internal/generator/arrange.go`** — `arrangeWithOpts(proj, genre, size, opts)` with Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process, so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`. |
 | `public/lib/generator/variety.js` | Ghost notes, walking bass, call/response, tension curves |
 | `public/lib/generator/regenerate.js` | Rebuild a single track's subnet from its `track.generator` recipe (drives live Size/Hits dropdowns) |
 | `public/lib/generator/macros.js` | `buildMacroRestoreNet` — transient linear-chain control nets that fire restore actions on a terminal transition |
@@ -124,6 +124,7 @@ export function fireMacro(el, id) { /* actual implementation */ }
 ## Front-end UI features
 
 - **Tabs** (toggle bar above the mixer, stack independently top-to-bottom in order FX → Macros → Beats → Auto-DJ): **FX** (master chain sliders), **Macros** (live-performance tricks, see below), **Beats** (hit1–hit4 stinger Fire pads that mirror schema-reserved muted tracks living on channels 20–23), **Auto-DJ**.
+- **Mixer sections** are driven by each net's `track.group` (`drums`/`bass`/`melody`/`harmony`/`arp`/`pad`/`stinger`, or any freeform name). The composer tags its output explicitly; hand-authored tracks pick their own. The mixer renders a divider per distinct group in `sectionOrder` precedence (`drums`, `percussion`, `bass`, `chords`, `harmony`, `lead`, `melody`, `arp`, `pad`, `texture`, `stinger`, anything unknown last). Legacy fallback: if `track.group` is missing, `hitN` IDs are still bucketed as `stinger` so pre-attribute shares keep working; everything else falls into `main` (no divider).
 - **Macros panel**: ~35 tricks across groups — Mute / FX / Pitch / Tempo / Pan (per-channel non-drum) / Shape (per-channel decay: Tighten / Loosen / Pulse). Serial queue with visible depth badge. Right-click any tile to toggle its Auto-DJ-disabled mark (persists to `localStorage['pn-macro-disabled']`). Hover + MIDI pad press binds pad-note to macro. Every macro pulses its target UI (slider / mute button / FX slider) with a chase-light and restores the target to its pre-macro value on release. In-flight pulse tokens / pan snapshots / decay snapshots are cancelled on `applyProjectSync` so project regeneration doesn't leak animations onto new DOM nodes.
 - **Auto-DJ**: armed with `Run`; fires random macros from checked pools every N bars (1–1024, powers of 2). `Stack` (1–3) fires multiple concurrently. `Regen` (off / 8–1024 bars) generates a fresh track on a timer with a one-bar-early pre-render for seamless swaps. `Animate only` spins the ring on cadence without touching macros. Tick-wrap guard on `curTick < prevTick` avoids double-regen after a reset. Ring rotates ±90° per fire (arrowheads flip on CCW so token flow matches the spin). Settings are DOM-only (in the `.pn-effects` panel) and survive `renderMixer` / project regen.
 - **Beats panel**: four `hitN` Fire pads arranged in a 2×2 grid. Each Fire is an **N-bar macro** (bars dropdown, default 2): unmutes the stinger track so its Petri ring pulses on every beat, then re-mutes on timer. Pit dropdown transposes the track during its unmute window (read live in `onRemoteTransitionFired` — so manual unmute via the `1`–`4` hotkey or mixer mute button respects the same pitch). FX dropdown pairs any macro with the Fire click at the same N-bar duration. Instruments come from a curated stinger set including reserved `unbound` (silent slot that still fires paired FX).
@@ -223,7 +224,7 @@ When a project can't be reduced to `(genre, seed)` + overrides — e.g. bespoke 
   "nets": {
     "arp": {
       "role": "music",
-      "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck" },
+      "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck", "group": "arp" },
       "places": { "p0": { "initial": [1], "x": 0, "y": 0 }, "p1": { "initial": [0], "x": 10, "y": 0 } },
       "transitions": {
         "t0": { "x": 5, "y": 0, "midi": { "note": 60, "channel": 4, "velocity": 90, "duration": 140 } }
@@ -283,7 +284,34 @@ Drop-in starting points for `curl -d @examples/<name>.json http://localhost:8080
 | `minimal.json` | Smallest valid share — just `genre` + `seed`. CID-stable across producers. |
 | `overrides.json` | Realistic share with `tempo` / `fx` / `feel` / `tracks` overrides on top of `(genre, seed)`. |
 | `hand-authored.json` | Raw-`nets` share — bespoke topology, no composer involvement. Use as the template when porting an external sequence. |
-| `blade-blood-rave.json`, `ivory-circuit.json`, `jurassic-park.json`, `life-aquatic.json`, `stranger-things.json`, `tiesto-adagio.json`, `upside-down-ii.json` | Hand-authored full tracks shipped with the merge — useful regression fixtures and reference for the raw-`nets` shape at scale. |
+| `macro-orchestrated.json` | 118 BPM, 6 nets: kick / snare / bass / 16-step lead / pad + **conductor** control net. 64-step conductor fires `reverb-wash` → `ping-pong` → `sweep-lp` (4-bar drain over a 4-bar cycle — exactly drain-balanced). Reference for baking macros into the score instead of performing them live. |
+| `voltage-rush.json` | 140 BPM darker cousin, 7 nets: 808 kick / clap-snare / 8-step hat / reese bass / rave-stab chords / sync-lead arp + a 64-step conductor firing `riser` → `beat-repeat` → `sweep-hp` (4-bar drain / 4-bar cycle). Harder-hitting reference track in the same authored-macro pattern. |
+| `phantom-aqueduct.json` | 128 BPM long-form **A/B riff-variant** demo. 9 nets including `bass-A`/`bass-B` and `lead-A`/`lead-B` pairs (shared `riffGroup`), kick/snare/hat/pad throughout, and a 64-step conductor that fires `activate-slot` to flip between the A and B variants every 4 bars plus a `riser` at the top and a `reverb-wash` at the transition. Reference for using `activate-slot` to structure longer tracks without needing the composer. Add `"structure": "extended"` + `"arrangeSeed": 42` to the share envelope to auto-expand this 9-net source into a 95-net, 9-section track at load time (intro/verse/buildup/drop/breakdown/buildup/drop/chorus/outro). |
+
+### Arrange-on-load and the polyphony ceiling
+
+The share envelope carries an optional `structure` directive (values: `loop`, `ab`, `drop`, `build`, `jam`, `minimal`, `standard`, `extended`) plus `arrangeSeed`. When present and not `loop`, the boot path runs **in-process** via `arrangeWithOpts` from `public/lib/generator/arrange.js` (the full JS port of Go's `ArrangeWithOpts`) — a 1 kB envelope reconstitutes a 3 MB arranged track. `/api/arrange` still exists in authoring mode as a fallback / tooling path. `ArrangeWithOpts(proj, genre, size, opts)` is deterministic: same inputs → byte-identical output (map iteration order sorted, not ranged). The CID of the envelope uniquely addresses the exact listening experience; compression is free because the expansion rule is public code.
+
+**Arrange vocab (envelope fields, also accepted by `/api/arrange` body):**
+- `structure` — section blueprint. Values above.
+- `arrangeSeed` — RNG seed for blueprint pick, phrase choice, velocity humanization.
+- `velocityDeltas` — object mapping riff-variant letter to velocity offset, e.g. `{"A":0, "B":25, "C":-15}`. Default `{"A":0, "B":15, "C":-15}`.
+- `maxVariants` — cap on distinct riff letters per role (1-8). Letters beyond the cap collapse back to `A`.
+- `fadeIn` — array of role names that start muted and unmute mid-intro. Variant expansion handled: `"pad"` fans out to `pad-0`/`pad-1`/`pad-2` before the `FadeIn()` helper injects fade-in control nets.
+- `drumBreak` — bars of drum-only break injected at the track midpoint. Non-drum roles mute for the duration (stingers excluded); drums keep playing; everyone returns. `0` disables.
+- `sections` — author-supplied section blueprint replacing the built-in pick. Each entry `{name, steps, active: [roles]}`. Useful for bespoke forms the 19 blueprints don't cover.
+- `feelCurve` — array of `{section, x, y}` entries. Injects a `feel-curve` control net whose transitions fire `set-feel` at section start ticks; the client's `control-fired` handler calls `_applyFeel([x, y])` to snap the Feel XY puck. Morphs tempo/FX/swing/humanize across sections.
+- `macroCurve` — array of `{section, macro, bars}` entries. Injects a `macro-curve` control net that fires `fire-macro` at section start ticks — e.g. `reverb-wash` at `intro`, `riser` at `buildup`, `beat-repeat` at `drop`. Runtime dispatches through the frontend's existing `fire-macro` handler; any macro id in `catalog.js` is valid.
+- **Overlay mode** — when the loaded project already has a `structure` field (composer output, prior arrange), pass `overlayOnly: true` to skip blueprint pick + variant expansion and only layer on the curves/fades/break. Wired automatically: the Arrange tab's apply button runs overlay when possible.
+
+**Arrange tab (UI)** — fifth toggle in the panel row next to Auto-DJ. Exposes the DSL as UI: Structure dropdown, Fade-In checkboxes, Drum-Break bars, Feel-curve preset, Macro-curve preset, and an Arrange ⟳ button that applies the chosen overlay to the currently loaded track. Runs entirely client-side via the JS port — no authoring-mode server required.
+
+Pattern for adding the next directive: schema field → embedded schema sync (`internal/share/beats-share.schema.json`) → envelope passthrough in `main.go::buildShareEnvelope` → `ArrangeOpts` field in Go (`internal/generator/arrange.go`) → JS port field in `public/lib/generator/arrange.js` → `/api/arrange` body in `internal/routes/routes.go` → client reader in `shareFromPayload` → boot-path wiring in `petri-note.js` + `backend/index.js`.
+
+**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on very dense arrangements, logging `Max polyphony exceeded. Note dropped.`. Remaining fixes (tracked in TODO.md):
+
+1. Voice stealing in `playNote()` — track `(note, releaseTime)` per channel and cancel the oldest release when at capacity.
+2. Arrangement-aware release on mute — cancel in-flight notes on a channel when `mute-track` fires. Root-cause fix.
 
 ## Running locally for hand-authored tracks
 
@@ -326,7 +354,7 @@ Without `-authoring` the same binary runs the production configuration (static +
 claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
 
-Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running in another shell. The MCP tools are the same ones documented in the in-app help modal under **Using with AI**; `generate` takes a genre + seed + variety params, `load_project` accepts a raw petri-net JSON (the hand-authored shape documented above), and so on.
+Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running in another shell. Override the target with `BEATS_BTW_URL=http://localhost:<port>` in the MCP entry's env (useful when `:8080` is taken by another service). The MCP tools are the same ones documented in the in-app help modal under **Using with AI**; `generate` takes a genre + seed + variety params, `load_project` accepts a raw petri-net JSON (the hand-authored shape documented above), and so on.
 
 ### Drive a track hand-to-hand
 

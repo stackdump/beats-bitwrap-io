@@ -73,6 +73,7 @@ Each genre defines BPM, scale type, root note, Euclidean drum parameters, melody
 - **Stage mode** — full-page animated view of every unmuted music net. Each track renders as a live sub-Petri ring, arranged as a meta-net with connector places + arrows. Four stackable viz modes: Flow (panels drift), Pulse (beats fly to center), Flame (radial equalizer), Tilt (3D perspective rotation).
 - **Keyboard shortcuts** — `Space` play/stop · `G` generate · `S` shuffle · `F` Feel · `M` Stage · `J` Auto-DJ Run · `A` animate-only · `P` panic · `B` FX bypass · `R` FX reset · `T` tap tempo · `,` / `.` BPM −1 / +1 · `1`–`4` toggle hit tracks · `[` / `]` prev / next track · `←↑→↓` nudge hovered slider · `?` help.
 - **Shareable links** — the Share button mints a content-addressed `?cid=…` URL that captures the full listening experience (genre + seed + mix + FX + Feel + Auto-DJ + Fire pads + loop region). Short-link mode uploads canonical JSON to the server; self-contained mode inlines a gzipped payload so the link works offline or if the store is purged.
+- **Arrangement DSL** — share envelope carries optional directives that expand deterministically at load time: `structure` (loop / ab / drop / build / jam / minimal / standard / extended) + `arrangeSeed`, `velocityDeltas` + `maxVariants` (variant-clone tuning), `fadeIn` (roles taper in over intro), `drumBreak` (drum-only midpoint break), `sections` (author-authored blueprint), `feelCurve` (XY puck morphs between Chill/Drive/Ambient/Euphoric at section starts), `macroCurve` (schedules `fire-macro` events at section boundaries). A 1 kB envelope reconstitutes a 3 MB arranged track. Full Go/JS parity — same directives expand the same way whether hit by the server or by the client's in-process JS port.
 
 ## Build & Run
 
@@ -100,7 +101,13 @@ Two JSON-Schema documents ship with the app:
 
 A third, richer reference schema with Scenes / inter-net connections / inhibitor arcs / silent transitions ships in [`schema/`](schema/README.md) as a test fixture for the petri-note v1 JSON-LD shape — it is **not** the wire format; see `CLAUDE.md` → **Three schemas in this repo** for which to use when.
 
-Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json), and [`examples/hand-authored.json`](examples/hand-authored.json) for a raw-nets share. Several full hand-authored tracks (`blade-blood-rave`, `ivory-circuit`, `jurassic-park`, `life-aquatic`, `stranger-things`, `tiesto-adagio`, `upside-down-ii`) live alongside as larger reference payloads.
+Worked examples:
+- [`examples/minimal.json`](examples/minimal.json) — smallest valid share, just `genre + seed`
+- [`examples/overrides.json`](examples/overrides.json) — realistic composer share with tempo/fx/feel overrides
+- [`examples/hand-authored.json`](examples/hand-authored.json) — raw-nets template (`genre: "wrapped"`)
+- [`examples/macro-orchestrated.json`](examples/macro-orchestrated.json) — 6-net demo with a conductor net that fires macros at tick positions
+- [`examples/voltage-rush.json`](examples/voltage-rush.json) — 140 BPM hard-energy hand-authored track
+- [`examples/phantom-aqueduct.json`](examples/phantom-aqueduct.json) — long-form A/B riff-variant demo (activate-slot)
 
 ## Local authoring (Claude MCP + MIDI)
 
