@@ -1,0 +1,2170 @@
+{
+    "name": "Jurassic Park Theme",
+    "nets": {
+        "bass": {
+            "arcs": [
+                {
+                    "source": "b0",
+                    "target": "Bb2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb2",
+                    "target": "b1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b1",
+                    "target": "br1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br1",
+                    "target": "b2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b2",
+                    "target": "br2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br2",
+                    "target": "b3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b3",
+                    "target": "br3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br3",
+                    "target": "b4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b4",
+                    "target": "br4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br4",
+                    "target": "b5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b5",
+                    "target": "br5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br5",
+                    "target": "b6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b6",
+                    "target": "Eb3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Eb3",
+                    "target": "b7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b7",
+                    "target": "br6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br6",
+                    "target": "b8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b8",
+                    "target": "br7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br7",
+                    "target": "b9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b9",
+                    "target": "br8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br8",
+                    "target": "b10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b10",
+                    "target": "br9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br9",
+                    "target": "b11",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b11",
+                    "target": "br10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "br10",
+                    "target": "b0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "b0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b10": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b11": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b6": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b7": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b8": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b9": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 6,
+                "defaultVelocity": 65,
+                "instrument": "sub-bass"
+            },
+            "transitions": {
+                "Bb2": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 700,
+                        "note": 46,
+                        "velocity": 70
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Eb3": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 700,
+                        "note": 51,
+                        "velocity": 70
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "br1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br10": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br2": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br3": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br4": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br5": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br6": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br7": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br8": {
+                    "x": 0,
+                    "y": 0
+                },
+                "br9": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "harp": {
+            "arcs": [
+                {
+                    "source": "a0",
+                    "target": "Bb4h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4h",
+                    "target": "a1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "a1",
+                    "target": "D5h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5h",
+                    "target": "a2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "a2",
+                    "target": "F5h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F5h",
+                    "target": "a3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "a3",
+                    "target": "D5hb",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5hb",
+                    "target": "a4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "a4",
+                    "target": "Bb4hb",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4hb",
+                    "target": "a5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "a5",
+                    "target": "F4h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F4h",
+                    "target": "a0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "a0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "a1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "a2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "a3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "a4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "a5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 3,
+                "defaultVelocity": 45,
+                "instrument": "music-box"
+            },
+            "transitions": {
+                "Bb4h": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 70,
+                        "velocity": 45
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4hb": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 70,
+                        "velocity": 45
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5h": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 74,
+                        "velocity": 40
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5hb": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 74,
+                        "velocity": 40
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F4h": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 65,
+                        "velocity": 40
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F5h": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 180,
+                        "note": 77,
+                        "velocity": 45
+                    },
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "horn": {
+            "arcs": [
+                {
+                    "source": "h0",
+                    "target": "Bb3_h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb3_h",
+                    "target": "h1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h1",
+                    "target": "hr1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr1",
+                    "target": "h2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h2",
+                    "target": "hr2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr2",
+                    "target": "h3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h3",
+                    "target": "hr3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr3",
+                    "target": "h4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h4",
+                    "target": "hr4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr4",
+                    "target": "h5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h5",
+                    "target": "hr5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr5",
+                    "target": "h6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h6",
+                    "target": "Eb4_h",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Eb4_h",
+                    "target": "h7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h7",
+                    "target": "hr6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr6",
+                    "target": "h8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h8",
+                    "target": "hr7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr7",
+                    "target": "h9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h9",
+                    "target": "hr8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr8",
+                    "target": "h10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h10",
+                    "target": "hr9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr9",
+                    "target": "h11",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h11",
+                    "target": "hr10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "hr10",
+                    "target": "h0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "h0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h10": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h11": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h6": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h7": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h8": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h9": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 5,
+                "defaultVelocity": 55,
+                "instrument": "brass"
+            },
+            "transitions": {
+                "Bb3_h": {
+                    "midi": {
+                        "channel": 5,
+                        "duration": 2500,
+                        "note": 58,
+                        "velocity": 50
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Eb4_h": {
+                    "midi": {
+                        "channel": 5,
+                        "duration": 2500,
+                        "note": 63,
+                        "velocity": 55
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "hr1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr10": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr2": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr3": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr4": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr5": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr6": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr7": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr8": {
+                    "x": 0,
+                    "y": 0
+                },
+                "hr9": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "melody": {
+            "arcs": [
+                {
+                    "source": "m0",
+                    "target": "Bb4_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4_1",
+                    "target": "m1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m1",
+                    "target": "A4_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "A4_1",
+                    "target": "m2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m2",
+                    "target": "Bb4_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4_2",
+                    "target": "m3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m3",
+                    "target": "r_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_1",
+                    "target": "m4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m4",
+                    "target": "r_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_2",
+                    "target": "m5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m5",
+                    "target": "F5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F5_1",
+                    "target": "m6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m6",
+                    "target": "r_3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_3",
+                    "target": "m7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m7",
+                    "target": "Eb5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Eb5_1",
+                    "target": "m8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m8",
+                    "target": "r_4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_4",
+                    "target": "m9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m9",
+                    "target": "r_5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_5",
+                    "target": "m10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m10",
+                    "target": "r_6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_6",
+                    "target": "m11",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m11",
+                    "target": "Bb4_3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4_3",
+                    "target": "m12",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m12",
+                    "target": "A4_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "A4_2",
+                    "target": "m13",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m13",
+                    "target": "Bb4_4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4_4",
+                    "target": "m14",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m14",
+                    "target": "r_7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_7",
+                    "target": "m15",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m15",
+                    "target": "r_8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_8",
+                    "target": "m16",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m16",
+                    "target": "F5_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F5_2",
+                    "target": "m17",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m17",
+                    "target": "r_9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_9",
+                    "target": "m18",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m18",
+                    "target": "G5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "G5_1",
+                    "target": "m19",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m19",
+                    "target": "r_10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_10",
+                    "target": "m20",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m20",
+                    "target": "r_11",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_11",
+                    "target": "m21",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m21",
+                    "target": "r_12",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_12",
+                    "target": "m22",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m22",
+                    "target": "r_13",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_13",
+                    "target": "m23",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m23",
+                    "target": "C5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "C5_1",
+                    "target": "m24",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m24",
+                    "target": "r_14",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_14",
+                    "target": "m25",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m25",
+                    "target": "D5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5_1",
+                    "target": "m26",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m26",
+                    "target": "Eb5_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Eb5_2",
+                    "target": "m27",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m27",
+                    "target": "r_15",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_15",
+                    "target": "m28",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m28",
+                    "target": "r_16",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_16",
+                    "target": "m29",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m29",
+                    "target": "r_17",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_17",
+                    "target": "m30",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m30",
+                    "target": "D5_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5_2",
+                    "target": "m31",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m31",
+                    "target": "r_18",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_18",
+                    "target": "m32",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m32",
+                    "target": "Eb5_3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Eb5_3",
+                    "target": "m33",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m33",
+                    "target": "F5_3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F5_3",
+                    "target": "m34",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m34",
+                    "target": "r_19",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_19",
+                    "target": "m35",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m35",
+                    "target": "r_20",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_20",
+                    "target": "m36",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m36",
+                    "target": "r_21",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_21",
+                    "target": "m37",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m37",
+                    "target": "r_22",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_22",
+                    "target": "m38",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m38",
+                    "target": "Bb5_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb5_1",
+                    "target": "m39",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m39",
+                    "target": "r_23",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_23",
+                    "target": "m40",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m40",
+                    "target": "r_24",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_24",
+                    "target": "m41",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m41",
+                    "target": "r_25",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_25",
+                    "target": "m42",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m42",
+                    "target": "r_26",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_26",
+                    "target": "m43",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m43",
+                    "target": "r_27",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_27",
+                    "target": "m44",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m44",
+                    "target": "r_27b",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_27b",
+                    "target": "m45",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m45",
+                    "target": "r_27c",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_27c",
+                    "target": "m46",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m46",
+                    "target": "r_27d",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_27d",
+                    "target": "m47",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "m47",
+                    "target": "r_27e",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_27e",
+                    "target": "m0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "m0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m10": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m11": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m12": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m13": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m14": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m15": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m16": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m17": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m18": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m19": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m20": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m21": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m22": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m23": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m24": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m25": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m26": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m27": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m28": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m29": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m30": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m31": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m32": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m33": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m34": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m35": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m36": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m37": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m38": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m39": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m40": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m41": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m42": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m43": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m44": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m45": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m46": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m47": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m6": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m7": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m8": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "m9": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 4,
+                "defaultVelocity": 80,
+                "instrument": "strings"
+            },
+            "transitions": {
+                "A4_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 200,
+                        "note": 69,
+                        "velocity": 75
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "A4_2": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 200,
+                        "note": 69,
+                        "velocity": 75
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 70,
+                        "velocity": 70
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4_2": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 800,
+                        "note": 70,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4_3": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 70,
+                        "velocity": 70
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4_4": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 800,
+                        "note": 70,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 1500,
+                        "note": 82,
+                        "velocity": 100
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "C5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 72,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 74,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5_2": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 74,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Eb5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 900,
+                        "note": 75,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Eb5_2": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 1000,
+                        "note": 75,
+                        "velocity": 95
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Eb5_3": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 350,
+                        "note": 75,
+                        "velocity": 90
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 500,
+                        "note": 77,
+                        "velocity": 90
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F5_2": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 500,
+                        "note": 77,
+                        "velocity": 95
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F5_3": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 1200,
+                        "note": 77,
+                        "velocity": 100
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "G5_1": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 1200,
+                        "note": 79,
+                        "velocity": 100
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "r_1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_10": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_11": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_12": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_13": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_14": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_15": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_16": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_17": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_18": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_19": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_2": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_20": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_21": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_22": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_23": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_24": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_25": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_26": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_27": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_27b": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_27c": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_27d": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_27e": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_3": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_4": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_5": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_6": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_7": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_8": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_9": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        }
+    },
+    "tempo": 72
+}

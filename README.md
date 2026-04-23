@@ -98,7 +98,20 @@ Two JSON-Schema documents ship with the app:
 - [`/schema/beats-share`](https://beats.bitwrap.io/schema/beats-share.schema.json) — content-negotiated envelope for share-v1 payloads (`@context`, `@type: BeatsShare`, `v`, genre, seed, plus optional overrides). JSON-LD context at `/schema/beats-share.context.jsonld`.
 - [`/schema/petri-note`](https://beats.bitwrap.io/schema/petri-note.schema.json) — the nested project shape: nets, places, transitions, arcs, MIDI bindings, track metadata.
 
-Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json).
+Worked examples: [`examples/minimal.json`](examples/minimal.json), [`examples/overrides.json`](examples/overrides.json), and [`examples/hand-authored.json`](examples/hand-authored.json) for a raw-nets share.
+
+## Local authoring (Claude MCP + MIDI)
+
+The same Go binary runs in two modes. By default (`./beats-bitwrap-io`) it serves this website's static files plus the content-addressed share store at `/o/{cid}`. With `-authoring` it additionally exposes a full Petri-net sequencer over HTTP + WebSocket, server-side MIDI output (CoreMIDI / ALSA), and an `mcp` subcommand that speaks MCP over stdio so Claude Code can compose, audition, and seal tracks from the agent side.
+
+```bash
+make build
+./beats-bitwrap-io -authoring -addr :8080
+# then in Claude Code:
+claude mcp add petri-note ./beats-bitwrap-io mcp
+```
+
+Hand-authored tracks round-trip through `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}` — seals the local project as a share-v1 envelope with raw nets and PUTs the canonical bytes to the public store in one call. See `CLAUDE.md` → **Running locally for hand-authored tracks** for the full set of HTTP routes + MCP tools + MIDI flags.
 
 ## Using with AI
 

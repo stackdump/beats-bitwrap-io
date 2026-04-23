@@ -1,0 +1,292 @@
+{
+  "@context": "https://petri-note.dev/schema/v1",
+  "@type": "PetriNoteProject",
+  "@id": "example:drum-bass-demo",
+  "name": "Drum & Bass Demo",
+  "description": "Simple drum pattern with bass line",
+  "author": "petri-note",
+  "version": "1.0",
+  "tempo": 140,
+  "swing": 0,
+
+  "tokenColors": [
+    { "name": "beat", "color": "#4a90d9" },
+    { "name": "accent", "color": "#e94560" }
+  ],
+
+  "sceneOrder": ["intro", "main", "breakdown"],
+  "activeScene": "main",
+
+  "scenes": {
+    "intro": {
+      "@type": "Scene",
+      "@id": "intro",
+      "label": "Intro",
+      "color": "#2ecc71",
+      "duration": 16,
+      "launch": "quantized",
+      "nets": {
+        "hihat": {
+          "@type": "PetriNet",
+          "label": "Hi-Hat",
+          "track": {
+            "channel": 10,
+            "volume": 80
+          },
+          "places": {
+            "ready": { "@type": "Place", "initial": [1], "x": 100, "y": 100 }
+          },
+          "transitions": {
+            "hit": {
+              "@type": "Transition",
+              "x": 100, "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 42, "velocity": 70, "duration": 50 }
+              ]
+            }
+          },
+          "arcs": [
+            { "@type": "Arc", "source": "ready", "target": "hit" },
+            { "@type": "Arc", "source": "hit", "target": "ready" }
+          ]
+        }
+      },
+      "connections": []
+    },
+
+    "main": {
+      "@type": "Scene",
+      "@id": "main",
+      "label": "Main",
+      "color": "#e94560",
+      "launch": "quantized",
+      "nets": {
+        "drums": {
+          "@type": "PetriNet",
+          "@id": "drums",
+          "label": "Drums",
+          "track": {
+            "channel": 10,
+            "volume": 100,
+            "pan": 64
+          },
+          "places": {
+            "kick-ready": {
+              "@type": "Place",
+              "label": "Kick Ready",
+              "initial": [1],
+              "x": 100,
+              "y": 100
+            },
+            "snare-ready": {
+              "@type": "Place",
+              "label": "Snare Ready",
+              "initial": [0],
+              "x": 250,
+              "y": 100
+            },
+            "hihat-ready": {
+              "@type": "Place",
+              "label": "HiHat Ready",
+              "initial": [1],
+              "x": 400,
+              "y": 100
+            },
+            "beat-counter": {
+              "@type": "Place",
+              "label": "Beat",
+              "initial": [0],
+              "capacity": [4],
+              "x": 175,
+              "y": 250
+            }
+          },
+          "transitions": {
+            "kick": {
+              "@type": "Transition",
+              "label": "Kick",
+              "x": 100,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 36, "velocity": 110, "duration": 100 }
+              ]
+            },
+            "snare": {
+              "@type": "Transition",
+              "label": "Snare",
+              "x": 250,
+              "y": 200,
+              "priority": 1,
+              "midi": [
+                { "@type": "MidiNote", "note": 38, "velocity": 100, "duration": 80 },
+                { "@type": "MidiCC", "controller": 1, "value": 64 }
+              ]
+            },
+            "hihat": {
+              "@type": "Transition",
+              "label": "HiHat",
+              "x": 400,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 42, "velocity": 70, "duration": 50 }
+              ]
+            },
+            "advance-beat": {
+              "@type": "Transition",
+              "label": "→",
+              "x": 175,
+              "y": 350
+            }
+          },
+          "arcs": [
+            { "@type": "Arc", "source": "kick-ready", "target": "kick", "weight": [1] },
+            { "@type": "Arc", "source": "kick", "target": "kick-ready", "weight": [1] },
+            { "@type": "Arc", "source": "kick", "target": "beat-counter", "weight": [1] },
+
+            { "@type": "Arc", "source": "snare-ready", "target": "snare", "weight": [1] },
+            { "@type": "Arc", "source": "snare", "target": "snare-ready", "weight": [1] },
+
+            { "@type": "Arc", "source": "hihat-ready", "target": "hihat", "weight": [1] },
+            { "@type": "Arc", "source": "hihat", "target": "hihat-ready", "weight": [1] },
+
+            { "@type": "Arc", "source": "beat-counter", "target": "advance-beat", "weight": [4] },
+            { "@type": "Arc", "source": "advance-beat", "target": "snare-ready", "weight": [1] }
+          ]
+        },
+
+        "bass": {
+          "@type": "PetriNet",
+          "@id": "bass",
+          "label": "Bass",
+          "track": {
+            "channel": 1,
+            "program": 38,
+            "volume": 90,
+            "pan": 64
+          },
+          "places": {
+            "root": {
+              "@type": "Place",
+              "label": "Root",
+              "initial": [1],
+              "x": 100,
+              "y": 100
+            },
+            "fifth": {
+              "@type": "Place",
+              "label": "Fifth",
+              "initial": [0],
+              "x": 250,
+              "y": 100
+            },
+            "octave": {
+              "@type": "Place",
+              "label": "Octave",
+              "initial": [0],
+              "x": 400,
+              "y": 100
+            }
+          },
+          "transitions": {
+            "play-root": {
+              "@type": "Transition",
+              "label": "E1",
+              "x": 100,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 28, "velocity": 100, "duration": 200 }
+              ]
+            },
+            "play-fifth": {
+              "@type": "Transition",
+              "label": "B1",
+              "x": 250,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 35, "velocity": 90, "duration": 150 }
+              ]
+            },
+            "play-octave": {
+              "@type": "Transition",
+              "label": "E2",
+              "x": 400,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 40, "velocity": 85, "duration": 150 }
+              ]
+            }
+          },
+          "arcs": [
+            { "@type": "Arc", "source": "root", "target": "play-root" },
+            { "@type": "Arc", "source": "play-root", "target": "fifth" },
+
+            { "@type": "Arc", "source": "fifth", "target": "play-fifth" },
+            { "@type": "Arc", "source": "play-fifth", "target": "octave" },
+
+            { "@type": "Arc", "source": "octave", "target": "play-octave" },
+            { "@type": "Arc", "source": "play-octave", "target": "root" }
+          ]
+        }
+      },
+
+      "connections": [
+        {
+          "@type": "Connection",
+          "from": { "net": "drums", "transition": "kick" },
+          "to": { "net": "bass", "place": "root" },
+          "type": "signal"
+        }
+      ]
+    },
+
+    "breakdown": {
+      "@type": "Scene",
+      "@id": "breakdown",
+      "label": "Breakdown",
+      "color": "#9b59b6",
+      "launch": "next-bar",
+      "nets": {
+        "pad": {
+          "@type": "PetriNet",
+          "label": "Pad",
+          "track": {
+            "channel": 2,
+            "program": 89,
+            "volume": 70
+          },
+          "places": {
+            "chord-ready": { "@type": "Place", "initial": [1], "x": 100, "y": 100 }
+          },
+          "transitions": {
+            "play-chord": {
+              "@type": "Transition",
+              "x": 100,
+              "y": 200,
+              "midi": [
+                { "@type": "MidiNote", "note": 52, "velocity": 60, "duration": 2000 },
+                { "@type": "MidiNote", "note": 55, "velocity": 60, "duration": 2000 },
+                { "@type": "MidiNote", "note": 59, "velocity": 60, "duration": 2000 }
+              ]
+            }
+          },
+          "arcs": [
+            { "@type": "Arc", "source": "chord-ready", "target": "play-chord" },
+            { "@type": "Arc", "source": "play-chord", "target": "chord-ready" }
+          ]
+        }
+      },
+      "connections": []
+    }
+  },
+
+  "midiOutputs": [
+    { "id": "synth", "name": "Built-in Synth", "type": "web-audio" },
+    { "id": "external", "name": "IAC Driver", "type": "web-midi" }
+  ],
+
+  "metadata": {
+    "genre": "electronic",
+    "key": "E minor",
+    "tags": ["demo", "drums", "bass"]
+  }
+}

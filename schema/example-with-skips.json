@@ -1,0 +1,151 @@
+{
+  "@context": "https://petri-note.dev/schema/v1",
+  "@type": "PetriNoteProject",
+  "name": "Rhythm with Skips",
+  "description": "Demonstrates silent transitions for rests/skips",
+  "tempo": 120,
+
+  "scenes": {
+    "main": {
+      "@type": "Scene",
+      "label": "Main Pattern",
+      "nets": {
+
+        "kick-pattern": {
+          "@type": "PetriNet",
+          "label": "Kick (with skip)",
+          "track": { "channel": 10 },
+
+          "places": {
+            "beat-1": { "@type": "Place", "label": "1", "initial": [1], "x": 100, "y": 100 },
+            "beat-2": { "@type": "Place", "label": "2", "initial": [0], "x": 200, "y": 100 },
+            "beat-3": { "@type": "Place", "label": "3", "initial": [0], "x": 300, "y": 100 },
+            "beat-4": { "@type": "Place", "label": "4", "initial": [0], "x": 400, "y": 100 }
+          },
+
+          "transitions": {
+            "kick-1": {
+              "@type": "Transition",
+              "label": "KICK",
+              "x": 100, "y": 200,
+              "midi": [{ "@type": "MidiNote", "note": 36, "velocity": 110, "duration": 100 }]
+            },
+            "skip-2": {
+              "@type": "Transition",
+              "label": "—",
+              "x": 200, "y": 200,
+              "silent": true
+            },
+            "kick-3": {
+              "@type": "Transition",
+              "label": "KICK",
+              "x": 300, "y": 200,
+              "midi": [{ "@type": "MidiNote", "note": 36, "velocity": 100, "duration": 100 }]
+            },
+            "skip-4": {
+              "@type": "Transition",
+              "label": "—",
+              "x": 400, "y": 200,
+              "silent": true
+            }
+          },
+
+          "arcs": [
+            { "source": "beat-1", "target": "kick-1" },
+            { "source": "kick-1", "target": "beat-2" },
+
+            { "source": "beat-2", "target": "skip-2" },
+            { "source": "skip-2", "target": "beat-3" },
+
+            { "source": "beat-3", "target": "kick-3" },
+            { "source": "kick-3", "target": "beat-4" },
+
+            { "source": "beat-4", "target": "skip-4" },
+            { "source": "skip-4", "target": "beat-1" }
+          ]
+        },
+
+        "snare-backbeat": {
+          "@type": "PetriNet",
+          "label": "Snare (2 and 4)",
+          "track": { "channel": 10 },
+
+          "places": {
+            "step-1": { "@type": "Place", "label": "1", "initial": [1], "x": 100, "y": 100 },
+            "step-2": { "@type": "Place", "label": "2", "initial": [0], "x": 200, "y": 100 },
+            "step-3": { "@type": "Place", "label": "3", "initial": [0], "x": 300, "y": 100 },
+            "step-4": { "@type": "Place", "label": "4", "initial": [0], "x": 400, "y": 100 }
+          },
+
+          "transitions": {
+            "rest-1": {
+              "@type": "Transition",
+              "label": "—",
+              "x": 100, "y": 200,
+              "silent": true
+            },
+            "snare-2": {
+              "@type": "Transition",
+              "label": "SNARE",
+              "x": 200, "y": 200,
+              "midi": [{ "@type": "MidiNote", "note": 38, "velocity": 100, "duration": 80 }]
+            },
+            "rest-3": {
+              "@type": "Transition",
+              "label": "—",
+              "x": 300, "y": 200,
+              "silent": true
+            },
+            "snare-4": {
+              "@type": "Transition",
+              "label": "SNARE",
+              "x": 400, "y": 200,
+              "midi": [{ "@type": "MidiNote", "note": 38, "velocity": 105, "duration": 80 }]
+            }
+          },
+
+          "arcs": [
+            { "source": "step-1", "target": "rest-1" },
+            { "source": "rest-1", "target": "step-2" },
+
+            { "source": "step-2", "target": "snare-2" },
+            { "source": "snare-2", "target": "step-3" },
+
+            { "source": "step-3", "target": "rest-3" },
+            { "source": "rest-3", "target": "step-4" },
+
+            { "source": "step-4", "target": "snare-4" },
+            { "source": "snare-4", "target": "step-1" }
+          ]
+        },
+
+        "hihat-8ths": {
+          "@type": "PetriNet",
+          "label": "HiHat (8th notes)",
+          "track": { "channel": 10 },
+
+          "places": {
+            "ready": { "@type": "Place", "initial": [1], "x": 100, "y": 100 }
+          },
+
+          "transitions": {
+            "tick": {
+              "@type": "Transition",
+              "label": "HH",
+              "x": 100, "y": 200,
+              "rate": 2.0,
+              "midi": [{ "@type": "MidiNote", "note": 42, "velocity": 70, "duration": 30 }]
+            }
+          },
+
+          "arcs": [
+            { "source": "ready", "target": "tick" },
+            { "source": "tick", "target": "ready" }
+          ]
+        }
+      },
+
+      "connections": []
+    }
+  }
+}

@@ -254,7 +254,57 @@ print(f"https://beats.bitwrap.io/?cid={cid}")
 
 Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: at most 256 nets per payload, 2048 places and 2048 transitions per net, 8192 arcs per net, 64-char net / place / transition IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). `control.action` must be one of `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro`. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
 
-**In-process alternative**: if you're driving a petri-note server instance, `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}` wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere.
+**Local-binary alternative**: the same repo can run in authoring mode (`./beats-bitwrap-io -authoring`; see "Running locally" below) which exposes `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}`. That wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere without the Go binary.
+
+## Running locally for hand-authored tracks
+
+The same binary that serves `beats.bitwrap.io` can run locally as a **full authoring engine** under a single `-authoring` flag. This wakes up:
+
+- `/api/project`, `/api/generate`, `/api/tempo`, `/api/transport`, `/api/mute`, `/api/instrument`, `/api/shuffle-instruments`, `/api/arrange` — HTTP control of a local Petri-net sequencer written in Go.
+- `/ws` — the same message protocol the in-page worker speaks, so a browser pointed at `data-backend="ws"` drives its audio through the Go sequencer instead of Tone.js alone.
+- `/api/project-share` — seal the currently-loaded project as a share-v1 envelope with raw nets + optional mirror PUTs to remote hosts in one call.
+- `/api/mirror-cid` — replay an already-sealed local CID to `beats.bitwrap.io` (or any other seal host).
+- Server-side MIDI output via `gitlab.com/gomidi/midi/v2` — stream sequencer fires to CoreMIDI (macOS), ALSA (Linux), or a virtual port so headless hosts can drive a DAW.
+- `./beats-bitwrap-io mcp` — stdio MCP server so Claude Code can generate, audition, and seal tracks via 11 curated tools (`generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`).
+
+### Start the server
+
+```bash
+make build
+./beats-bitwrap-io -authoring -addr :8080
+```
+
+Optional MIDI flags (mutually exclusive):
+- `-midi "IAC"` — send to one multi-channel port, substring-matched.
+- `-midi-per-net` — create one virtual port per net (`petri-note-kick`, `petri-note-bass`, …).
+- `-midi-fanout "petri-note Bus"` — round-robin nets across matching-prefix ports.
+- `-midi-list` — print available ports and exit.
+
+Without `-authoring` the same binary runs the production configuration (static + share store only); all authoring routes return 404 and MIDI flags emit a warning.
+
+### Wire Claude Code to the MCP server
+
+```bash
+claude mcp add petri-note ./beats-bitwrap-io mcp
+```
+
+Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running in another shell. The MCP tools are the same ones documented in the in-app help modal under **Using with AI**; `generate` takes a genre + seed + variety params, `load_project` accepts a raw petri-net JSON (the hand-authored shape documented above), and so on.
+
+### Drive a track hand-to-hand
+
+```bash
+# 1. Hand-author: POST the raw project shape from examples/hand-authored.json.
+curl -sX POST http://localhost:8080/api/project -d @examples/hand-authored.json
+
+# 2. Seal + mirror to the public store so the ?cid= URL works anywhere.
+curl -sX POST http://localhost:8080/api/project-share \
+    -d '{"mirror":["https://beats.bitwrap.io"]}'
+# → { "cid": "z…", "shortUrl": "http://localhost:8080/?cid=z…", "mirrors": [{"host":"…","status":200}] }
+
+# 3. Share the returned shortUrl (with the beats.bitwrap.io host swapped in).
+```
+
+Everything that petri-note.git previously did now lives here. That repo is archived — use `-authoring` on this binary for the same functionality.
 
 ## Build & Run
 
@@ -302,9 +352,8 @@ Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx. 
 
 ## Roadmap — Remote Conductor (WS backend)
 
-Planned: allow the front-end to be *played* (driven) by a WebSocket connection from a separate service. The element already supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and sends/receives the same JSON message types as the in-page worker.
+Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and sends/receives the same JSON message types as the in-page worker (`generate`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`, `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`, `loop`, `seek`, `crop`, `deterministic-loop`, `shuffle-instruments`; responses: `ready`, `project-sync`, `state-sync`, `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`, `instruments-changed`, `track-pattern-updated`, `track-pattern-error`, `preview-ready`, `playback-complete`). Full catalogue in `lib/backend/index.js::handleWsMessage`.
 
-- **Go server in this repo is NOT the WS endpoint** — it's a pure static file server + share store. The conductor / endpoint implementation lives in a separate repo (end-to-end tested there), and `beats.bitwrap.io` acts as a **client** that connects to that conductor's `/ws`.
-- The WS path needs to proxy every worker message type the client sends (`generate`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`, `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`, `loop`, `seek`, `crop`, `deterministic-loop`, `shuffle-instruments`) and emit the responses the client expects (`ready`, `project-sync`, `state-sync`, `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`, `instruments-changed`, `track-pattern-updated`, `track-pattern-error`, `preview-ready`, `playback-complete`). Full message catalogue lives in `lib/backend/index.js::handleWsMessage`.
-- Motivation: let a remote sequencer or an agent conduct the browser — useful for live sets driven by external hardware, collaborative jams, or headless rendering where the tone engine is just an audio sink.
-- Today: the WS client code exists but has no paired server in this repo, so leaving `data-backend="ws"` unset (the default) is correct for local use.
+- **Production `beats.bitwrap.io` does NOT run the WS endpoint.** The deployed binary starts without `-authoring`, so `/ws` returns 404 and the frontend stays on the in-page worker. This keeps the public host's attack surface minimal.
+- **Run it locally** with `./beats-bitwrap-io -authoring` (see "Running locally" above). The same binary then serves `/ws` backed by the Go sequencer in `internal/sequencer`, `internal/ws`, and `internal/routes`, and optionally streams server-side MIDI via `-midi*` flags — useful for live sets driven by external hardware, collaborative jams, or headless rendering.
+- Motivation: let a remote sequencer or an agent conduct the browser. The Go sequencer + MCP stdio tools + CoreMIDI/ALSA output handle the "headless rendering where the tone engine is just an audio sink" case on every desktop that can run Go.

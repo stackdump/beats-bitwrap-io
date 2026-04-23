@@ -1,0 +1,331 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://petri-note.dev/schema/v1",
+  "title": "PetriNote Project Schema",
+  "description": "Schema for Petri net music sequencer projects. Each project contains a collection of Petri nets where tokens flow through places and transitions fire to trigger MIDI notes.",
+
+  "definitions": {
+
+    "MidiBinding": {
+      "type": "object",
+      "description": "MIDI note binding on a transition — fires when the transition fires",
+      "properties": {
+        "note": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "description": "MIDI note number (60 = C4)"
+        },
+        "velocity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "default": 100
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Duration in milliseconds"
+        },
+        "channel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "MIDI channel (overrides track default)"
+        }
+      },
+      "required": ["note"]
+    },
+
+    "ControlBinding": {
+      "type": "object",
+      "description": "Control binding on a transition — controls mute state of other nets",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["mute-track", "unmute-track", "toggle-track", "activate-slot", "stop-transport"],
+          "description": "Control action to perform"
+        },
+        "targetNet": {
+          "type": "string",
+          "description": "Target net ID to control"
+        },
+        "targetNote": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "description": "Target MIDI note (for note-level muting)"
+        }
+      },
+      "required": ["action"]
+    },
+
+    "Place": {
+      "type": "object",
+      "description": "A place in the Petri net (holds tokens)",
+      "properties": {
+        "label": { "type": "string" },
+        "initial": {
+          "type": "array",
+          "items": { "type": "number" },
+          "default": [0],
+          "description": "Initial token count"
+        },
+        "x": { "type": "number", "default": 0 },
+        "y": { "type": "number", "default": 0 }
+      }
+    },
+
+    "Transition": {
+      "type": "object",
+      "description": "A transition in the Petri net (fires when all input places have sufficient tokens)",
+      "properties": {
+        "label": { "type": "string" },
+        "x": { "type": "number", "default": 0 },
+        "y": { "type": "number", "default": 0 },
+        "midi": {
+          "$ref": "#/definitions/MidiBinding",
+          "description": "MIDI note to play when transition fires"
+        },
+        "control": {
+          "$ref": "#/definitions/ControlBinding",
+          "description": "Control event to fire (for control nets)"
+        }
+      }
+    },
+
+    "Arc": {
+      "type": "object",
+      "description": "An arc connecting a place and transition",
+      "properties": {
+        "source": { "type": "string", "description": "Source node ID (place or transition)" },
+        "target": { "type": "string", "description": "Target node ID (place or transition)" },
+        "weight": {
+          "type": "array",
+          "items": { "type": "number" },
+          "default": [1],
+          "description": "Token weight consumed/produced"
+        },
+        "inhibit": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, blocks transition when source has >= weight tokens"
+        }
+      },
+      "required": ["source", "target"]
+    },
+
+    "MixSettings": {
+      "type": "object",
+      "description": "Per-track mixer settings (saved in downloaded files)",
+      "properties": {
+        "volume": { "type": "integer", "minimum": 0, "maximum": 127, "default": 127 },
+        "pan": { "type": "integer", "minimum": 0, "maximum": 127, "default": 64 },
+        "loCut": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "loResonance": { "type": "integer", "minimum": 0, "maximum": 100, "default": 5 },
+        "cutoff": { "type": "integer", "minimum": 0, "maximum": 100, "default": 100 },
+        "resonance": { "type": "integer", "minimum": 0, "maximum": 100, "default": 5 },
+        "decay": { "type": "integer", "minimum": 5, "maximum": 300, "default": 5 }
+      }
+    },
+
+    "Track": {
+      "type": "object",
+      "description": "Track/channel assignment for a net. Recipe fields (generator, ringSize, beats, rotation, note, generatorParams) describe how the net was originally constructed so it can be regenerated at a different size in place.",
+      "properties": {
+        "channel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 1,
+          "description": "MIDI channel (10 = drums by convention)"
+        },
+        "defaultVelocity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "default": 100,
+          "description": "Base velocity used when a binding omits its own"
+        },
+        "instrument": {
+          "type": "string",
+          "description": "Instrument name (e.g. 'piano', 'drums-v8', 'acid')"
+        },
+        "instrumentSet": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Available instruments for this track role"
+        },
+        "mix": {
+          "$ref": "#/definitions/MixSettings",
+          "description": "Mixer slider state (persisted on download)"
+        },
+        "generator": {
+          "type": "string",
+          "enum": ["euclidean", "euclidean-ghost", "euclidean-melodic", "markov", "walking-bass", "call-response"],
+          "description": "Which generator built this net. Needed to rebuild the ring when size/hits change."
+        },
+        "ringSize": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 32,
+          "description": "Number of places in the ring (n). The mixer Size dropdown edits this."
+        },
+        "beats": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "description": "Number of hits (k) for Euclidean generators, or count of non-rest steps for melodic ones. The mixer Hits dropdown edits this."
+        },
+        "rotation": {
+          "type": "integer",
+          "description": "Euclidean rotation offset; unused for melodic generators"
+        },
+        "note": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "description": "Base MIDI note for Euclidean drum bindings; unused for melodic generators"
+        },
+        "generatorParams": {
+          "type": "object",
+          "description": "Opaque bag of the generator's recipe inputs (scale, rootNote, chords, seed, duration, syncopation, durationVariation, ghostDensity, accent) — consumed by regenerateTrack() to rebuild an equivalent net at a new size",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "Net": {
+      "type": "object",
+      "description": "A single Petri net — tokens circulate through places, transitions fire to produce MIDI notes or control events",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["music", "control"],
+          "default": "music",
+          "description": "music = produces MIDI notes, control = mutes/unmutes other nets"
+        },
+        "riffGroup": {
+          "type": "string",
+          "description": "Groups variant nets (e.g. 'kick' for kick-0, kick-1). Mixer shows one row per group."
+        },
+        "riffVariant": {
+          "type": "string",
+          "description": "Variant label within a riff group (e.g. 'A', 'B')"
+        },
+        "track": { "$ref": "#/definitions/Track" },
+        "places": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/Place" },
+          "description": "Places keyed by ID (e.g. 'p0', 'p1')"
+        },
+        "transitions": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/Transition" },
+          "description": "Transitions keyed by ID (e.g. 't0', 't1')"
+        },
+        "arcs": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Arc" }
+        }
+      },
+      "required": ["places", "transitions", "arcs"]
+    },
+
+    "StructureSection": {
+      "type": "object",
+      "description": "A section of song structure (used for timeline display and control net generation)",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Section type (intro, verse, chorus, drop, bridge, breakdown, buildup, outro)"
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Duration in ticks (16 ticks = 1 bar at PPQ=4)"
+        },
+        "phrases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "description": "Phrase variant sequence per role, e.g. {\"kick\": [\"A\",\"A\",\"B\",\"A\"]}"
+        }
+      },
+      "required": ["name", "steps"]
+    },
+
+    "FxSettings": {
+      "type": "object",
+      "description": "Master FX settings (saved in downloaded files)",
+      "properties": {
+        "masterVol": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80, "description": "Master volume (0-100, maps to -60..0 dB)" },
+        "reverbSize": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+        "reverbDamp": { "type": "integer", "minimum": 0, "maximum": 100, "default": 30 },
+        "reverbWet": { "type": "integer", "minimum": 0, "maximum": 100, "default": 20 },
+        "delayTime": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25, "description": "Delay time as percentage (maps to 0.01-1.0s)" },
+        "delayFeedback": { "type": "integer", "minimum": 0, "maximum": 90, "default": 25 },
+        "delayWet": { "type": "integer", "minimum": 0, "maximum": 100, "default": 15 },
+        "distortion": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "hpFreq": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0, "description": "High-pass filter (0=20Hz, 100=5kHz, exponential)" },
+        "lpFreq": { "type": "integer", "minimum": 0, "maximum": 100, "default": 100, "description": "Low-pass filter (0=100Hz, 100=20kHz, exponential)" },
+        "phaserFreq": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0, "description": "Phaser rate (0=off, maps to 0.1-10Hz)" },
+        "phaserDepth": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+        "phaserWet": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "crushBits": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0, "description": "Bit crusher (0=off, maps to 16-bit down to 1-bit)" }
+      }
+    }
+  },
+
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "default": "Untitled",
+      "description": "Project name (e.g. 'techno · Hollow Arc')"
+    },
+    "tempo": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 300,
+      "default": 120,
+      "description": "Global tempo in BPM"
+    },
+    "swing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 0,
+      "description": "Swing percentage (0 = straight)"
+    },
+    "humanize": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 0,
+      "description": "Humanize amount: timing jitter and velocity variation"
+    },
+    "nets": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/Net" },
+      "description": "All Petri nets keyed by ID (e.g. 'kick-0', 'bass-1', 'struct-kick')"
+    },
+    "structure": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/StructureSection" },
+      "description": "Song structure sections for timeline display. Omit for loop mode."
+    },
+    "initialMutes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Net IDs that start muted (inactive phrase variants, intro silences)"
+    },
+    "fx": {
+      "$ref": "#/definitions/FxSettings",
+      "description": "Master FX state (persisted on download)"
+    }
+  },
+  "required": ["name", "nets"]
+}

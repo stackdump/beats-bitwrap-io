@@ -1,0 +1,1178 @@
+{
+    "name": "Adagio for Strings (Ti\u00ebsto Remix)",
+    "nets": {
+        "bass": {
+            "arcs": [
+                {
+                    "source": "b0",
+                    "target": "Dm1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Dm1",
+                    "target": "b1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b1",
+                    "target": "Dm2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Dm2",
+                    "target": "b2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b2",
+                    "target": "r1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r1",
+                    "target": "b3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b3",
+                    "target": "Dm3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Dm3",
+                    "target": "b4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b4",
+                    "target": "Bb1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb1",
+                    "target": "b5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b5",
+                    "target": "Bb2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb2",
+                    "target": "b6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b6",
+                    "target": "r2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r2",
+                    "target": "b7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "b7",
+                    "target": "Bb3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb3",
+                    "target": "b0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "b0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b6": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "b7": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 6,
+                "defaultVelocity": 95,
+                "instrument": "acid"
+            },
+            "transitions": {
+                "Bb1": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 34,
+                        "velocity": 100
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb2": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 34,
+                        "velocity": 90
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb3": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 34,
+                        "velocity": 95
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Dm1": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 38,
+                        "velocity": 100
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Dm2": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 38,
+                        "velocity": 90
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Dm3": {
+                    "midi": {
+                        "channel": 6,
+                        "duration": 150,
+                        "note": 38,
+                        "velocity": 95
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "r1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r2": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "clap": {
+            "arcs": [
+                {
+                    "source": "c0",
+                    "target": "rest1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "rest1",
+                    "target": "c1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "c1",
+                    "target": "snap",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "snap",
+                    "target": "c2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "c2",
+                    "target": "rest2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "rest2",
+                    "target": "c3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "c3",
+                    "target": "rest3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "rest3",
+                    "target": "c0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "c0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "c1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "c2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "c3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 10,
+                "defaultVelocity": 100,
+                "instrument": "drums"
+            },
+            "transitions": {
+                "rest1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "rest2": {
+                    "x": 0,
+                    "y": 0
+                },
+                "rest3": {
+                    "x": 0,
+                    "y": 0
+                },
+                "snap": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 50,
+                        "note": 39,
+                        "velocity": 110
+                    },
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "hihat": {
+            "arcs": [
+                {
+                    "source": "h0",
+                    "target": "tick1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "tick1",
+                    "target": "h1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "h1",
+                    "target": "tick2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "tick2",
+                    "target": "h0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "h0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "h1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 10,
+                "defaultVelocity": 80,
+                "instrument": "drums"
+            },
+            "transitions": {
+                "tick1": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 30,
+                        "note": 42,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "tick2": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 30,
+                        "note": 42,
+                        "velocity": 65
+                    },
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "kick": {
+            "arcs": [
+                {
+                    "source": "k0",
+                    "target": "boom1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "boom1",
+                    "target": "k1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "k1",
+                    "target": "boom2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "boom2",
+                    "target": "k2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "k2",
+                    "target": "boom3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "boom3",
+                    "target": "k3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "k3",
+                    "target": "boom4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "boom4",
+                    "target": "k0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "k0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "k1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "k2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "k3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 10,
+                "defaultVelocity": 110,
+                "instrument": "drums"
+            },
+            "transitions": {
+                "boom1": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 50,
+                        "note": 36,
+                        "velocity": 120
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "boom2": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 50,
+                        "note": 36,
+                        "velocity": 115
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "boom3": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 50,
+                        "note": 36,
+                        "velocity": 120
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "boom4": {
+                    "midi": {
+                        "channel": 10,
+                        "duration": 50,
+                        "note": 36,
+                        "velocity": 110
+                    },
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "lead": {
+            "arcs": [
+                {
+                    "source": "l0",
+                    "target": "D5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5",
+                    "target": "l1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l1",
+                    "target": "r_1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_1",
+                    "target": "l2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l2",
+                    "target": "F5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "F5",
+                    "target": "l3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l3",
+                    "target": "r_2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_2",
+                    "target": "l4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l4",
+                    "target": "E5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "E5",
+                    "target": "l5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l5",
+                    "target": "r_3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_3",
+                    "target": "l6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l6",
+                    "target": "D5b",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5b",
+                    "target": "l7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l7",
+                    "target": "C5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "C5",
+                    "target": "l8",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l8",
+                    "target": "A4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "A4",
+                    "target": "l9",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l9",
+                    "target": "r_4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_4",
+                    "target": "l10",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l10",
+                    "target": "r_5",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_5",
+                    "target": "l11",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l11",
+                    "target": "r_6",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_6",
+                    "target": "l12",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l12",
+                    "target": "Bb4",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb4",
+                    "target": "l13",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l13",
+                    "target": "C5b",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "C5b",
+                    "target": "l14",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l14",
+                    "target": "D5c",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "D5c",
+                    "target": "l15",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "l15",
+                    "target": "r_7",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_7",
+                    "target": "l0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "l0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l10": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l11": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l12": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l13": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l14": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l15": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l4": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l5": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l6": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l7": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l8": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "l9": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 4,
+                "defaultVelocity": 75,
+                "instrument": "supersaw"
+            },
+            "transitions": {
+                "A4": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 500,
+                        "note": 69,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Bb4": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 70,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "C5": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 72,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "C5b": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 72,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 74,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5b": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 74,
+                        "velocity": 75
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "D5c": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 500,
+                        "note": 74,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "E5": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 76,
+                        "velocity": 80
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "F5": {
+                    "midi": {
+                        "channel": 4,
+                        "duration": 300,
+                        "note": 77,
+                        "velocity": 85
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "r_1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_2": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_3": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_4": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_5": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_6": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_7": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        "pad": {
+            "arcs": [
+                {
+                    "source": "pd0",
+                    "target": "Dm_ch",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Dm_ch",
+                    "target": "pd1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "pd1",
+                    "target": "r_p1",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_p1",
+                    "target": "pd2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "pd2",
+                    "target": "Bb_ch",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "Bb_ch",
+                    "target": "pd3",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "pd3",
+                    "target": "r_p2",
+                    "weight": [
+                        1
+                    ]
+                },
+                {
+                    "source": "r_p2",
+                    "target": "pd0",
+                    "weight": [
+                        1
+                    ]
+                }
+            ],
+            "places": {
+                "pd0": {
+                    "initial": [
+                        1
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "pd1": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "pd2": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                },
+                "pd3": {
+                    "initial": [
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "track": {
+                "channel": 3,
+                "defaultVelocity": 45,
+                "instrument": "warm-pad"
+            },
+            "transitions": {
+                "Bb_ch": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 3000,
+                        "note": 58,
+                        "velocity": 40
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "Dm_ch": {
+                    "midi": {
+                        "channel": 3,
+                        "duration": 3000,
+                        "note": 62,
+                        "velocity": 45
+                    },
+                    "x": 0,
+                    "y": 0
+                },
+                "r_p1": {
+                    "x": 0,
+                    "y": 0
+                },
+                "r_p2": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        }
+    },
+    "tempo": 138
+}
