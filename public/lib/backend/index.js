@@ -119,29 +119,28 @@ export async function acquireWakeLock(el) {
     }
 }
 
-// Mobile background handling: when the page goes to background (tab
-// switch, screen lock), pause playback cleanly. Trying to keep audio
-// going through OS suspension is fragile (worker setInterval gets
-// throttled to ~1 Hz, AudioContext suspends, audio element drops
-// frames), and the result is erratic timing or catch-up bursts on
-// resume. Cleaner UX: stop on hide, user taps Play to resume.
+// Background handling — AFK model:
+//   World (worker) keeps running. State advances correctly through any
+//   suspension via the worker's silent catch-up (Petri nets, loops,
+//   macros, mutes all evolve). When the user comes back, audio resumes
+//   from the current "now" beat — no replay of missed audio, no drift
+//   accumulation. Mirrors how a multiplayer game treats a player who
+//   alt-tabs / locks their screen: the world doesn't pause for them.
 //
-// On return to visible, just resume the AudioContext (cheap; harmless
-// if it was never suspended). User explicitly restarts playback.
+// On return to visible: resume the AudioContext (iOS suspends it under
+// lock) and bounce the worker timer (mobile throttles its setInterval).
+// Audio scheduling on the AudioContext clock handles the rest — beats
+// that were scheduled before suspend will fire on time on resume.
 export function installVisibilityRecovery(el) {
     if (el._visRecoveryHandler) return;
     el._visRecoveryHandler = () => {
-        if (document.visibilityState === 'hidden' && el._playing) {
-            // Stop playback on backgrounding. Same path as tapping the
-            // play button so all cleanup runs (wake-lock release,
-            // viz loop stop, worker stop, mute reset).
-            el._togglePlay();
-            return;
-        }
-        if (document.visibilityState === 'visible') {
-            // AudioContext may have suspended even though we stopped —
-            // pre-resume so the next user-tap on Play has a hot context.
-            try { toneEngine.resumeContext(); } catch {}
+        if (document.visibilityState !== 'visible') return;
+        if (!el._playing) return;
+        try { toneEngine.resumeContext(); } catch {}
+        if (el._worker && typeof el._tempo === 'number') {
+            // Re-create the worker's setInterval at the correct rate;
+            // it may have been throttled to ~1 Hz while backgrounded.
+            el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
         }
     };
     document.addEventListener('visibilitychange', el._visRecoveryHandler);
