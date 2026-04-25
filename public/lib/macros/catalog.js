@@ -114,12 +114,15 @@ export const MACROS = [
     // (energy fall). Classic build / breakdown gestures.
     { id: 'feel-build',     group: 'Feel', kind: 'feel-sweep', label: 'Build Up', defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [1, 1] },
     { id: 'feel-wind-down', group: 'Feel', kind: 'feel-sweep', label: 'Wind Down',defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [0, 0] },
+    // Gradual reset — same effect as a tab-level "reset to defaults" but
+    // ramps over N bars instead of cutting over. Eases puck + tempo back
+    // to the current genre's defaults.
+    { id: 'feel-reset',     group: 'Feel', kind: 'genre-reset', label: 'Reset',    defaultDuration: 4, durationOpts: [2, 4, 8, 16], durationLabel: 'bar', durationUnit: 'bar' },
 
     // --- Tempo ---
     { id: 'half-time',    group: 'Tempo', kind: 'tempo-hold',   label: 'Half Time',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', factor: 0.5 },
     { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep',  label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
     { id: 'tempo-anchor', group: 'Tempo', kind: 'tempo-anchor', label: 'Anchor',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar' },
-    { id: 'tempo-reset',  group: 'Tempo', kind: 'genre-reset',  label: 'Reset',      defaultDuration: 4, durationOpts: [2, 4, 8, 16], durationLabel: 'bar', durationUnit: 'bar' },
 
     // --- One-shots ---
     // durationOpts = stutter repeat count. pitchOpts = per-hit transpose in

@@ -422,18 +422,31 @@ function feelSnap(el, target, durationMs) {
     }, durationMs);
 }
 
-// Genre Reset: slowly ease the puck to the current genre's default
-// Feel position AND ramp tempo to the genre's standard BPM. One-way
-// (no restore) — this is a "land back home" gesture, not a temporary
-// effect. Same throttled-applyFeel pattern as feelSweep so the worker
-// isn't flooded mid-ramp.
-async function feelGenreReset(el, durationMs) {
-    const { GENRE_FEEL_POSITIONS } = await import('../feel/axes.js');
+// Hard "factory defaults" for every FX slider. Mirrors the fxDefaults
+// map in build.js's FX Reset button, so Feel: Reset lands at the exact
+// same target values — just gradually instead of cutting over.
+const FX_HARD_DEFAULTS = {
+    'reverb-size': 50, 'reverb-damp': 30, 'reverb-wet': 20,
+    'delay-time': 25, 'delay-feedback': 25, 'delay-wet': 15,
+    'master-vol': 80, 'distortion': 0, 'hp-freq': 0, 'lp-freq': 100,
+    'phaser-freq': 0, 'phaser-depth': 50, 'phaser-wet': 0,
+    'crush-bits': 0, 'master-pitch': 0,
+};
+
+// Feel: Reset — gradual sibling of the tab-level FX Reset button, plus
+// returning BPM to the current genre's default. Same FX destination as
+// FX Reset (every master slider → factory default), but ramped over N
+// bars and with tempo eased back home as a bonus. Puck is intentionally
+// left alone (only FX + tempo). One-way; ends with _disengageFeel.
+function feelGenreReset(el, durationMs) {
     cancelFeelAnim(el);
-    const genre = el.querySelector('.pn-genre-select')?.value;
-    const targetPuck = GENRE_FEEL_POSITIONS[genre] || [0.5, 0.5];
-    const startPuck = el._feelState?.puck ? [...el._feelState.puck] : [0.5, 0.5];
+    const startFx = {};
+    for (const k of Object.keys(FX_HARD_DEFAULTS)) {
+        const v = el._fxSlider?.(k)?.value;
+        if (v != null) startFx[k] = parseInt(v, 10);
+    }
     const startBpm = el._tempo || 120;
+    const genre = el.querySelector('.pn-genre-select')?.value;
     const targetBpm = el._genreData?.[genre]?.bpm || 120;
     const t0 = performance.now();
     const token = { cancelled: false };
@@ -441,22 +454,32 @@ async function feelGenreReset(el, durationMs) {
     pulseFeelButton(el, durationMs, 'genre-reset');
     const STEP_MS = 100;
     let last = -Infinity;
+    const lerpFx = (e) => {
+        for (const [k, def] of Object.entries(FX_HARD_DEFAULTS)) {
+            const start = startFx[k];
+            if (!Number.isFinite(start)) continue;
+            el._setFxByKey(k, Math.round(start + (def - start) * e));
+        }
+    };
     const tick = () => {
         if (!el.isConnected || token.cancelled) return;
         const now = performance.now();
         const t = (now - t0) / durationMs;
         if (t >= 1) {
-            el._applyFeel(clampPuck(targetPuck));
+            lerpFx(1);
             el._setTempo(Math.round(targetBpm));
+            // Disengage Feel so subsequent puck moves don't override
+            // the user's mix — matches FX Reset's final action.
+            el._disengageFeel?.();
             if (el._feelAnim === token) el._feelAnim = null;
             return;
         }
         if (now - last >= STEP_MS) {
             last = now;
+            // Sine ease-out so the bulk of the change happens early
+            // and the last bars feel like a smooth landing.
             const e = Math.sin(t * Math.PI / 2);
-            const x = startPuck[0] + (targetPuck[0] - startPuck[0]) * e;
-            const y = startPuck[1] + (targetPuck[1] - startPuck[1]) * e;
-            el._applyFeel(clampPuck([x, y]));
+            lerpFx(e);
             el._setTempo(Math.round(startBpm + (targetBpm - startBpm) * e));
         }
         requestAnimationFrame(tick);
