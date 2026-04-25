@@ -144,6 +144,7 @@
   .card-actions button:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
   .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
   .card-bm[data-bm="true"] { background: #3a2a08; border-color: #6a4a18; color: #fc6; }
+  .card-play[data-state="playing"] { background: #1a2a3a; color: #67e8f9; border-color: #2a4a6a; }
   .empty, .loading, .end {
     padding: 48px 0;
     text-align: center;
@@ -702,6 +703,7 @@ const loadCurrent = (autoplay = true) => {
     audioEl.play().catch(() => {});
   }
   renderPlaylist();
+  syncCardPlayButtons();
 };
 
 // Wire MediaSession action handlers once. The audio element handles
@@ -752,8 +754,8 @@ nextBtn.addEventListener('click', () => {
   if (current < playlist.length - 1) playIndex(current + 1);
   else if (repeatMode === 'all') playIndex(0);
 });
-audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; requestWake(); });
-audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; releaseWake(); savePlaybackState(); });
+audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; requestWake(); syncCardPlayButtons(); });
+audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; releaseWake(); savePlaybackState(); syncCardPlayButtons(); });
 
 // ----- Shuffle / repeat modes -----
 const SHUFFLE_KEY = 'pn-playlist-shuffle';
@@ -902,6 +904,16 @@ const syncCardBookmarkButtons = () => {
   }
 };
 
+const syncCardPlayButtons = () => {
+  const playingCid = (current >= 0 && !audioEl.paused) ? playlist[current]?.cid : null;
+  for (const btn of grid.querySelectorAll('.card-play')) {
+    const isThis = playingCid && playingCid === btn.dataset.cid;
+    btn.dataset.state = isThis ? 'playing' : 'idle';
+    btn.textContent = isThis ? '⏸' : '▶';
+    btn.title = isThis ? 'Pause' : 'Play / pause this track';
+  }
+};
+
 // ----- Grid rendering -----
 let cursor = 0;
 let loading = false;
@@ -928,6 +940,7 @@ const renderCard = (t) => {
       </div>
     </a>
     <div class="card-actions">
+      <button class="card-play" data-cid="${t.cid}" title="Play / pause this track">▶</button>
       <button class="card-bm" data-cid="${t.cid}" title="Bookmark — saves to your local history with the bookmarked tag">★</button>
       <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
     </div>
@@ -955,6 +968,26 @@ const renderCard = (t) => {
       });
     }
     syncCardBookmarkButtons();
+  });
+  // Play button — tap-to-play without ceremony. If this track is
+  // already current and audio is playing → pause. Otherwise jump
+  // to it (adding to the playlist if not already there).
+  const playButton = card.querySelector('.card-play');
+  playButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (current >= 0 && playlist[current]?.cid === t.cid) {
+      // Already on this track — toggle pause.
+      if (audioEl.paused) audioEl.play().catch(() => {});
+      else audioEl.pause();
+      return;
+    }
+    let idx = playlist.findIndex(p => p.cid === t.cid);
+    if (idx < 0) {
+      addToPlaylist(t);
+      idx = playlist.length - 1;
+    }
+    playIndex(idx);
   });
   return card;
 };
@@ -999,6 +1032,7 @@ const fetchPage = async () => {
     }
     syncCardAddButtons();
     syncCardBookmarkButtons();
+    syncCardPlayButtons();
   } catch (err) {
     stateEl.textContent = `Failed to load: ${err.message}`;
     stateEl.style.display = 'block';
