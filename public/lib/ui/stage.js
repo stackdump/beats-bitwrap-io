@@ -47,7 +47,7 @@ export function openStage(el) {
             <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
             <button class="pn-stage-labels" aria-pressed="false" title="Show/hide track labels">A</button>
-            <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (great for recordings)">&#x2710;</button>
+            <button class="pn-stage-cardflash" aria-pressed="false" title="Flash the share card on every track change (T)">&#x2710;</button>
             <button class="pn-stage-bolts active" aria-pressed="true" title="Lightning during macros (flame mode)">&#9889;&#xFE0E;</button>
             <button class="pn-stage-help" title="What am I looking at?">?</button>
             <select class="pn-stage-bgmode" title="Background">
@@ -127,12 +127,25 @@ export function openStage(el) {
             closeStage(el);
             return;
         }
-        // Arrow keys cycle the visualizer while Stage is open. Skip when
-        // focus is in an input/select so the user can still type freely.
+        // Skip key handling when focus is in an input/select so the user
+        // can still type freely.
+        const tgt = e.target;
+        const tag = tgt?.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        // T toggles the share-card flash on every track change — same as
+        // clicking the ✎ button. Useful while recording so the camera
+        // captures genre/seed/QR for each new track. Capture-phase +
+        // stopImmediatePropagation so the petri-note element's global T
+        // (tap tempo) doesn't also fire.
+        if (e.key === 't' || e.key === 'T') {
+            overlay.querySelector('.pn-stage-cardflash')?.click();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+        // Arrow keys cycle the visualizer while Stage is open. Same
+        // capture-phase guard so they never reach the slider-nudge path.
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-            const t = e.target;
-            const tag = t?.tagName;
-            if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
             const order = ['mandala', 'corona', 'sonar', 'petal'];
             // Map shuffle's currently-running viz back into the cycle so
             // the keys still feel responsive while shuffling is on.
@@ -144,9 +157,10 @@ export function openStage(el) {
             const sel = overlay.querySelector('.pn-stage-visualizer');
             if (sel) sel.value = next;
             e.preventDefault();
+            e.stopImmediatePropagation();
         }
     };
-    document.addEventListener('keydown', session.onKey);
+    document.addEventListener('keydown', session.onKey, true);
 
     session.onResize = () => {
         sizeBgCanvas();
@@ -341,7 +355,7 @@ export function openStage(el) {
 export function closeStage(el) {
     if (!session) return;
     if (session.rafId) cancelAnimationFrame(session.rafId);
-    if (session.onKey) document.removeEventListener('keydown', session.onKey);
+    if (session.onKey) document.removeEventListener('keydown', session.onKey, true);
     if (session.onResize) window.removeEventListener('resize', session.onResize);
     if (session.onFsChange) document.removeEventListener('fullscreenchange', session.onFsChange);
     if (document.fullscreenElement === session.overlay) {
