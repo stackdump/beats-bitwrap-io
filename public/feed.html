@@ -590,7 +590,13 @@ const addToPlaylist = (track) => {
     seed: track.seed || 0,
   });
   savePlaylist();
-  setPaneOpen(true);
+  // Auto-open the sidebar only on desktop. On a phone the sidebar
+  // is a full-screen overlay, so popping it up after every "+"
+  // hides the grid and makes building a queue painful — the user
+  // has to dismiss the sidebar to see the next card. Mobile users
+  // explicitly toggle "playlist" when they want to see/play.
+  const isPhone = window.matchMedia('(max-width: 720px)').matches;
+  if (!isPhone) setPaneOpen(true);
   renderPlaylist();
   syncCardAddButtons();
 };
