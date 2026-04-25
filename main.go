@@ -576,12 +576,21 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			fallback.ServeHTTP(w, r)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if _, err := shareStore.Lookup(cid); err != nil {
 			http.Error(w, "cid not in share store", http.StatusNotFound)
+			return
+		}
+		// POST enqueues a background render and returns 202 Accepted.
+		// The share modal uses this when its HEAD probe shows no
+		// pre-rendered audio yet. Idempotent — Enqueue is single-flight
+		// and a no-op when the cache is already warm.
+		if r.Method == http.MethodPost {
+			ar.Enqueue(cid)
+			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 		// HEAD is a cache-only existence probe — must never trigger a

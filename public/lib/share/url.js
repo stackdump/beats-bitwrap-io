@@ -214,6 +214,9 @@ export async function onShareClick(el) {
             <div class="pn-share-preview" title="Social-media preview card. Link unfurlers (Slack, Twitter, iMessage) render this image and the title/description above the link.">
                 <img class="pn-share-preview-img" alt="Share card preview" src="/share-card/${cid}.svg" loading="lazy">
             </div>
+            <div class="pn-share-audio" data-state="probing" style="margin-top:12px;padding:10px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;font-size:13px;color:#aaa">
+                <span class="pn-share-audio-status">Checking pre-rendered audio…</span>
+            </div>
             ` : ''}
             <div class="pn-modal-actions">
                 <button class="cancel close">Close</button>
@@ -222,6 +225,65 @@ export async function onShareClick(el) {
         </div>
     `;
     el.appendChild(overlay);
+    if (cid) {
+        const audioBlock = overlay.querySelector('.pn-share-audio');
+        const audioUrl = `${location.origin}/audio/${cid}.webm`;
+        const renderReady = (sizeBytes) => {
+            const fname = (titleInput?.value?.trim() || `beats-${cid.slice(0, 12)}`)
+                .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
+            const sizeKb = sizeBytes ? ` · ${Math.round(sizeBytes / 1024)} KB` : '';
+            audioBlock.dataset.state = 'ready';
+            audioBlock.innerHTML = `
+                <div style="font-size:11px;color:#777;margin-bottom:6px;letter-spacing:0.06em;text-transform:uppercase">Pre-rendered audio${sizeKb}</div>
+                <audio controls preload="none" src="${audioUrl}" style="width:100%;height:32px"></audio>
+                <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:6px;font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
+            `;
+        };
+        const renderMissing = () => {
+            audioBlock.dataset.state = 'missing';
+            audioBlock.innerHTML = `
+                <div style="display:flex;align-items:center;gap:10px">
+                    <span style="flex:1;color:#aaa">Audio not rendered yet.</span>
+                    <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Render now</button>
+                </div>
+            `;
+            audioBlock.querySelector('.pn-share-render-btn').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                btn.textContent = 'Queuing…';
+                try {
+                    const r = await fetch(audioUrl, { method: 'POST' });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    audioBlock.dataset.state = 'rendering';
+                    audioBlock.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <span style="flex:1;color:#aaa">Rendering in background — usually ~2 min. Reopen Share to check.</span>
+                        </div>
+                    `;
+                } catch (err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Render now';
+                    audioBlock.querySelector('span').textContent = `Queue failed: ${err.message}. Try again?`;
+                }
+            });
+        };
+        fetch(audioUrl, { method: 'HEAD' }).then(r => {
+            if (r.ok) {
+                renderReady(parseInt(r.headers.get('Content-Length') || '0', 10));
+            } else if (r.status === 404) {
+                renderMissing();
+            } else {
+                audioBlock.dataset.state = 'error';
+                audioBlock.querySelector('.pn-share-audio-status').textContent =
+                    `Audio status check failed (HTTP ${r.status}).`;
+            }
+        }).catch(() => {
+            audioBlock.dataset.state = 'error';
+            audioBlock.querySelector('.pn-share-audio-status').textContent =
+                'Audio status check failed (network).';
+        });
+    }
     const input = overlay.querySelector('.pn-share-url');
     const sel = overlay.querySelector('.pn-share-storage');
     const titleInput = overlay.querySelector('.pn-share-title');
