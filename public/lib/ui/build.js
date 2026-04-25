@@ -255,7 +255,11 @@ export function buildUI(el) {
                     localStorage.setItem('pn-playlist-open', '1');
                 }
             } catch {}
-            location.href = '/feed';
+            // Pass the CID along so the feed page can pop the same
+            // share-card SVG as a confirmation modal — the listener
+            // gets visual continuity that they landed on what they
+            // came for.
+            location.href = `/feed?cid=${encodeURIComponent(cidParam)}`;
         });
     }
 

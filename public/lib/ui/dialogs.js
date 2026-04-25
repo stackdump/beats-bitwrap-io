@@ -331,7 +331,9 @@ export function showWelcomeCard(el, force = false) {
             } catch {}
         }
         dismiss();
-        location.href = '/feed';
+        // Carry the CID so the feed surfaces the same card as a
+        // confirmation modal on arrival.
+        location.href = cid ? `/feed?cid=${encodeURIComponent(cid)}` : '/feed';
     };
     overlay.addEventListener('click', (e) => {
         // Audio block interactions don't dismiss.

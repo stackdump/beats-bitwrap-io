@@ -331,6 +331,85 @@
     }
   }
 
+  /* Confirmation modal — fires on arrival when /feed?cid=… points
+     at a specific track, so the user gets visual continuity from
+     the synth view's welcome card to the player's grid. */
+  .card-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card-modal[hidden] { display: none; }
+  .card-modal-inner {
+    background: #0d0d0d;
+    border: 1px solid #222;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    max-width: 720px;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    color: #ddd;
+    font-family: system-ui, sans-serif;
+  }
+  .card-modal-art {
+    width: 100%;
+    aspect-ratio: 1200 / 630;
+    background: #000;
+    display: block;
+  }
+  .card-modal-title {
+    padding: 16px 20px 4px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #eee;
+  }
+  .card-modal-sub {
+    padding: 0 20px 12px;
+    font-size: 13px;
+    color: #888;
+  }
+  .card-modal-actions {
+    padding: 0 20px 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .card-modal-play {
+    flex: 1;
+    padding: 12px;
+    background: #e94560;
+    border: none;
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .card-modal-open {
+    color: #9ad;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .card-modal-open:hover { text-decoration: underline; }
+  .card-modal-close {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid #333;
+    color: #ddd;
+    border-radius: 4px;
+    width: 32px; height: 32px;
+    cursor: pointer;
+    font-size: 18px;
+    z-index: 1;
+  }
+
   footer {
     padding: 14px 24px 22px;
     border-top: 1px solid #1a1a1a;
@@ -390,6 +469,18 @@
   </main>
 </div>
 <div id="webamp-mount"></div>
+<div id="card-modal" class="card-modal" hidden>
+  <div class="card-modal-inner">
+    <button class="card-modal-close" title="Close (Esc)">&times;</button>
+    <img class="card-modal-art" alt="Track card">
+    <div class="card-modal-title"></div>
+    <div class="card-modal-sub"></div>
+    <div class="card-modal-actions">
+      <button class="card-modal-play">▶ Play</button>
+      <a class="card-modal-open" href="#">Open in editor</a>
+    </div>
+  </div>
+</div>
 <footer>
   Tracks
   <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
@@ -1184,6 +1275,53 @@ if (isTouchDevice && isNarrowViewport) {
 
 renderPlaylist();
 fetchPage();
+
+// Confirmation modal — when /feed?cid=… is the URL the user
+// arrived on (typically from the synth view's "open in player" /
+// the mobile welcome card redirect), pop the same share-card SVG
+// they just dismissed so it's clear they landed on the right
+// thing. The modal's "Play" button auto-jumps to the track in the
+// playlist (adding if needed); "Open in editor" routes back to
+// the synth view if they want the full controls. Closes on Esc /
+// backdrop / × button.
+(function showArrivalCardModal() {
+  const cid = new URLSearchParams(location.search).get('cid');
+  if (!cid) return;
+  const modal = document.getElementById('card-modal');
+  const art = modal.querySelector('.card-modal-art');
+  const titleEl = modal.querySelector('.card-modal-title');
+  const subEl = modal.querySelector('.card-modal-sub');
+  const playBtn2 = modal.querySelector('.card-modal-play');
+  const editorLink = modal.querySelector('.card-modal-open');
+  // Resolve metadata from the local playlist first (the redirect
+  // path always pre-populates this entry); fall back to a quick
+  // /api/audio-status hit for ad-hoc bookmark visits.
+  const fromList = playlist.find(p => p.cid === cid);
+  const setMeta = (t) => {
+    titleEl.textContent = trackTitle(t || { cid });
+    subEl.textContent = [t?.genre, t?.tempo ? `${t.tempo} BPM` : '']
+      .filter(Boolean).join(' · ') || 'Confirm and play';
+  };
+  setMeta(fromList);
+  art.src = `/share-card/${encodeURIComponent(cid)}.svg`;
+  editorLink.href = `/?cid=${encodeURIComponent(cid)}`;
+  modal.hidden = false;
+  const close = () => { modal.hidden = true; };
+  modal.querySelector('.card-modal-close').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (!modal.hidden && e.key === 'Escape') close();
+  });
+  playBtn2.addEventListener('click', () => {
+    let idx = playlist.findIndex(p => p.cid === cid);
+    if (idx < 0) {
+      addToPlaylist(fromList || { cid, name: '', genre: '', tempo: 0, seed: 0 });
+      idx = playlist.length - 1;
+    }
+    close();
+    playIndex(idx);
+  });
+})();
 
 // Restore last-played position from a previous session. Browsers
 // block autoplay without a user gesture, so we just queue the
