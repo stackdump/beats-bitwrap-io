@@ -338,6 +338,10 @@
       inset: 0;
       width: 100%;
       max-width: 100%;
+      /* box-sizing default is content-box → padding adds to width
+         and shoves the right edge offscreen. Border-box keeps
+         the close button inside the visible viewport. */
+      box-sizing: border-box;
       height: 100vh;
       z-index: 50;
       box-shadow: 0 0 40px rgba(0,0,0,0.6);
