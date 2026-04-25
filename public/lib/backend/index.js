@@ -54,6 +54,7 @@ export function togglePlay(el) {
         el._vizStartLoop();
         acquireWakeLock(el);
         setupMediaSession(el);
+        installVisibilityRecovery(el);
     } else {
         el._vizStopLoop();
         // Cancel any pending macro restores — worker will reset mute state anyway.
@@ -107,6 +108,29 @@ export async function acquireWakeLock(el) {
         };
         document.addEventListener('visibilitychange', el._wakeLockVisHandler);
     }
+}
+
+// Mobile background recovery: when the tab returns to foreground, the
+// AudioContext is often suspended (iOS) and the worker's setInterval
+// has been throttled (typically clamped to 1 Hz on backgrounded tabs).
+// Resume the context and bounce the worker timer so playback continues
+// at the correct rate instead of limping along throttled.
+export function installVisibilityRecovery(el) {
+    if (el._visRecoveryHandler) return;
+    el._visRecoveryHandler = () => {
+        if (document.visibilityState !== 'visible') return;
+        if (!el._playing) return;
+        // 1. AudioContext suspended on iOS while backgrounded — resume.
+        try { toneEngine.resumeContext(); } catch {}
+        // 2. Bounce the worker timer. Sending the same tempo value
+        //    triggers restartTimer() in the worker, which clears the
+        //    (likely throttled) setInterval and re-creates it at the
+        //    correct rate.
+        if (el._worker && typeof el._tempo === 'number') {
+            el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
+        }
+    };
+    document.addEventListener('visibilitychange', el._visRecoveryHandler);
 }
 
 export function releaseWakeLock(el) {

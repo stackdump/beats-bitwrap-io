@@ -430,6 +430,14 @@ export function showHelpModal(el) {
                 <li><b>Scroll</b> &mdash; fine-tune any slider, number, or dropdown under the cursor</li>
             </ul>
 
+            <h3>On mobile</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Mobile browsers throttle background tabs, so playback can stutter or pause when you switch apps. To get the best uninterrupted experience:</p>
+            <ul>
+                <li><b>Add to Home Screen</b> &mdash; tap your browser's share/menu icon, then "Add to Home Screen" / "Install app". The installed PWA gets significantly more leeway from Android &amp; iOS background-throttling, and runs without the URL bar.</li>
+                <li><b>Keep the screen on</b> &mdash; tap the small <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> wake-lock button next to MIDI in the header. While playing, the screen won't dim and the OS is much less likely to suspend the tab.</li>
+                <li><b>Coming back from background</b> &mdash; the app auto-resumes the audio engine and re-syncs the worker timer when the tab returns to foreground. If you ever hear a stutter on return, tap Stop &amp; Play once to reset.</li>
+            </ul>
+
             <h3>Using with AI</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The share-v1 format is a deterministic IR &mdash; any producer, including an LLM, can emit valid JSON and get byte-identical playback. <button class="pn-help-ai pn-link-btn">Copy a ready-made prompt</button> and paste it into Claude, ChatGPT, or any chat model to compose tracks from text.</p>
 
