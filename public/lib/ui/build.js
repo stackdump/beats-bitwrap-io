@@ -218,6 +218,9 @@ export function buildUI(el) {
             <button class="${el._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>
             <button class="pn-wakelock-btn ${el._wakeLock ? 'active' : ''}" title="Keep screen awake during playback (screen wake lock)" aria-pressed="${el._wakeLock ? 'true' : 'false'}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
             <button class="pn-help-btn" title="Performance tips">?</button>
+            <a class="pn-gh-link pn-player-link" href="/feed" title="Go to player">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polygon points="10,8 16,12 10,16" fill="currentColor"/></svg>
+            </a>
             <button class="pn-gh-link pn-category-btn" title="Control category map — how beat fans out through generators, instruments, macros, controls">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="12" y1="12" x2="5" y2="5"/><line x1="12" y1="12" x2="19" y2="5"/><line x1="12" y1="12" x2="5" y2="19"/><line x1="12" y1="12" x2="19" y2="19"/></svg>
             </button>
@@ -227,6 +230,34 @@ export function buildUI(el) {
         </div>
     `;
     el.appendChild(header);
+
+    // Player link tooltip + click hook. If the page is on a CID URL,
+    // honour the "open in player" promise by appending that CID to
+    // the playlist before navigating — otherwise just go.
+    const playerLink = header.querySelector('.pn-player-link');
+    if (playerLink) {
+        const cidParam = new URLSearchParams(location.search).get('cid');
+        playerLink.title = cidParam ? 'Open this track in player' : 'Go to player';
+        playerLink.addEventListener('click', (e) => {
+            if (!cidParam) return; // default href="/feed" navigation
+            e.preventDefault();
+            try {
+                const list = JSON.parse(localStorage.getItem('pn-playlist') || '[]');
+                if (Array.isArray(list) && !list.some(p => p.cid === cidParam)) {
+                    list.push({
+                        cid: cidParam,
+                        name:  el._project?.name  || '',
+                        genre: el._project?.genre || '',
+                        tempo: el._project?.tempo || 0,
+                        seed:  el._currentGen?.params?.seed || 0,
+                    });
+                    localStorage.setItem('pn-playlist', JSON.stringify(list));
+                    localStorage.setItem('pn-playlist-open', '1');
+                }
+            } catch {}
+            location.href = '/feed';
+        });
+    }
 
     el._genOptsEl = null;
 
