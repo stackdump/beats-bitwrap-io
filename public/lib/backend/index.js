@@ -255,17 +255,18 @@ export function connectWorker(el) {
     el._worker = new Worker('./sequencer-worker.js?v=11', { type: 'module' });
     el._workerReady = false;
 
-    // The very first worker spawned during connectedCallback occasionally
-    // errors before posting `ready` in production (root cause not yet
-    // identified — workers spawned later from the same page come up
-    // cleanly). Without recovery, `?cid=…` share URLs never apply because
-    // _bootGenerate is gated on the ready message. Respawn once: on
-    // explicit error event, or after a no-signal timeout.
+    // The very first worker spawned during connectedCallback fails
+    // reproducibly in production — likely a service-worker activation
+    // race intercepting the worker module fetch. Workers spawned a
+    // second or two later come up cleanly. Without recovery, `?cid=…`
+    // share URLs never apply because _bootGenerate is gated on `ready`.
+    // Respawn once after a 1500ms delay (long enough to clear the SW
+    // activation window, short enough to feel instant on the loading UI).
     const respawnIfNeeded = () => {
         if (el._workerReady || el._workerRespawned) return;
         el._workerRespawned = true;
         try { el._worker.terminate(); } catch {}
-        connectWorker(el);
+        setTimeout(() => connectWorker(el), 1500);
     };
 
     el._worker.onmessage = (e) => {
