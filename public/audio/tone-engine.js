@@ -1264,6 +1264,12 @@ class ToneEngine {
         if (Tone.context.state !== 'running') {
             Tone.context.resume();
         }
+        // Mobile: <audio> element gets paused alongside the AudioContext
+        // when the OS suspends the tab. Re-issue play() so audio returns
+        // to flowing through the element on foreground.
+        if (this._masterSink?.audioEl?.paused) {
+            this._masterSink.audioEl.play().catch(() => {});
+        }
     }
 
     isContextRunning() {
@@ -1278,7 +1284,34 @@ class ToneEngine {
             await Tone.start();
 
             // Master chain: volume -> HP -> phaser -> LP -> crusher -> distortion -> pitch -> compressor -> dest
-            this._masterComp = new Tone.Compressor(-12, 3).toDestination();
+            // On mobile we route the master through a MediaStreamDestination
+            // + hidden <audio> element instead of straight to AudioDestinationNode.
+            // iOS Safari only keeps audio playing through screen lock when the
+            // sound is coming out of an <audio> / <video> element (paired with
+            // mediaSession). AudioContext-only output gets suspended on lock.
+            // Android benefits too: the OS treats this tab as proper media
+            // playback and is much less aggressive about backgrounding it.
+            const isMobile = typeof navigator !== 'undefined'
+                && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
+            if (isMobile) {
+                const raw = Tone.context.rawContext;
+                const streamDest = raw.createMediaStreamDestination();
+                this._masterComp = new Tone.Compressor(-12, 3).connect(streamDest);
+                const audioEl = document.createElement('audio');
+                audioEl.srcObject = streamDest.stream;
+                audioEl.autoplay = true;
+                audioEl.playsInline = true;          // critical for iOS — without it Safari opens fullscreen player
+                audioEl.style.display = 'none';
+                document.body.appendChild(audioEl);
+                // play() may need a user-gesture promise; resumeContext()
+                // is called from the play-button click path which IS one,
+                // so this resolves cleanly.
+                audioEl.play().catch(() => {});
+                this._masterSink = { streamDest, audioEl };
+                this._masterSinkId = '';
+            } else {
+                this._masterComp = new Tone.Compressor(-12, 3).toDestination();
+            }
             // PitchShift is a phase-vocoder — some warble under fast sweeps, fine for static offsets.
             // windowSize 0.03 trades a bit of transient smear for lower latency than the default 0.1.
             this._pitchShift = new Tone.PitchShift({ pitch: 0, windowSize: 0.03, feedback: 0 }).connect(this._masterComp);
