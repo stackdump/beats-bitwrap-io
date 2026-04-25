@@ -19,7 +19,7 @@ import {
     oneShotSpec, prettifyInstrumentName,
 } from './lib/audio/oneshots.js';
 import { GENRE_INSTRUMENTS } from './lib/generator/genre-instruments.js';
-import { generateTrackName } from './lib/generator/composer.js';
+import { generateTrackName, compose } from './lib/generator/composer.js';
 import { createRng } from './lib/generator/core.js';
 import { arrangeWithOpts as jsArrangeWithOpts } from './lib/generator/arrange.js';
 import {
@@ -332,11 +332,30 @@ class PetriNote extends HTMLElement {
                 console.error('Failed to parse project JSON:', e);
             }
         }
-        const hasInlineNets = Object.keys((this._project || {}).nets || {}).length > 0;
+        // No inline project AND no share URL → compose a default track
+        // synchronously so the user never sees the empty placeholder
+        // (was a real bug on incognito mobile where the worker fetch
+        // could lag and leave a single-track piano placeholder visible).
+        // Worker boot will load this project into the worker; if a
+        // ?cid=… share URL is detected, _bootGenerate replaces it.
+        if (!this._project || Object.keys(this._project.nets || {}).length === 0) {
+            const hasShareUrl = location.search.includes('cid=');
+            if (!hasShareUrl) {
+                try {
+                    const seed = (Math.random() * 0xffffffff) | 0;
+                    this._project = compose('techno', { seed });
+                    this._currentGen = { genre: 'techno', params: { seed } };
+                    // Tell connectWorker we already have a project so the
+                    // ready handler takes the `project-load` branch and
+                    // doesn't compose a different track on top of ours.
+                    this._hasInitialProject = true;
+                } catch (e) {
+                    console.warn('Boot compose failed, falling back to placeholder:', e);
+                }
+            }
+        }
         this._normalizeProject();
         this._activeNetId = Object.keys(this._project.nets)[0] || null;
-
-        // Default project is generated via WebSocket on first connect (see _connectWebSocket)
     }
 
     _normalizeProject() {
