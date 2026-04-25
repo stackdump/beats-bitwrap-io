@@ -329,9 +329,11 @@
     <div class="pl-meta">
       <span id="pl-count">0 tracks</span>
       <span style="display:flex;gap:10px">
+        <button class="pl-export" id="pl-import" title="Load a JSON-LD MusicPlaylist file">import</button>
         <button class="pl-export" id="pl-export" title="Download as JSON-LD MusicPlaylist">export</button>
         <button class="pl-clear" id="pl-clear">clear</button>
       </span>
+      <input type="file" id="pl-import-file" accept=".jsonld,application/ld+json,application/json" hidden>
     </div>
     <div class="pl-list" id="pl-list"></div>
   </aside>
@@ -517,6 +519,85 @@ const exportPlaylistJsonld = () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 plExport.addEventListener('click', exportPlaylistJsonld);
+
+// Import a JSON-LD MusicPlaylist. Accepts drop or file-picker.
+// Permissive parser: each track's CID can come from `identifier`,
+// from a URL with `?cid=…`, or from the `/audio/{cid}.webm` audio
+// URL — whichever is present. Tracks already in the playlist are
+// skipped (CID dedup).
+const CID_RE = /^z[1-9A-HJ-NP-Za-km-z]{20,}$/;
+const cidFromTrack = (t) => {
+  if (typeof t.identifier === 'string' && CID_RE.test(t.identifier)) return t.identifier;
+  for (const field of ['url', 'audio', '@id']) {
+    const v = t[field];
+    if (typeof v !== 'string') continue;
+    const m = v.match(/cid=([a-zA-Z0-9]+)/) || v.match(/\/audio\/([a-zA-Z0-9]+)\.webm/);
+    if (m && CID_RE.test(m[1])) return m[1];
+  }
+  return null;
+};
+const importPlaylistJsonld = async (file) => {
+  let doc;
+  try {
+    doc = JSON.parse(await file.text());
+  } catch (err) {
+    alert(`Couldn't parse that file as JSON: ${err.message}`);
+    return;
+  }
+  if (doc?.['@type'] !== 'MusicPlaylist' || !Array.isArray(doc.track)) {
+    alert('Not a MusicPlaylist — expected @type "MusicPlaylist" with a track[] array.');
+    return;
+  }
+  let added = 0, skipped = 0, invalid = 0;
+  for (const t of doc.track) {
+    const cid = cidFromTrack(t);
+    if (!cid) { invalid++; continue; }
+    if (isInPlaylist(cid)) { skipped++; continue; }
+    addToPlaylist({
+      cid,
+      name:  typeof t.name === 'string' ? t.name : '',
+      genre: typeof t.genre === 'string' ? t.genre : '',
+      tempo: 0,
+      seed:  0,
+    });
+    added++;
+  }
+  const msg = [`${added} added`,
+               skipped ? `${skipped} skipped (already in playlist)` : '',
+               invalid ? `${invalid} invalid` : ''].filter(Boolean).join(' · ');
+  // Soft notice in the export-status area; render after batch so
+  // we don't fight the per-add reflows.
+  plCount.textContent = msg;
+  setTimeout(() => renderPlaylist(), 800);  // restore the count after a moment
+};
+const importInput = document.getElementById('pl-import-file');
+document.getElementById('pl-import').addEventListener('click', () => importInput.click());
+importInput.addEventListener('change', () => {
+  if (importInput.files && importInput.files[0]) {
+    importPlaylistJsonld(importInput.files[0]);
+    importInput.value = '';  // reset so the same file can be re-imported
+  }
+});
+
+// Drop a .jsonld onto the playlist sidebar to import. dragover must
+// be cancelled or the drop event won't fire.
+const playlistAside = document.querySelector('aside.playlist');
+['dragenter', 'dragover'].forEach(ev => {
+  playlistAside.addEventListener(ev, (e) => {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault();
+      playlistAside.style.outline = '2px dashed #4a5a7a';
+    }
+  });
+});
+['dragleave', 'drop'].forEach(ev => {
+  playlistAside.addEventListener(ev, () => { playlistAside.style.outline = ''; });
+});
+playlistAside.addEventListener('drop', (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  importPlaylistJsonld(e.dataTransfer.files[0]);
+});
 
 const trackTitle = (t) => t.name || `${t.genre || 'track'} · ${t.seed}`;
 
