@@ -13,12 +13,12 @@ import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } fr
 
 // Audio-clock lookahead window. Worker stamps every transition fire
 // with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
-// AudioContext time on receipt and let Tone.js schedule the note. As
-// long as the main thread wakes within this window, audio plays on
-// time even when setInterval / setTimeout are throttled (mobile lock
-// screens). Mirrored in sequencer-worker.js. Bump if iOS lock burst
-// timing exceeds 250 ms (trade-off: bigger AV lag while screen is on).
-const LOOKAHEAD_MS = 250;
+// AudioContext time on receipt and let Tone.js schedule the note.
+// 80 ms is small enough to stay under the AV-sync perception threshold
+// for music, large enough to absorb main-thread stalls (Auto-DJ regen,
+// macro fires, GC pauses) without dropping beats. Mirrored in
+// sequencer-worker.js — keep in sync.
+const LOOKAHEAD_MS = 80;
 
 // --- Transport ---
 
@@ -119,24 +119,29 @@ export async function acquireWakeLock(el) {
     }
 }
 
-// Mobile background recovery: when the tab returns to foreground, the
-// AudioContext is often suspended (iOS) and the worker's setInterval
-// has been throttled (typically clamped to 1 Hz on backgrounded tabs).
-// Resume the context and bounce the worker timer so playback continues
-// at the correct rate instead of limping along throttled.
+// Mobile background handling: when the page goes to background (tab
+// switch, screen lock), pause playback cleanly. Trying to keep audio
+// going through OS suspension is fragile (worker setInterval gets
+// throttled to ~1 Hz, AudioContext suspends, audio element drops
+// frames), and the result is erratic timing or catch-up bursts on
+// resume. Cleaner UX: stop on hide, user taps Play to resume.
+//
+// On return to visible, just resume the AudioContext (cheap; harmless
+// if it was never suspended). User explicitly restarts playback.
 export function installVisibilityRecovery(el) {
     if (el._visRecoveryHandler) return;
     el._visRecoveryHandler = () => {
-        if (document.visibilityState !== 'visible') return;
-        if (!el._playing) return;
-        // 1. AudioContext suspended on iOS while backgrounded — resume.
-        try { toneEngine.resumeContext(); } catch {}
-        // 2. Bounce the worker timer. Sending the same tempo value
-        //    triggers restartTimer() in the worker, which clears the
-        //    (likely throttled) setInterval and re-creates it at the
-        //    correct rate.
-        if (el._worker && typeof el._tempo === 'number') {
-            el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
+        if (document.visibilityState === 'hidden' && el._playing) {
+            // Stop playback on backgrounding. Same path as tapping the
+            // play button so all cleanup runs (wake-lock release,
+            // viz loop stop, worker stop, mute reset).
+            el._togglePlay();
+            return;
+        }
+        if (document.visibilityState === 'visible') {
+            // AudioContext may have suspended even though we stopped —
+            // pre-resume so the next user-tap on Play has a hot context.
+            try { toneEngine.resumeContext(); } catch {}
         }
     };
     document.addEventListener('visibilitychange', el._visRecoveryHandler);

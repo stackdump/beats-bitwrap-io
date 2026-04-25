@@ -16,10 +16,13 @@ const MaxBPM = 300;
 // Audio-clock lookahead window. Each tick stamps `playAtOffsetMs` and
 // `tickEpochMs` on every fire so the main thread can schedule notes
 // into the AudioContext clock instead of playing them on receipt.
-// LOOKAHEAD_MS is the buffer that survives main-thread throttling: as
-// long as the main thread wakes up within this window, the audio fires
-// at the right time. Mirrored in lib/backend/index.js.
-const LOOKAHEAD_MS = 250;
+// LOOKAHEAD_MS is the buffer that absorbs main-thread stalls (Auto-DJ
+// regen, macro fires, GC) without dropping beats. Kept small (80 ms)
+// to stay under the AV-sync perception threshold (~40-80 ms for music)
+// — visual side effects fire on receipt; audio fires LOOKAHEAD_MS
+// later and the user shouldn't perceive the gap. Mirrored in
+// lib/backend/index.js.
+const LOOKAHEAD_MS = 80;
 
 // --- Sequencer state ---
 let project = null;
@@ -291,6 +294,13 @@ let _lastTickAt = 0;
 // already in the past at fire time" (main thread clamps to 0).
 let _currentTickEpochMs = 0;
 let _currentTickOffsetMs = 0;
+// When true, _advanceOneTick still evolves Petri net state + applies
+// control events (so macros / mutes / loop wraps stay correct), but
+// suppresses transition-fired broadcasts so the main thread doesn't
+// play audio for ticks that already passed. Set during catch-up after
+// a long suspension (mobile screen lock) so the user doesn't hear a
+// blast of compressed catch-up beats on resume.
+let _silentAdvance = false;
 function tick() {
     if (!project) return;
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -305,14 +315,17 @@ function tick() {
     if (elapsed > interval * 1.5) {
         catchUp = Math.min(maxCatchUp, Math.floor(elapsed / interval) - 1);
     }
+    // Catch-up: advance state silently for missed ticks so loops, macros,
+    // and mutes stay correct, but DON'T post transition-fired — otherwise
+    // resuming from a long screen-lock fires a 1-second burst of
+    // compressed beats. The on-time tick below plays normally.
+    _silentAdvance = true;
     for (let i = 0; i < catchUp; i++) {
-        // Each missed tick still fires its events (state evolution +
-        // control events). Audio scheduling on the main thread uses
-        // playAtOffsetMs to space the burst on the audio clock.
-        if (!project) return;
+        if (!project) { _silentAdvance = false; return; }
         _currentTickOffsetMs = (i - catchUp) * interval; // negative
         _advanceOneTick();
     }
+    _silentAdvance = false;
     _currentTickOffsetMs = 0;
     _advanceOneTick();
 }
@@ -390,7 +403,7 @@ function _advanceOneTick() {
                 const noteMap = mutedNotes[netId];
                 if (noteMap && noteMap[result.midi.note]) continue;
                 const midi = !deterministicLoop ? driftMidi(result.midi, netId, tLabel) : result.midi;
-                if (midi) {
+                if (midi && !_silentAdvance) {
                     post({
                         type: 'transition-fired',
                         netId, transitionId: tLabel, midi,
