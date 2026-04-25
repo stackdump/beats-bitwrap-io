@@ -1531,7 +1531,7 @@ class PetriNote extends HTMLElement {
     _toggleMute(netId) { return toggleMute(this, netId); }
     _toggleMuteGroup(riffGroup) { return toggleMuteGroup(this, riffGroup); }
     _debouncedRenderMixer() { return debouncedRenderMixer(this); }
-    _playNote(midi, netId) { return playNote(this, midi, netId); }
+    _playNote(midi, netId, playAt) { return playNote(this, midi, netId, playAt); }
     _reapplyChannelRoutings() { return reapplyChannelRoutings(this); }
     _setChannelRouting(channel, value) { return setChannelRouting(this, channel, value); }
     _playTone(midi) { return playTone(this, midi); }

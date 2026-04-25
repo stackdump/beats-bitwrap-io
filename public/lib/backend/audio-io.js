@@ -216,7 +216,7 @@ export function debouncedRenderMixer(el) {
 
 // --- Playback routing ---
 
-export async function playNote(el, midi, netId) {
+export async function playNote(el, midi, netId, playAt) {
     const channel = midi.channel || 1;
     if (netId && (el._mutedNets.has(netId) || el._manualMutedNets.has(netId))) return;
     if (el._mutedChannels.has(channel)) return;
@@ -229,13 +229,13 @@ export async function playNote(el, midi, netId) {
         return;
     }
     if (routing?.kind === 'audio') {
-        await playTone(el, midi);
+        await playTone(el, midi, playAt);
         return;
     }
 
     // Global fallback: honor whichever modes are enabled.
     if (el._audioModes.has('web-audio')) {
-        await playTone(el, midi);
+        await playTone(el, midi, playAt);
     } else if (el._audioModes.has('web-midi')) {
         await playWebMidi(el, midi);
     }
@@ -276,9 +276,9 @@ export async function setChannelRouting(el, channel, value) {
     }
 }
 
-export async function playTone(el, midi) {
+export async function playTone(el, midi, playAt) {
     if (!el._toneStarted) await ensureToneStarted(el);
-    toneEngine.playNote(midi);
+    toneEngine.playNote(midi, playAt);
 }
 
 export async function playWebMidi(el, midi, portIdOverride) {

@@ -1276,6 +1276,13 @@ class ToneEngine {
         return Tone.context.state === 'running';
     }
 
+    // AudioContext clock — exposed so callers can build absolute play
+    // times without importing Tone directly. The audio clock keeps
+    // perfect time even when the JS event loop is throttled.
+    now() {
+        return Tone.now();
+    }
+
     async init() {
         if (this._started) return;
         if (this._initPromise) return this._initPromise;
@@ -1812,7 +1819,7 @@ class ToneEngine {
         };
     }
 
-    playNote(midi) {
+    playNote(midi, playAt) {
         if (!this._started) return;
 
         const channel = midi.channel || 1;
@@ -1847,9 +1854,13 @@ class ToneEngine {
         }
 
         try {
-            // Ensure strictly increasing time for Tone.js (multiple notes per frame)
+            // Caller can supply an absolute audio-clock time (worker
+            // path uses this for setInterval-throttle-resilient
+            // scheduling); fall back to "now" otherwise. Always
+            // strictly-increasing for Tone.js (multiple notes per frame).
             const now = Tone.now();
-            const t = now <= this._lastNoteTime ? this._lastNoteTime + 0.001 : now;
+            const base = (typeof playAt === 'number' && playAt > now) ? playAt : now;
+            const t = base <= this._lastNoteTime ? this._lastNoteTime + 0.001 : base;
             this._lastNoteTime = t;
 
             const config = this._channelConfigs.get(channel);

@@ -11,6 +11,15 @@ import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 
+// Audio-clock lookahead window. Worker stamps every transition fire
+// with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
+// AudioContext time on receipt and let Tone.js schedule the note. As
+// long as the main thread wakes within this window, audio plays on
+// time even when setInterval / setTimeout are throttled (mobile lock
+// screens). Mirrored in sequencer-worker.js. Bump if iOS lock burst
+// timing exceeds 250 ms (trade-off: bigger AV lag while screen is on).
+const LOOKAHEAD_MS = 250;
+
 // --- Transport ---
 
 export function cyclePlaybackMode(el) {
@@ -325,7 +334,8 @@ export function sendWs(el, msg) {
 export function handleWsMessage(el, msg) {
     switch (msg.type) {
         case 'transition-fired':
-            onRemoteTransitionFired(el, msg.netId, msg.transitionId, msg.midi);
+            onRemoteTransitionFired(el, msg.netId, msg.transitionId, msg.midi,
+                                    msg.playAtOffsetMs, msg.tickEpochMs);
             break;
         case 'state-sync': {
             const prevTick = el._tick;
@@ -553,7 +563,7 @@ export function handleWsMessage(el, msg) {
 
 // --- Remote-fire + humanize/swing ---
 
-export function onRemoteTransitionFired(el, netId, transitionId, midi) {
+export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs) {
     // Visual feedback — match by exact ID or riff group.
     const activeNet = el._project?.nets?.[el._activeNetId];
     const firedNet = el._project?.nets?.[netId];
@@ -598,12 +608,33 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi) {
                 m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
             }
         }
-        const delay = swingDelay(el);
-
-        if (delay > 0) {
-            setTimeout(() => el._playNote(m, netId), delay);
+        // Two playback paths:
+        //  - Worker path (playAtOffsetMs defined): per-burst anchor +
+        //    relative offsets. First event of every burst sets an
+        //    audio-clock anchor at `Tone.now() + LOOKAHEAD/1000`;
+        //    subsequent events in the same burst space out from that
+        //    anchor by their slot offset. Audio plays at exact spacing
+        //    on the AudioContext clock — postMessage / setInterval
+        //    throttling can't desync it.
+        //  - WS path (no fields): legacy setTimeout-based delay. WS
+        //    server doesn't emit audio-clock fields yet.
+        if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
+            if (el._lastTickEpochMs !== tickEpochMs) {
+                el._lastTickEpochMs = tickEpochMs;
+                el._burstAnchorAudio = toneEngine.now() + LOOKAHEAD_MS / 1000;
+                el._burstAnchorOffsetMs = playAtOffsetMs;
+            }
+            const playAt = el._burstAnchorAudio
+                + (playAtOffsetMs - el._burstAnchorOffsetMs) / 1000
+                + swingDelay(el) / 1000;
+            el._playNote(m, netId, playAt);
         } else {
-            el._playNote(m, netId);
+            const delay = swingDelay(el);
+            if (delay > 0) {
+                setTimeout(() => el._playNote(m, netId), delay);
+            } else {
+                el._playNote(m, netId);
+            }
         }
     }
 }

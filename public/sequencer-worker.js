@@ -13,6 +13,13 @@ const DefaultTempo = 120;
 const DefaultPPQ = 4;
 const MinBPM = 20;
 const MaxBPM = 300;
+// Audio-clock lookahead window. Each tick stamps `playAtOffsetMs` and
+// `tickEpochMs` on every fire so the main thread can schedule notes
+// into the AudioContext clock instead of playing them on receipt.
+// LOOKAHEAD_MS is the buffer that survives main-thread throttling: as
+// long as the main thread wakes up within this window, the audio fires
+// at the right time. Mirrored in lib/backend/index.js.
+const LOOKAHEAD_MS = 250;
 
 // --- Sequencer state ---
 let project = null;
@@ -276,12 +283,21 @@ function fastForwardTo(targetTick) {
 // out as fast as we can post()) but the *song state* doesn't fall
 // behind the audio clock.
 let _lastTickAt = 0;
+// Per-tick timing stamps applied to every `transition-fired` post so
+// the main thread can schedule audio into the AudioContext clock.
+// `_currentTickEpochMs` is set once per setInterval fire (same baseline
+// for catch-up and the on-time tick); `_currentTickOffsetMs` advances
+// per slot inside the catch-up loop. Negative offsets = "this tick was
+// already in the past at fire time" (main thread clamps to 0).
+let _currentTickEpochMs = 0;
+let _currentTickOffsetMs = 0;
 function tick() {
     if (!project) return;
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const interval = tickInterval();
     const elapsed = _lastTickAt ? now - _lastTickAt : interval;
     _lastTickAt = now;
+    _currentTickEpochMs = now;
     let catchUp = 0;
     // Cap catch-up at 1.5 seconds of missed ticks so a long suspension
     // doesn't trigger a multi-second blast of buffered events.
@@ -291,11 +307,13 @@ function tick() {
     }
     for (let i = 0; i < catchUp; i++) {
         // Each missed tick still fires its events (state evolution +
-        // control events). Audio on the main thread is best-effort for
-        // the burst — the goal is to keep the song *state* in sync.
+        // control events). Audio scheduling on the main thread uses
+        // playAtOffsetMs to space the burst on the audio clock.
         if (!project) return;
+        _currentTickOffsetMs = (i - catchUp) * interval; // negative
         _advanceOneTick();
     }
+    _currentTickOffsetMs = 0;
     _advanceOneTick();
 }
 
@@ -373,7 +391,15 @@ function _advanceOneTick() {
                 if (noteMap && noteMap[result.midi.note]) continue;
                 const midi = !deterministicLoop ? driftMidi(result.midi, netId, tLabel) : result.midi;
                 if (midi) {
-                    post({ type: 'transition-fired', netId, transitionId: tLabel, midi });
+                    post({
+                        type: 'transition-fired',
+                        netId, transitionId: tLabel, midi,
+                        // Audio-clock scheduling fields. Main thread converts
+                        // these to an absolute Tone.now()-relative play time;
+                        // visual side effects still fire on receipt.
+                        playAtOffsetMs: _currentTickOffsetMs,
+                        tickEpochMs: _currentTickEpochMs,
+                    });
                 }
             }
         }
@@ -414,6 +440,8 @@ function restartTimer() {
         // Reset the catch-up baseline so a tempo change or play-start
         // doesn't trigger spurious catch-up against the prior interval.
         _lastTickAt = 0;
+        _currentTickEpochMs = 0;
+        _currentTickOffsetMs = 0;
         timerId = setInterval(tick, tickInterval());
     }
 }
