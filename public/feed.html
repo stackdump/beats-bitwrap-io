@@ -337,6 +337,7 @@ const GENRES = [
 ];
 const PL_KEY = 'pn-playlist';
 const PL_OPEN_KEY = 'pn-playlist-open';
+const PL_STATE_KEY = 'pn-playlist-state'; // { idx, position, savedAt }
 
 const grid = document.getElementById('grid');
 const stateEl = document.getElementById('state');
@@ -373,6 +374,23 @@ if (!Array.isArray(playlist)) playlist = [];
 
 const savePlaylist = () => {
   try { localStorage.setItem(PL_KEY, JSON.stringify(playlist)); } catch {}
+};
+
+// Persist current track + position so a reload picks up where the
+// listener left off. Throttled by callers to avoid hammering
+// localStorage on every timeupdate (~ 4 Hz).
+const savePlaybackState = () => {
+  if (current < 0) {
+    try { localStorage.removeItem(PL_STATE_KEY); } catch {}
+    return;
+  }
+  try {
+    localStorage.setItem(PL_STATE_KEY, JSON.stringify({
+      idx: current,
+      position: Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : 0,
+      savedAt: Date.now(),
+    }));
+  } catch {}
 };
 
 const setPaneOpen = (open) => {
@@ -453,12 +471,28 @@ const clearNow = () => {
   playBtn.textContent = '▶';
 };
 
+// Pre-load the next track via <link rel=preload> so the
+// crossover from `ended` → `play` on the next CID is closer to
+// gapless. Browsers will warm their HTTP cache + audio decoder.
+let preloadLink = null;
+const preloadNext = () => {
+  if (preloadLink) { preloadLink.remove(); preloadLink = null; }
+  if (current + 1 >= playlist.length) return;
+  const next = playlist[current + 1];
+  preloadLink = document.createElement('link');
+  preloadLink.rel = 'preload';
+  preloadLink.as = 'audio';
+  preloadLink.href = `/audio/${encodeURIComponent(next.cid)}.webm`;
+  document.head.appendChild(preloadLink);
+};
+
 const loadCurrent = (autoplay = true) => {
   if (current < 0 || current >= playlist.length) { clearNow(); return; }
   const t = playlist[current];
   audioEl.src = `/audio/${encodeURIComponent(t.cid)}.webm`;
   nowTitle.textContent = trackTitle(t);
   nowSub.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean).join(' · ');
+  preloadNext();
   // MediaSession metadata + artwork so lock-screen / now-playing
   // widgets (Mac Touch Bar, iOS lock screen, Android notification,
   // Chrome's media hub) get the right title and the share-card SVG
@@ -513,12 +547,40 @@ prevBtn.addEventListener('click', () => { if (current > 0) playIndex(current - 1
 nextBtn.addEventListener('click', () => {
   if (current < playlist.length - 1) playIndex(current + 1);
 });
-audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; });
-audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; });
+audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; requestWake(); });
+audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; releaseWake(); savePlaybackState(); });
 audioEl.addEventListener('ended', () => {
   // Auto-advance to the next track. If we hit the end, stop.
   if (current < playlist.length - 1) playIndex(current + 1);
-  else { playBtn.textContent = '▶'; }
+  else { playBtn.textContent = '▶'; releaseWake(); }
+});
+
+// Throttled position save while playing — every 3s of timeupdate
+// firings is enough for "pick up where I left off" without
+// hammering localStorage.
+let saveTimer = null;
+audioEl.addEventListener('timeupdate', () => {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => { saveTimer = null; savePlaybackState(); }, 3000);
+});
+
+// Screen wake lock — keeps the device awake while audio plays so
+// the lock screen doesn't dim and the OS doesn't pause us. Released
+// on pause/end. Re-acquired on visibility return because the OS
+// drops the lock when the tab goes hidden.
+let wakeLock = null;
+const requestWake = async () => {
+  if (!('wakeLock' in navigator)) return;
+  if (wakeLock) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+};
+const releaseWake = async () => {
+  if (!wakeLock) return;
+  try { await wakeLock.release(); } catch {}
+  wakeLock = null;
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !audioEl.paused) requestWake();
 });
 
 const renderPlaylist = () => {
@@ -683,6 +745,25 @@ more.addEventListener('click', fetchPage);
 
 renderPlaylist();
 fetchPage();
+
+// Restore last-played position from a previous session. Browsers
+// block autoplay without a user gesture, so we just queue the
+// track + seek; the user has to press play. The time-position
+// applies once metadata has loaded so we know the duration.
+try {
+  const saved = JSON.parse(localStorage.getItem(PL_STATE_KEY) || 'null');
+  if (saved && playlist.length > 0
+      && Number.isInteger(saved.idx)
+      && saved.idx >= 0 && saved.idx < playlist.length) {
+    current = saved.idx;
+    if (saved.position > 0) {
+      audioEl.addEventListener('loadedmetadata', () => {
+        try { audioEl.currentTime = saved.position; } catch {}
+      }, { once: true });
+    }
+    loadCurrent(false);
+  }
+} catch {}
 </script>
 </body>
 </html>
