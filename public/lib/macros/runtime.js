@@ -62,6 +62,9 @@ export function panicMacros(el) {
         if (typeof tok.startBpm === 'number') el._setTempo(tok.startBpm);
         el._tempoAnim = null;
     }
+    // 2d. Feel: cancel any in-flight Feel snap/sweep/genre-reset so its
+    //     rAF loop or restore timeout stops overriding the puck.
+    cancelFeelAnim(el);
 
     // 3. Cancel + restore every in-flight channel param animation
     //    (pan-move / decay-move).
@@ -164,13 +167,25 @@ export function executeMacro(el, id, opts) {
     const macro = MACROS.find(m => m.id === id);
     if (!macro) return;
     // Prefer explicit override (e.g. from a control-net fire-macro), then
-    // the panel UI select, then the macro's default. Kept in units the
-    // macro declares (bars or ticks) and converted below.
+    // the panel UI select, then the macro's default. NOTE: 0 is the
+    // sentinel for "permanent — fire and don't auto-restore", so use
+    // explicit isFinite checks instead of an `||` falsy chain.
     const sel = el.querySelector(`.pn-macro-bars[data-macro="${id}"]`);
-    const duration = (opts && opts.duration) || parseInt(sel?.value, 10) || macro.defaultDuration;
-    const durationTicks = macro.durationUnit === 'tick' ? duration : duration * 16;
+    const optsDur = opts && Number.isFinite(opts.duration) ? opts.duration : null;
+    const selDur = sel ? parseInt(sel.value, 10) : NaN;
+    const duration = optsDur != null ? optsDur
+                   : Number.isFinite(selDur) ? selDur
+                   : macro.defaultDuration;
+    const permanent = duration === 0;
+    // For permanent macros that still need a "ramp time" (FX sweep), use
+    // the macro's default duration as the time to reach the target value.
+    const effectiveDuration = permanent ? macro.defaultDuration : duration;
+    const durationTicks = macro.durationUnit === 'tick' ? effectiveDuration : effectiveDuration * 16;
     const msPerTick = el._msPerBar() / 16;
     const durationMs = durationTicks * msPerTick;
+    // Pulse for ~3 bars on permanent so the user gets feedback the fire
+    // landed without the pulse class hanging around forever.
+    const pulseMs = permanent ? Math.min(3 * el._msPerBar(), 4000) : durationMs;
 
     if (macro.kind === 'mute') {
         const targets = macro.targets(el);
@@ -181,35 +196,68 @@ export function executeMacro(el, id, opts) {
                 targets,
                 durationTicks,
                 muteAction: 'mute-track',
-                restoreAction: 'unmute-track',
+                // null = no auto-restore. Worker mutes and stays muted.
+                restoreAction: permanent ? null : 'unmute-track',
             });
-            // Pulse the mute buttons of affected rows for the duration so
-            // the mixer signals what the macro is touching.
             const muteEls = targets
                 .map(tid => el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${tid}"] .pn-mixer-mute`)
                          || el._mixerEl?.querySelector(`.pn-mixer-row[data-riff-group="${tid}"] .pn-mixer-mute`))
                 .filter(Boolean);
-            el._macroPulse(muteEls, durationMs, `mute:${id}`);
+            el._macroPulse(muteEls, pulseMs, `mute:${id}`);
         }
     } else if (macro.kind === 'fx-sweep' || macro.kind === 'fx-hold') {
         const ops = macro.ops || [{ fxKey: macro.fxKey, toValue: macro.toValue }];
-        for (const op of ops) {
-            if (macro.kind === 'fx-sweep') el._fxSweep(op.fxKey, op.toValue, durationMs);
-            else                           el._fxHold (op.fxKey, op.toValue, durationMs, macro.tailFrac);
+        if (permanent) {
+            // Snap to the target value and stay — no ramp-back.
+            for (const op of ops) el._setFxByKey(op.fxKey, op.toValue);
+        } else {
+            for (const op of ops) {
+                if (macro.kind === 'fx-sweep') el._fxSweep(op.fxKey, op.toValue, durationMs);
+                else                           el._fxHold (op.fxKey, op.toValue, durationMs, macro.tailFrac);
+            }
         }
-        // Pulse the affected FX sliders for the duration of the macro.
         const fxEls = ops.map(op => el._fxSlider(op.fxKey)).filter(Boolean);
-        el._macroPulse(fxEls, durationMs, `fx:${id}`);
+        el._macroPulse(fxEls, pulseMs, `fx:${id}`);
     } else if (macro.kind === 'pan-move' || macro.kind === 'decay-move') {
-        el._channelParamMove(macro, durationMs);
+        // _channelParamMove always restores; for permanent we use a
+        // very long duration so the move sticks for the foreseeable
+        // session. (A first-class permanent path would need plumbing
+        // into channelParamMove; this is the simplest non-invasive
+        // approximation.)
+        el._channelParamMove(macro, permanent ? 24 * 60 * 60 * 1000 : durationMs);
     } else if (macro.kind === 'beat-repeat') {
         el._runBeatRepeat(macro, durationMs);
     } else if (macro.kind === 'compound') {
         el._runCompound(macro, duration, macro.durationUnit, msPerTick);
+    } else if (macro.kind === 'feel-snap') {
+        if (permanent) {
+            cancelFeelAnim(el);
+            el._applyFeel(clampPuck(macro.target));
+            pulseFeelButton(el, pulseMs, 'feel-snap');
+        } else {
+            feelSnap(el, macro.target, durationMs);
+        }
+    } else if (macro.kind === 'feel-sweep') {
+        feelSweep(el, macro.target, durationMs);
     } else if (macro.kind === 'tempo-hold') {
-        el._tempoHold(macro.factor, durationMs);
+        if (permanent) {
+            const startBpm = el._tempo || 120;
+            el._setTempo(Math.max(20, Math.round(startBpm * macro.factor)));
+        } else {
+            el._tempoHold(macro.factor, durationMs);
+        }
     } else if (macro.kind === 'tempo-sweep') {
         el._tempoSweep(macro.finalBpm, durationMs);
+    } else if (macro.kind === 'tempo-anchor') {
+        if (permanent) {
+            const genre = el.querySelector('.pn-genre-select')?.value;
+            const targetBpm = el._genreData?.[genre]?.bpm || 120;
+            el._setTempo(Math.round(targetBpm));
+        } else {
+            el._tempoAnchor(durationMs);
+        }
+    } else if (macro.kind === 'genre-reset') {
+        feelGenreReset(el, durationMs);
     } else if (macro.kind === 'one-shot') {
         // Fire pad is an N-bar macro: unmute the stinger net for the
         // selected bar count so its Petri ring pulses every beat, then
@@ -261,11 +309,205 @@ export function executeMacro(el, id, opts) {
         setTimeout(() => btn.classList.remove('firing'), 120);
     }
     // One-shots finish fast — budget ~700 ms per hit so the serial queue
-    // doesn't release while stutters are still firing.
+    // doesn't release while stutters are still firing. Permanent macros
+    // budget the pulse duration so the queue releases promptly.
     const runTime = macro.kind === 'one-shot'
         ? 700 + Math.max(0, duration - 1) * (el._msPerBar() / 16)
-        : durationMs;
+        : (permanent ? pulseMs : durationMs);
     markMacroRunning(el, id, runTime);
+}
+
+// --- Feel macros: snap / sweep + visual pulse + auto-restore ---
+//
+// Both helpers capture the pre-fire puck position, drive a brief
+// animation that touches `el._applyFeel`, and snap back at end-of-life.
+// The Feel button (◈) pulses for the macro duration so the visual
+// feedback matches every other macro family.
+function clampPuck(p) {
+    return [Math.max(0, Math.min(1, p[0])), Math.max(0, Math.min(1, p[1]))];
+}
+
+// Pulse every UI element a Feel macro touches: the Feel button, the BPM
+// input, and the 8 master FX sliders that applyFeelGrid drives. Mirrors
+// how fx-sweep/fx-hold pulse their target sliders, so the user sees
+// exactly which controls are being modulated.
+function pulseFeelButton(el, durationMs, key) {
+    const targets = [];
+    const feelBtn = el.querySelector('.pn-feel-open');
+    if (feelBtn) targets.push(feelBtn);
+    const bpmInput = el.querySelector('.pn-tempo input[type="number"]');
+    if (bpmInput) targets.push(bpmInput);
+    for (const k of FEEL_FX_KEYS) {
+        const s = el._fxSlider?.(k);
+        if (s) targets.push(s);
+    }
+    if (targets.length) el._macroPulse(targets, durationMs, key);
+}
+
+// Cancel any in-flight Feel animation (snap timeout, sweep rAF loop,
+// genre-reset rAF loop). Without this, a stale animation from an
+// earlier macro keeps overriding _applyFeel on every frame and the
+// new macro's restore appears to "not work" — actually it does work,
+// but the prior loop clobbers it on the next tick.
+function cancelFeelAnim(el) {
+    if (el._feelAnim) {
+        el._feelAnim.cancelled = true;
+        if (el._feelAnim.timeout) clearTimeout(el._feelAnim.timeout);
+        el._feelAnim = null;
+    }
+}
+
+// Capture the actual current values of every parameter the Feel grid
+// touches — not just the puck. applyFeel only restores the puck and
+// re-blends FX/tempo/swing/humanize from the corner snapshots, which
+// loses any *manual* slider adjustments the user made before firing
+// the macro. Snapshot+restore solves that.
+const FEEL_FX_KEYS = ['distortion', 'crush-bits', 'reverb-wet', 'reverb-size',
+    'reverb-damp', 'delay-wet', 'delay-feedback', 'lp-freq'];
+
+function snapshotFeelState(el) {
+    const fx = {};
+    for (const k of FEEL_FX_KEYS) {
+        const v = el._fxSlider?.(k)?.value;
+        if (v != null) fx[k] = parseInt(v, 10);
+    }
+    return {
+        puck: el._feelState?.puck ? [...el._feelState.puck] : [0.5, 0.5],
+        tempo: el._tempo || 120,
+        swing: el._swing,
+        humanize: el._humanize,
+        fx,
+    };
+}
+
+function restoreFeelState(el, snap) {
+    if (!snap) return;
+    el._applyFeel(snap.puck);          // sets puck + saves to localStorage
+    if (Number.isFinite(snap.tempo))    el._setTempo(snap.tempo);
+    if (Number.isFinite(snap.swing))    { el._swing = snap.swing;    if (el._project) el._project.swing = snap.swing; }
+    if (Number.isFinite(snap.humanize)) { el._humanize = snap.humanize; if (el._project) el._project.humanize = snap.humanize; }
+    // Re-apply the captured FX values *after* applyFeel so they win —
+    // applyFeel writes blended defaults that would otherwise stomp the
+    // user's manual adjustments.
+    if (snap.fx) {
+        // Reverb flush: drop wet to 0 briefly before restoring so the
+        // lingering tail from the macro's larger room model doesn't
+        // bleed back when wet snaps to the user's manual level.
+        // Tone.Freeverb's wet rampTo is 50ms; 180ms covers the perceptual
+        // worst of the tail on most settings without an audible click.
+        const targetWet = snap.fx['reverb-wet'];
+        if (Number.isFinite(targetWet)) {
+            el._setFxByKey('reverb-wet', 0);
+            setTimeout(() => el._setFxByKey('reverb-wet', targetWet), 180);
+        }
+        for (const [k, v] of Object.entries(snap.fx)) {
+            if (k === 'reverb-wet') continue; // handled by the flush above
+            el._setFxByKey(k, v);
+        }
+    }
+}
+
+function feelSnap(el, target, durationMs) {
+    if (!Array.isArray(target) || target.length !== 2) return;
+    cancelFeelAnim(el);
+    const snap = snapshotFeelState(el);
+    const token = { cancelled: false };
+    el._feelAnim = token;
+    el._applyFeel(clampPuck(target));
+    pulseFeelButton(el, durationMs, 'feel-snap');
+    token.timeout = setTimeout(() => {
+        if (token.cancelled) return;
+        restoreFeelState(el, snap);
+        if (el._feelAnim === token) el._feelAnim = null;
+    }, durationMs);
+}
+
+// Genre Reset: slowly ease the puck to the current genre's default
+// Feel position AND ramp tempo to the genre's standard BPM. One-way
+// (no restore) — this is a "land back home" gesture, not a temporary
+// effect. Same throttled-applyFeel pattern as feelSweep so the worker
+// isn't flooded mid-ramp.
+async function feelGenreReset(el, durationMs) {
+    const { GENRE_FEEL_POSITIONS } = await import('../feel/axes.js');
+    cancelFeelAnim(el);
+    const genre = el.querySelector('.pn-genre-select')?.value;
+    const targetPuck = GENRE_FEEL_POSITIONS[genre] || [0.5, 0.5];
+    const startPuck = el._feelState?.puck ? [...el._feelState.puck] : [0.5, 0.5];
+    const startBpm = el._tempo || 120;
+    const targetBpm = el._genreData?.[genre]?.bpm || 120;
+    const t0 = performance.now();
+    const token = { cancelled: false };
+    el._feelAnim = token;
+    pulseFeelButton(el, durationMs, 'genre-reset');
+    const STEP_MS = 100;
+    let last = -Infinity;
+    const tick = () => {
+        if (!el.isConnected || token.cancelled) return;
+        const now = performance.now();
+        const t = (now - t0) / durationMs;
+        if (t >= 1) {
+            el._applyFeel(clampPuck(targetPuck));
+            el._setTempo(Math.round(targetBpm));
+            if (el._feelAnim === token) el._feelAnim = null;
+            return;
+        }
+        if (now - last >= STEP_MS) {
+            last = now;
+            const e = Math.sin(t * Math.PI / 2);
+            const x = startPuck[0] + (targetPuck[0] - startPuck[0]) * e;
+            const y = startPuck[1] + (targetPuck[1] - startPuck[1]) * e;
+            el._applyFeel(clampPuck([x, y]));
+            el._setTempo(Math.round(startBpm + (targetBpm - startBpm) * e));
+        }
+        requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+}
+
+function feelSweep(el, target, durationMs) {
+    if (!Array.isArray(target) || target.length !== 2) return;
+    cancelFeelAnim(el);
+    const snap = snapshotFeelState(el);
+    const start = snap.puck;
+    const end = clampPuck(target);
+    const t0 = performance.now();
+    const token = { cancelled: false };
+    el._feelAnim = token;
+    pulseFeelButton(el, durationMs, 'feel-sweep');
+    // applyFeelGrid touches tempo + 8 FX sliders + Auto-DJ pools every
+    // call — running it at 60 Hz floods the worker with tempo changes
+    // (and is what made Build Up sound silent). Throttle to ~10 Hz.
+    const STEP_MS = 100;
+    let last = -Infinity;
+    const tick = () => {
+        if (!el.isConnected || token.cancelled) return;
+        const now = performance.now();
+        const t = (now - t0) / durationMs;
+        if (t >= 1) {
+            el._applyFeel(end);
+            // Brief settle at the target, then restore the captured
+            // pre-fire snapshot (puck + tempo + swing + humanize + the
+            // user's manual FX overrides). Without restoring FX
+            // explicitly, applyFeel(start) would re-blend the defaults
+            // for that puck position and stomp manual reverb / delay /
+            // distortion adjustments.
+            token.timeout = setTimeout(() => {
+                if (token.cancelled) return;
+                restoreFeelState(el, snap);
+                if (el._feelAnim === token) el._feelAnim = null;
+            }, 60);
+            return;
+        }
+        if (now - last >= STEP_MS) {
+            last = now;
+            const e = 0.5 - 0.5 * Math.cos(t * Math.PI);
+            const x = start[0] + (end[0] - start[0]) * e;
+            const y = start[1] + (end[1] - start[1]) * e;
+            el._applyFeel([x, y]);
+        }
+        requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
 }
 
 // --- One-shot row: snapshot / apply / reset / nav / favorites ---

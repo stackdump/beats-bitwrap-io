@@ -164,6 +164,28 @@ export function tempoHold(el, factor, durationMs) {
     }, durationMs);
 }
 
+// Tempo Anchor: snap tempo back to the current genre's standard BPM
+// for the duration, then restore the pre-fire tempo on release. Useful
+// when the puck or a sweep has drifted you off-grid and you want to
+// "land" briefly without committing to it.
+export function tempoAnchor(el, durationMs) {
+    const startBpm = el._tempo || 120;
+    const genre = el.querySelector('.pn-genre-select')?.value;
+    const targetBpm = el._genreData?.[genre]?.bpm || 120;
+    if (el._tempoAnim) {
+        el._tempoAnim.cancelled = true;
+        if (el._tempoAnim.timeout) clearTimeout(el._tempoAnim.timeout);
+    }
+    const token = { cancelled: false, startBpm };
+    el._tempoAnim = token;
+    el._setTempo(targetBpm);
+    token.timeout = setTimeout(() => {
+        if (token.cancelled) return;
+        el._setTempo(startBpm);
+        if (el._tempoAnim === token) el._tempoAnim = null;
+    }, durationMs);
+}
+
 // Tape Stop: ease-out ramp down to finalBpm, then snap back.
 //
 // Each tempo message makes the worker restartTimer() (clears + resets

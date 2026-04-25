@@ -101,9 +101,25 @@ export const MACROS = [
           { macroId: 'octave-down', offsetMs: 60 },
       ] },
 
+    // --- Feel ---
+    // Snap the Feel XY puck to a corner for the duration, restore on release.
+    // The corner names mirror the Feel modal's four labeled snapshots.
+    { id: 'feel-chill',     group: 'Feel', kind: 'feel-snap', label: 'Chill',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', target: [0, 0] },
+    { id: 'feel-drive',     group: 'Feel', kind: 'feel-snap', label: 'Drive',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', target: [1, 0] },
+    { id: 'feel-ambient',   group: 'Feel', kind: 'feel-snap', label: 'Ambient',   defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', target: [0, 1] },
+    { id: 'feel-euphoric',  group: 'Feel', kind: 'feel-snap', label: 'Euphoric',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', target: [1, 1] },
+    // Sweep-and-return: smoothly animate from current puck position to
+    // target over the duration, then snap back to the pre-fire position.
+    // Build Up = ramp to Euphoric (energy lift); Wind Down = ramp to Chill
+    // (energy fall). Classic build / breakdown gestures.
+    { id: 'feel-build',     group: 'Feel', kind: 'feel-sweep', label: 'Build Up', defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [1, 1] },
+    { id: 'feel-wind-down', group: 'Feel', kind: 'feel-sweep', label: 'Wind Down',defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [0, 0] },
+
     // --- Tempo ---
-    { id: 'half-time',    group: 'Tempo', kind: 'tempo-hold',  label: 'Half Time',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', factor: 0.5 },
-    { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep', label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
+    { id: 'half-time',    group: 'Tempo', kind: 'tempo-hold',   label: 'Half Time',  defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar', factor: 0.5 },
+    { id: 'tape-stop',    group: 'Tempo', kind: 'tempo-sweep',  label: 'Tape Stop',  defaultDuration: 1, durationOpts: [1, 2],       durationLabel: 'bar', durationUnit: 'bar', finalBpm: 22 },
+    { id: 'tempo-anchor', group: 'Tempo', kind: 'tempo-anchor', label: 'Anchor',     defaultDuration: 2, durationOpts: [1, 2, 4, 8], durationLabel: 'bar', durationUnit: 'bar' },
+    { id: 'tempo-reset',  group: 'Tempo', kind: 'genre-reset',  label: 'Reset',      defaultDuration: 4, durationOpts: [2, 4, 8, 16], durationLabel: 'bar', durationUnit: 'bar' },
 
     // --- One-shots ---
     // durationOpts = stutter repeat count. pitchOpts = per-hit transpose in

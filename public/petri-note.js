@@ -57,7 +57,7 @@ import { buildUI } from './lib/ui/build.js';
 import { toggleStage } from './lib/ui/stage.js';
 import {
     fxSweep, runBeatRepeat, runCompound,
-    setTempoTransient, tempoHold, tempoSweep,
+    setTempoTransient, tempoHold, tempoSweep, tempoAnchor,
     fxHold, cancelAllMacros,
 } from './lib/macros/effects.js';
 import {
@@ -571,6 +571,7 @@ class PetriNote extends HTMLElement {
     _setTempoTransient(bpm) { return setTempoTransient(this, bpm); }
     _tempoHold(factor, durationMs) { return tempoHold(this, factor, durationMs); }
     _tempoSweep(finalBpm, durationMs) { return tempoSweep(this, finalBpm, durationMs); }
+    _tempoAnchor(durationMs) { return tempoAnchor(this, durationMs); }
     _fxHold(fxKey, toValue, durationMs, tailFrac) { return fxHold(this, fxKey, toValue, durationMs, tailFrac); }
     _cancelAllMacros() { return cancelAllMacros(this); }
 
@@ -693,6 +694,13 @@ class PetriNote extends HTMLElement {
             this._setTempo(parseInt(input.value, 10) + step);
         }, { passive: false });
         this.querySelector('.pn-tap-tempo')?.addEventListener('click', () => this._tapTempo());
+        // Reset BPM to the current genre's default. Falls back to 120
+        // when the genre data hasn't loaded yet (e.g. very early boot).
+        this.querySelector('.pn-reset-tempo')?.addEventListener('click', () => {
+            const genre = this.querySelector('.pn-genre-select')?.value;
+            const defaultBpm = this._genreData?.[genre]?.bpm || 120;
+            this._setTempo(defaultBpm);
+        });
 
         // Track navigation
         this.querySelector('.pn-track-prev').addEventListener('click', () => this._navTrack(-1));

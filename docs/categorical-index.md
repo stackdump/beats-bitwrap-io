@@ -27,8 +27,8 @@ Modules: `euclidean.js` · `markov.js` · `theory.js` · `variety.js` · `struct
 
 Also: `ONESHOT_INSTRUMENTS` (31) at `public/lib/audio/oneshots.js:11`; per-genre default routing in `public/lib/generator/genre-instruments.js`.
 
-### C · Macros — natural transformations (34)
-`MACROS` — `public/lib/macros/catalog.js:36`. **Mute** (6) · **FX** (10) · **Pan** (5) · **Shape** (3) · **Pitch** (4) · **Tempo** (2) · **One-shot hits** (4). Runtime lives in `public/lib/macros/runtime.js` · `public/lib/macros/effects.js`.
+### C · Macros — natural transformations (42)
+`MACROS` — `public/lib/macros/catalog.js:36`. **Mute** (6) · **FX** (10) · **Pan** (5) · **Shape** (3) · **Pitch** (4) · **Feel** (6) · **Tempo** (4) · **One-shot hits** (4). Runtime lives in `public/lib/macros/runtime.js` · `public/lib/macros/effects.js`.
 
 ### D · Control actions — rejoin points
 Injected by `buildControlBundle` — `public/lib/generator/arrange.js:220`.

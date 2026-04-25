@@ -657,15 +657,19 @@ self.onmessage = function(e) {
             const durationTicks = Math.max(1, Math.round(msg.durationTicks || 16));
             const macroId = msg.macroId || `m${Date.now()}`;
             const muteAction = msg.muteAction || 'mute-track';
-            const restoreAction = msg.restoreAction || 'unmute-track';
+            // null / 'none' = permanent — apply the side effect and skip the
+            // restore control net entirely. User must un-mute manually.
+            const restoreAction = msg.restoreAction === null || msg.restoreAction === 'none'
+                ? null
+                : (msg.restoreAction || 'unmute-track');
             for (const target of targets) {
                 if (!project.nets[target]) continue;
-                // Apply the immediate side of the macro so there is zero tick latency.
                 if (muteAction === 'mute-track') mutedNets[target] = true;
                 else if (muteAction === 'unmute-track') mutedNets[target] = false;
-                // Inject a linear-chain control net that fires the restore after N ticks.
-                const netId = `${MACRO_NET_PREFIX}${macroId}:${target}`;
-                project.nets[netId] = buildMacroRestoreNet(netId, target, durationTicks, restoreAction);
+                if (restoreAction) {
+                    const netId = `${MACRO_NET_PREFIX}${macroId}:${target}`;
+                    project.nets[netId] = buildMacroRestoreNet(netId, target, durationTicks, restoreAction);
+                }
             }
             broadcastMuteState();
             break;

@@ -174,6 +174,26 @@ petri-note {
     color: #fff;
 }
 
+/* Reset BPM to current genre's default. Same shape as Tap, glyph-only,
+ * positioned right after Tap. */
+.pn-transport .pn-reset-tempo {
+    width: auto;
+    height: auto;
+    padding: 4px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.pn-transport .pn-reset-tempo:hover {
+    background: #0f3460;
+    border-color: #1a4a7a;
+    color: #fff;
+}
+
 /* Genre traits display */
 .pn-genre-traits {
     display: flex;
@@ -619,6 +639,17 @@ petri-note.pn-midi-enabled .pn-mixer-output {
 .pn-mixer-slider.pn-pulsing::-moz-range-thumb,
 .pn-fx-slider.pn-pulsing::-moz-range-thumb {
     background: #e94560;
+}
+
+/* Number inputs (BPM) pick up a clear background tint when pulsing —
+ * box-shadow alone is barely visible against the dark transport bar. */
+.pn-tempo input[type="number"].pn-pulsing {
+    background: rgba(233, 69, 96, 0.18);
+    border-color: #e94560;
+}
+.pn-tempo input[type="number"].pn-pulsing-hot {
+    background: rgba(233, 69, 96, 0.45);
+    color: #fff;
 }
 
 select.pn-mixer-slider {
@@ -1200,8 +1231,9 @@ input[type="range"][data-default] {
 
 .pn-macros-panel {
     display: flex;
-    gap: 28px;
-    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 14px 16px;
+    padding: 8px 12px;
     background: #0d1b2a;
     align-items: flex-start;
 }
@@ -1209,23 +1241,23 @@ input[type="range"][data-default] {
 .pn-macro-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    min-width: 180px;
+    gap: 3px;
+    min-width: 140px;
 }
 
 .pn-macro-group-label {
-    font-size: 10px;
+    font-size: 9px;
     color: #9aa;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 0 2px 2px;
+    letter-spacing: 0.6px;
+    padding: 0 2px 1px;
     border-bottom: 1px solid #0f3460;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
 }
 
 .pn-macro-item {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     align-items: center;
 }
 
@@ -1235,15 +1267,15 @@ input[type="range"][data-default] {
 }
 
 .pn-macro-btn {
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: 1px solid #0f3460;
     border-radius: 4px;
     background: #1a1a2e;
     color: #eee;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
-    min-width: 80px;
+    min-width: 70px;
 }
 
 .pn-macro-btn:hover {

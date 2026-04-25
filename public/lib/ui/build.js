@@ -163,6 +163,7 @@ export function buildUI(el) {
                 <input type="number" value="${el._tempo}" min="20" max="300" step="1"/>
                 <span>BPM</span>
                 <button class="pn-tap-tempo" title="Tap tempo (T) — 3+ taps sets BPM">Tap</button>
+                <button class="pn-reset-tempo" title="Reset to genre default BPM">&#8634;</button>
             </div>
         </div>
         <div class="pn-generate">
@@ -391,6 +392,7 @@ export function buildUI(el) {
                 <label><input type="checkbox" class="pn-autodj-pool" value="Pan"   checked>Pan</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Shape" checked>Shape</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Pitch">Pitch</label>
+                <label><input type="checkbox" class="pn-autodj-pool" value="Feel">Feel</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Tempo">Tempo</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Beats">Beats</label>
                 <label title="Only fires on regen boundaries — curated sweeps/washes/risers for track transitions"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
@@ -477,9 +479,17 @@ export function buildUI(el) {
                         <div class="pn-macro-group-label">${label}</div>
                         ${items.map(m => {
                             const needsDuration = m.durationOpts.length > 1 || (m.durationLabel && m.durationLabel.length > 0);
+                            // Kinds where "∞" (permanent — fire and don't auto-restore) is meaningful.
+                            const permKinds = new Set(['mute', 'fx-sweep', 'fx-hold', 'pan-move', 'decay-move', 'tempo-hold', 'tempo-anchor', 'feel-snap']);
+                            const opts = permKinds.has(m.kind) && !m.durationOpts.includes(0)
+                                ? [...m.durationOpts, 0]
+                                : m.durationOpts;
+                            const renderOpt = (v) => v === 0
+                                ? `<option value="0" title="Permanent — apply and do not auto-restore">∞</option>`
+                                : `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`;
                             const selectHtml = needsDuration
                                 ? `<select class="pn-macro-bars" data-macro="${m.id}" title="Duration">
-                                       ${m.durationOpts.map(v => `<option value="${v}"${v===m.defaultDuration?' selected':''}>${v} ${m.durationLabel}${v===1?'':'s'}</option>`).join('')}
+                                       ${opts.map(renderOpt).join('')}
                                    </select>`
                                 : '';
                             const pitchHtml = m.pitchOpts
