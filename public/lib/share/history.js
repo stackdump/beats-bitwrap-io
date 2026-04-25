@@ -80,6 +80,39 @@ export function recordSeen(cid, payload) {
     upsert(cid, projectPayload(payload), null);
 }
 
+// Explicit bookmark — fired from the feed-card ★ button. Distinct
+// action tag so the history view can badge it differently from
+// shared / rendered / seen.
+export function recordBookmarked(cid, payload) {
+    upsert(cid, projectPayload(payload), 'bookmarked');
+}
+
+// Remove the bookmarked tag (and the entry entirely if it was the
+// only action). The toggle counterpart to recordBookmarked.
+export function unrecordBookmarked(cid) {
+    if (!cid) return;
+    const list = listHistory();
+    const i = list.findIndex(e => e.cid === cid);
+    if (i < 0) return;
+    const entry = list[i];
+    const actions = (entry.actions || []).filter(a => a !== 'bookmarked');
+    list.splice(i, 1);
+    if (actions.length > 0) {
+        entry.actions = actions;
+        list.unshift(entry);
+    }
+    // else: drop the row entirely
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
+}
+
+// Quick lookup — used by the feed card to render the ★ in the
+// correct state on first paint.
+export function isBookmarked(cid) {
+    const list = listHistory();
+    const e = list.find(x => x.cid === cid);
+    return !!(e && (e.actions || []).includes('bookmarked'));
+}
+
 function projectPayload(p) {
     if (!p || typeof p !== 'object') return {};
     return {

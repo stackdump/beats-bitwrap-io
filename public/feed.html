@@ -115,21 +115,27 @@
     white-space: nowrap;
   }
   .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
-  .card-add {
+  .card-actions {
     position: absolute;
     top: 8px; right: 8px;
+    display: flex;
+    gap: 4px;
+  }
+  .card-actions button {
     background: rgba(0,0,0,0.7);
     color: #9ad;
     border: 1px solid #2a3a4a;
     border-radius: 4px;
     width: 28px; height: 28px;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1;
     backdrop-filter: blur(2px);
+    padding: 0;
   }
-  .card-add:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  .card-actions button:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
   .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
+  .card-bm[data-bm="true"] { background: #3a2a08; border-color: #6a4a18; color: #fc6; }
   .empty, .loading, .end {
     padding: 48px 0;
     text-align: center;
@@ -260,15 +266,17 @@
     justify-content: space-between;
     margin-top: 2px;
   }
-  .pl-clear {
+  .pl-clear, .pl-export {
     background: transparent;
     border: none;
-    color: #a55;
     cursor: pointer;
     font-size: 11px;
     padding: 0;
     text-decoration: underline;
   }
+  .pl-clear { color: #a55; }
+  .pl-export { color: #9ad; }
+  .pl-export:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
   .pl-empty {
     text-align: center;
     color: #555;
@@ -320,7 +328,10 @@
     </div>
     <div class="pl-meta">
       <span id="pl-count">0 tracks</span>
-      <button class="pl-clear" id="pl-clear">clear</button>
+      <span style="display:flex;gap:10px">
+        <button class="pl-export" id="pl-export" title="Download as JSON-LD MusicPlaylist">export</button>
+        <button class="pl-clear" id="pl-clear">clear</button>
+      </span>
     </div>
     <div class="pl-list" id="pl-list"></div>
   </aside>
@@ -331,6 +342,9 @@
   — reuse with attribution to beats.bitwrap.io
 </footer>
 <script type="module">
+import { recordBookmarked, unrecordBookmarked, isBookmarked }
+  from '/lib/share/history.js';
+
 const GENRES = [
   'ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage',
   'house','jazz','lofi','metal','reggae','speedcore','synthwave','techno','trance','trap',
@@ -355,6 +369,7 @@ const nowSub = document.getElementById('pl-now-sub');
 const plList = document.getElementById('pl-list');
 const plCount = document.getElementById('pl-count');
 const plClear = document.getElementById('pl-clear');
+const plExport = document.getElementById('pl-export');
 
 for (const g of GENRES) {
   const o = document.createElement('option');
@@ -462,6 +477,46 @@ const clearPlaylist = () => {
   syncCardAddButtons();
 };
 plClear.addEventListener('click', clearPlaylist);
+
+// Export the current playlist as a schema.org MusicPlaylist JSON-LD
+// document. Each track is a MusicRecording keyed by CID; the URL
+// roundtrips back to the player. The downloaded file is a clean
+// interchange format for sharing playlists between tools.
+const exportPlaylistJsonld = () => {
+  if (!playlist.length) return;
+  const origin = location.origin;
+  const tracks = playlist.map((t, i) => ({
+    '@type': 'MusicRecording',
+    'identifier': t.cid,
+    'name': trackTitle(t),
+    'genre': t.genre || undefined,
+    'url': `${origin}/?cid=${encodeURIComponent(t.cid)}`,
+    'audio': `${origin}/audio/${encodeURIComponent(t.cid)}.webm`,
+    'position': i + 1,
+  }));
+  const doc = {
+    '@context': 'https://schema.org',
+    '@type': 'MusicPlaylist',
+    'name': `beats.bitwrap.io playlist (${playlist.length})`,
+    'numTracks': playlist.length,
+    'license': 'https://creativecommons.org/licenses/by/4.0/',
+    'copyrightNotice': 'CC BY 4.0 — beats.bitwrap.io',
+    'dateCreated': new Date().toISOString(),
+    'track': tracks,
+  };
+  const blob = new Blob([JSON.stringify(doc, null, 2)],
+                       { type: 'application/ld+json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  a.download = `beats-playlist-${stamp}.jsonld`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+plExport.addEventListener('click', exportPlaylistJsonld);
 
 const trackTitle = (t) => t.name || `${t.genre || 'track'} · ${t.seed}`;
 
@@ -585,6 +640,7 @@ document.addEventListener('visibilitychange', () => {
 
 const renderPlaylist = () => {
   plCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
+  plExport.disabled = playlist.length === 0;
   if (playlist.length === 0) {
     plList.innerHTML = `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
     return;
@@ -625,6 +681,16 @@ const syncCardAddButtons = () => {
   }
 };
 
+const syncCardBookmarkButtons = () => {
+  for (const btn of grid.querySelectorAll('.card-bm')) {
+    const on = isBookmarked(btn.dataset.cid);
+    btn.dataset.bm = on ? 'true' : 'false';
+    btn.title = on
+      ? 'Bookmarked — click to remove'
+      : 'Bookmark — saves to your local history with the bookmarked tag';
+  }
+};
+
 // ----- Grid rendering -----
 let cursor = 0;
 let loading = false;
@@ -650,7 +716,10 @@ const renderCard = (t) => {
         <div class="card-sub"></div>
       </div>
     </a>
-    <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
+    <div class="card-actions">
+      <button class="card-bm" data-cid="${t.cid}" title="Bookmark — saves to your local history with the bookmarked tag">★</button>
+      <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
+    </div>
   `;
   card.querySelector('.card-title').textContent = title;
   card.querySelector('.card-sub').textContent = sub;
@@ -660,6 +729,21 @@ const renderCard = (t) => {
     e.stopPropagation();
     if (isInPlaylist(t.cid)) removeFromPlaylist(t.cid);
     else addToPlaylist(t);
+  });
+  const bmBtn = card.querySelector('.card-bm');
+  bmBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isBookmarked(t.cid)) {
+      unrecordBookmarked(t.cid);
+    } else {
+      // Pass the projected payload so the history modal can show
+      // the right name / genre / tempo without another fetch.
+      recordBookmarked(t.cid, {
+        name: t.name, genre: t.genre, tempo: t.tempo, seed: t.seed,
+      });
+    }
+    syncCardBookmarkButtons();
   });
   return card;
 };
@@ -703,6 +787,7 @@ const fetchPage = async () => {
       stateEl.style.display = 'none';
     }
     syncCardAddButtons();
+    syncCardBookmarkButtons();
   } catch (err) {
     stateEl.textContent = `Failed to load: ${err.message}`;
     stateEl.style.display = 'block';
