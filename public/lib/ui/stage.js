@@ -35,6 +35,8 @@ export function openStage(el) {
             <button data-viz="pulse" class="active" aria-pressed="true" title="Pulse — beats fade toward center">&#9678;</button>
             <button data-viz="flame" class="active" aria-pressed="true" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
+            <button data-viz="wave" aria-pressed="false" title="Wave — oscilloscope from master output">&#8767;</button>
+            <button data-viz="spectrum" aria-pressed="false" title="Spectrum — FFT bars from master output">&#9783;</button>
             <button class="pn-stage-feel" title="Feel (F)">&#9672;</button>
             <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
@@ -69,6 +71,7 @@ export function openStage(el) {
         <button class="pn-stage-fullscreen" aria-pressed="false" title="Fullscreen">&#9974;</button>
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
         <canvas class="pn-stage-bg" aria-hidden="true"></canvas>
+        <canvas class="pn-stage-scope" aria-hidden="true"></canvas>
         <div class="pn-stage-grid">
             <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
             <svg class="pn-stage-meta" aria-hidden="true"></svg>
@@ -122,6 +125,7 @@ export function openStage(el) {
 
     session.onResize = () => {
         sizeBgCanvas();
+        sizeScopeCanvas();
         layoutRing(session);
         for (const p of session.panels) layoutPanel(p);
     };
@@ -237,6 +241,13 @@ export function openStage(el) {
     session.bgCanvas = bg;
     session.bgCtx = bg.getContext('2d');
     sizeBgCanvas();
+    // Scope canvas — shared by wave (oscilloscope) + spectrum (FFT bars). Sized
+    // to overlay; lazy analyser tap on the master chain (post-FX so the bars
+    // mirror exactly what the speakers hear).
+    const scope = overlay.querySelector('.pn-stage-scope');
+    session.scopeCanvas = scope;
+    session.scopeCtx = scope.getContext('2d');
+    sizeScopeCanvas();
     overlay.querySelector('.pn-stage-bgmode').addEventListener('change', (e) => {
         session.bgMode = e.target.value;
         // Clear on switch so the prior mode's pixels don't linger one
@@ -977,6 +988,19 @@ function startLoop() {
             session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
             session.flameEnergy.clear();
         }
+        // Output-driven viz: oscilloscope + spectrum, both reading the
+        // master analyser tap. Cleared every frame so toggling off leaves
+        // no stale pixels.
+        const waveOn = session.vizModes.has('wave');
+        const spectrumOn = session.vizModes.has('spectrum');
+        if (waveOn || spectrumOn) {
+            session.scopeCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            if (spectrumOn) renderSpectrum();
+            if (waveOn) renderWave();
+        } else if (session._scopeWasOn) {
+            session.scopeCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        }
+        session._scopeWasOn = waveOn || spectrumOn;
         // Electric bolts draw on top of the flame canvas when they're
         // alive — whether or not flame mode is on. They only spawn
         // during macros (see stageOnTransitionFired), so there's no
@@ -1082,6 +1106,80 @@ function sizeBgCanvas() {
     session.bgCanvas.style.width = `${w}px`;
     session.bgCanvas.style.height = `${h}px`;
     session.bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function sizeScopeCanvas() {
+    if (!session?.scopeCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth, h = window.innerHeight;
+    session.scopeCanvas.width = Math.round(w * dpr);
+    session.scopeCanvas.height = Math.round(h * dpr);
+    session.scopeCanvas.style.width = `${w}px`;
+    session.scopeCanvas.style.height = `${h}px`;
+    session.scopeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// Read post-FX waveform off the master chain and trace it as a centered
+// horizontal line. Bottom strip so it doesn't fight the rings overhead.
+function renderWave() {
+    if (!session?.scopeCtx) return;
+    const ctx = session.scopeCtx;
+    const w = window.innerWidth, h = window.innerHeight;
+    const engine = session.el?._engine || (window.toneEngine ?? null);
+    const a = engine?.getMasterAnalyser?.('waveform', 1024);
+    if (!a) return;
+    let data;
+    try { data = a.getValue(); } catch { return; }
+    const stripH = Math.min(220, h * 0.22);
+    const y0 = h - stripH - 24;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(103, 232, 249, 0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = 'rgba(8, 145, 178, 0.6)';
+    ctx.shadowBlur = 8;
+    const n = data.length;
+    for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * w;
+        const v = Math.max(-1, Math.min(1, data[i]));
+        const y = y0 + (stripH / 2) * (1 - v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+// Read FFT magnitudes off the master chain and draw centered mirrored bars
+// across the bottom — equalizer style. dB values come back roughly in the
+// [-100, 0] range; remap to [0, 1] for bar height.
+function renderSpectrum() {
+    if (!session?.scopeCtx) return;
+    const ctx = session.scopeCtx;
+    const w = window.innerWidth, h = window.innerHeight;
+    const engine = session.el?._engine || (window.toneEngine ?? null);
+    const a = engine?.getMasterAnalyser?.('fft', 64);
+    if (!a) return;
+    let data;
+    try { data = a.getValue(); } catch { return; }
+    const n = data.length;
+    const stripH = Math.min(260, h * 0.28);
+    const y0 = h - 24;
+    const barW = w / n;
+    ctx.save();
+    for (let i = 0; i < n; i++) {
+        const db = Math.max(-100, Math.min(0, data[i]));
+        const norm = (db + 100) / 100; // 0..1
+        const bh = norm * stripH;
+        const x = i * barW;
+        // Hue sweeps cool→warm with energy so quiet bars stay icy.
+        const hue = 200 - norm * 160;
+        const grad = ctx.createLinearGradient(0, y0 - bh, 0, y0);
+        grad.addColorStop(0, `hsla(${hue}, 90%, 65%, 0.95)`);
+        grad.addColorStop(1, `hsla(${hue}, 70%, 45%, 0.25)`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(x + 2, y0 - bh, barW - 4, bh);
+    }
+    ctx.restore();
 }
 
 function spawnStars() {

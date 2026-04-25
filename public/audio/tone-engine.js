@@ -2454,7 +2454,28 @@ class ToneEngine {
         this._hpFilter?.dispose();
         this._masterComp?.dispose();
         this._masterVolume?.dispose();
+        this._waveAnalyser?.dispose(); this._waveAnalyser = null;
+        this._fftAnalyser?.dispose(); this._fftAnalyser = null;
         this._started = false;
+    }
+
+    // Lazy-create an analyser tap on the master chain so visualizers can read
+    // post-FX output. Type is 'waveform' (oscilloscope) or 'fft' (spectrum).
+    // Returns the underlying Tone.Analyser, or null if the chain isn't up yet.
+    getMasterAnalyser(type = 'waveform', size = 1024) {
+        if (!this._masterComp || typeof Tone === 'undefined') return null;
+        const cacheKey = type === 'fft' ? '_fftAnalyser' : '_waveAnalyser';
+        if (this[cacheKey]) return this[cacheKey];
+        try {
+            const a = new Tone.Analyser(type === 'fft' ? 'fft' : 'waveform', size);
+            // Tap at the very last pre-destination node so we capture the same
+            // signal the speakers hear, including all master FX.
+            this._masterComp.connect(a);
+            this[cacheKey] = a;
+            return a;
+        } catch {
+            return null;
+        }
     }
 }
 

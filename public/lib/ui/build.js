@@ -190,7 +190,7 @@ export function buildUI(el) {
             <button class="pn-feel-open" title="Feel — abstract performance sliders">&#9672;</button>
             <button class="pn-generate-btn" title="Generate new track">Generate</button>
             <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
-            <button class="pn-stage-btn" title="Stage — full-page animated view (M)" aria-label="Open Stage">&#9635; Stage</button>
+            <button class="pn-stage-btn" title="Mandala — full-page ring-of-rings visualizer (M)" aria-label="Open Mandala">&#9678; Mandala</button>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
             <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
             <button class="pn-download-btn" title="Download track as JSON-LD">&#x2B07;</button>

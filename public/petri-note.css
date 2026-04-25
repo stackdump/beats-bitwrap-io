@@ -2626,6 +2626,15 @@ input[type="range"][data-default] {
     pointer-events: none;
 }
 
+/* Output-driven scope canvas (Wave + Spectrum modes). Sits above the
+ * background but below the meta grid so the rings still own the eye. */
+.pn-stage-scope {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
 /* Share card flash — briefly appears on track change when the
  * cardflash toggle is on, so a recording captures genre/seed/tempo
  * plus a scannable QR. */
