@@ -357,7 +357,12 @@ class PetriNote extends HTMLElement {
             const hasShareUrl = location.search.includes('cid=');
             if (!hasShareUrl) {
                 try {
-                    const seed = (Math.random() * 0xffffffff) | 0;
+                    // `>>> 0` keeps the seed unsigned (0..2³²−1) — the
+                    // older `| 0` made half of all auto-generated tracks
+                    // surface as negative integers in the feed/player UI.
+                    // Both seeds drive the same mulberry32 PRNG since it
+                    // normalizes via >>> 0 internally.
+                    const seed = (Math.random() * 0xffffffff) >>> 0;
                     this._project = compose('techno', { seed });
                     this._currentGen = { genre: 'techno', params: { seed } };
                     // Tell connectWorker we already have a project so the

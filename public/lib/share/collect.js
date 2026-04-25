@@ -177,6 +177,14 @@ export function buildSharePayload(el) {
         bars,
         structure: params.structure || el.querySelector('.pn-structure-select')?.value || null,
     };
+    // Composer mints names like "techno · Crystal Ember" onto _project.name.
+    // Sealing them into the envelope means the feed and player can show the
+    // human label instead of "{genre} · {seed}". Skip pure "Untitled" /
+    // "{genre}" defaults so they don't bloat hand-authored shares.
+    const projName = (el._project?.name || '').trim();
+    if (projName && projName !== 'Untitled' && projName.toLowerCase() !== genre) {
+        payload.name = projName.slice(0, 60);
+    }
     const traits = {};
     for (const [k, v] of Object.entries(params)) {
         if (k === 'seed' || k === 'structure') continue;
