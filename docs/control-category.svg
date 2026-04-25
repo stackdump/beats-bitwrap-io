@@ -224,7 +224,11 @@
       <rect x="70" y="535" width="120" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>
       <text x="130" y="550" text-anchor="middle">FX master</text>
       <rect x="200" y="535" width="120" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>
-      <text x="260" y="550" text-anchor="middle">Stage viz</text>
+      <text x="260" y="550" text-anchor="middle">Share (CID)</text>
+      <rect x="70" y="565" width="250" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>
+      <text x="195" y="580" text-anchor="middle">Stage viz: Constellation · Corona · Sonar · Petal</text>
+      <rect x="70" y="592" width="250" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>
+      <text x="195" y="607" text-anchor="middle">Layers: Flow · Pulse · Flame · Tilt · Variants ⇆</text>
       <rect x="70" y="620" width="250" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>
       <text x="195" y="635" text-anchor="middle">Keys: Space G S F M J A P B R T</text>
       <rect x="70" y="650" width="250" height="22" rx="11" fill="#1e293b" stroke="#94a3b8"/>

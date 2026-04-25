@@ -42,7 +42,12 @@ Sizes: `minimal` / `standard` / `extended`.
 Archetypes: intro · verse · pre-chorus · chorus · drop · buildup · breakdown · bridge · solo · outro.
 
 ### F · Perform — operator surface
-Mixer panel · Auto-DJ (bars / stack / regen / animate-only) · Feel XY (Chill / Drive / Ambient / Euphoric + 19-genre constellation) · Beats pads (hit1–hit4) · FX master chain · Stage-mode viz (Flow / Pulse / Flame / Tilt) · keyboard shortcuts (Space · G · S · F · M · J · A · P · B · R · T · , · . · 1–4 · [ · ] · arrows · ? · Esc).
+Mixer panel · Auto-DJ (bars / stack / regen / animate-only) · Feel XY (Chill / Drive / Ambient / Euphoric + 19-genre constellation) · Beats pads (hit1–hit4) · FX master chain · Stage mode (`M`) · keyboard shortcuts (Space · G · S · F · M · J · A · P · B · R · T · , · . · 1–4 · [ · ] · arrows · ? · Esc).
+
+**Stage mode** has two orthogonal axes:
+- **Visualizers** (4): `Constellation` (default — ring of per-track sub-Petri-nets, also called *mandala* in source) · `Corona` · `Sonar` · `Petal`
+- **Layers** (4, stack independently): `Flow` (panel drift) · `Pulse` (beat particles toward composition core) · `Flame` (per-panel ignition on each fire) · `Tilt` (3D sweep)
+- **Expand `⇆`** — toggles "show variants": collapsed shows the active A/B/C subnet per slot, expanded interleaves all variants into a denser mandala.
 
 ### G · Share — the IR
 `public/schema/beats-share.schema.json` envelope fields: `genre` · `seed` · `tempo` · `swing` · `humanize` · `structure` · `traits` · `tracks` · `fx` · `feel` · `autoDj` · `macrosDisabled` · `initialMutes` · `hits` · `ui` · `loop` · `nets?`. Plus the arrange DSL fields (`arrangeSeed` · `velocityDeltas` · `maxVariants` · `fadeIn` · `drumBreak` · `sections` · `feelCurve` · `macroCurve`) when structure is set. Everything in branches A–F collapses through this schema into a CID-addressed URL.
