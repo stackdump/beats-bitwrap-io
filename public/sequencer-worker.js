@@ -268,7 +268,39 @@ function fastForwardTo(targetTick) {
 
 // --- Tick ---
 
+// Mobile lock-screen catch-up. setInterval gets throttled to ~1 Hz on
+// backgrounded mobile tabs; without catch-up the song slows to a crawl.
+// On every fire we measure real elapsed time and, if > 1.5× the expected
+// interval, advance through the missed ticks in one batch so the song
+// stays in time. Beats may clump on each fire (the broadcast still goes
+// out as fast as we can post()) but the *song state* doesn't fall
+// behind the audio clock.
+let _lastTickAt = 0;
 function tick() {
+    if (!project) return;
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const interval = tickInterval();
+    const elapsed = _lastTickAt ? now - _lastTickAt : interval;
+    _lastTickAt = now;
+    let catchUp = 0;
+    // Cap catch-up at 1.5 seconds of missed ticks so a long suspension
+    // doesn't trigger a multi-second blast of buffered events.
+    const maxCatchUp = Math.min(64, Math.floor(1500 / interval));
+    if (elapsed > interval * 1.5) {
+        catchUp = Math.min(maxCatchUp, Math.floor(elapsed / interval) - 1);
+    }
+    for (let i = 0; i < catchUp; i++) {
+        // Each missed tick still fires its events (state evolution +
+        // control events). Audio on the main thread is best-effort for
+        // the burst — the goal is to keep the song *state* in sync.
+        if (!project) return;
+        _advanceOneTick();
+    }
+    _advanceOneTick();
+}
+
+// Per-tick advance — extracted so catch-up can run it in a loop.
+function _advanceOneTick() {
     if (!project) return;
 
     tickCount++;
@@ -379,6 +411,9 @@ function restartTimer() {
         timerId = null;
     }
     if (playing) {
+        // Reset the catch-up baseline so a tempo change or play-start
+        // doesn't trigger spurious catch-up against the prior interval.
+        _lastTickAt = 0;
         timerId = setInterval(tick, tickInterval());
     }
 }
