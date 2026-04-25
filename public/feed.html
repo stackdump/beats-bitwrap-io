@@ -15,16 +15,16 @@
     padding: 0;
   }
   header {
-    padding: 24px 32px;
+    padding: 16px 24px;
     border-bottom: 1px solid #1a1a1a;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     flex-wrap: wrap;
   }
   header h1 {
     margin: 0;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
     letter-spacing: 0.02em;
   }
@@ -36,65 +36,100 @@
     margin-left: auto;
     font-size: 13px;
     color: #888;
+    flex-wrap: wrap;
   }
-  .filters select {
+  .filters select, .filters input[type="search"] {
     background: #111;
     color: #ddd;
     border: 1px solid #2a2a2a;
     border-radius: 4px;
-    padding: 4px 8px;
+    padding: 5px 9px;
     font-size: 13px;
+    font-family: inherit;
   }
-  .filters .rss {
+  .filters input[type="search"] {
+    min-width: 180px;
+  }
+  .filters .rss, .filters .pn-toggle-pl {
     color: #9ad;
     text-decoration: none;
     font-size: 12px;
+    background: transparent;
+    border: 1px solid #2a3a4a;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
   }
-  .filters .rss:hover { text-decoration: underline; }
+  .filters .rss:hover, .filters .pn-toggle-pl:hover { border-color: #4a5a7a; }
+  .pn-toggle-pl[data-active="true"] {
+    background: #1a2a3a;
+    color: #fff;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .layout[data-pl="open"] {
+    grid-template-columns: 1fr 360px;
+  }
   main {
-    padding: 24px 32px;
+    padding: 20px 24px;
+    min-width: 0;
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
   }
   .card {
     background: #0d0d0d;
     border: 1px solid #1a1a1a;
     border-radius: 8px;
     overflow: hidden;
-    text-decoration: none;
     color: inherit;
     display: flex;
     flex-direction: column;
+    position: relative;
     transition: border-color 0.15s, transform 0.15s;
   }
   .card:hover {
     border-color: #3a3a4a;
     transform: translateY(-2px);
   }
+  .card-link { color: inherit; text-decoration: none; display: block; }
   .card-art {
     aspect-ratio: 1200 / 630;
     background: #000;
     display: block;
     width: 100%;
   }
-  .card-meta {
-    padding: 12px 14px;
-    font-size: 13px;
-    line-height: 1.5;
-  }
+  .card-meta { padding: 12px 14px 14px; font-size: 13px; line-height: 1.4; }
   .card-title {
     font-weight: 600;
     color: #eee;
     margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .card-sub {
-    color: #888;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
+  .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .card-add {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: rgba(0,0,0,0.7);
+    color: #9ad;
+    border: 1px solid #2a3a4a;
+    border-radius: 4px;
+    width: 28px; height: 28px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    backdrop-filter: blur(2px);
   }
+  .card-add:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
   .empty, .loading, .end {
     padding: 48px 0;
     text-align: center;
@@ -104,7 +139,7 @@
   .more-btn {
     display: block;
     margin: 32px auto 16px;
-    padding: 10px 22px;
+    padding: 9px 22px;
     background: #1a1a2e;
     color: #ddd;
     border: 1px solid #2a2a3a;
@@ -113,14 +148,140 @@
     cursor: pointer;
   }
   .more-btn:hover { border-color: #3a3a5a; }
-  .more-btn:disabled { opacity: 0.5; cursor: default; }
+  /* Playlist sidebar — draws on the right edge of the layout. Sticky
+     so the audio + transport stay in view while scrolling the grid. */
+  aside.playlist {
+    border-left: 1px solid #1a1a1a;
+    background: #08080a;
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .layout[data-pl="open"] aside.playlist { display: flex; }
+  .pl-now {
+    border: 1px solid #1a1a1a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #050505;
+  }
+  .pl-now-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #eee;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pl-now-sub { font-size: 11px; color: #777; margin-top: 2px; }
+  .pl-now audio { width: 100%; height: 32px; margin-top: 8px; }
+  .pl-controls {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+  .pl-controls button {
+    flex: 1;
+    background: #1a1a2e;
+    color: #ddd;
+    border: 1px solid #2a2a3a;
+    border-radius: 4px;
+    padding: 5px 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-controls button:hover { border-color: #3a3a5a; }
+  .pl-controls button:disabled { opacity: 0.4; cursor: default; }
+  .pl-list {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #1a1a1a;
+    border-radius: 6px;
+    background: #050505;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pl-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .pl-item:hover { background: #111; }
+  .pl-item[data-current="true"] {
+    background: #142028;
+    border-left: 2px solid #67e8f9;
+  }
+  .pl-item-num {
+    width: 22px;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .pl-item[data-current="true"] .pl-item-num { color: #67e8f9; }
+  .pl-item-meta { flex: 1; min-width: 0; overflow: hidden; }
+  .pl-item-title {
+    color: #ddd;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pl-item-sub {
+    color: #666;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pl-item-remove {
+    background: transparent;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+  .pl-item-remove:hover { color: #c66; }
+  .pl-meta {
+    font-size: 11px;
+    color: #555;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+  }
+  .pl-clear {
+    background: transparent;
+    border: none;
+    color: #a55;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .pl-empty {
+    text-align: center;
+    color: #555;
+    font-size: 12px;
+    padding: 32px 8px;
+  }
   footer {
-    padding: 16px 32px 28px;
+    padding: 14px 24px 22px;
     border-top: 1px solid #1a1a1a;
     color: #666;
     font-size: 11px;
     letter-spacing: 0.04em;
-    margin-top: 32px;
+    margin-top: 24px;
   }
   footer a { color: #9ad; text-decoration: none; }
   footer a:hover { text-decoration: underline; }
@@ -130,19 +291,40 @@
 <header>
   <h1><a href="/">beats.bitwrap.io</a> · feed</h1>
   <div class="filters">
+    <input type="search" id="search" placeholder="search by name or seed…" autocomplete="off">
     <label>genre
       <select id="genre">
         <option value="">all</option>
       </select>
     </label>
+    <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
   </div>
 </header>
-<main>
-  <div id="grid" class="grid"></div>
-  <div id="state" class="loading">Loading…</div>
-  <button id="more" class="more-btn" hidden>Load more</button>
-</main>
+<div class="layout" id="layout">
+  <main>
+    <div id="grid" class="grid"></div>
+    <div id="state" class="loading">Loading…</div>
+    <button id="more" class="more-btn" hidden>Load more</button>
+  </main>
+  <aside class="playlist">
+    <div class="pl-now" id="pl-now">
+      <div class="pl-now-title" id="pl-now-title">No track loaded</div>
+      <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
+      <audio id="pl-audio" controls preload="none"></audio>
+      <div class="pl-controls">
+        <button id="pl-prev" title="Previous">◀◀</button>
+        <button id="pl-play" title="Play / pause">▶</button>
+        <button id="pl-next" title="Next">▶▶</button>
+      </div>
+    </div>
+    <div class="pl-meta">
+      <span id="pl-count">0 tracks</span>
+      <button class="pl-clear" id="pl-clear">clear</button>
+    </div>
+    <div class="pl-list" id="pl-list"></div>
+  </aside>
+</div>
 <footer>
   Tracks
   <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
@@ -153,10 +335,25 @@ const GENRES = [
   'ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage',
   'house','jazz','lofi','metal','reggae','speedcore','synthwave','techno','trance','trap',
 ];
+const PL_KEY = 'pn-playlist';
+const PL_OPEN_KEY = 'pn-playlist-open';
+
 const grid = document.getElementById('grid');
-const state = document.getElementById('state');
+const stateEl = document.getElementById('state');
 const more = document.getElementById('more');
 const genreSel = document.getElementById('genre');
+const search = document.getElementById('search');
+const toggleBtn = document.getElementById('toggle-pl');
+const layout = document.getElementById('layout');
+const audioEl = document.getElementById('pl-audio');
+const playBtn = document.getElementById('pl-play');
+const prevBtn = document.getElementById('pl-prev');
+const nextBtn = document.getElementById('pl-next');
+const nowTitle = document.getElementById('pl-now-title');
+const nowSub = document.getElementById('pl-now-sub');
+const plList = document.getElementById('pl-list');
+const plCount = document.getElementById('pl-count');
+const plClear = document.getElementById('pl-clear');
 
 for (const g of GENRES) {
   const o = document.createElement('option');
@@ -166,95 +363,295 @@ for (const g of GENRES) {
 
 const url = new URL(location.href);
 genreSel.value = url.searchParams.get('genre') || '';
+search.value = url.searchParams.get('q') || '';
 
-let cursor = 0; // before timestamp; 0 = newest
+// ----- Playlist state -----
+let playlist = [];
+let current = -1;
+try { playlist = JSON.parse(localStorage.getItem(PL_KEY) || '[]'); } catch {}
+if (!Array.isArray(playlist)) playlist = [];
+
+const savePlaylist = () => {
+  try { localStorage.setItem(PL_KEY, JSON.stringify(playlist)); } catch {}
+};
+
+const setPaneOpen = (open) => {
+  layout.dataset.pl = open ? 'open' : 'closed';
+  toggleBtn.dataset.active = open ? 'true' : 'false';
+  try { localStorage.setItem(PL_OPEN_KEY, open ? '1' : '0'); } catch {}
+};
+setPaneOpen(localStorage.getItem(PL_OPEN_KEY) === '1' || playlist.length > 0);
+toggleBtn.addEventListener('click', () => {
+  setPaneOpen(layout.dataset.pl !== 'open');
+});
+
+const fmtTime = (ms) => {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return Math.round(diff / 60_000) + 'm ago';
+  if (diff < 86_400_000) return Math.round(diff / 3_600_000) + 'h ago';
+  if (diff < 7 * 86_400_000) return Math.round(diff / 86_400_000) + 'd ago';
+  return new Date(ms).toLocaleDateString();
+};
+
+const isInPlaylist = (cid) => playlist.some(p => p.cid === cid);
+
+const addToPlaylist = (track) => {
+  if (isInPlaylist(track.cid)) return;
+  playlist.push({
+    cid: track.cid,
+    name: track.name || '',
+    genre: track.genre || '',
+    tempo: track.tempo || 0,
+    seed: track.seed || 0,
+  });
+  savePlaylist();
+  setPaneOpen(true);
+  renderPlaylist();
+  syncCardAddButtons();
+};
+
+const removeFromPlaylist = (cid) => {
+  const i = playlist.findIndex(p => p.cid === cid);
+  if (i < 0) return;
+  playlist.splice(i, 1);
+  if (current === i) {
+    // Currently-playing track removed: stop and re-pin to whatever
+    // landed at this index (or back off if we trimmed the tail).
+    audioEl.pause();
+    audioEl.removeAttribute('src');
+    current = Math.min(current, playlist.length - 1);
+    if (current >= 0) loadCurrent(false);
+    else clearNow();
+  } else if (current > i) {
+    current--; // index shifted left
+  }
+  savePlaylist();
+  renderPlaylist();
+  syncCardAddButtons();
+};
+
+const clearPlaylist = () => {
+  if (!playlist.length) return;
+  if (!confirm('Clear the playlist?')) return;
+  playlist = [];
+  current = -1;
+  audioEl.pause();
+  audioEl.removeAttribute('src');
+  clearNow();
+  savePlaylist();
+  renderPlaylist();
+  syncCardAddButtons();
+};
+plClear.addEventListener('click', clearPlaylist);
+
+const trackTitle = (t) => t.name || `${t.genre || 'track'} · ${t.seed}`;
+
+const clearNow = () => {
+  nowTitle.textContent = playlist.length ? 'No track selected' : 'No track loaded';
+  nowSub.textContent = playlist.length ? 'Click a row to play' : 'Add tracks from the grid →';
+  playBtn.textContent = '▶';
+};
+
+const loadCurrent = (autoplay = true) => {
+  if (current < 0 || current >= playlist.length) { clearNow(); return; }
+  const t = playlist[current];
+  audioEl.src = `/audio/${encodeURIComponent(t.cid)}.webm`;
+  nowTitle.textContent = trackTitle(t);
+  nowSub.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean).join(' · ');
+  if (autoplay) {
+    audioEl.play().catch(() => {});
+  }
+  renderPlaylist();
+};
+
+const playIndex = (i) => {
+  if (i < 0 || i >= playlist.length) return;
+  current = i;
+  loadCurrent(true);
+};
+
+playBtn.addEventListener('click', () => {
+  if (current < 0 && playlist.length) {
+    playIndex(0);
+    return;
+  }
+  if (audioEl.paused) audioEl.play().catch(() => {});
+  else audioEl.pause();
+});
+prevBtn.addEventListener('click', () => { if (current > 0) playIndex(current - 1); });
+nextBtn.addEventListener('click', () => {
+  if (current < playlist.length - 1) playIndex(current + 1);
+});
+audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; });
+audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; });
+audioEl.addEventListener('ended', () => {
+  // Auto-advance to the next track. If we hit the end, stop.
+  if (current < playlist.length - 1) playIndex(current + 1);
+  else { playBtn.textContent = '▶'; }
+});
+
+const renderPlaylist = () => {
+  plCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
+  if (playlist.length === 0) {
+    plList.innerHTML = `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
+    return;
+  }
+  plList.innerHTML = '';
+  playlist.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'pl-item';
+    if (i === current) row.dataset.current = 'true';
+    const sub = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean).join(' · ');
+    row.innerHTML = `
+      <span class="pl-item-num">${i + 1}.</span>
+      <div class="pl-item-meta">
+        <div class="pl-item-title"></div>
+        <div class="pl-item-sub"></div>
+      </div>
+      <button class="pl-item-remove" title="Remove">×</button>
+    `;
+    row.querySelector('.pl-item-title').textContent = trackTitle(t);
+    row.querySelector('.pl-item-sub').textContent = sub;
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.pl-item-remove')) return;
+      playIndex(i);
+    });
+    row.querySelector('.pl-item-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFromPlaylist(t.cid);
+    });
+    plList.appendChild(row);
+  });
+};
+
+const syncCardAddButtons = () => {
+  for (const btn of grid.querySelectorAll('.card-add')) {
+    btn.dataset.added = isInPlaylist(btn.dataset.cid) ? 'true' : 'false';
+    btn.textContent = btn.dataset.added === 'true' ? '✓' : '+';
+    btn.title = btn.dataset.added === 'true' ? 'Already in playlist' : 'Add to playlist';
+  }
+};
+
+// ----- Grid rendering -----
+let cursor = 0;
 let loading = false;
 let exhausted = false;
 
-const fmtTime = (ms) => {
-  const d = new Date(ms);
-  const now = Date.now();
-  const diff = now - ms;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
-  if (diff < 7 * 86_400_000) return `${Math.round(diff / 86_400_000)}d ago`;
-  return d.toLocaleDateString();
+const matchesSearch = (t, q) => {
+  if (!q) return true;
+  const hay = `${t.name || ''} ${t.genre || ''} ${t.seed || ''} ${t.cid || ''}`.toLowerCase();
+  return hay.includes(q);
 };
 
 const renderCard = (t) => {
-  const a = document.createElement('a');
-  a.className = 'card';
-  a.href = `/?cid=${encodeURIComponent(t.cid)}`;
-  const title = t.name || `${t.genre || 'track'} · ${t.seed}`;
+  const card = document.createElement('div');
+  card.className = 'card';
+  const title = trackTitle(t);
   const sub = [t.genre, t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
     .filter(Boolean).join(' · ');
-  a.innerHTML = `
-    <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="${title}" loading="lazy">
-    <div class="card-meta">
-      <div class="card-title"></div>
-      <div class="card-sub"></div>
-    </div>
+  card.innerHTML = `
+    <a class="card-link" href="/?cid=${encodeURIComponent(t.cid)}">
+      <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">
+      <div class="card-meta">
+        <div class="card-title"></div>
+        <div class="card-sub"></div>
+      </div>
+    </a>
+    <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
   `;
-  a.querySelector('.card-title').textContent = title;
-  a.querySelector('.card-sub').textContent = sub;
-  return a;
+  card.querySelector('.card-title').textContent = title;
+  card.querySelector('.card-sub').textContent = sub;
+  const addBtn = card.querySelector('.card-add');
+  addBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isInPlaylist(t.cid)) removeFromPlaylist(t.cid);
+    else addToPlaylist(t);
+  });
+  return card;
 };
 
 const fetchPage = async () => {
   if (loading || exhausted) return;
   loading = true;
   more.disabled = true;
-  state.textContent = grid.children.length ? '' : 'Loading…';
-  state.style.display = grid.children.length ? 'none' : 'block';
+  stateEl.textContent = grid.children.length ? '' : 'Loading…';
+  stateEl.style.display = grid.children.length ? 'none' : 'block';
   const params = new URLSearchParams();
   if (genreSel.value) params.set('genre', genreSel.value);
   if (cursor) params.set('before', String(cursor));
-  params.set('limit', '24');
+  // Pull a wider page when search is active so there's enough to
+  // filter against without forcing the user to click "load more"
+  // until they find a match.
+  params.set('limit', search.value ? '100' : '24');
   try {
     const r = await fetch(`/api/feed?${params}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const tracks = await r.json();
     if (tracks.length === 0 && !grid.children.length) {
-      state.textContent = 'No tracks yet. Generate something on the main page and click Share.';
-      state.style.display = 'block';
+      stateEl.textContent = 'No tracks yet. Generate something on the main page and click Share.';
+      stateEl.style.display = 'block';
       exhausted = true;
       more.hidden = true;
       return;
     }
+    const q = search.value.trim().toLowerCase();
+    const matched = q ? tracks.filter(t => matchesSearch(t, q)) : tracks;
+    for (const t of matched) grid.appendChild(renderCard(t));
     if (tracks.length === 0) {
       exhausted = true;
       more.hidden = true;
-      state.textContent = `${grid.children.length} tracks · end of feed`;
-      state.className = 'end';
-      state.style.display = 'block';
-      return;
+      stateEl.textContent = `${grid.children.length} tracks · end of feed`;
+      stateEl.className = 'end';
+      stateEl.style.display = 'block';
+    } else {
+      cursor = tracks[tracks.length - 1].renderedAt;
+      more.hidden = false;
+      stateEl.style.display = 'none';
     }
-    for (const t of tracks) grid.appendChild(renderCard(t));
-    cursor = tracks[tracks.length - 1].renderedAt;
-    more.hidden = false;
-    state.style.display = 'none';
+    syncCardAddButtons();
   } catch (err) {
-    state.textContent = `Failed to load: ${err.message}`;
-    state.style.display = 'block';
+    stateEl.textContent = `Failed to load: ${err.message}`;
+    stateEl.style.display = 'block';
   } finally {
     loading = false;
     more.disabled = false;
   }
 };
 
-genreSel.addEventListener('change', () => {
+const reset = () => {
   grid.innerHTML = '';
   cursor = 0;
   exhausted = false;
   more.hidden = true;
+  fetchPage();
+};
+
+genreSel.addEventListener('change', () => {
   const u = new URL(location.href);
   if (genreSel.value) u.searchParams.set('genre', genreSel.value);
   else u.searchParams.delete('genre');
   history.replaceState(null, '', u);
-  fetchPage();
+  reset();
 });
+
+// Debounce search so typing doesn't refetch on every keystroke.
+let searchTimer = null;
+search.addEventListener('input', () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    const u = new URL(location.href);
+    if (search.value) u.searchParams.set('q', search.value);
+    else u.searchParams.delete('q');
+    history.replaceState(null, '', u);
+    reset();
+  }, 250);
+});
+
 more.addEventListener('click', fetchPage);
+
+renderPlaylist();
 fetchPage();
 </script>
 </body>
