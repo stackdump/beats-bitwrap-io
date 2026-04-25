@@ -217,6 +217,12 @@ func main() {
 			*audioMaxDuration, *audioRenderTimeout)
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
+		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
+			cid := ar.LatestCID()
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(map[string]string{"cid": cid})
+		})
 		if *audioAutoEnqueue {
 			// Auto-enqueue from the seal hook can't know the track length —
 			// use the renderer's fallback estimate.

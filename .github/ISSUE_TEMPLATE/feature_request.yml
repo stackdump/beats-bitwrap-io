@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new feature or enhancement for beats.bitwrap.io
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem?
+      description: What can't you do today, or what's clunky? Skip the proposed solution for a moment — describe the friction.
+      placeholder: "I want to … but the app …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What might solve it?
+      description: A rough sketch of how the feature could work. Don't worry about completeness — capture the seed of the idea.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, or other approaches you've thought about and ruled out.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Rough scope
+      description: A guess at how much work this is — fine to leave blank if you don't know.
+      options:
+        - Small (one panel / one button)
+        - Medium (touches a few subsystems)
+        - Large (architectural change)
+        - "Not sure"

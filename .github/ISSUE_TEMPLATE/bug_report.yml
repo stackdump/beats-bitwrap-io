@@ -32,8 +32,8 @@ body:
   - type: input
     id: build
     attributes:
-      label: Build
-      description: Auto-filled by the in-app "report bug" link from /version. Helps us pin a regression to a specific deploy.
+      label: Build (optional)
+      description: The version string in the app's bottom-right footer — paste it in if you can; helps pin a regression to a specific deploy.
       placeholder: "v2.0.4-…-g…"
 
   - type: textarea

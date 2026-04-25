@@ -189,6 +189,31 @@ func (r *Renderer) CachedPath(cid string) string {
 	return r.findExisting(cid)
 }
 
+// LatestCID returns the CID of the most recently rendered (or
+// access-touched) audio file, or "" if the cache is empty. Uses
+// the same mtime LRU eviction reads — so "latest" reflects recent
+// listens too, not just first renders. Drives the footer's
+// "latest" link.
+func (r *Renderer) LatestCID() string {
+	var newest string
+	var newestMod int64
+	_ = filepath.Walk(r.cfg.CacheDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		name := info.Name()
+		if !strings.HasSuffix(name, ".webm") {
+			return nil
+		}
+		if mt := info.ModTime().UnixNano(); mt > newestMod {
+			newestMod = mt
+			newest = strings.TrimSuffix(name, ".webm")
+		}
+		return nil
+	})
+	return newest
+}
+
 // findExisting walks the cache dir looking for {cid}.webm in any
 // year/month bucket. Returns "" if absent. Slower than an in-memory
 // index, but the cache is small enough (~10 GiB cap, ~100 KB/file =

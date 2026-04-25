@@ -388,9 +388,11 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                     return;
                 }
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                // Optimistically flip to queued; the next poll will
-                // refine with real position + cumulative wait.
-                showQueued({ queuePosition: 1, waitMs: expectedMs });
+                // Hit the status endpoint immediately for the real
+                // state — skipping the optimistic guess avoids a
+                // brief "queued ~0s" flash when the sem is free and
+                // the render starts within milliseconds.
+                await poll();
                 startPolling();
             } catch (err) {
                 btn.disabled = false;
@@ -404,10 +406,16 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
         audioBlock.dataset.state = 'queued';
         const pos = st.queuePosition || 1;
         const ahead = pos > 1 ? ` (${pos - 1} ahead)` : '';
+        // "queued ~0s until rendering" reads like a glitch — when the
+        // wait is sub-second the slot is just about to free. Show
+        // "starting…" for the (usually brief) gap until the next
+        // poll catches the queued→rendering transition.
+        const waitMs = st.waitMs || 0;
+        const waitText = waitMs < 1000 ? 'starting…' : `~${fmtSec(waitMs)} until rendering`;
         audioBlock.innerHTML = `
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
                 <span style="font-size:11px;color:#888;letter-spacing:0.06em;text-transform:uppercase">Queued${ahead}</span>
-                <span class="pn-share-audio-eta" style="flex:1;color:#aaa;font-size:12px;font-variant-numeric:tabular-nums">~${fmtSec(st.waitMs || 0)} until rendering</span>
+                <span class="pn-share-audio-eta" style="flex:1;color:#aaa;font-size:12px;font-variant-numeric:tabular-nums">${waitText}</span>
             </div>
             <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
                 <div style="position:absolute;left:0;top:0;bottom:0;width:100%;background:repeating-linear-gradient(45deg,#1a1a2e 0,#1a1a2e 6px,#0f3460 6px,#0f3460 12px);opacity:0.6"></div>

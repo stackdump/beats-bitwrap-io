@@ -141,38 +141,10 @@ function applyArrangeFromPanel(el, panel) {
     });
 }
 
-// Pre-fills the bug-report template's structured fields. GitHub Issue
-// Forms accept per-field query params keyed on the YAML `id`, so any
-// future changes to bug_report.yml that add a field can hook in here
-// by adding another `set('field-id', value)` call.
-function bugReportUrl(buildVersion) {
-    const ua = navigator.userAgent || '';
-    const browser = friendlyBrowser(ua);
-    const params = new URLSearchParams();
-    params.set('template', 'bug_report.yml');
-    if (location.search.includes('cid=')) params.set('share-url', location.href);
-    if (browser) params.set('browser', browser);
-    if (buildVersion) params.set('build', buildVersion);
-    return `https://github.com/stackdump/beats-bitwrap-io/issues/new?${params}`;
-}
-
-// Best-effort UA → "Chrome 142 on macOS" format. Doesn't try to be
-// exhaustive — we just need enough signal that an issue triager can
-// recognise the rough environment without parsing a 200-char UA.
-function friendlyBrowser(ua) {
-    const browser =
-        /Edg\/(\d+)/.exec(ua) ? `Edge ${RegExp.$1}` :
-        /Firefox\/(\d+)/.exec(ua) ? `Firefox ${RegExp.$1}` :
-        /Chrome\/(\d+)/.exec(ua) ? `Chrome ${RegExp.$1}` :
-        /Version\/(\d+).*Safari/.exec(ua) ? `Safari ${RegExp.$1}` : '';
-    const os =
-        /Mac OS X (\d+[._]\d+)/.exec(ua) ? `macOS ${RegExp.$1.replace('_', '.')}` :
-        /Windows NT (\d+\.\d+)/.exec(ua) ? `Windows ${RegExp.$1}` :
-        /Android (\d+)/.exec(ua) ? `Android ${RegExp.$1}` :
-        /iPhone OS (\d+[_]\d+)/.exec(ua) ? `iOS ${RegExp.$1.replace('_', '.')}` :
-        /Linux/.test(ua) ? 'Linux' : '';
-    return [browser, os].filter(Boolean).join(' on ');
-}
+// Bug + feature links route through the GitHub Issue Forms templates
+// without auto-injecting page state — the user fills the form. Avoids
+// accidentally leaking private hand-authored share URLs or environment
+// detail into a public issue.
 
 export function buildUI(el) {
     el.innerHTML = '';
@@ -1097,8 +1069,12 @@ export function buildUI(el) {
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="/schema/beats-share" target="_blank" rel="noopener" title="JSON-LD context + JSON-Schema for the share envelope">schema</a>
         <span class="pn-footer-sep">·</span>
-        <a class="pn-footer-link pn-footer-bug" href="https://github.com/stackdump/beats-bitwrap-io/issues/new" target="_blank" rel="noopener" title="Report a bug or suggest a feature">report bug</a>
-        <span class="pn-footer-version" title="Server build — useful in bug reports">…</span>
+        <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" title="Report a bug">bug</a>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=feature_request.yml" target="_blank" rel="noopener" title="Suggest a feature">feature</a>
+        <span class="pn-footer-sep pn-footer-latest-sep" hidden>·</span>
+        <a class="pn-footer-link pn-footer-latest" href="#" title="Most recently rendered track" hidden>latest</a>
+        <span class="pn-footer-version" title="Server build">…</span>
     `;
     el.appendChild(footer);
     // Pull the running version into the footer + thread it into the
@@ -1112,8 +1088,20 @@ export function buildUI(el) {
         if (!v) return;
         const slot = footer.querySelector('.pn-footer-version');
         if (slot) slot.textContent = v;
-        const bug = footer.querySelector('.pn-footer-bug');
-        if (bug) bug.href = bugReportUrl(v);
+    }).catch(() => {});
+    // "latest" — link to the most recently rendered track if the
+    // server has audio rendering on. /api/audio-latest 404s on hosts
+    // without -audio-render, in which case we leave the link hidden.
+    fetch('/api/audio-latest').then(r => r.ok ? r.json() : null).then(data => {
+        const cid = data?.cid;
+        if (!cid) return;
+        const link = footer.querySelector('.pn-footer-latest');
+        const sep = footer.querySelector('.pn-footer-latest-sep');
+        if (link) {
+            link.href = `/?cid=${cid}`;
+            link.hidden = false;
+        }
+        if (sep) sep.hidden = false;
     }).catch(() => {});
 
     // Setup canvas size
