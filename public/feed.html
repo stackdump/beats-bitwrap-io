@@ -177,6 +177,27 @@
     flex-direction: column;
     gap: 12px;
   }
+  /* Sticky close button — only visible on the mobile overlay variant
+     where the sidebar covers the whole grid and the user has no
+     other escape route. Desktop hides it (the toggle button in the
+     header is always reachable). */
+  .pl-close {
+    display: none;
+    position: absolute;
+    top: 10px; right: 10px;
+    background: rgba(0,0,0,0.6);
+    color: #ddd;
+    border: 1px solid #333;
+    border-radius: 4px;
+    width: 36px; height: 36px;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    z-index: 1;
+  }
+  @media (max-width: 720px) {
+    .pl-close { display: flex; align-items: center; justify-content: center; }
+  }
   .layout[data-pl="open"] aside.playlist { display: flex; }
   .pl-now {
     border: 1px solid #1a1a1a;
@@ -439,6 +460,7 @@
 </header>
 <div class="layout" id="layout">
   <aside class="playlist">
+    <button class="pl-close" id="pl-close" title="Close playlist (back to grid)">×</button>
     <div class="pl-now" id="pl-now">
       <div class="pl-now-title" id="pl-now-title">No track loaded</div>
       <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
@@ -568,6 +590,7 @@ setPaneOpen(localStorage.getItem(PL_OPEN_KEY) === '1' || playlist.length > 0);
 toggleBtn.addEventListener('click', () => {
   setPaneOpen(layout.dataset.pl !== 'open');
 });
+document.getElementById('pl-close').addEventListener('click', () => setPaneOpen(false));
 
 const fmtTime = (ms) => {
   const diff = Date.now() - ms;
@@ -956,7 +979,13 @@ const renderPlaylist = () => {
   plCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
   plExport.disabled = playlist.length === 0;
   if (playlist.length === 0) {
-    plList.innerHTML = `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
+    // Mobile copy nudges the user to close the overlay first —
+    // "the grid" reads weird when the grid is hidden behind the
+    // sidebar they're staring at.
+    const isPhone = window.matchMedia('(max-width: 720px)').matches;
+    plList.innerHTML = isPhone
+      ? `<div class="pl-empty">Empty queue. Tap <b>×</b> (top right) to return to the grid, then tap a card to add it.</div>`
+      : `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
     return;
   }
   plList.innerHTML = '';
