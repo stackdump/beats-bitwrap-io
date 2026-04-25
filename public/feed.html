@@ -74,6 +74,14 @@
   .layout[data-pl="open"] {
     grid-template-columns: 360px 1fr;
   }
+  /* When Webamp owns playback, the sidebar's transport + queue
+     would just compete with it (and double up as a second visible
+     player). Collapse the sidebar back to one column for the
+     duration of the Webamp session. */
+  .layout[data-webamp="open"] {
+    grid-template-columns: 1fr;
+  }
+  .layout[data-webamp="open"] aside.playlist { display: none; }
   main {
     padding: 20px 24px;
     min-width: 0;
@@ -1052,10 +1060,22 @@ const openWebamp = async () => {
     // welcome card auto-pauses Tone.js when its embedded audio
     // plays. Two streams of the same track is jarring.
     audioEl.pause();
+    // Hide the built-in sidebar player while Webamp owns the room.
+    // The user explicitly switched chrome — running both would
+    // double up the transport and confuse "which one am I controlling".
+    layout.dataset.webamp = 'open';
+    toggleBtn.dataset.active = 'false';  // un-glow the playlist toggle
     await webampInstance.renderWhenReady(document.getElementById('webamp-mount'));
     webampInstance.onClose(() => {
       try { webampInstance?.dispose(); } catch {}
       webampInstance = null;
+      // Restore whatever sidebar state was active before Webamp
+      // opened — read from localStorage rather than caching at open
+      // time so a clear-during-Webamp doesn't ghost the sidebar back
+      // into existence with stale tracks.
+      delete layout.dataset.webamp;
+      const wasOpen = localStorage.getItem(PL_OPEN_KEY) === '1' || playlist.length > 0;
+      setPaneOpen(wasOpen);
     });
   } catch (err) {
     alert(`Couldn't open Webamp: ${err.message}`);
