@@ -2928,3 +2928,30 @@ input[type="range"][data-default] {
     pointer-events: none;
 }
 
+
+/* Footer — small unobtrusive band under the canvas. License first
+   so it stays the most-prominent footer element on narrow widths
+   where the rest may wrap. */
+.pn-footer {
+    margin-top: 16px;
+    padding: 12px 16px 18px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.pn-footer a {
+    color: rgba(154, 170, 221, 0.85);
+    text-decoration: none;
+}
+.pn-footer a:hover {
+    color: rgba(154, 170, 221, 1);
+    text-decoration: underline;
+}
+.pn-footer-sep {
+    color: rgba(255,255,255,0.18);
+}

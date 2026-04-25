@@ -1046,6 +1046,26 @@ export function buildUI(el) {
         el.appendChild(status);
     }
 
+    // Footer — license + project pointers. Sits below the canvas as
+    // ambient context; doesn't compete with the transport for vertical
+    // attention. CC BY 4.0 is the authoritative statement for every
+    // track this app produces (also baked into share-page meta and
+    // .webm tags).
+    const footer = document.createElement('div');
+    footer.className = 'pn-footer';
+    footer.innerHTML = `
+        <span class="pn-footer-license">
+            Tracks
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" title="Creative Commons Attribution 4.0">CC BY 4.0</a>
+            — reuse with attribution to beats.bitwrap.io
+        </span>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener">source</a>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link" href="/schema/beats-share" target="_blank" rel="noopener" title="JSON-LD context + JSON-Schema for the share envelope">schema</a>
+    `;
+    el.appendChild(footer);
+
     // Setup canvas size
     el._resizeCanvas();
 }
