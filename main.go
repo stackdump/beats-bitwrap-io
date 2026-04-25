@@ -584,6 +584,24 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			http.Error(w, "cid not in share store", http.StatusNotFound)
 			return
 		}
+		// HEAD is a cache-only existence probe — must never trigger a
+		// render. The welcome card uses it to decide whether to surface
+		// "Listen / Download" buttons; if HEAD synchronously rendered,
+		// every visitor to a fresh share would block 2+ minutes on a
+		// link probe. 200 if cached, 404 otherwise.
+		if r.Method == http.MethodHead {
+			if path := ar.CachedPath(cid); path != "" {
+				if info, err := os.Stat(path); err == nil {
+					w.Header().Set("Content-Type", "audio/webm")
+					w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+			}
+			http.Error(w, "audio not yet rendered", http.StatusNotFound)
+			return
+		}
 		// A cold render can take minutes; the parent http.Server's
 		// WriteTimeout (15s) would otherwise kill the connection long
 		// before the file is ready. Clear the deadline for this route.

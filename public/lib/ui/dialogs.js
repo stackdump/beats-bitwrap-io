@@ -266,6 +266,9 @@ export function showWelcomeCard(el) {
             showHelpModal(el);
             return;
         }
+        // Clicks inside the audio block (player + download link) must
+        // not dismiss — the user is interacting with rendered content.
+        if (e.target.closest('.pn-welcome-audio')) return;
         if (e.target === overlay
             || e.target.closest('.pn-welcome-card')
             || e.target.closest('.pn-welcome-start')) {
@@ -273,6 +276,30 @@ export function showWelcomeCard(el) {
         }
     });
     document.body.appendChild(overlay);
+    // If the share has a CID and the server has a pre-rendered .webm
+    // cached, surface Play + Download. HEAD probes the audio handler
+    // cache-only (never triggers a render). Auto-enqueue on the seal
+    // path means in practice the file is usually warm by the time a
+    // recipient opens the link.
+    const cid = (new URLSearchParams(location.search).get('cid') || '')
+        .replace(/[^a-zA-Z0-9]/g, '');
+    if (cid) {
+        const audioUrl = `${location.origin}/audio/${cid}.webm`;
+        fetch(audioUrl, { method: 'HEAD' }).then(r => {
+            if (!r.ok) return;
+            const block = document.createElement('div');
+            block.className = 'pn-welcome-audio';
+            block.style.cssText = 'margin-top:14px;padding-top:14px;border-top:1px solid #1f1f1f';
+            const fname = (urlTitle || `beats-${cid.slice(0, 12)}`)
+                .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
+            block.innerHTML = `
+                <div style="font-size:11px;color:#777;margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase">Pre-rendered audio</div>
+                <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
+                <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
+            `;
+            overlay.querySelector('.pn-welcome-modal > div:last-child')?.appendChild(block);
+        }).catch(() => {});
+    }
 }
 
 export function showHelpModal(el) {

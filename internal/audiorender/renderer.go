@@ -111,6 +111,17 @@ func (r *Renderer) CachePath(cid string) string {
 		cid+".webm")
 }
 
+// CachedPath returns the path to the cached file for cid, or "" if no
+// render exists yet. Cache-only — never spawns a render. Lets HEAD
+// probes (e.g. the welcome card audio button) check availability
+// without kicking off a multi-minute Chromium capture.
+func (r *Renderer) CachedPath(cid string) string {
+	if !ValidCID(cid) {
+		return ""
+	}
+	return r.findExisting(cid)
+}
+
 // findExisting walks the cache dir looking for {cid}.webm in any
 // year/month bucket. Returns "" if absent. Slower than an in-memory
 // index, but the cache is small enough (~10 GiB cap, ~100 KB/file =
