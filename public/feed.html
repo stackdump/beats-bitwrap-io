@@ -72,7 +72,7 @@
     gap: 0;
   }
   .layout[data-pl="open"] {
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: 360px 1fr;
   }
   main {
     padding: 20px 24px;
@@ -157,7 +157,7 @@
   /* Playlist sidebar — draws on the right edge of the layout. Sticky
      so the audio + transport stay in view while scrolling the grid. */
   aside.playlist {
-    border-left: 1px solid #1a1a1a;
+    border-right: 1px solid #1a1a1a;
     background: #08080a;
     padding: 16px;
     position: sticky;
@@ -203,6 +203,19 @@
   }
   .pl-controls button:hover { border-color: #3a3a5a; }
   .pl-controls button:disabled { opacity: 0.4; cursor: default; }
+  /* Shuffle / repeat modes glow when active. Repeat-one carries
+     a tiny "1" superscript so the user can tell it from "all". */
+  .pl-controls button[data-on="true"] {
+    background: #1a2a3a;
+    color: #67e8f9;
+    border-color: #2a4a6a;
+  }
+  #pl-repeat[data-mode="one"]::after {
+    content: '1';
+    font-size: 8px;
+    vertical-align: super;
+    margin-left: 1px;
+  }
   .pl-list {
     flex: 1;
     overflow-y: auto;
@@ -310,20 +323,17 @@
   </div>
 </header>
 <div class="layout" id="layout">
-  <main>
-    <div id="grid" class="grid"></div>
-    <div id="state" class="loading">Loading…</div>
-    <button id="more" class="more-btn" hidden>Load more</button>
-  </main>
   <aside class="playlist">
     <div class="pl-now" id="pl-now">
       <div class="pl-now-title" id="pl-now-title">No track loaded</div>
       <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
       <audio id="pl-audio" controls preload="none"></audio>
       <div class="pl-controls">
+        <button id="pl-shuffle" title="Shuffle off">🔀</button>
         <button id="pl-prev" title="Previous">◀◀</button>
         <button id="pl-play" title="Play / pause">▶</button>
         <button id="pl-next" title="Next">▶▶</button>
+        <button id="pl-repeat" title="Repeat off">↻</button>
       </div>
     </div>
     <div class="pl-meta">
@@ -337,6 +347,11 @@
     </div>
     <div class="pl-list" id="pl-list"></div>
   </aside>
+  <main>
+    <div id="grid" class="grid"></div>
+    <div id="state" class="loading">Loading…</div>
+    <button id="more" class="more-btn" hidden>Load more</button>
+  </main>
 </div>
 <footer>
   Tracks
@@ -366,6 +381,8 @@ const audioEl = document.getElementById('pl-audio');
 const playBtn = document.getElementById('pl-play');
 const prevBtn = document.getElementById('pl-prev');
 const nextBtn = document.getElementById('pl-next');
+const shuffleBtn = document.getElementById('pl-shuffle');
+const repeatBtn  = document.getElementById('pl-repeat');
 const nowTitle = document.getElementById('pl-now-title');
 const nowSub = document.getElementById('pl-now-sub');
 const plList = document.getElementById('pl-list');
@@ -657,12 +674,8 @@ const loadCurrent = (autoplay = true) => {
 if ('mediaSession' in navigator) {
   navigator.mediaSession.setActionHandler('play',  () => audioEl.play().catch(() => {}));
   navigator.mediaSession.setActionHandler('pause', () => audioEl.pause());
-  navigator.mediaSession.setActionHandler('previoustrack', () => {
-    if (current > 0) playIndex(current - 1);
-  });
-  navigator.mediaSession.setActionHandler('nexttrack', () => {
-    if (current < playlist.length - 1) playIndex(current + 1);
-  });
+  navigator.mediaSession.setActionHandler('previoustrack', () => prevBtn.click());
+  navigator.mediaSession.setActionHandler('nexttrack',     () => nextBtn.click());
 }
 
 const playIndex = (i) => {
@@ -679,17 +692,98 @@ playBtn.addEventListener('click', () => {
   if (audioEl.paused) audioEl.play().catch(() => {});
   else audioEl.pause();
 });
-prevBtn.addEventListener('click', () => { if (current > 0) playIndex(current - 1); });
+prevBtn.addEventListener('click', () => {
+  if (playlist.length === 0) return;
+  if (shuffleOn && playlist.length > 1) {
+    let pick;
+    do { pick = Math.floor(Math.random() * playlist.length); } while (pick === current);
+    playIndex(pick);
+    return;
+  }
+  if (current > 0) playIndex(current - 1);
+  else if (repeatMode === 'all') playIndex(playlist.length - 1);
+});
 nextBtn.addEventListener('click', () => {
+  // Manual next mirrors auto-advance, except repeat=one becomes
+  // sequential (otherwise the button would feel broken).
+  if (playlist.length === 0) return;
+  if (shuffleOn && playlist.length > 1) {
+    let pick;
+    do { pick = Math.floor(Math.random() * playlist.length); } while (pick === current);
+    playIndex(pick);
+    return;
+  }
   if (current < playlist.length - 1) playIndex(current + 1);
+  else if (repeatMode === 'all') playIndex(0);
 });
 audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; requestWake(); });
 audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; releaseWake(); savePlaybackState(); });
-audioEl.addEventListener('ended', () => {
-  // Auto-advance to the next track. If we hit the end, stop.
-  if (current < playlist.length - 1) playIndex(current + 1);
-  else { playBtn.textContent = '▶'; releaseWake(); }
+
+// ----- Shuffle / repeat modes -----
+const SHUFFLE_KEY = 'pn-playlist-shuffle';
+const REPEAT_KEY  = 'pn-playlist-repeat';   // 'off' | 'all' | 'one'
+let shuffleOn = (() => { try { return localStorage.getItem(SHUFFLE_KEY) === '1'; } catch { return false; } })();
+let repeatMode = (() => {
+  try {
+    const v = localStorage.getItem(REPEAT_KEY);
+    return v === 'all' || v === 'one' ? v : 'off';
+  } catch { return 'off'; }
+})();
+const REPEAT_LABEL = { off: 'Repeat off', all: 'Repeat all', one: 'Repeat one' };
+
+const renderModeButtons = () => {
+  shuffleBtn.dataset.on = shuffleOn ? 'true' : 'false';
+  shuffleBtn.title = shuffleOn ? 'Shuffle on' : 'Shuffle off';
+  repeatBtn.dataset.mode = repeatMode;
+  repeatBtn.dataset.on = repeatMode !== 'off' ? 'true' : 'false';
+  repeatBtn.title = REPEAT_LABEL[repeatMode];
+};
+
+shuffleBtn.addEventListener('click', () => {
+  shuffleOn = !shuffleOn;
+  try { localStorage.setItem(SHUFFLE_KEY, shuffleOn ? '1' : '0'); } catch {}
+  renderModeButtons();
 });
+repeatBtn.addEventListener('click', () => {
+  repeatMode = repeatMode === 'off' ? 'all'
+             : repeatMode === 'all' ? 'one'
+             : 'off';
+  try { localStorage.setItem(REPEAT_KEY, repeatMode); } catch {}
+  renderModeButtons();
+});
+
+// Pick the next index given current modes. Returns -1 if playback
+// should stop (end of queue with repeat=off). Shuffle picks a random
+// index that isn't `current`; if the queue has 1 entry it re-plays.
+const nextIndex = () => {
+  if (playlist.length === 0) return -1;
+  if (repeatMode === 'one') return current;
+  if (shuffleOn) {
+    if (playlist.length === 1) {
+      return repeatMode === 'all' ? current : -1;
+    }
+    let pick;
+    do { pick = Math.floor(Math.random() * playlist.length); } while (pick === current);
+    return pick;
+  }
+  if (current < playlist.length - 1) return current + 1;
+  return repeatMode === 'all' ? 0 : -1;
+};
+
+audioEl.addEventListener('ended', () => {
+  const nxt = nextIndex();
+  if (nxt < 0) { playBtn.textContent = '▶'; releaseWake(); return; }
+  // repeat=one against the same index: rewind + play instead of
+  // re-loading the src (no decoder churn).
+  if (nxt === current) {
+    audioEl.currentTime = 0;
+    audioEl.play().catch(() => {});
+    return;
+  }
+  playIndex(nxt);
+});
+
+renderModeButtons();
 
 // Throttled position save while playing — every 3s of timeupdate
 // firings is enough for "pick up where I left off" without
