@@ -6,6 +6,7 @@
 import { noteToName, nameToNote } from '../audio/note-name.js';
 import { renderCurrentCard } from '../share/card.js';
 import { openAiPromptModal } from './ai-prompt.js';
+import { listHistory, clearHistory } from '../share/history.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -600,4 +601,80 @@ export function showCategoryModal(el) {
     });
     el.appendChild(overlay);
     overlay.focus();
+}
+
+// Personal track-history modal. Reads localStorage['pn-history'] and
+// renders one card per remembered CID with the existing share-card
+// SVG as artwork. Click → navigate to /?cid=…. Clear button wipes
+// the entire history (with confirm).
+export function showHistoryModal(el) {
+    el.querySelector('.pn-history-overlay')?.remove();
+    const entries = listHistory();
+    const overlay = document.createElement('div');
+    overlay.className = 'pn-help-overlay pn-history-overlay';
+    overlay.tabIndex = -1;
+    const fmtTime = (ms) => {
+        const diff = Date.now() - ms;
+        if (diff < 60_000) return 'just now';
+        if (diff < 3_600_000) return Math.round(diff / 60_000) + 'm ago';
+        if (diff < 86_400_000) return Math.round(diff / 3_600_000) + 'h ago';
+        if (diff < 7 * 86_400_000) return Math.round(diff / 86_400_000) + 'd ago';
+        return new Date(ms).toLocaleDateString();
+    };
+    const items = entries.length === 0
+        ? `<p style="color:#888;text-align:center;padding:32px 0">No history yet. Tracks you share, render, or open via a link will land here.</p>`
+        : entries.map(e => {
+            const title = (e.name || `${e.genre || 'track'} · ${e.seed ?? ''}`).trim();
+            const sub = [
+                e.genre,
+                e.tempo ? e.tempo + ' BPM' : '',
+                fmtTime(e.seenAt || 0),
+            ].filter(Boolean).join(' · ');
+            const badges = (e.actions || []).map(a =>
+                `<span class="pn-history-badge">${a}</span>`
+            ).join('');
+            return `
+                <a class="pn-history-item" href="/?cid=${encodeURIComponent(e.cid)}">
+                    <img class="pn-history-art" src="/share-card/${encodeURIComponent(e.cid)}.svg" alt="" loading="lazy">
+                    <div class="pn-history-meta">
+                        <div class="pn-history-title">${escapeHTML(title)}</div>
+                        <div class="pn-history-sub">${escapeHTML(sub)}</div>
+                        <div class="pn-history-badges">${badges}</div>
+                    </div>
+                </a>
+            `;
+        }).join('');
+    overlay.innerHTML = `
+        <div class="pn-history-modal">
+            <button class="pn-help-close" title="Close (Esc)">&times;</button>
+            <h2>Your tracks <span style="color:#777;font-weight:400;font-size:13px;letter-spacing:0.04em">${entries.length} remembered</span></h2>
+            <p style="color:#888;font-size:12px;margin:0 0 16px">Stored in this browser only. Tracks you've shared, rendered, or opened from a link.</p>
+            <div class="pn-history-list">${items}</div>
+            ${entries.length ? '<div style="text-align:right;margin-top:18px"><button class="pn-history-clear" style="background:transparent;color:#a55;border:1px solid #532;padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer">Clear history</button></div>' : ''}
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('.pn-help-close')) {
+            overlay.remove();
+            return;
+        }
+        if (e.target.closest('.pn-history-clear')) {
+            if (confirm('Clear all remembered tracks? This only affects this browser.')) {
+                clearHistory();
+                overlay.remove();
+            }
+            return;
+        }
+    });
+    overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+    });
+    el.appendChild(overlay);
+    overlay.focus();
+}
+
+function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
 }

@@ -11,6 +11,7 @@ import {
     gzipToB64Url, b64UrlToGunzip,
 } from './codec.js';
 import { buildSharePayload } from './collect.js';
+import { recordShared, recordRendered } from './history.js';
 
 // --- URL parsing ---
 
@@ -131,6 +132,7 @@ export async function buildShareUrlForms(el) {
     const shortUrl = `${base}?cid=${cid}`;
     const z = await gzipToB64Url(canonical);
     const fullUrl = `${base}?cid=${cid}&z=${z}`;
+    if (stored) recordShared(cid, payload);
     return { shortUrl, fullUrl, stored, fallback: false };
 }
 
@@ -355,6 +357,9 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
         audioBlock.querySelector('audio').addEventListener('play', () => {
             if (el._playing) el._togglePlay();
         });
+        // Tag local history with the rendered action so the user
+        // can find tracks they've successfully rendered later.
+        recordRendered(cid, buildSharePayload(el));
     };
 
     const showMissing = () => {

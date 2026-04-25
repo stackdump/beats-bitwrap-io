@@ -1068,6 +1068,12 @@ export function buildUI(el) {
         <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener">source</a>
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="/schema/beats-share" target="_blank" rel="noopener" title="JSON-LD context + JSON-Schema for the share envelope">schema</a>
+        <span class="pn-footer-sep pn-footer-feed-sep" hidden>·</span>
+        <a class="pn-footer-link pn-footer-feed" href="/feed" hidden title="Browse all rendered tracks">feed</a>
+        <span class="pn-footer-sep pn-footer-rss-sep" hidden>·</span>
+        <a class="pn-footer-link pn-footer-rss" href="/feed.rss" hidden title="RSS / podcast feed">rss</a>
+        <span class="pn-footer-sep pn-footer-history-sep" hidden>·</span>
+        <a class="pn-footer-link pn-footer-history" href="#" hidden title="Tracks remembered in this browser">history</a>
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" title="Report a bug">bug</a>
         <span class="pn-footer-sep">·</span>
@@ -1103,6 +1109,34 @@ export function buildUI(el) {
         }
         if (sep) sep.hidden = false;
     }).catch(() => {});
+    // "feed" / "rss" — only surface when the index has anything in
+    // it. Saves the user from clicking through to an empty page on
+    // a fresh dev server.
+    fetch('/api/feed?limit=1').then(r => r.ok ? r.json() : []).then(rows => {
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        for (const cls of ['.pn-footer-feed', '.pn-footer-feed-sep',
+                           '.pn-footer-rss', '.pn-footer-rss-sep']) {
+            const node = footer.querySelector(cls);
+            if (node) node.hidden = false;
+        }
+    }).catch(() => {});
+    // "history" — only show when the user has at least one entry.
+    // Click opens the standalone modal (lazy-imported to avoid
+    // bloating the dialogs.js initial parse).
+    try {
+        const histRaw = localStorage.getItem('pn-history');
+        const histLen = histRaw ? (JSON.parse(histRaw) || []).length : 0;
+        if (histLen > 0) {
+            const link = footer.querySelector('.pn-footer-history');
+            const sep = footer.querySelector('.pn-footer-history-sep');
+            if (link) link.hidden = false;
+            if (sep) sep.hidden = false;
+        }
+    } catch {}
+    footer.querySelector('.pn-footer-history')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        import('./dialogs.js').then(m => m.showHistoryModal(el));
+    });
 
     // Setup canvas size
     el._resizeCanvas();

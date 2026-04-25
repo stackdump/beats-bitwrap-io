@@ -2962,3 +2962,79 @@ input[type="range"][data-default] {
     font-size: 10px;
     user-select: text;
 }
+
+/* History modal — uses the existing .pn-help-overlay shell with
+   a custom inner card that scrolls a vertical list of remembered
+   tracks. Each item has the share-card SVG as a 1200x630 thumbnail
+   on the left, metadata on the right. */
+.pn-history-modal {
+    background: #0d0d0d;
+    border: 1px solid #222;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    color: #ddd;
+    font-family: system-ui, sans-serif;
+    max-width: 720px;
+    width: 92%;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 22px 26px;
+    position: relative;
+}
+.pn-history-modal h2 { margin-top: 0; font-size: 18px; }
+.pn-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.pn-history-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px;
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s;
+}
+.pn-history-item:hover { border-color: #3a3a4a; }
+.pn-history-art {
+    width: 140px;
+    aspect-ratio: 1200 / 630;
+    background: #000;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.pn-history-meta { flex: 1; min-width: 0; }
+.pn-history-title {
+    font-weight: 600;
+    color: #eee;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pn-history-sub {
+    color: #888;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+}
+.pn-history-badges {
+    margin-top: 6px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.pn-history-badge {
+    background: #1a1a2e;
+    color: #9ad;
+    border: 1px solid #0f3460;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}

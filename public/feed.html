@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>feed · beats.bitwrap.io</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="license" href="https://creativecommons.org/licenses/by/4.0/">
+<link rel="alternate" type="application/rss+xml" title="beats.bitwrap.io recent renders" href="/feed.rss">
+<style>
+  body {
+    background: #0a0a0a;
+    color: #ddd;
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid #1a1a1a;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  header h1 a { color: inherit; text-decoration: none; }
+  .filters {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-left: auto;
+    font-size: 13px;
+    color: #888;
+  }
+  .filters select {
+    background: #111;
+    color: #ddd;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .filters .rss {
+    color: #9ad;
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .filters .rss:hover { text-decoration: underline; }
+  main {
+    padding: 24px 32px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: #0d0d0d;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover {
+    border-color: #3a3a4a;
+    transform: translateY(-2px);
+  }
+  .card-art {
+    aspect-ratio: 1200 / 630;
+    background: #000;
+    display: block;
+    width: 100%;
+  }
+  .card-meta {
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .card-title {
+    font-weight: 600;
+    color: #eee;
+    margin-bottom: 4px;
+  }
+  .card-sub {
+    color: #888;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .empty, .loading, .end {
+    padding: 48px 0;
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+  }
+  .more-btn {
+    display: block;
+    margin: 32px auto 16px;
+    padding: 10px 22px;
+    background: #1a1a2e;
+    color: #ddd;
+    border: 1px solid #2a2a3a;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .more-btn:hover { border-color: #3a3a5a; }
+  .more-btn:disabled { opacity: 0.5; cursor: default; }
+  footer {
+    padding: 16px 32px 28px;
+    border-top: 1px solid #1a1a1a;
+    color: #666;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    margin-top: 32px;
+  }
+  footer a { color: #9ad; text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">beats.bitwrap.io</a> · feed</h1>
+  <div class="filters">
+    <label>genre
+      <select id="genre">
+        <option value="">all</option>
+      </select>
+    </label>
+    <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
+  </div>
+</header>
+<main>
+  <div id="grid" class="grid"></div>
+  <div id="state" class="loading">Loading…</div>
+  <button id="more" class="more-btn" hidden>Load more</button>
+</main>
+<footer>
+  Tracks
+  <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
+  — reuse with attribution to beats.bitwrap.io
+</footer>
+<script type="module">
+const GENRES = [
+  'ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage',
+  'house','jazz','lofi','metal','reggae','speedcore','synthwave','techno','trance','trap',
+];
+const grid = document.getElementById('grid');
+const state = document.getElementById('state');
+const more = document.getElementById('more');
+const genreSel = document.getElementById('genre');
+
+for (const g of GENRES) {
+  const o = document.createElement('option');
+  o.value = g; o.textContent = g;
+  genreSel.appendChild(o);
+}
+
+const url = new URL(location.href);
+genreSel.value = url.searchParams.get('genre') || '';
+
+let cursor = 0; // before timestamp; 0 = newest
+let loading = false;
+let exhausted = false;
+
+const fmtTime = (ms) => {
+  const d = new Date(ms);
+  const now = Date.now();
+  const diff = now - ms;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
+  if (diff < 7 * 86_400_000) return `${Math.round(diff / 86_400_000)}d ago`;
+  return d.toLocaleDateString();
+};
+
+const renderCard = (t) => {
+  const a = document.createElement('a');
+  a.className = 'card';
+  a.href = `/?cid=${encodeURIComponent(t.cid)}`;
+  const title = t.name || `${t.genre || 'track'} · ${t.seed}`;
+  const sub = [t.genre, t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
+    .filter(Boolean).join(' · ');
+  a.innerHTML = `
+    <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="${title}" loading="lazy">
+    <div class="card-meta">
+      <div class="card-title"></div>
+      <div class="card-sub"></div>
+    </div>
+  `;
+  a.querySelector('.card-title').textContent = title;
+  a.querySelector('.card-sub').textContent = sub;
+  return a;
+};
+
+const fetchPage = async () => {
+  if (loading || exhausted) return;
+  loading = true;
+  more.disabled = true;
+  state.textContent = grid.children.length ? '' : 'Loading…';
+  state.style.display = grid.children.length ? 'none' : 'block';
+  const params = new URLSearchParams();
+  if (genreSel.value) params.set('genre', genreSel.value);
+  if (cursor) params.set('before', String(cursor));
+  params.set('limit', '24');
+  try {
+    const r = await fetch(`/api/feed?${params}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const tracks = await r.json();
+    if (tracks.length === 0 && !grid.children.length) {
+      state.textContent = 'No tracks yet. Generate something on the main page and click Share.';
+      state.style.display = 'block';
+      exhausted = true;
+      more.hidden = true;
+      return;
+    }
+    if (tracks.length === 0) {
+      exhausted = true;
+      more.hidden = true;
+      state.textContent = `${grid.children.length} tracks · end of feed`;
+      state.className = 'end';
+      state.style.display = 'block';
+      return;
+    }
+    for (const t of tracks) grid.appendChild(renderCard(t));
+    cursor = tracks[tracks.length - 1].renderedAt;
+    more.hidden = false;
+    state.style.display = 'none';
+  } catch (err) {
+    state.textContent = `Failed to load: ${err.message}`;
+    state.style.display = 'block';
+  } finally {
+    loading = false;
+    more.disabled = false;
+  }
+};
+
+genreSel.addEventListener('change', () => {
+  grid.innerHTML = '';
+  cursor = 0;
+  exhausted = false;
+  more.hidden = true;
+  const u = new URL(location.href);
+  if (genreSel.value) u.searchParams.set('genre', genreSel.value);
+  else u.searchParams.delete('genre');
+  history.replaceState(null, '', u);
+  fetchPage();
+});
+more.addEventListener('click', fetchPage);
+fetchPage();
+</script>
+</body>
+</html>

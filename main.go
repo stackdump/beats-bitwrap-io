@@ -14,11 +14,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"beats-bitwrap-io/internal/audiorender"
+	"beats-bitwrap-io/internal/index"
 	mcpserver "beats-bitwrap-io/internal/mcp"
 	"beats-bitwrap-io/internal/midiout"
 	"beats-bitwrap-io/internal/pflow"
@@ -199,15 +201,47 @@ func main() {
 				License:   "https://creativecommons.org/licenses/by/4.0/",
 			}
 		}
+		// Open the SQLite track index. Drives /api/feed + /feed.rss
+		// + /api/audio-latest. Lives inside the persisted data dir
+		// alongside the share blobs and audio cache.
+		idx, err := index.Open(filepath.Join(*dataDir, "index.db"))
+		if err != nil {
+			log.Fatalf("index open: %v", err)
+		}
+		log.Printf("Track index: %s", filepath.Join(*dataDir, "index.db"))
+		// OnRenderComplete projects the share envelope into the
+		// index. Failure is observational; the audio file already
+		// exists on disk.
+		onRenderComplete := func(cid string) {
+			raw, err := shareStore.Lookup(cid)
+			if err != nil {
+				log.Printf("index: lookup %s: %v", cid, err)
+				return
+			}
+			var bytes int64
+			if path := filepath.Join(*dataDir, "audio"); path != "" {
+				// Best-effort size — Stat the canonical path the
+				// renderer wrote. Errors fall back to 0.
+				if info, err := os.Stat(filepath.Join(path,
+					fmt.Sprintf("%04d/%02d/%s.webm", time.Now().UTC().Year(),
+						int(time.Now().UTC().Month()), cid))); err == nil {
+					bytes = info.Size()
+				}
+			}
+			if err := idx.RecordRender(cid, raw, bytes); err != nil {
+				log.Printf("index: record %s: %v", cid, err)
+			}
+		}
 		ar, err := audiorender.New(audiorender.Config{
-			CacheDir:       filepath.Join(*dataDir, "audio"),
-			BaseURL:        base,
-			MaxBytes:       *audioMaxBytes,
-			MaxConcurrent:  *audioConcurrent,
-			RenderTimeout:  *audioRenderTimeout,
-			MaxDuration:    *audioMaxDuration,
-			ChromePath:     *audioChromePath,
-			LookupMetadata: lookupMD,
+			CacheDir:         filepath.Join(*dataDir, "audio"),
+			BaseURL:          base,
+			MaxBytes:         *audioMaxBytes,
+			MaxConcurrent:    *audioConcurrent,
+			RenderTimeout:    *audioRenderTimeout,
+			MaxDuration:      *audioMaxDuration,
+			ChromePath:       *audioChromePath,
+			LookupMetadata:   lookupMD,
+			OnRenderComplete: onRenderComplete,
 		})
 		if err != nil {
 			log.Fatalf("audio renderer: %v", err)
@@ -215,13 +249,32 @@ func main() {
 		log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s)",
 			filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
 			*audioMaxDuration, *audioRenderTimeout)
+		// One-time backfill: any pre-existing renders predate the
+		// index. Walk the cache and project them in. Bounded at 30s
+		// so a giant cache doesn't stall startup.
+		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
-			cid := ar.LatestCID()
+			cid, _ := idx.Latest()
+			if cid == "" {
+				// Fall back to the renderer's mtime walk if the
+				// index hasn't backfilled yet (or is empty).
+				cid = ar.LatestCID()
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
 			_ = json.NewEncoder(w).Encode(map[string]string{"cid": cid})
+		})
+		mux.HandleFunc("/api/feed", feedHandler(idx))
+		mux.HandleFunc("/feed.rss", rssFeedHandler(idx, publicURL))
+		// /feed serves the gallery page; /feed.html resolves the same
+		// file via the static handler. Explicit route here avoids the
+		// catch-all routing /feed → DecoratedIndex (which would 404
+		// looking for a CID).
+		mux.HandleFunc("/feed", func(w http.ResponseWriter, r *http.Request) {
+			r.URL.Path = "/feed.html"
+			staticHandler.ServeHTTP(w, r)
 		})
 		if *audioAutoEnqueue {
 			// Auto-enqueue from the seal hook can't know the track length —
@@ -804,6 +857,126 @@ func midiMultiCloser(m *midiout.MultiOutput) io.Closer {
 	}
 	return m
 }
+// feedHandler answers GET /api/feed?genre=&before=<unix-ms>&limit=
+// with a JSON array of recent rendered tracks, newest first.
+func feedHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := index.FeedQuery{
+			Genre: r.URL.Query().Get("genre"),
+		}
+		if v := r.URL.Query().Get("before"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				q.Before = n
+			}
+		}
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				q.Limit = n
+			}
+		}
+		tracks, err := idx.Feed(q)
+		if err != nil {
+			log.Printf("feed: %v", err)
+			http.Error(w, "feed query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(tracks)
+	}
+}
+
+// rssFeedHandler answers GET /feed.rss with a podcast-shaped feed
+// of the most recent 50 rendered tracks. Each item carries an
+// <enclosure> pointing at the .webm so podcast clients pick it up.
+// publicURL is the canonical origin baked into item links — same one
+// already passed to the renderer for tag comments.
+func rssFeedHandler(idx *index.DB, publicURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tracks, err := idx.Feed(index.FeedQuery{Limit: 50})
+		if err != nil {
+			log.Printf("rss: %v", err)
+			http.Error(w, "rss query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n")
+		fmt.Fprintf(w, `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">`+"\n")
+		fmt.Fprintf(w, `<channel>`+"\n")
+		fmt.Fprintf(w, `  <title>beats.bitwrap.io · recent renders</title>`+"\n")
+		fmt.Fprintf(w, `  <link>%s/</link>`+"\n", xmlEscape(publicURL))
+		fmt.Fprintf(w, `  <atom:link href="%s/feed.rss" rel="self" type="application/rss+xml"/>`+"\n", xmlEscape(publicURL))
+		fmt.Fprintf(w, `  <description>Deterministic generative beats. Every track is content-addressed; CC BY 4.0.</description>`+"\n")
+		fmt.Fprintf(w, `  <language>en</language>`+"\n")
+		fmt.Fprintf(w, `  <copyright>CC BY 4.0 — beats.bitwrap.io</copyright>`+"\n")
+		for _, t := range tracks {
+			title := t.Name
+			if title == "" {
+				title = fmt.Sprintf("%s · %d", t.Genre, t.Seed)
+			}
+			itemURL := fmt.Sprintf("%s/?cid=%s", publicURL, t.CID)
+			audioURL := fmt.Sprintf("%s/audio/%s.webm", publicURL, t.CID)
+			pubDate := time.UnixMilli(t.RenderedAt).UTC().Format(time.RFC1123Z)
+			fmt.Fprintf(w, `  <item>`+"\n")
+			fmt.Fprintf(w, `    <title>%s</title>`+"\n", xmlEscape(title))
+			fmt.Fprintf(w, `    <link>%s</link>`+"\n", xmlEscape(itemURL))
+			fmt.Fprintf(w, `    <guid isPermaLink="false">%s</guid>`+"\n", xmlEscape(t.CID))
+			fmt.Fprintf(w, `    <pubDate>%s</pubDate>`+"\n", pubDate)
+			fmt.Fprintf(w, `    <description>%s · %d BPM · seed %d</description>`+"\n",
+				xmlEscape(t.Genre), t.Tempo, t.Seed)
+			fmt.Fprintf(w, `    <enclosure url="%s" type="audio/webm"/>`+"\n", xmlEscape(audioURL))
+			fmt.Fprintf(w, `  </item>`+"\n")
+		}
+		fmt.Fprintf(w, `</channel></rss>`+"\n")
+	}
+}
+
+// xmlEscape is the minimum we need for attribute + text content.
+func xmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		"\"", "&quot;",
+		"'", "&#39;",
+	)
+	return r.Replace(s)
+}
+
+// backfillIndex projects every cached .webm into the index on startup.
+// Idempotent (RecordRender upserts). Bounded to 30 s so an unexpectedly
+// large cache doesn't stall the server's first-request latency.
+func backfillIndex(idx *index.DB, store *share.Store, audioDir string) {
+	deadline := time.Now().Add(30 * time.Second)
+	count := 0
+	_ = filepath.Walk(audioDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".webm") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return filepath.SkipAll
+		}
+		cid := strings.TrimSuffix(info.Name(), ".webm")
+		raw, err := store.Lookup(cid)
+		if err != nil {
+			return nil // share blob may have been pruned; skip silently
+		}
+		if err := idx.RecordRender(cid, raw, info.Size()); err != nil {
+			log.Printf("backfill: record %s: %v", cid, err)
+			return nil
+		}
+		count++
+		return nil
+	})
+	if count > 0 {
+		log.Printf("Track index: backfilled %d rendered tracks", count)
+	}
+}
+
 func midiFanOutCloser(f *midiout.FanoutOutput) io.Closer {
 	if f == nil {
 		return nil

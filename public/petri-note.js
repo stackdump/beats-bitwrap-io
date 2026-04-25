@@ -37,6 +37,7 @@ import {
     uploadShare, fetchShare, onShareClick,
 } from './lib/share/url.js';
 import { initRenderMode } from './lib/share/render-mode.js';
+import { recordSeen } from './lib/share/history.js';
 import { loadUploadedProject, serializeProject, downloadProject } from './lib/project/serialize.js';
 import {
     applyProjectInstruments, prewarmPreviewInstruments, applyDefaultPans,
@@ -1357,6 +1358,17 @@ class PetriNote extends HTMLElement {
     async _bootGenerate() {
         const share = await this._parseShareFromUrl();
         if (share) {
+            // Bump the local history seenAt so a followed link
+            // resurfaces in the user's recall view.
+            const cidParam = new URLSearchParams(location.search).get('cid');
+            if (cidParam) {
+                recordSeen(cidParam, {
+                    name:  share.name,
+                    genre: share.genre,
+                    tempo: share.overrides?.tempo,
+                    seed:  share.params?.seed,
+                });
+            }
             const genreSelect = this.querySelector('.pn-genre-select');
             if (genreSelect && [...genreSelect.options].some(o => o.value === share.genre)) {
                 genreSelect.value = share.genre;

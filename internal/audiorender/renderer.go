@@ -79,6 +79,12 @@ type Config struct {
 	// PATH. Set by main.go from -ffmpeg flag if needed; the prod host
 	// has /usr/bin/ffmpeg installed.
 	FFmpegPath string
+	// OnRenderComplete fires after a render lands on disk (post
+	// rename, before LRU eviction). Wired in main.go to upsert the
+	// SQLite index row that backs /api/feed and /api/audio-latest.
+	// Errors are observational — the audio file is already cached
+	// even if the index hiccups.
+	OnRenderComplete func(cid string)
 }
 
 // Metadata is the set of tags written into the Matroska container
@@ -330,6 +336,10 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("audiorender: rename: %w", err)
+	}
+
+	if r.cfg.OnRenderComplete != nil {
+		r.cfg.OnRenderComplete(cid)
 	}
 
 	r.evictIfOverCap()
