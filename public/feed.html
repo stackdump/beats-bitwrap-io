@@ -1053,8 +1053,24 @@ const openWebamp = async () => {
       alert('Playlist is empty — add some tracks first.');
       return;
     }
+    // Dock the Webamp window stack to the left edge, just below the
+    // header — same gravity as the sidebar player it's replacing.
+    // Each Webamp window is 275 px wide; positioning all three from
+    // x:0 stacks them vertically against the left rail. Users can
+    // drag them around afterward (it's still Webamp), but the open
+    // state lands somewhere predictable.
+    const headerH = document.querySelector('header')?.offsetHeight ?? 64;
     webampInstance = new Webamp({
       initialTracks: playlist.map(toWebampTrack),
+      // Default skin (Winamp 2.9 stock). Custom .wsz support is one
+      // option flag away if we ship a skin chooser later.
+      initialState: {
+        windowLayout: {
+          main:      { position: { x: 0, y: headerH + 8 } },
+          equalizer: { position: { x: 0, y: headerH + 8 + 116 } },
+          playlist:  { position: { x: 0, y: headerH + 8 + 232 }, size: [0, 4] },
+        },
+      },
     });
     // Pause the site's <audio> when Webamp opens — same reason the
     // welcome card auto-pauses Tone.js when its embedded audio
