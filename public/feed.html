@@ -134,9 +134,9 @@
     color: #9ad;
     border: 1px solid #2a3a4a;
     border-radius: 4px;
-    width: 28px; height: 28px;
+    width: 36px; height: 36px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1;
     backdrop-filter: blur(2px);
     padding: 0;
@@ -304,6 +304,32 @@
     font-size: 12px;
     padding: 32px 8px;
   }
+  /* Narrow viewports: phone-class. The 360px sidebar column would
+     leave ~15px for the grid, so flip it into a full-screen overlay
+     when toggled open. The grid always has the full width; the
+     sidebar slides in on top of it like a drawer. Tapping the
+     dimmed backdrop closes it. */
+  @media (max-width: 720px) {
+    .layout, .layout[data-pl="open"] { grid-template-columns: 1fr; }
+    aside.playlist {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      max-width: 100%;
+      height: 100vh;
+      z-index: 50;
+      box-shadow: 0 0 40px rgba(0,0,0,0.6);
+      border-right: none;
+    }
+    .layout[data-pl="open"]::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 49;
+    }
+  }
+
   footer {
     padding: 14px 24px 22px;
     border-top: 1px solid #1a1a1a;
@@ -1107,7 +1133,20 @@ const toWebampTrack = (t) => ({
   url: `${location.origin}/audio/${encodeURIComponent(t.cid)}.webm`,
 });
 
-document.getElementById('toggle-wa').addEventListener('click', openWebamp);
+// Webamp is built around 275px draggable windows with mouse-sized
+// hit targets — usable on a tablet, hostile on a phone. Hide the
+// button entirely on narrow touch viewports rather than ship a
+// frustrated user. Detection mirrors the synth view's mobile gate.
+const isTouchDevice = ('ontouchstart' in window)
+    || (navigator.maxTouchPoints > 0)
+    || !!navigator.userAgentData?.mobile;
+const isNarrowViewport = window.innerWidth < 720;
+const webampBtn = document.getElementById('toggle-wa');
+if (isTouchDevice && isNarrowViewport) {
+    webampBtn.hidden = true;
+} else {
+    webampBtn.addEventListener('click', openWebamp);
+}
 
 renderPlaylist();
 fetchPage();
