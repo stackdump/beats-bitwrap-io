@@ -253,10 +253,25 @@ export function connectBackend(el) {
 
 export function connectWorker(el) {
     el._worker = new Worker('./sequencer-worker.js?v=11', { type: 'module' });
+    el._workerReady = false;
+
+    // The very first worker spawned during connectedCallback occasionally
+    // errors before posting `ready` in production (root cause not yet
+    // identified — workers spawned later from the same page come up
+    // cleanly). Without recovery, `?cid=…` share URLs never apply because
+    // _bootGenerate is gated on the ready message. Respawn once: on
+    // explicit error event, or after a no-signal timeout.
+    const respawnIfNeeded = () => {
+        if (el._workerReady || el._workerRespawned) return;
+        el._workerRespawned = true;
+        try { el._worker.terminate(); } catch {}
+        connectWorker(el);
+    };
 
     el._worker.onmessage = (e) => {
         const msg = e.data;
         if (msg.type === 'ready') {
+            el._workerReady = true;
             updateWsStatus(el, true);
             // Generate a techno track on first connect, otherwise reload current project.
             if (!el._hasInitialProject) {
@@ -280,8 +295,21 @@ export function connectWorker(el) {
     };
 
     el._worker.onerror = (err) => {
-        console.error('Worker error:', err);
+        // Older handler logged just `err`, which serializes to "[object Event]"
+        // because Worker error events are plain Events without a parsed Error.
+        // Pull every field that might exist so a real failure leaves a trail.
+        console.error(
+            'Worker error:',
+            err.message || '(no message)',
+            err.filename ? `at ${err.filename}:${err.lineno}:${err.colno}` : '',
+            err.error?.stack || '',
+        );
+        respawnIfNeeded();
     };
+
+    if (!el._workerRespawned) {
+        setTimeout(respawnIfNeeded, 3000);
+    }
 }
 
 export function connectWebSocket(el) {

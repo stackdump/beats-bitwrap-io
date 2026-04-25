@@ -43,72 +43,13 @@ export function fireMacro(el, id) { /* actual implementation */ }
 
 ## Key subsystems
 
-### Worker / core engine
-| Path | Role |
-|------|------|
-| `public/sequencer-worker.js` | Tick loop, transport, seek (fast-forward replay), loop, mute state |
-| `public/lib/pflow.js` | Petri net engine — places, transitions, arcs, inhibitors, token firing |
-| `public/audio/tone-engine.js` | 40+ instrument configs, per-channel synths, master FX chain. **Don't split it** — the instrument lookup is cohesive and fragmenting hurts it. |
+Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits worth knowing up front:
 
-### Generator (composition pipeline)
-| Path | Role |
-|------|------|
-| `public/lib/generator/composer.js` | Orchestrates full track composition from genre preset + seed |
-| `public/lib/generator/euclidean.js` | Bjorklund algorithm → token rings for drum patterns |
-| `public/lib/generator/markov.js` | Markov-chain melodies with chord-tone targeting |
-| `public/lib/generator/theory.js` | Scales, chord progressions, voice leading, modal interchange |
-| `public/lib/generator/structure.js` | Song sections (intro/verse/chorus/drop/bridge/outro) |
-| `public/lib/generator/arrange.js` | **Full JS port of `internal/generator/arrange.go`** — `arrangeWithOpts(proj, genre, size, opts)` with Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process, so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`. |
-| `public/lib/generator/variety.js` | Ghost notes, walking bass, call/response, tension curves |
-| `public/lib/generator/regenerate.js` | Rebuild a single track's subnet from its `track.generator` recipe (drives live Size/Hits dropdowns) |
-| `public/lib/generator/macros.js` | `buildMacroRestoreNet` — transient linear-chain control nets that fire restore actions on a terminal transition |
-| `public/lib/generator/genre-instruments.js` | Per-genre channel→instrument default maps |
-
-### Main-thread element modules (all talk through `el`)
-| Path | Role | LOC |
-|------|------|-----|
-| `public/petri-note.js` | Custom element class + constructor + lifecycle + thin wrappers + top-level orchestration | ~1,400 |
-| `public/lib/ui/build.js` | `buildUI(el)` — every DOM template (header / transport / mixer container / macro panels / traits / timeline / modals) | 870 |
-| `public/lib/macros/runtime.js` | Fire/execute + serial queue + Auto-DJ tick loop + one-shot row favorites + panic | 725 |
-| `public/lib/ui/mixer.js` | `renderMixer` + event delegation + preset manager + tone nav + mixer-state save/restore | 700 |
-| `public/lib/backend/index.js` | Transport (play/tempo/wake-lock/media-session) + worker+WS plumbing + `handleWsMessage` dispatch + remote fire + humanize/swing | 560 |
-| `public/lib/ui/controllers.js` | Trait chip row + trait editor modal + Feel modal + FX slider helpers + `macroPulse` + `channelParamMove` | 530 |
-| `public/lib/backend/audio-io.js` | Tone.js bootstrap + Web MIDI I/O + CC/pad bindings + mute + playback routing + viz dots | 360 |
-| `public/lib/ui/canvas.js` | Net diagram (places/transitions/arcs) + timeline + playhead + loop markers | 360 |
-| `public/lib/ui/dialogs.js` | MIDI-binding editor + manual transition fire + help + quickstart | 350 |
-| `public/lib/macros/effects.js` | fx-sweep / fx-hold + tempo-hold / tempo-sweep + beat-repeat + compound + cancel-all | 280 |
-| `public/lib/project/sync.js` | `applyProjectSync` orchestrator (cancels anims → state → `_buildUI` → restore → kick playback) + instrument apply + role-based pan spread | 265 |
-| `public/lib/share/url.js` | Parse incoming `?cid=…&z=…` URLs + `buildShareUrlForms` + server upload + Share modal with storage dropdown | 230 |
-| `public/lib/project/serialize.js` | Upload → load · live → JSON download (strips x/y, defaults) | 165 |
-| `public/lib/share/collect.js` | DOM/state → plain-object collectors + `buildSharePayload` | 145 |
-| `public/lib/share/codec.js` | Canonical JSON + sha256 + base58btc + CIDv1 + gzip↔base64url (mirrors `seal.go`) | 130 |
-| `public/lib/macros/catalog.js` | `MACROS` array (~30 entries) + target selectors + `TRANSITION_MACRO_IDS` | 130 |
-| `public/lib/share/apply.js` | Share payload → DOM/state appliers + `applyShareOverrides` | 110 |
-| `public/lib/feel/axes.js` | `FEEL_AXES` + `FEEL_MAP` (4 abstract sliders → FX/AutoDJ/trait overrides) | 90 |
-| `public/lib/audio/oneshots.js` | `ONESHOT_INSTRUMENTS` catalog + `oneShotSpec` + `prettifyInstrumentName` | 65 |
-| `public/lib/ui/mixer-sliders.js` | `MIXER_SLIDERS` config + `hpFreq`/`lpFreq`/`qCurve` | 35 |
-| `public/lib/audio/note-name.js` | MIDI note ↔ name (C4 / F#3 / Bb5) | 20 |
-
-### Server (Go)
-| Path | Role |
-|------|------|
-| `main.go` | Flag parsing, static file server, CORS, share-store wiring, `-authoring`-gated mount of sequencer/ws/routes/MIDI |
-| `internal/share/seal.go` | Content-addressed share store (`PUT /o/{cid}`), HMAC-anonymized per-IP rate limit, global rate limit, JSON-Schema validation |
-| `internal/share/canonical.go` | Go port of JS `_canonicalizeJSON` so Go can mint CIDs identical to the browser |
-| `internal/share/schema_handler.go` | `/schema/beats-share` serves JSON-LD / JSON-Schema / HTML glossary based on Accept header |
-| `internal/share/{share_page,share_card_png,qr}*.go` | Decorated root, OG share-card PNGs, QR codes |
-| `internal/share/seal_test.go` | End-to-end store tests + canonical-JSON parity test |
-| `internal/sequencer/sequencer.go` | Authoritative Petri-net executor — Play/Stop/Pause, Seek, SetLoop/GetLoop, CropProject, SetDeterministicLoop, FireTransition, SetMuted/SetGroupMuted, SetInstrument, ShuffleInstruments |
-| `internal/ws/{hub,protocol,sequencer}.go` | `/ws` hub + JSON message protocol mirroring the in-page worker; broadcasts `transition-fired` / `state-sync` / `mute-state` / `loop-changed` / `preview-ready` |
-| `internal/routes/routes.go` | All `/api/*` HTTP handlers (catalog, generate, transport, share-gallery) |
-| `internal/routes/eth.go` | EIP-191 signature verify backing the `/api/vote` upvote path |
-| `internal/midiout/midiout.go` | CoreMIDI/ALSA output — single-port, per-net virtual ports, fanout with role-priority pre-assignment, `AllNotesOff` panic |
-| `internal/mcp/server.go` | `./beats-bitwrap-io mcp` stdio MCP server (11 tools) |
-| `internal/pflow/{adapter,cid}.go` | Project model + JSON round-trip + CID hashing shared between sequencer and share path |
-| `internal/generator/*` | Go port of the 19-genre composer (composer/euclidean/markov/theory/structure/arrange/variety/riffs/stingers/threering) |
-| `public/schema/beats-share.{context.jsonld,schema.json}` | JSON-LD context + Draft 2020-12 schema for the share-v1 envelope (the wire format) |
-| `public/schema/petri-note.schema.json` | JSON-Schema describing the *worker project* shape (nets/places/transitions/arcs) — what `nets:` round-trips through |
-| `schema/petri-note.schema.json` + `schema/README.md` | **Reference** petri-note v1 JSON-LD (with Scenes / inter-net connections) inherited from the petri-note merge. Test-only — `internal/pflow/schema_test.go` validates the bundled `schema/example-*.json` fixtures against it. Not the wire format. |
+- **Worker / engine** — `public/sequencer-worker.js` runs the tick loop; `public/lib/pflow.js` is the Petri-net engine; `public/audio/tone-engine.js` holds the 40+ instrument configs and master FX. **Don't split tone-engine.js** — the instrument lookup is cohesive and fragmenting hurts it.
+- **Generator** (`public/lib/generator/`) — composer / euclidean / markov / theory / structure / variety / regenerate / macros / genre-instruments. `arrange.js` is a **full JS port of `internal/generator/arrange.go`** — `arrangeWithOpts(proj, genre, size, opts)` with Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process, so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`.
+- **Main-thread modules** (`public/lib/{ui,macros,backend,project,share,feel,audio}/`) — every method on the `PetriNote` class is a one-line wrapper that calls a same-named function in one of these modules (see "Extraction pattern" above). Edit the module.
+- **Server** (`main.go` + `internal/`) — `share/` is the content-addressed seal/store + JSON-LD/Schema endpoint; `sequencer/` is the authoritative Petri-net executor; `ws/` mirrors the in-page worker protocol; `routes/` is `/api/*`; `midiout/` is CoreMIDI/ALSA fanout; `mcp/` is the stdio MCP server; `generator/` is the Go side of the composer with byte-identical output to JS.
+- **Schemas** — three of them, see "Three schemas in this repo" below.
 
 ## How Petri nets drive everything
 
@@ -238,55 +179,9 @@ When a project can't be reduced to `(genre, seed)` + overrides — e.g. bespoke 
 
 Control-only nets set `"role": "control"` and use `"control": { "action": "...", ... }` on transitions instead of `"midi"`. Supported actions: `mute-track`, `unmute-track`, `toggle-track`, `activate-slot`, `stop-transport`, `fire-macro` (with optional `macro`, `macroBars`, `macroParams`). See `lib/macros/catalog.js` for the curated macro ID list.
 
-**Seal + publish end-to-end from an agent — no petri-note server required**:
+**Sealing the payload from an agent — no Go binary needed.** See `examples/README.md` for the end-to-end Python recipe (canonical JSON + CIDv1 + `PUT /o/{cid}`) and a tour of the worked examples (`minimal`, `overrides`, `hand-authored`, `macro-orchestrated`, `voltage-rush`, `phantom-aqueduct`).
 
-```python
-import hashlib, json, urllib.request
-
-payload = { "@context": "...", "@type": "BeatsShare", "v": 1,
-            "genre": "custom", "seed": 0, "nets": {...} }
-
-# Canonical JSON: recursively sort object keys, compact separators.
-def canon(v):
-    if isinstance(v, dict):  return {k: canon(v[k]) for k in sorted(v)}
-    if isinstance(v, list):  return [canon(x) for x in v]
-    return v
-canonical = json.dumps(canon(payload), separators=(',', ':'), ensure_ascii=False).encode()
-
-# CID: "z" + base58btc(0x01 0xa9 0x02 0x12 0x20 + sha256(canonical))
-h = hashlib.sha256(canonical).digest()
-cid_bytes = bytes([0x01, 0xa9, 0x02, 0x12, 0x20]) + h
-alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-n = int.from_bytes(cid_bytes, 'big')
-out = ""
-while n: n, r = divmod(n, 58); out = alphabet[r] + out
-cid = "z" + ("1" * next((i for i, b in enumerate(cid_bytes) if b), 0)) + out
-
-# PUT the bytes; server re-canonicalizes + verifies the CID match.
-urllib.request.urlopen(urllib.request.Request(
-    f"https://beats.bitwrap.io/o/{cid}",
-    data=canonical, method="PUT",
-    headers={"Content-Type": "application/ld+json"}))
-
-print(f"https://beats.bitwrap.io/?cid={cid}")
-```
-
-Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: at most 256 nets per payload, 2048 places and 2048 transitions per net, 8192 arcs per net, 64-char net / place / transition IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). `control.action` must be one of `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro`. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
-
-**Local-binary alternative**: the same repo can run in authoring mode (`./beats-bitwrap-io -authoring`; see "Running locally" below) which exposes `POST /api/project-share {"mirror":["https://beats.bitwrap.io"]}`. That wraps the current project in a share envelope, seals locally, and fans out the PUT to every listed host in one call. Convenience only — the Python recipe above is the canonical way and works from anywhere without the Go binary.
-
-### Worked examples (`examples/*.json`)
-
-Drop-in starting points for `curl -d @examples/<name>.json http://localhost:8080/api/project` (sequencer load) or `… /o/{cid}` (direct share-store seal):
-
-| File | What it shows |
-|---|---|
-| `minimal.json` | Smallest valid share — just `genre` + `seed`. CID-stable across producers. |
-| `overrides.json` | Realistic share with `tempo` / `fx` / `feel` / `tracks` overrides on top of `(genre, seed)`. |
-| `hand-authored.json` | Raw-`nets` share — bespoke topology, no composer involvement. Use as the template when porting an external sequence. |
-| `macro-orchestrated.json` | 118 BPM, 6 nets: kick / snare / bass / 16-step lead / pad + **conductor** control net. 64-step conductor fires `reverb-wash` → `ping-pong` → `sweep-lp` (4-bar drain over a 4-bar cycle — exactly drain-balanced). Reference for baking macros into the score instead of performing them live. |
-| `voltage-rush.json` | 140 BPM darker cousin, 7 nets: 808 kick / clap-snare / 8-step hat / reese bass / rave-stab chords / sync-lead arp + a 64-step conductor firing `riser` → `beat-repeat` → `sweep-hp` (4-bar drain / 4-bar cycle). Harder-hitting reference track in the same authored-macro pattern. |
-| `phantom-aqueduct.json` | 128 BPM long-form **A/B riff-variant** demo. 9 nets including `bass-A`/`bass-B` and `lead-A`/`lead-B` pairs (shared `riffGroup`), kick/snare/hat/pad throughout, and a 64-step conductor that fires `activate-slot` to flip between the A and B variants every 4 bars plus a `riser` at the top and a `reverb-wash` at the transition. Reference for using `activate-slot` to structure longer tracks without needing the composer. Add `"structure": "extended"` + `"arrangeSeed": 42` to the share envelope to auto-expand this 9-net source into a 95-net, 9-section track at load time (intro/verse/buildup/drop/breakdown/buildup/drop/chorus/outro). |
+Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: at most 256 nets per payload, 2048 places / 2048 transitions / 8192 arcs per net, 64-char IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). `control.action` is one of `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro`. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
 
 ### Arrange-on-load and the polyphony ceiling
 
@@ -418,8 +313,4 @@ Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx. 
 
 ## Roadmap — Remote Conductor (WS backend)
 
-Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and sends/receives the same JSON message types as the in-page worker. Client→server: `generate`, `generate-preview`, `project-load`, `transport`, `tempo`, `mute`, `mute-group`, `instrument-change`, `shuffle-instruments`, `arrange`, `fire-macro`, `update-track-pattern`, `cancel-macros`, `transition-fire`, `loop`, `seek`, `crop`, `deterministic-loop`, `edit`. Server→client: `ready`, `project-sync`, `state-sync`, `mute-state`, `tempo-changed`, `transition-fired`, `control-fired`, `instruments-changed`, `track-pattern-updated`, `track-pattern-error`, `loop-changed`, `preview-ready`, `playback-complete`. Authoritative dispatch in `internal/ws/hub.go`; client-side handlers in `lib/backend/index.js::handleWsMessage`.
-
-- **Production `beats.bitwrap.io` does NOT run the WS endpoint.** The deployed binary starts without `-authoring`, so `/ws` returns 404 and the frontend stays on the in-page worker. This keeps the public host's attack surface minimal.
-- **Run it locally** with `./beats-bitwrap-io -authoring` (see "Running locally" above). The same binary then serves `/ws` backed by the Go sequencer in `internal/sequencer`, `internal/ws`, and `internal/routes`, and optionally streams server-side MIDI via `-midi*` flags — useful for live sets driven by external hardware, collaborative jams, or headless rendering.
-- Motivation: let a remote sequencer or an agent conduct the browser. The Go sequencer + MCP stdio tools + CoreMIDI/ALSA output handle the "headless rendering where the tone engine is just an audio sink" case on every desktop that can run Go.
+Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and speaks the same JSON message types as the in-page worker. Authoritative dispatch in `internal/ws/hub.go`; client-side handlers in `lib/backend/index.js::handleWsMessage`. Production `beats.bitwrap.io` does NOT run `/ws` (deployed without `-authoring` to keep attack surface minimal); run locally via `-authoring` to enable it. Motivation: let a remote sequencer or agent conduct the browser, or render headless via CoreMIDI/ALSA.
