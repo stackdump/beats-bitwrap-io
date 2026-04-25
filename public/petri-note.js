@@ -249,7 +249,17 @@ class PetriNote extends HTMLElement {
         // the recipient should see it even on return visits). Plain
         // visits gate on the first-visit flag as before.
         const hasUrlTitle = new URLSearchParams(location.search).has('title');
+        // Mobile gets a per-session prompt so phone visitors are
+        // routed at /feed even if they previously dismissed the
+        // card on desktop. Detection mirrors showWelcomeCard's.
+        const isTouch = ('ontouchstart' in window)
+            || (navigator.maxTouchPoints > 0)
+            || !!navigator.userAgentData?.mobile;
+        const isNarrowMobile = isTouch && window.innerWidth < 820;
+        const mobileNeedsPrompt = isNarrowMobile
+            && !sessionStorage.getItem('pn-welcome-mobile-seen');
         this._showWelcomeOnSync = hasUrlTitle
+            || mobileNeedsPrompt
             || (!localStorage.getItem('pn-welcome-seen')
                 && !localStorage.getItem('pn-quickstart-seen'));
         // ?render=1 — headless capture mode for the server-side audio

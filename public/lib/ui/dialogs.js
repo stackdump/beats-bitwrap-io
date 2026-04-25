@@ -238,22 +238,53 @@ export function showWelcomeCard(el, force = false) {
     // as before: one-shot, gated by pn-welcome-seen. The footer's
     // "card" link passes force=true so users can re-open the card
     // without having to dig through the share modal.
-    if (!force && !urlTitle && localStorage.getItem('pn-welcome-seen')) return;
+    // Mobile / narrow-touch devices: the synth view's mixer + macros
+    // panel doesn't shrink gracefully. Re-aim the welcome card's CTA
+    // at /feed (the playlist player) so phone visitors land on the
+    // surface that actually fits their screen. Desktop unchanged.
+    const isTouch = ('ontouchstart' in window)
+        || (navigator.maxTouchPoints > 0)
+        || !!navigator.userAgentData?.mobile;
+    const isNarrow = window.innerWidth < 820;
+    const isMobile = isTouch && isNarrow;
+    // Visibility gating differs by surface:
+    //   - Mobile: per-session dismissal (sessionStorage). A return
+    //     visit in a fresh tab re-prompts because the editor still
+    //     won't fit. Always shows even if the desktop "seen" flag
+    //     is set — they're on a different device class now.
+    //   - Desktop: one-shot localStorage as before, plus title-bearing
+    //     share links always re-show (the title is the whole point).
+    if (!force) {
+        if (isMobile) {
+            if (sessionStorage.getItem('pn-welcome-mobile-seen')) return;
+        } else if (!urlTitle && localStorage.getItem('pn-welcome-seen')) {
+            return;
+        }
+    }
     el.querySelector('.pn-welcome-overlay')?.remove();
     const svg = renderCurrentCard(el, urlTitle);
+    const primaryLabel  = isMobile ? 'Open in player' : 'Start playing';
+    const secondaryLabel = isMobile ? 'Stay on this page' : 'Open full guide';
+    const mobileNote = isMobile
+        ? `<p style="margin:0 0 12px;font-size:12px;line-height:1.5;color:#fbbf24">
+              Phone detected — the player surface fits small screens better.
+              The full editor is built for desktop.
+           </p>`
+        : '';
     const overlay = document.createElement('div');
     overlay.className = 'pn-help-overlay pn-welcome-overlay';
     overlay.innerHTML = `
         <div class="pn-welcome-modal" style="max-width:760px;width:92%;background:#0d0d0d;border:1px solid #222;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
             <div class="pn-welcome-card" style="display:block;line-height:0;cursor:pointer" title="Click to start">${svg}</div>
             <div style="padding:18px 22px;color:#ccc;font-family:system-ui,sans-serif">
+                ${mobileNote}
                 <p style="margin:0 0 12px;font-size:14px;line-height:1.55">
                     Deterministic beat generator. Each card is a fingerprint: genre + seed + tempo reproduce the exact track.
                     Share any mix and the card you see here travels with the link.
                 </p>
                 <div style="display:flex;gap:10px">
-                    <button class="pn-welcome-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Start playing</button>
-                    <button class="pn-welcome-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">Open full guide</button>
+                    <button class="pn-welcome-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">${primaryLabel}</button>
+                    <button class="pn-welcome-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">${secondaryLabel}</button>
                 </div>
                 <p class="pn-welcome-license" style="margin:14px 0 0;font-size:11px;color:#777;letter-spacing:0.04em">
                     Tracks are licensed
@@ -264,23 +295,63 @@ export function showWelcomeCard(el, force = false) {
         </div>
     `;
     const dismiss = () => {
-        localStorage.setItem('pn-welcome-seen', '1');
-        localStorage.setItem('pn-quickstart-seen', '1');
+        if (isMobile) {
+            // Don't burn the desktop one-shot flag from a phone — a
+            // user on a tablet today, on their laptop tomorrow, still
+            // deserves the desktop welcome card.
+            try { sessionStorage.setItem('pn-welcome-mobile-seen', '1'); } catch {}
+        } else {
+            localStorage.setItem('pn-welcome-seen', '1');
+            localStorage.setItem('pn-quickstart-seen', '1');
+        }
         overlay.remove();
     };
+    // Mobile: clicking primary "Open in player" appends current CID
+    // to the playlist (so the phone listener lands on their track,
+    // not just a generic feed) and navigates to /feed. The card
+    // tile and overlay click also dismiss into the player so any
+    // "click anywhere to continue" instinct sends them to the
+    // surface that works.
+    const goToPlayer = () => {
+        const cid = new URLSearchParams(location.search).get('cid');
+        if (cid) {
+            try {
+                const list = JSON.parse(localStorage.getItem('pn-playlist') || '[]');
+                if (Array.isArray(list) && !list.some(p => p.cid === cid)) {
+                    list.push({
+                        cid,
+                        name:  el?._project?.name  || '',
+                        genre: el?._project?.genre || '',
+                        tempo: el?._project?.tempo || 0,
+                        seed:  el?._currentGen?.params?.seed || 0,
+                    });
+                    localStorage.setItem('pn-playlist', JSON.stringify(list));
+                    localStorage.setItem('pn-playlist-open', '1');
+                }
+            } catch {}
+        }
+        dismiss();
+        location.href = '/feed';
+    };
     overlay.addEventListener('click', (e) => {
+        // Audio block interactions don't dismiss.
+        if (e.target.closest('.pn-welcome-audio')) return;
         if (e.target.closest('.pn-welcome-guide')) {
             dismiss();
-            showHelpModal(el);
+            if (!isMobile) showHelpModal(el);
             return;
         }
-        // Clicks inside the audio block (player + download link) must
-        // not dismiss — the user is interacting with rendered content.
-        if (e.target.closest('.pn-welcome-audio')) return;
-        if (e.target === overlay
-            || e.target.closest('.pn-welcome-card')
-            || e.target.closest('.pn-welcome-start')) {
-            dismiss();
+        if (e.target.closest('.pn-welcome-start')) {
+            if (isMobile) goToPlayer();
+            else dismiss();
+            return;
+        }
+        // Backdrop / card-art click: on mobile, route to player
+        // (the user came for the track, not the editor); on desktop,
+        // dismiss into the synth as before.
+        if (e.target === overlay || e.target.closest('.pn-welcome-card')) {
+            if (isMobile) goToPlayer();
+            else dismiss();
         }
     });
     document.body.appendChild(overlay);
@@ -680,3 +751,4 @@ function escapeHTML(s) {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     })[c]);
 }
+
