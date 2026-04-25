@@ -60,6 +60,7 @@ func main() {
 	// --- Server-side audio render flags ---
 	audioEnabled := flag.Bool("audio-render", false, "Enable /audio/{cid}.webm endpoint (requires headless Chromium on PATH).")
 	audioBaseURL := flag.String("audio-base-url", "", "Base URL the headless browser navigates to for renders (e.g. http://127.0.0.1:8089). Defaults to http://127.0.0.1{addr}.")
+	audioPublicURL := flag.String("audio-public-url", "", "Public origin baked into rendered .webm metadata (e.g. https://beats.bitwrap.io). Defaults to -audio-base-url.")
 	audioMaxBytes := flag.Int64("audio-max-bytes", 4<<30, "LRU cap on the audio cache directory.")
 	audioConcurrent := flag.Int("audio-concurrent", 1, "Max simultaneous audio renders (each spawns a headless Chromium tab).")
 	audioChromePath := flag.String("audio-chrome", "", "Path to chromium/chrome binary. Empty = chromedp autodetect.")
@@ -161,14 +162,52 @@ func main() {
 		if base == "" {
 			base = "http://127.0.0.1" + *addr
 		}
+		publicURL := *audioPublicURL
+		if publicURL == "" {
+			publicURL = base
+		}
+		// LookupMetadata pulls the share envelope and projects it into
+		// Matroska tags. Title falls back to "{Genre} · {seed}" when
+		// the payload has no name field (legacy hand-authored shares).
+		// Comment is the canonical share URL so a downloaded .webm is
+		// self-locating.
+		lookupMD := func(cid string) audiorender.Metadata {
+			raw, err := shareStore.Lookup(cid)
+			if err != nil {
+				return audiorender.Metadata{}
+			}
+			var p struct {
+				Genre string `json:"genre"`
+				Name  string `json:"name"`
+				Seed  int64  `json:"seed"`
+			}
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return audiorender.Metadata{}
+			}
+			title := p.Name
+			if title == "" && p.Genre != "" {
+				title = fmt.Sprintf("%s · %d", p.Genre, p.Seed)
+			}
+			return audiorender.Metadata{
+				Title:     title,
+				Artist:    "beats.bitwrap.io",
+				Album:     "beats.bitwrap.io",
+				Genre:     p.Genre,
+				Comment:   fmt.Sprintf("%s/?cid=%s", publicURL, cid),
+				Date:      time.Now().UTC().Format("2006-01-02"),
+				Copyright: "CC BY 4.0 — beats.bitwrap.io",
+				License:   "https://creativecommons.org/licenses/by/4.0/",
+			}
+		}
 		ar, err := audiorender.New(audiorender.Config{
-			CacheDir:      filepath.Join(*dataDir, "audio"),
-			BaseURL:       base,
-			MaxBytes:      *audioMaxBytes,
-			MaxConcurrent: *audioConcurrent,
-			RenderTimeout: *audioRenderTimeout,
-			MaxDuration:   *audioMaxDuration,
-			ChromePath:    *audioChromePath,
+			CacheDir:       filepath.Join(*dataDir, "audio"),
+			BaseURL:        base,
+			MaxBytes:       *audioMaxBytes,
+			MaxConcurrent:  *audioConcurrent,
+			RenderTimeout:  *audioRenderTimeout,
+			MaxDuration:    *audioMaxDuration,
+			ChromePath:     *audioChromePath,
+			LookupMetadata: lookupMD,
 		})
 		if err != nil {
 			log.Fatalf("audio renderer: %v", err)

@@ -218,6 +218,11 @@ export async function onShareClick(el) {
                 <span class="pn-share-audio-status">Checking pre-rendered audio…</span>
             </div>
             ` : ''}
+            <p class="pn-share-license" style="margin:10px 0 0;font-size:11px;color:#777;letter-spacing:0.04em">
+                Tracks are licensed
+                <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:#9ad;text-decoration:none">CC BY 4.0</a>
+                — recipients may reuse with attribution to beats.bitwrap.io.
+            </p>
             <div class="pn-modal-actions">
                 <button class="cancel close">Close</button>
                 <button class="save copy">Copy link</button>

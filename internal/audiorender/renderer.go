@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,6 +68,37 @@ type Config struct {
 	MaxDuration time.Duration
 	// ChromePath overrides chromedp's exec autodetection. Empty = autodetect.
 	ChromePath string
+	// LookupMetadata supplies WebM/Matroska tags (title/artist/genre/
+	// comment/date) for a given CID. Called once per render after the
+	// raw capture lands, before the file is renamed into place. Nil
+	// (or returning an empty Metadata) skips the post-process step
+	// and the file ships with only the encoder/language tags Chrome
+	// auto-writes. Wired in main.go to the share store.
+	LookupMetadata func(cid string) Metadata
+	// FFmpegPath overrides ffmpeg autodetection. Empty = "ffmpeg" on
+	// PATH. Set by main.go from -ffmpeg flag if needed; the prod host
+	// has /usr/bin/ffmpeg installed.
+	FFmpegPath string
+}
+
+// Metadata is the set of tags written into the Matroska container
+// after capture. Empty fields are skipped — ffmpeg won't write blank
+// tags. Title is the user-facing label (composer's auto-name like
+// "techno · Crystal Ember", or a hand-authored name); Comment is the
+// canonical share URL so a downloaded .webm is self-locating.
+// Copyright/License default to CC BY 4.0 (the same license YouTube
+// surfaces under its Creative Commons option) so consumers can reuse
+// the audio with attribution. Override per-field if a hand-authored
+// share ever needs different terms.
+type Metadata struct {
+	Title     string
+	Artist    string
+	Album     string
+	Genre     string
+	Comment   string
+	Date      string
+	Copyright string
+	License   string
 }
 
 type Renderer struct {
@@ -253,6 +285,23 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return "", fmt.Errorf("audiorender: write tmp: %w", err)
 	}
+	// Stamp Matroska tags via ffmpeg stream-copy. If LookupMetadata
+	// is unset, ffmpeg isn't on PATH, or the call fails, log and
+	// proceed with the raw Chromium output rather than failing the
+	// whole render — a tagged file is nice-to-have, not load-bearing.
+	if r.cfg.LookupMetadata != nil {
+		md := r.cfg.LookupMetadata(cid)
+		if md != (Metadata{}) {
+			tagged := path + ".tagged"
+			if err := writeTags(renderCtx, r.cfg.FFmpegPath, tmp, tagged, md); err == nil {
+				_ = os.Remove(tmp)
+				tmp = tagged
+			} else {
+				log.Printf("audiorender: tag %s: %v (shipping untagged)", cid, err)
+				_ = os.Remove(tagged)
+			}
+		}
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("audiorender: rename: %w", err)
@@ -261,6 +310,40 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	r.evictIfOverCap()
 
 	return path, nil
+}
+
+// writeTags shells out to ffmpeg for a stream-copy tag rewrite. WebM
+// is Matroska — same tag namespace, same -metadata flags. Stream copy
+// is fast (~50-200 ms for a typical track) since no re-encode happens.
+func writeTags(ctx context.Context, ffmpegPath, src, dst string, md Metadata) error {
+	bin := ffmpegPath
+	if bin == "" {
+		bin = "ffmpeg"
+	}
+	args := []string{"-y", "-loglevel", "error", "-i", src, "-c", "copy", "-f", "webm"}
+	add := func(k, v string) {
+		if v == "" {
+			return
+		}
+		args = append(args, "-metadata", k+"="+v)
+	}
+	add("title", md.Title)
+	add("artist", md.Artist)
+	add("album", md.Album)
+	add("genre", md.Genre)
+	add("comment", md.Comment)
+	add("date", md.Date)
+	add("copyright", md.Copyright)
+	// Matroska tag spec uses LICENSE (uppercase) as a Track-level
+	// tag for the rights URL; ffmpeg's -metadata flag normalises the
+	// case in the output container.
+	add("LICENSE", md.License)
+	args = append(args, dst)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) {

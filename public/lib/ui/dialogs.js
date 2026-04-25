@@ -252,6 +252,11 @@ export function showWelcomeCard(el) {
                     <button class="pn-welcome-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Start playing</button>
                     <button class="pn-welcome-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">Open full guide</button>
                 </div>
+                <p class="pn-welcome-license" style="margin:14px 0 0;font-size:11px;color:#777;letter-spacing:0.04em">
+                    Tracks are licensed
+                    <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:#9ad;text-decoration:none">CC BY 4.0</a>
+                    — reuse with attribution to beats.bitwrap.io.
+                </p>
             </div>
         </div>
     `;

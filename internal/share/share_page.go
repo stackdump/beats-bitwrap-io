@@ -467,6 +467,11 @@ func buildProjectionJSONLD(shareURL, cid, genre, userTitle, desc string) (string
 		"identifier":  cid,
 		"genre":       genre,
 		"description": desc,
+		// All shared tracks are licensed CC BY 4.0 — same license
+		// YouTube's "Creative Commons" option uses, so embeds and
+		// Content ID systems treat the audio as legitimately reusable.
+		"license":   "https://creativecommons.org/licenses/by/4.0/",
+		"copyrightNotice": "CC BY 4.0 — beats.bitwrap.io",
 	}
 	b, err := json.Marshal(node)
 	if err != nil {
@@ -538,6 +543,8 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta name="twitter:site" content="@bitwrap_io"/>
 <meta name="description" content="{{.Desc}}"/>
 <link rel="canonical" href="{{.ShareURL}}"/>
+<link rel="license" href="https://creativecommons.org/licenses/by/4.0/"/>
+<meta name="rights" content="CC BY 4.0 — beats.bitwrap.io"/>
 <script type="application/ld+json">{{.Projection}}</script>
 <script type="application/ld+json">{{.Payload}}</script>
 `
