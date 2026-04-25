@@ -224,7 +224,7 @@ export function showQuickstartModal(el) {
 // client-side card twin (lib/share/card.js) so the preview renders
 // without sealing the payload to the store first — no CID required.
 // Dismisses on click anywhere; persists a flag so it only fires once.
-export function showWelcomeCard(el) {
+export function showWelcomeCard(el, force = false) {
     // Pull ?title=… from the URL — on shared links the title is the
     // sender's projection label and should ride into the card. Clamp
     // to 60 chars to mirror the server's sanitizeTitle cap.
@@ -235,8 +235,10 @@ export function showWelcomeCard(el) {
     // Shared links with a title re-show the card every visit — the
     // title is the whole point, and return visitors following a link
     // still want that preview. Plain (no-title) first-visit behaves
-    // as before: one-shot, gated by pn-welcome-seen.
-    if (!urlTitle && localStorage.getItem('pn-welcome-seen')) return;
+    // as before: one-shot, gated by pn-welcome-seen. The footer's
+    // "card" link passes force=true so users can re-open the card
+    // without having to dig through the share modal.
+    if (!force && !urlTitle && localStorage.getItem('pn-welcome-seen')) return;
     el.querySelector('.pn-welcome-overlay')?.remove();
     const svg = renderCurrentCard(el, urlTitle);
     const overlay = document.createElement('div');

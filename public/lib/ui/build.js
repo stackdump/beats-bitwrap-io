@@ -1068,6 +1068,8 @@ export function buildUI(el) {
         <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener">source</a>
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="/schema/beats-share" target="_blank" rel="noopener" title="JSON-LD context + JSON-Schema for the share envelope">schema</a>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link pn-footer-card" href="#" title="Show the track card again">card</a>
         <span class="pn-footer-sep pn-footer-feed-sep" hidden>·</span>
         <a class="pn-footer-link pn-footer-feed" href="/feed" hidden title="Browse all rendered tracks">feed</a>
         <span class="pn-footer-sep pn-footer-rss-sep" hidden>·</span>
@@ -1136,6 +1138,14 @@ export function buildUI(el) {
     footer.querySelector('.pn-footer-history')?.addEventListener('click', (e) => {
         e.preventDefault();
         import('./dialogs.js').then(m => m.showHistoryModal(el));
+    });
+    // "card" — pop the welcome modal again. Force=true bypasses the
+    // first-visit-only gate; users want this on demand, not just
+    // once per browser. Re-uses the same modal so the SVG art and
+    // CC BY footer stay consistent across surfaces.
+    footer.querySelector('.pn-footer-card')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        import('./dialogs.js').then(m => m.showWelcomeCard(el, true));
     });
 
     // Setup canvas size
