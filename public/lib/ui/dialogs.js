@@ -297,6 +297,12 @@ export function showWelcomeCard(el) {
                 <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
                 <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
             `;
+            // Stop the Tone.js engine if the user starts the
+            // pre-rendered audio — same track played twice over each
+            // other otherwise.
+            block.querySelector('audio').addEventListener('play', () => {
+                if (el._playing) el._togglePlay();
+            });
             overlay.querySelector('.pn-welcome-modal > div:last-child')?.appendChild(block);
         }).catch(() => {});
     }

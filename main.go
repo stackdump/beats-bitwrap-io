@@ -177,8 +177,11 @@ func main() {
 			filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
 			*audioMaxDuration, *audioRenderTimeout)
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler))
+		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		if *audioAutoEnqueue {
-			shareStore.OnSeal(func(cid string) { ar.Enqueue(cid) })
+			// Auto-enqueue from the seal hook can't know the track length —
+			// use the renderer's fallback estimate.
+			shareStore.OnSeal(func(cid string) { ar.Enqueue(cid, 0) })
 			log.Printf("Audio render: auto-enqueue on PUT /o/{cid} ON")
 		}
 	}
@@ -553,6 +556,22 @@ func midiRoutingHandler(single *midiout.Output, multi *midiout.MultiOutput, fan 
 	}
 }
 
+// audioStatusHandler returns Status JSON for ?cid=… — the share modal
+// polls this every few seconds while waiting for a render so it can
+// distinguish "queued behind N others, ~M seconds wait" from
+// "rendering, X% done" without burning a HEAD-per-poll on the audio
+// handler. Cheap (no disk I/O beyond a single Stat for the ready case).
+func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cid := r.URL.Query().Get("cid")
+		st := ar.Status(cid)
+		w.Header().Set("Content-Type", "application/json")
+		// Status moves second-by-second — no caching.
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(st)
+	}
+}
+
 // --- /audio/{cid}.webm handler ---
 //
 // Validates the CID, confirms it exists in the share store (so we never
@@ -587,9 +606,14 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		// POST enqueues a background render and returns 202 Accepted.
 		// The share modal uses this when its HEAD probe shows no
 		// pre-rendered audio yet. Idempotent — Enqueue is single-flight
-		// and a no-op when the cache is already warm.
+		// and a no-op when the cache is already warm. JSON body
+		// {"expectedMs": <track-length-ms>} is optional; the modal
+		// computes it from the project's tempo + step count and posts
+		// it so /api/audio-status returns honest queue-wait projections.
 		if r.Method == http.MethodPost {
-			ar.Enqueue(cid)
+			var body struct{ ExpectedMs int64 `json:"expectedMs"` }
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			ar.Enqueue(cid, body.ExpectedMs)
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
@@ -618,7 +642,9 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			_ = rc.SetWriteDeadline(time.Time{})
 			_ = rc.SetReadDeadline(time.Time{})
 		}
-		path, err := ar.Render(r.Context(), cid)
+		// expectedMs=0 falls back to the renderer's default — the GET
+		// path doesn't carry the caller's track-length estimate.
+		path, err := ar.Render(r.Context(), cid, 0)
 		if err != nil {
 			log.Printf("audio render %s: %v", cid, err)
 			http.Error(w, "render failed", http.StatusInternalServerError)

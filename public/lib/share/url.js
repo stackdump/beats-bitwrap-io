@@ -225,69 +225,13 @@ export async function onShareClick(el) {
         </div>
     `;
     el.appendChild(overlay);
-    if (cid) {
-        const audioBlock = overlay.querySelector('.pn-share-audio');
-        const audioUrl = `${location.origin}/audio/${cid}.webm`;
-        const renderReady = (sizeBytes) => {
-            const fname = (titleInput?.value?.trim() || `beats-${cid.slice(0, 12)}`)
-                .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
-            const sizeKb = sizeBytes ? ` · ${Math.round(sizeBytes / 1024)} KB` : '';
-            audioBlock.dataset.state = 'ready';
-            audioBlock.innerHTML = `
-                <div style="font-size:11px;color:#777;margin-bottom:6px;letter-spacing:0.06em;text-transform:uppercase">Pre-rendered audio${sizeKb}</div>
-                <audio controls preload="none" src="${audioUrl}" style="width:100%;height:32px"></audio>
-                <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:6px;font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
-            `;
-        };
-        const renderMissing = () => {
-            audioBlock.dataset.state = 'missing';
-            audioBlock.innerHTML = `
-                <div style="display:flex;align-items:center;gap:10px">
-                    <span style="flex:1;color:#aaa">Audio not rendered yet.</span>
-                    <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Render now</button>
-                </div>
-            `;
-            audioBlock.querySelector('.pn-share-render-btn').addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const btn = e.currentTarget;
-                btn.disabled = true;
-                btn.textContent = 'Queuing…';
-                try {
-                    const r = await fetch(audioUrl, { method: 'POST' });
-                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                    audioBlock.dataset.state = 'rendering';
-                    audioBlock.innerHTML = `
-                        <div style="display:flex;align-items:center;gap:10px">
-                            <span style="flex:1;color:#aaa">Rendering in background — usually ~2 min. Reopen Share to check.</span>
-                        </div>
-                    `;
-                } catch (err) {
-                    btn.disabled = false;
-                    btn.textContent = 'Render now';
-                    audioBlock.querySelector('span').textContent = `Queue failed: ${err.message}. Try again?`;
-                }
-            });
-        };
-        fetch(audioUrl, { method: 'HEAD' }).then(r => {
-            if (r.ok) {
-                renderReady(parseInt(r.headers.get('Content-Length') || '0', 10));
-            } else if (r.status === 404) {
-                renderMissing();
-            } else {
-                audioBlock.dataset.state = 'error';
-                audioBlock.querySelector('.pn-share-audio-status').textContent =
-                    `Audio status check failed (HTTP ${r.status}).`;
-            }
-        }).catch(() => {
-            audioBlock.dataset.state = 'error';
-            audioBlock.querySelector('.pn-share-audio-status').textContent =
-                'Audio status check failed (network).';
-        });
-    }
     const input = overlay.querySelector('.pn-share-url');
     const sel = overlay.querySelector('.pn-share-storage');
     const titleInput = overlay.querySelector('.pn-share-title');
     const preview = overlay.querySelector('.pn-share-preview-img');
+    if (cid) {
+        wireShareAudioStatus(el, overlay, cid, titleInput);
+    }
 
     // Append `&title=…` (on short URL) or `?title=…` (on the card SVG)
     // so the title rides along but doesn't affect the CID — it's pure
@@ -345,5 +289,188 @@ export async function onShareClick(el) {
     });
     overlay.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+    });
+}
+
+// Track length ≈ render wall-clock (capture is realtime). Mirrors the
+// renderer formula in render-mode.js: PPQ=4, fall back to 1024 ticks
+// (≈ 64 bars @ PPQ 4) for loop-only payloads. Browser-boot + flush
+// overhead (~10-15s on the 2-CPU prod host) pads the estimate.
+function expectedRenderMs(el) {
+    const PPQ = 4, LOOP_FALLBACK_TICKS = 1024, OVERHEAD_MS = 15000;
+    const tempo = el._tempo || el._project?.tempo || 120;
+    const totalSteps = el._totalSteps > 0 ? el._totalSteps : LOOP_FALLBACK_TICKS;
+    return totalSteps * (60000 / (tempo * PPQ)) + OVERHEAD_MS;
+}
+
+// Drives the share modal's audio status block. Runs a state machine
+// off /api/audio-status (cheap server-side; no disk IO beyond a Stat
+// for the ready case, no render side-effect). Distinguishes:
+//   - ready: cached file exists → embed player + download
+//   - rendering: a sem slot is held → progress bar from elapsed/expected
+//   - queued: waiting for a slot → "queued behind N, ~Ms wait"
+//   - missing: nothing in flight → "Render now" button
+function wireShareAudioStatus(el, overlay, cid, titleInput) {
+    const audioBlock = overlay.querySelector('.pn-share-audio');
+    const audioUrl = `${location.origin}/audio/${cid}.webm`;
+    const statusUrl = `/api/audio-status?cid=${cid}`;
+    const expectedMs = expectedRenderMs(el);
+    let pollTimer = null, tickTimer = null;
+    const stop = () => {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    };
+    const obs = new MutationObserver(() => {
+        if (!document.body.contains(overlay)) { stop(); obs.disconnect(); }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+
+    const fmtSec = (ms) => `${Math.max(0, Math.round(ms / 1000))}s`;
+    const sizeKbStr = (bytes) => bytes ? ` · ${Math.round(bytes / 1024)} KB` : '';
+
+    const showReady = (sizeBytes) => {
+        stop();
+        const fname = (titleInput?.value?.trim() || `beats-${cid.slice(0, 12)}`)
+            .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
+        audioBlock.dataset.state = 'ready';
+        audioBlock.innerHTML = `
+            <div style="font-size:11px;color:#777;margin-bottom:6px;letter-spacing:0.06em;text-transform:uppercase">Pre-rendered audio${sizeKbStr(sizeBytes)}</div>
+            <audio controls preload="none" src="${audioUrl}" style="width:100%;height:32px"></audio>
+            <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:6px;font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
+        `;
+        // Stop the live Tone.js engine before pre-rendered audio
+        // starts — otherwise the user hears both at once. The webm
+        // is the canonical audio for an already-rendered share.
+        audioBlock.querySelector('audio').addEventListener('play', () => {
+            if (el._playing) el._togglePlay();
+        });
+    };
+
+    const showMissing = () => {
+        stop();
+        audioBlock.dataset.state = 'missing';
+        audioBlock.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px">
+                <span style="flex:1;color:#aaa">Audio not rendered yet. <span style="color:#666;font-size:11px">(~${fmtSec(expectedMs)} render)</span></span>
+                <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Render now</button>
+            </div>
+        `;
+        audioBlock.querySelector('.pn-share-render-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            btn.textContent = 'Queuing…';
+            try {
+                const r = await fetch(audioUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ expectedMs: Math.round(expectedMs) }),
+                });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                // Optimistically flip to queued; the next poll will
+                // refine with real position + cumulative wait.
+                showQueued({ queuePosition: 1, waitMs: expectedMs });
+                startPolling();
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = 'Render now';
+                audioBlock.querySelector('span').textContent = `Queue failed: ${err.message}. Try again?`;
+            }
+        });
+    };
+
+    const showQueued = (st) => {
+        audioBlock.dataset.state = 'queued';
+        const pos = st.queuePosition || 1;
+        const ahead = pos > 1 ? ` (${pos - 1} ahead)` : '';
+        audioBlock.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="font-size:11px;color:#888;letter-spacing:0.06em;text-transform:uppercase">Queued${ahead}</span>
+                <span class="pn-share-audio-eta" style="flex:1;color:#aaa;font-size:12px;font-variant-numeric:tabular-nums">~${fmtSec(st.waitMs || 0)} until rendering</span>
+            </div>
+            <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:100%;background:repeating-linear-gradient(45deg,#1a1a2e 0,#1a1a2e 6px,#0f3460 6px,#0f3460 12px);opacity:0.6"></div>
+            </div>
+        `;
+    };
+
+    // Once Status returns "rendering" we get a server-authoritative
+    // start time (ElapsedMs) and switch to a determinate progress bar.
+    // Local tickTimer interpolates between server polls so the bar
+    // doesn't visibly jump every 5 seconds.
+    const showRendering = (st) => {
+        const renderingStartedAt = Date.now() - (st.elapsedMs || 0);
+        const trackExpected = st.expectedMs > 0 ? st.expectedMs : expectedMs;
+        audioBlock.dataset.state = 'rendering';
+        audioBlock.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="font-size:11px;color:#888;letter-spacing:0.06em;text-transform:uppercase">Rendering</span>
+                <span class="pn-share-audio-eta" style="flex:1;color:#aaa;font-size:12px;font-variant-numeric:tabular-nums"></span>
+            </div>
+            <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
+                <div class="pn-share-audio-bar" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#0f3460,#e94560);transition:width 0.5s linear"></div>
+            </div>
+        `;
+        const bar = audioBlock.querySelector('.pn-share-audio-bar');
+        const eta = audioBlock.querySelector('.pn-share-audio-eta');
+        if (tickTimer) clearInterval(tickTimer);
+        const tick = () => {
+            const elapsed = Date.now() - renderingStartedAt;
+            const pct = Math.min(95, (elapsed / trackExpected) * 95);
+            bar.style.width = `${pct.toFixed(1)}%`;
+            const remaining = trackExpected - elapsed;
+            eta.textContent = remaining > 0
+                ? `~${fmtSec(remaining)} remaining`
+                : 'finishing up…';
+        };
+        tick();
+        tickTimer = setInterval(tick, 500);
+    };
+
+    const handleStatus = (st) => {
+        switch (st.state) {
+            case 'ready':
+                if (audioBlock.dataset.state === 'rendering') {
+                    const bar = audioBlock.querySelector('.pn-share-audio-bar');
+                    if (bar) bar.style.width = '100%';
+                }
+                setTimeout(() => showReady(st.sizeBytes || 0), audioBlock.dataset.state === 'rendering' ? 400 : 0);
+                break;
+            case 'rendering':
+                if (audioBlock.dataset.state !== 'rendering') showRendering(st);
+                break;
+            case 'queued':
+                showQueued(st);
+                break;
+            case 'missing':
+                if (audioBlock.dataset.state !== 'missing') showMissing();
+                break;
+        }
+    };
+
+    const poll = async () => {
+        try {
+            const r = await fetch(statusUrl);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const st = await r.json();
+            handleStatus(st);
+        } catch (err) {
+            // Don't kill polling on transient errors.
+        }
+    };
+    const startPolling = () => {
+        if (pollTimer) return;
+        // Faster initial cadence right after a queue action so the
+        // user sees the queued→rendering transition without a 5s lag.
+        pollTimer = setInterval(poll, 3000);
+    };
+
+    // Initial probe — poll() is the single source of truth, so we just
+    // start polling immediately and let the first response render.
+    audioBlock.querySelector('.pn-share-audio-status').textContent =
+        'Checking pre-rendered audio…';
+    poll().then(() => {
+        // Only keep polling if not already in a terminal state.
+        if (audioBlock.dataset.state !== 'ready') startPolling();
     });
 }

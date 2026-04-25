@@ -76,7 +76,33 @@ type Renderer struct {
 
 	mu       sync.Mutex
 	inflight map[string]chan struct{} // cid → channel closed when render finishes
+	// Queue tracking — drives /api/audio-status. expectedMs is the
+	// caller's track-length estimate (~= render wall-clock since the
+	// renderer plays in realtime). Used to project wait totals across
+	// the queue. If the caller didn't provide one, we fall back to
+	// fallbackRenderMs as a placeholder so totals still add up.
+	queued  map[string]int64     // cid → expectedMs, currently waiting on the sem
+	running map[string]renderRun // cid → start time + expected
 }
+
+type renderRun struct {
+	StartedAt  time.Time
+	ExpectedMs int64
+}
+
+// Status mirrors the JSON shape returned by /api/audio-status.
+type Status struct {
+	State          string `json:"state"`           // ready | rendering | queued | missing
+	ExpectedMs     int64  `json:"expectedMs,omitempty"`
+	ElapsedMs      int64  `json:"elapsedMs,omitempty"`     // rendering: ms since render start
+	QueuePosition  int    `json:"queuePosition,omitempty"` // queued: 1-based position
+	WaitMs         int64  `json:"waitMs,omitempty"`        // queued: cumulative wait (renders ahead + current's remaining)
+	SizeBytes      int64  `json:"sizeBytes,omitempty"`     // ready: cached file size
+}
+
+// fallbackRenderMs is the placeholder render time used when an Enqueue
+// caller doesn't provide an expectedMs. Roughly the average track length.
+const fallbackRenderMs int64 = 90_000
 
 func New(cfg Config) (*Renderer, error) {
 	if cfg.CacheDir == "" {
@@ -98,6 +124,8 @@ func New(cfg Config) (*Renderer, error) {
 		cfg:      cfg,
 		sem:      make(chan struct{}, cfg.MaxConcurrent),
 		inflight: map[string]chan struct{}{},
+		queued:   map[string]int64{},
+		running:  map[string]renderRun{},
 	}, nil
 }
 
@@ -145,14 +173,19 @@ func (r *Renderer) findExisting(cid string) string {
 // Render returns the path to the rendered audio file for cid. On a cache
 // hit it's instant; on a miss it spawns headless Chromium, records the
 // track, and writes the file before returning. Concurrent calls for the
-// same cid coalesce — only one render runs.
-func (r *Renderer) Render(ctx context.Context, cid string) (string, error) {
+// same cid coalesce — only one render runs. expectedMs is the caller's
+// estimate of render wall-clock (≈ track length); used by Status to
+// project queue wait totals. Pass 0 to use the fallback estimate.
+func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (string, error) {
 	if !ValidCID(cid) {
 		return "", fmt.Errorf("audiorender: invalid cid %q", cid)
 	}
 	if path := r.findExisting(cid); path != "" {
 		_ = touchAccessTime(path)
 		return path, nil
+	}
+	if expectedMs <= 0 {
+		expectedMs = fallbackRenderMs
 	}
 
 	// Single-flight: if another goroutine is rendering the same CID,
@@ -172,11 +205,14 @@ func (r *Renderer) Render(ctx context.Context, cid string) (string, error) {
 	}
 	ch := make(chan struct{})
 	r.inflight[cid] = ch
+	r.queued[cid] = expectedMs
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
 		delete(r.inflight, cid)
+		delete(r.running, cid)
+		delete(r.queued, cid)
 		r.mu.Unlock()
 		close(ch)
 	}()
@@ -188,6 +224,11 @@ func (r *Renderer) Render(ctx context.Context, cid string) (string, error) {
 		return "", ctx.Err()
 	}
 	defer func() { <-r.sem }()
+	// Promote queued → running once we hold a sem slot.
+	r.mu.Lock()
+	delete(r.queued, cid)
+	r.running[cid] = renderRun{StartedAt: time.Now(), ExpectedMs: expectedMs}
+	r.mu.Unlock()
 
 	path := r.CachePath(cid)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -311,8 +352,9 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) 
 // Enqueue triggers a background render of cid. Returns immediately.
 // Safe to call from any goroutine; single-flight in Render() de-dupes
 // if the same cid is enqueued multiple times or also requested via the
-// HTTP path. Cache hits are a near-no-op (a cheap walk).
-func (r *Renderer) Enqueue(cid string) {
+// HTTP path. Cache hits are a near-no-op (a cheap walk). expectedMs
+// is the caller's track-length estimate; pass 0 to use the fallback.
+func (r *Renderer) Enqueue(cid string, expectedMs int64) {
 	if !ValidCID(cid) {
 		return
 	}
@@ -322,10 +364,72 @@ func (r *Renderer) Enqueue(cid string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), r.cfg.RenderTimeout)
 		defer cancel()
-		if _, err := r.Render(ctx, cid); err != nil {
+		if _, err := r.Render(ctx, cid, expectedMs); err != nil {
 			log.Printf("audiorender: prerender %s failed: %v", cid, err)
 		}
 	}()
+}
+
+// Status reports the current state of cid: ready (cached), rendering
+// (sem slot held), queued (waiting on a slot), or missing (no record).
+// Queue wait time = sum of expectedMs for queued items + remaining time
+// on running renders. The caller's view is approximate — render time
+// is realtime ≈ track length, which the caller knows up front.
+func (r *Renderer) Status(cid string) Status {
+	if !ValidCID(cid) {
+		return Status{State: "missing"}
+	}
+	if path := r.findExisting(cid); path != "" {
+		st := Status{State: "ready"}
+		if info, err := os.Stat(path); err == nil {
+			st.SizeBytes = info.Size()
+		}
+		return st
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if run, ok := r.running[cid]; ok {
+		return Status{
+			State:      "rendering",
+			ExpectedMs: run.ExpectedMs,
+			ElapsedMs:  time.Since(run.StartedAt).Milliseconds(),
+		}
+	}
+	if expected, ok := r.queued[cid]; ok {
+		// Position in queue (1-based among queued, after currently
+		// running renders). Cumulative wait = remaining time on each
+		// running render + expectedMs for every queued render that
+		// will be picked up before this one. Order among queued items
+		// isn't guaranteed (Go's select on a chan-based sem doesn't
+		// expose FIFO), so we treat the total as a fair estimate
+		// rather than a strict per-CID prediction.
+		var waitMs int64
+		for _, run := range r.running {
+			rem := run.ExpectedMs - time.Since(run.StartedAt).Milliseconds()
+			if rem < 0 {
+				rem = 0
+			}
+			waitMs += rem
+		}
+		position := 1
+		for other, otherExpected := range r.queued {
+			if other == cid {
+				continue
+			}
+			// Optimistic ordering: assume half the other queued
+			// renders go before this one. Without strict FIFO this
+			// is the most honest single-number estimate.
+			waitMs += otherExpected / 2
+			position++
+		}
+		return Status{
+			State:         "queued",
+			ExpectedMs:    expected,
+			QueuePosition: position,
+			WaitMs:        waitMs,
+		}
+	}
+	return Status{State: "missing"}
 }
 
 // touchAccessTime bumps the file's mtime so LRU eviction sees recent
