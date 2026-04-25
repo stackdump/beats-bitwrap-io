@@ -119,28 +119,39 @@ export async function acquireWakeLock(el) {
     }
 }
 
-// Background handling — AFK model:
-//   World (worker) keeps running. State advances correctly through any
-//   suspension via the worker's silent catch-up (Petri nets, loops,
-//   macros, mutes all evolve). When the user comes back, audio resumes
-//   from the current "now" beat — no replay of missed audio, no drift
-//   accumulation. Mirrors how a multiplayer game treats a player who
-//   alt-tabs / locks their screen: the world doesn't pause for them.
+// Background handling — default: stop on hide, fresh on return.
+//   Detect tab-switch / screen-lock via visibilitychange and pause
+//   playback cleanly. User taps Play to resume from the current state.
+//   Cleaner UX than fighting OS suspension (worker throttling, audio
+//   element drops, AV drift on resume).
 //
-// On return to visible: resume the AudioContext (iOS suspends it under
-// lock) and bounce the worker timer (mobile throttles its setInterval).
-// Audio scheduling on the AudioContext clock handles the rest — beats
-// that were scheduled before suspend will fire on time on resume.
+// AFK opt-in: set localStorage 'pn-afk-mode' = '1' to keep the world
+//   running through background — the worker keeps ticking and silent
+//   catch-up advances Petri-net state without replaying audio. On
+//   return, AudioContext resumes and the worker timer bounces back to
+//   the right rate. Same model as a multiplayer game tolerating an
+//   AFK player. Toggle is intentionally hidden — most users want the
+//   default stop-on-hide; AFK is for live-listening / recording rigs.
 export function installVisibilityRecovery(el) {
     if (el._visRecoveryHandler) return;
     el._visRecoveryHandler = () => {
-        if (document.visibilityState !== 'visible') return;
-        if (!el._playing) return;
-        try { toneEngine.resumeContext(); } catch {}
-        if (el._worker && typeof el._tempo === 'number') {
-            // Re-create the worker's setInterval at the correct rate;
-            // it may have been throttled to ~1 Hz while backgrounded.
-            el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
+        const afk = (() => { try { return localStorage.getItem('pn-afk-mode') === '1'; } catch { return false; } })();
+        if (document.visibilityState === 'hidden' && el._playing && !afk) {
+            // Stop playback. Same path as tapping Play so all cleanup
+            // runs (wake-lock release, viz loop stop, worker stop).
+            el._togglePlay();
+            return;
+        }
+        if (document.visibilityState === 'visible' && el._playing) {
+            // Catch-up path (AFK mode only — non-AFK already stopped).
+            try { toneEngine.resumeContext(); } catch {}
+            if (el._worker && typeof el._tempo === 'number') {
+                el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
+            }
+        } else if (document.visibilityState === 'visible') {
+            // Pre-resume context so the next user-tap on Play has a
+            // hot context (cheap; harmless if it was never suspended).
+            try { toneEngine.resumeContext(); } catch {}
         }
     };
     document.addEventListener('visibilitychange', el._visRecoveryHandler);
