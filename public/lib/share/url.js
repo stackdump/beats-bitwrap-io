@@ -229,6 +229,12 @@ export async function onShareClick(el) {
     const sel = overlay.querySelector('.pn-share-storage');
     const titleInput = overlay.querySelector('.pn-share-title');
     const preview = overlay.querySelector('.pn-share-preview-img');
+    // If the user opened a `?title=…` link, prefill the modal title
+    // so it round-trips when they re-share. Mirrors the server's
+    // sanitizeTitle (60-char cap, control chars stripped).
+    const incomingTitle = (new URLSearchParams(location.search).get('title') || '')
+        .replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 60);
+    if (incomingTitle) titleInput.value = incomingTitle;
     if (cid) {
         wireShareAudioStatus(el, overlay, cid, titleInput);
     }
