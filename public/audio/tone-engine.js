@@ -2468,6 +2468,11 @@ class ToneEngine {
         if (this[cacheKey]) return this[cacheKey];
         try {
             const a = new Tone.Analyser(type === 'fft' ? 'fft' : 'waveform', size);
+            // Default smoothing of 0.8 turns consecutive frames into near-
+            // duplicates, which kills any sense of motion in a waterfall
+            // visualizer. Drop to 0 for waveform (raw, frame-accurate) and
+            // a light 0.4 for FFT bars so they don't twitch frantically.
+            a.smoothing = type === 'fft' ? 0.4 : 0;
             // Tap at the very last pre-destination node so we capture the same
             // signal the speakers hear, including all master FX.
             this._masterComp.connect(a);

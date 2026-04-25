@@ -9,7 +9,7 @@
 
 import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
-import { stageOnTransitionFired, stageOnMuteStateChange } from '../ui/stage.js';
+import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 
 // --- Transport ---
 
@@ -416,6 +416,14 @@ export function handleWsMessage(el, msg) {
                 const x = typeof params.x === 'number' ? params.x : 0.5;
                 const y = typeof params.y === 'number' ? params.y : 0.5;
                 el._applyFeel([x, y]);
+            }
+            // Authored Stage visualizer changes — control net can drive
+            // which visualizer the Stage shows. Param: { visualizer: name }.
+            // Names: mandala (Constellation) · corona · sonar · petal ·
+            // shuffle. No-op when Stage isn't open.
+            if (msg.control?.action === 'set-visualizer') {
+                const target = msg.control.macroParams?.visualizer;
+                if (target) stageSetVisualizer(target);
             }
             // Visual feedback for control events.
             if (msg.netId === el._activeNetId) {

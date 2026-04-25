@@ -2626,14 +2626,28 @@ input[type="range"][data-default] {
     pointer-events: none;
 }
 
-/* Output-driven scope canvas (Wave + Spectrum modes). Sits above the
- * background but below the meta grid so the rings still own the eye. */
+/* Scope canvas — used by every non-Constellation visualizer (Corona,
+ * Sonar, Petal, Clock, Trails). Sits above the background; in any of
+ * those "solo" visualizer modes it floats above the panels and the
+ * rings + flame canvas hide so the new geometry reads cleanly. */
 .pn-stage-scope {
     position: absolute;
     inset: 0;
     z-index: 1;
     pointer-events: none;
 }
+.pn-stage-overlay.viz-solo .pn-stage-scope { z-index: 5; }
+.pn-stage-overlay.viz-solo .pn-stage-grid { opacity: 0; pointer-events: none; }
+.pn-stage-overlay.viz-solo .pn-stage-flame { display: none; }
+/* Constellation-specific toolbar controls — hide them while a non-
+ * Constellation visualizer (Corona / Sonar / Petal) is active so the
+ * toolbar shows only what applies. */
+.pn-stage-overlay.viz-solo [data-viz],
+.pn-stage-overlay.viz-solo .pn-stage-expand,
+.pn-stage-overlay.viz-solo .pn-stage-backs,
+.pn-stage-overlay.viz-solo .pn-stage-labels,
+.pn-stage-overlay.viz-solo .pn-stage-bolts,
+.pn-stage-overlay.viz-solo .pn-stage-scale { display: none; }
 
 /* Share card flash — briefly appears on track change when the
  * cardflash toggle is on, so a recording captures genre/seed/tempo

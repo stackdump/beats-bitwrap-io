@@ -198,6 +198,8 @@
       <text x="805" y="995" text-anchor="middle">unmute-note</text>
       <rect x="880" y="980" width="120" height="22" rx="11" fill="#2e1065" stroke="#a78bfa"/>
       <text x="940" y="995" text-anchor="middle">toggle-note</text>
+      <rect x="380" y="1010" width="140" height="22" rx="11" fill="#2e1065" stroke="#a78bfa"/>
+      <text x="450" y="1025" text-anchor="middle">set-visualizer</text>
     </g>
     <line x1="657" y1="895" x2="657" y2="948" class="spoke"/>
   </g>
@@ -327,5 +329,5 @@
   </g>
 
   <!-- footer -->
-  <text x="1560" y="1080" text-anchor="end" class="sub">root: transition-fired · 71 instruments · 34 macros · 10 control actions · 19 genres</text>
+  <text x="1560" y="1080" text-anchor="end" class="sub">root: transition-fired · 71 instruments · 34 macros · 11 control actions · 19 genres</text>
 </svg>

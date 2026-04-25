@@ -247,7 +247,7 @@
                       "mute-track", "unmute-track", "toggle-track",
                       "mute-note",  "unmute-note",  "toggle-note",
                       "activate-slot", "stop-transport", "fire-macro",
-                      "set-feel"
+                      "set-feel", "set-visualizer"
                     ]
                   },
                   "targetNet":  { "type": "string", "maxLength": 128 },

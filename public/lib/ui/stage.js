@@ -9,6 +9,7 @@
 import { renderCurrentCard } from '../share/card.js';
 import { buildShareUrlForms } from '../share/url.js';
 import { openAiPromptModal } from './ai-prompt.js';
+import { toneEngine } from '../../audio/tone-engine.js';
 
 const BG = '#0a0a1a';
 const ARC_COLOR = '#4a90d9';
@@ -31,12 +32,17 @@ export function openStage(el) {
     overlay.innerHTML = `
         <button class="pn-stage-burger" title="Menu" aria-label="Open stage menu" aria-expanded="false">&#8226;</button>
         <div class="pn-stage-menu" role="group" aria-label="Stage viz modes">
+            <select class="pn-stage-visualizer" title="Visualizer">
+                <option value="mandala" selected>Constellation</option>
+                <option value="corona">Corona</option>
+                <option value="sonar">Sonar</option>
+                <option value="petal">Petal</option>
+                <option value="shuffle">&#x1F500; Shuffle</option>
+            </select>
             <button data-viz="flow" class="active" aria-pressed="true" title="Flow — panels drift">&#9676;</button>
             <button data-viz="pulse" class="active" aria-pressed="true" title="Pulse — beats fade toward center">&#9678;</button>
             <button data-viz="flame" class="active" aria-pressed="true" title="Flame — radial equalizer from center">&#9660;</button>
             <button data-viz="tilt" aria-pressed="false" title="Tilt — 3D perspective rotation">&#8861;</button>
-            <button data-viz="wave" aria-pressed="false" title="Wave — oscilloscope from master output">&#8767;</button>
-            <button data-viz="spectrum" aria-pressed="false" title="Spectrum — FFT bars from master output">&#9783;</button>
             <button class="pn-stage-feel" title="Feel (F)">&#9672;</button>
             <button class="pn-stage-expand" aria-pressed="false" title="Show all slot variants (A+B+…)">&#8646;</button>
             <button class="pn-stage-backs" aria-pressed="false" title="Show/hide panel backgrounds">&#9632;</button>
@@ -119,6 +125,25 @@ export function openStage(el) {
             const help = overlay.querySelector('.pn-stage-help-modal');
             if (help) { help.remove(); return; }
             closeStage(el);
+            return;
+        }
+        // Arrow keys cycle the visualizer while Stage is open. Skip when
+        // focus is in an input/select so the user can still type freely.
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const t = e.target;
+            const tag = t?.tagName;
+            if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+            const order = ['mandala', 'corona', 'sonar', 'petal'];
+            // Map shuffle's currently-running viz back into the cycle so
+            // the keys still feel responsive while shuffling is on.
+            const cur = session.visualizer || 'mandala';
+            const i = Math.max(0, order.indexOf(cur));
+            const di = e.key === 'ArrowRight' ? 1 : -1;
+            const next = order[(i + di + order.length) % order.length];
+            applyVisualizer(next);
+            const sel = overlay.querySelector('.pn-stage-visualizer');
+            if (sel) sel.value = next;
+            e.preventDefault();
         }
     };
     document.addEventListener('keydown', session.onKey);
@@ -255,6 +280,9 @@ export function openStage(el) {
         if (session.bgCtx) session.bgCtx.clearRect(0, 0, session.bgCanvas.width, session.bgCanvas.height);
         if (session.bgMode === 'stars' && session.bgStars.length === 0) spawnStars();
     });
+    overlay.querySelector('.pn-stage-visualizer').addEventListener('change', (e) => {
+        applyVisualizer(e.target.value);
+    });
     overlay.querySelector('.pn-stage-scale').addEventListener('change', (e) => {
         session.scale = e.target.value;
         layoutRing(session);
@@ -349,6 +377,46 @@ export function stageOnTransitionFired(el, netId, transitionId) {
             born: performance.now(),
             life: 700,
         });
+    }
+    // Beat-driven visualizers: each captures the same fire event from a
+    // different angle. All cap their internal lists so a flurry of
+    // transitions can't accumulate unbounded state.
+    const ch = netChannel(el, netId);
+    const hue = channelHue(ch);
+    const now = performance.now();
+    // Shuffle: count transitions and rotate the visualizer every
+    // SHUFFLE_FIRES beats. Using transition count instead of wall-clock
+    // ties the swap rhythm to the actual song density.
+    if (session.shuffling) {
+        session.shuffleFireCount = (session.shuffleFireCount || 0) + 1;
+        if (session.shuffleFireCount >= SHUFFLE_FIRES) {
+            session.shuffleFireCount = 0;
+            const next = pickShuffleNext();
+            setVisualizer(next);
+            const sel = session.overlay.querySelector('.pn-stage-visualizer');
+            if (sel) sel.value = 'shuffle';
+        }
+    }
+    if (session.visualizer === 'sonar') {
+        // Two-stage rate limit so dense polyphony doesn't carpet the
+        // screen. Per-channel: at most one ring per 250ms (the older
+        // ring is still visibly expanding). Global: at most one new
+        // ring per 80ms regardless of channel. Cap at 8 visible rings.
+        if (!session.sonarLastByCh) session.sonarLastByCh = new Map();
+        const lastChFire = session.sonarLastByCh.get(ch) || 0;
+        const lastAnyFire = session.sonarLastAny || 0;
+        if (now - lastChFire >= 250 && now - lastAnyFire >= 80) {
+            session.sonarLastByCh.set(ch, now);
+            session.sonarLastAny = now;
+            if (session.sonarRings.length > 8) session.sonarRings.shift();
+            session.sonarRings.push({ born: now, hue, life: 900 });
+        }
+    } else if (session.visualizer === 'petal') {
+        // Smaller bump + faster decay below: the petal spikes briefly on
+        // each fire and visibly relaxes between hits, instead of pinning
+        // at full size whenever the track is active.
+        const prev = session.petalEnergy.get(netId) || 0;
+        session.petalEnergy.set(netId, Math.min(1, prev + 0.45));
     }
     // Flame: bump this panel's radial beam. One beam per panel, aimed
     // exactly at the panel's angle, so firings line up with visible
@@ -988,19 +1056,20 @@ function startLoop() {
             session.flameCtx.clearRect(0, 0, session.flameCanvas.width, session.flameCanvas.height);
             session.flameEnergy.clear();
         }
-        // Output-driven viz: oscilloscope + spectrum, both reading the
-        // master analyser tap. Cleared every frame so toggling off leaves
-        // no stale pixels.
-        const waveOn = session.vizModes.has('wave');
-        const spectrumOn = session.vizModes.has('spectrum');
-        if (waveOn || spectrumOn) {
+        // Solo visualizers (everything that owns the scope canvas):
+        // corona / sonar / petal. Cleared every frame so switching
+        // between them doesn't leave stale pixels.
+        const v = session.visualizer;
+        const soloOn = v === 'corona' || v === 'sonar' || v === 'petal';
+        if (soloOn) {
             session.scopeCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-            if (spectrumOn) renderSpectrum();
-            if (waveOn) renderWave();
+            if (v === 'corona') renderCorona();
+            else if (v === 'sonar') renderSonar();
+            else if (v === 'petal') renderPetal(dt);
         } else if (session._scopeWasOn) {
             session.scopeCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
         }
-        session._scopeWasOn = waveOn || spectrumOn;
+        session._scopeWasOn = soloOn;
         // Electric bolts draw on top of the flame canvas when they're
         // alive — whether or not flame mode is on. They only spawn
         // during macros (see stageOnTransitionFired), so there's no
@@ -1108,6 +1177,84 @@ function sizeBgCanvas() {
     session.bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
+// Switch the top-level visualizer:
+//   mandala  — Constellation: ring-of-rings (default)
+//   corona   — radial FFT halo (audio-driven)
+//   sonar    — expanding ring per beat (beat-driven)
+//   petal    — flower whose petals pulse with their track (beat-driven)
+//   shuffle  — auto-rotates through the four real visualizers every
+//              SHUFFLE_FIRES transitions (beat-driven, not timer-driven,
+//              so the swap respects the song's actual pulse).
+const HIDE_NETS_VISUALIZERS = new Set(['corona', 'sonar', 'petal']);
+const REAL_VISUALIZERS = ['mandala', 'corona', 'sonar', 'petal'];
+const SHUFFLE_FIRES = 64; // swap viz every N transition fires while shuffling
+
+function applyVisualizer(name) {
+    if (!session) return;
+    if (name === 'shuffle') {
+        session.shuffling = true;
+        session.shuffleFireCount = 0;
+        // Pick a random first viz so user sees the swap immediately.
+        setVisualizer(pickShuffleNext());
+        const sel = session.overlay.querySelector('.pn-stage-visualizer');
+        if (sel) sel.value = 'shuffle';
+        return;
+    }
+    session.shuffling = false;
+    setVisualizer(name);
+}
+
+function setVisualizer(name) {
+    session.visualizer = name;
+    // The non-Constellation visualizers all want the rings hidden so
+    // their geometry reads cleanly. One CSS class controls the swap.
+    const hideNets = HIDE_NETS_VISUALIZERS.has(name);
+    session.overlay.classList.toggle('viz-solo', hideNets);
+    session.overlay.classList.toggle('corona-mode', name === 'corona');
+    // Reset per-visualizer state so leaving and returning starts fresh.
+    session.sonarRings = [];
+    session.sonarLastByCh = new Map();
+    session.sonarLastAny = 0;
+    session.petalEnergy = new Map();
+    // Clear the scope canvas on every visualizer switch so the prior
+    // mode's last frame doesn't linger.
+    session.scopeCtx?.clearRect(0, 0, window.innerWidth, window.innerHeight);
+}
+
+function pickShuffleNext() {
+    const choices = REAL_VISUALIZERS.filter(v => v !== session.visualizer);
+    return choices[Math.floor(Math.random() * choices.length)];
+}
+
+// Public entry point for the `set-visualizer` control action — drives
+// the same path as the dropdown, syncs the dropdown UI, and is a no-op
+// when Stage isn't open.
+export function stageSetVisualizer(name) {
+    if (!session) return;
+    const allowed = name === 'shuffle' || REAL_VISUALIZERS.includes(name);
+    if (!allowed) return;
+    applyVisualizer(name);
+    const sel = session.overlay.querySelector('.pn-stage-visualizer');
+    if (sel) sel.value = name;
+}
+
+// Color for a track based on its channel — drums warm, bass cool blues,
+// lead golden, melody/lead-y stuff in the cyan→violet range. Hash so any
+// channel gets a stable color even if the map doesn't cover it.
+function channelHue(ch) {
+    if (ch == null) return 200;
+    const known = { 1: 50, 2: 220, 3: 200, 4: 280, 5: 320, 6: 180, 7: 140, 8: 30, 9: 100,
+                    10: 0, 11: 12, 12: 24, 13: 35, 14: 350,
+                    20: 50, 21: 60, 22: 40, 23: 30 };
+    return known[ch] ?? ((ch * 47) % 360);
+}
+
+// Look up a track's channel by net id.
+function netChannel(el, netId) {
+    const t = el?._project?.nets?.[netId]?.track;
+    return t?.channel ?? null;
+}
+
 function sizeScopeCanvas() {
     if (!session?.scopeCanvas) return;
     const dpr = window.devicePixelRatio || 1;
@@ -1119,65 +1266,139 @@ function sizeScopeCanvas() {
     session.scopeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-// Read post-FX waveform off the master chain and trace it as a centered
-// horizontal line. Bottom strip so it doesn't fight the rings overhead.
-function renderWave() {
+// Sonar — every fired transition spawns a ring expanding from center.
+// Channel determines color so drum hits, bass notes, and lead notes all
+// read distinctly. At dense beat rates the rings interfere visibly.
+function renderSonar() {
     if (!session?.scopeCtx) return;
     const ctx = session.scopeCtx;
     const w = window.innerWidth, h = window.innerHeight;
-    const engine = session.el?._engine || (window.toneEngine ?? null);
-    const a = engine?.getMasterAnalyser?.('waveform', 1024);
-    if (!a) return;
-    let data;
-    try { data = a.getValue(); } catch { return; }
-    const stripH = Math.min(220, h * 0.22);
-    const y0 = h - stripH - 24;
-    ctx.save();
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(103, 232, 249, 0.85)';
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = 'rgba(8, 145, 178, 0.6)';
-    ctx.shadowBlur = 8;
-    const n = data.length;
-    for (let i = 0; i < n; i++) {
-        const x = (i / (n - 1)) * w;
-        const v = Math.max(-1, Math.min(1, data[i]));
-        const y = y0 + (stripH / 2) * (1 - v);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    const cx = session.ringCenter?.x ?? w / 2;
+    const cy = session.ringCenter?.y ?? h / 2;
+    const maxR = Math.hypot(w, h) * 0.55;
+    const now = performance.now();
+    const rings = session.sonarRings;
+    for (let i = rings.length - 1; i >= 0; i--) {
+        if (now - rings[i].born > rings[i].life) rings.splice(i, 1);
     }
-    ctx.stroke();
+    ctx.save();
+    for (const r of rings) {
+        const t = (now - r.born) / r.life;     // 0 → 1
+        const radius = t * maxR;
+        const alpha = (1 - t) * 0.85;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${r.hue}, 95%, 60%, ${alpha})`;
+        ctx.lineWidth = 1 + (1 - t) * 4;
+        ctx.shadowColor = `hsla(${r.hue}, 95%, 55%, ${alpha * 0.5})`;
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+    }
     ctx.restore();
 }
 
-// Read FFT magnitudes off the master chain and draw centered mirrored bars
-// across the bottom — equalizer style. dB values come back roughly in the
-// [-100, 0] range; remap to [0, 1] for bar height.
-function renderSpectrum() {
+// Petal — each track is one petal at a fixed angle around the center.
+// Every fire on that track spikes its energy; energy decays smoothly.
+// Petal length pulses with energy so the whole image is a flower whose
+// breathing pattern is the arrangement.
+function renderPetal(dt) {
     if (!session?.scopeCtx) return;
     const ctx = session.scopeCtx;
     const w = window.innerWidth, h = window.innerHeight;
-    const engine = session.el?._engine || (window.toneEngine ?? null);
-    const a = engine?.getMasterAnalyser?.('fft', 64);
+    const cx = session.ringCenter?.x ?? w / 2;
+    const cy = session.ringCenter?.y ?? h / 2;
+    const baseR = Math.min(w, h) * 0.08;
+    const maxR  = Math.min(w, h) * 0.42;
+    // Decay petal energies fast enough that individual fires read as
+    // distinct pulses. dt is in SECONDS; coefficient 2.3 makes energy
+    // halve every ~300ms, so a fire visibly drops between hits.
+    const decay = Math.exp(-dt * 2.3);
+    for (const [k, v] of session.petalEnergy) {
+        const next = v * decay;
+        if (next < 0.005) session.petalEnergy.delete(k);
+        else session.petalEnergy.set(k, next);
+    }
+    const panels = session.panels || [];
+    if (panels.length === 0) return;
+    ctx.save();
+    panels.forEach((panel, i) => {
+        const angle = (i / panels.length) * Math.PI * 2 - Math.PI / 2;
+        const ch = netChannel(session.el, panel.netId);
+        const hue = channelHue(ch);
+        // sqrt mapping so a small fresh fire reads as a big pulse — without
+        // it, the perceptual difference between energy 0.3 and energy 0.6
+        // is visually negligible.
+        const raw = session.petalEnergy.get(panel.netId) || 0;
+        const energy = Math.sqrt(raw);
+        const len = baseR + (maxR - baseR) * (0.18 + energy * 0.95);
+        const halfWidth = (Math.PI / panels.length) * (0.45 + energy * 0.5);
+        // Petal as a quadratic: tip at length, base at center, curving sides.
+        const tipX = cx + Math.cos(angle) * len;
+        const tipY = cy + Math.sin(angle) * len;
+        const leftAng = angle - halfWidth;
+        const rightAng = angle + halfWidth;
+        const ctrlR = (baseR + len) * 0.55;
+        const lx = cx + Math.cos(leftAng) * ctrlR;
+        const ly = cy + Math.sin(leftAng) * ctrlR;
+        const rx = cx + Math.cos(rightAng) * ctrlR;
+        const ry = cy + Math.sin(rightAng) * ctrlR;
+        const grad = ctx.createRadialGradient(cx, cy, baseR * 0.5, tipX, tipY, len);
+        grad.addColorStop(0, `hsla(${hue}, 80%, 55%, ${0.25 + energy * 0.55})`);
+        grad.addColorStop(1, `hsla(${hue}, 95%, 65%, ${0.05 + energy * 0.25})`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.quadraticCurveTo(lx, ly, tipX, tipY);
+        ctx.quadraticCurveTo(rx, ry, cx, cy);
+        ctx.fill();
+        // Outline so the petal still reads when energy is low.
+        ctx.strokeStyle = `hsla(${hue}, 95%, 70%, ${0.4 + energy * 0.5})`;
+        ctx.lineWidth = 1 + energy * 2.5;
+        ctx.shadowColor = `hsla(${hue}, 95%, 60%, ${energy * 0.6})`;
+        ctx.shadowBlur = 4 + energy * 14;
+        ctx.stroke();
+    });
+    ctx.restore();
+}
+
+// Ring-centric FFT visualizer: 128 bars radiating outward from the meta-
+// net center, length keyed to bin energy, hue cool→warm. The corona owns
+// the scope canvas in this mode and the underlying ring panels are
+// hidden via .corona-mode CSS so the halo reads cleanly.
+function renderCorona() {
+    if (!session?.scopeCtx) return;
+    const ctx = session.scopeCtx;
+    const w = window.innerWidth, h = window.innerHeight;
+    const a = toneEngine.getMasterAnalyser?.('fft', 128);
     if (!a) return;
     let data;
     try { data = a.getValue(); } catch { return; }
+    const cx = session.ringCenter?.x ?? w / 2;
+    const cy = session.ringCenter?.y ?? h / 2;
+    const inner = session.darkPlanetRadius || Math.min(w, h) * 0.08;
+    const innerR = inner + 18;          // gap so the corona doesn't kiss the planet
+    const maxLen = Math.min(w, h) * 0.32;
     const n = data.length;
-    const stripH = Math.min(260, h * 0.28);
-    const y0 = h - 24;
-    const barW = w / n;
     ctx.save();
+    ctx.lineCap = 'round';
     for (let i = 0; i < n; i++) {
         const db = Math.max(-100, Math.min(0, data[i]));
-        const norm = (db + 100) / 100; // 0..1
-        const bh = norm * stripH;
-        const x = i * barW;
-        // Hue sweeps cool→warm with energy so quiet bars stay icy.
+        const norm = (db + 100) / 100;
+        const len = norm * maxLen;
+        const angle = (i / n) * Math.PI * 2 - Math.PI / 2; // start at top
+        const x0 = cx + Math.cos(angle) * innerR;
+        const y0 = cy + Math.sin(angle) * innerR;
+        const x1 = cx + Math.cos(angle) * (innerR + len);
+        const y1 = cy + Math.sin(angle) * (innerR + len);
         const hue = 200 - norm * 160;
-        const grad = ctx.createLinearGradient(0, y0 - bh, 0, y0);
-        grad.addColorStop(0, `hsla(${hue}, 90%, 65%, 0.95)`);
-        grad.addColorStop(1, `hsla(${hue}, 70%, 45%, 0.25)`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(x + 2, y0 - bh, barW - 4, bh);
+        ctx.strokeStyle = `hsla(${hue}, 90%, 60%, ${0.35 + norm * 0.55})`;
+        ctx.lineWidth = 2 + norm * 3.5;
+        ctx.shadowColor = `hsla(${hue}, 90%, 55%, 0.6)`;
+        ctx.shadowBlur = 6 + norm * 10;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
     }
     ctx.restore();
 }
