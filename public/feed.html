@@ -106,7 +106,7 @@
     border-color: #3a3a4a;
     transform: translateY(-2px);
   }
-  .card-link { color: inherit; text-decoration: none; display: block; }
+  .card-link { color: inherit; text-decoration: none; display: block; cursor: pointer; }
   .card-art {
     aspect-ratio: 1200 / 630;
     background: #000;
@@ -531,6 +531,10 @@ search.value = url.searchParams.get('q') || '';
 // ----- Playlist state -----
 let playlist = [];
 let current = -1;
+// Distinguish "never touched" from "explicitly cleared" so we know
+// whether to auto-prepopulate. A null `pn-playlist` key means a
+// fresh visitor; an empty array means they cleared it on purpose.
+const playlistEverSet = localStorage.getItem(PL_KEY) !== null;
 try { playlist = JSON.parse(localStorage.getItem(PL_KEY) || '[]'); } catch {}
 if (!Array.isArray(playlist)) playlist = [];
 
@@ -1022,20 +1026,41 @@ const renderCard = (t) => {
   const title = trackTitle(t);
   const sub = [t.genre, t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
     .filter(Boolean).join(' · ');
+  // On a narrow / touch viewport, the card body is a tap-to-play
+  // affordance instead of a link to the synth editor (which would
+  // just redirect back to /feed on phones — a loop). Desktop keeps
+  // the link semantics so middle-click / cmd-click still open the
+  // editor in a new tab.
+  const isPhone = window.matchMedia('(max-width: 720px)').matches;
+  const bodyTag = isPhone ? 'div' : 'a';
+  const bodyAttrs = isPhone
+    ? `class="card-link" data-action="play"`
+    : `class="card-link" href="/?cid=${encodeURIComponent(t.cid)}"`;
   card.innerHTML = `
-    <a class="card-link" href="/?cid=${encodeURIComponent(t.cid)}">
+    <${bodyTag} ${bodyAttrs}>
       <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">
       <div class="card-meta">
         <div class="card-title"></div>
         <div class="card-sub"></div>
       </div>
-    </a>
+    </${bodyTag}>
     <div class="card-actions">
       <button class="card-play" data-cid="${t.cid}" title="Play / pause this track">▶</button>
       <button class="card-bm" data-cid="${t.cid}" title="Bookmark — saves to your local history with the bookmarked tag">★</button>
       <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
     </div>
   `;
+  // Phone tap-to-play binding (desktop falls through to <a href>).
+  if (isPhone) {
+    card.querySelector('.card-link').addEventListener('click', (e) => {
+      // Action buttons handle their own clicks via stopPropagation;
+      // anything else on the card body counts as a play tap.
+      e.preventDefault();
+      let idx = playlist.findIndex(p => p.cid === t.cid);
+      if (idx < 0) { addToPlaylist(t); idx = playlist.length - 1; }
+      playIndex(idx);
+    });
+  }
   card.querySelector('.card-title').textContent = title;
   card.querySelector('.card-sub').textContent = sub;
   const addBtn = card.querySelector('.card-add');
@@ -1124,6 +1149,24 @@ const fetchPage = async () => {
     syncCardAddButtons();
     syncCardBookmarkButtons();
     syncCardPlayButtons();
+    // First visit ever: seed the playlist with the first page of
+    // results so the player has something to play before the user
+    // does anything. Only fires once — if they later clear it, the
+    // key still exists and this branch won't re-fire. Skips the
+    // setPaneOpen call addToPlaylist normally does so the sidebar
+    // doesn't pop open uninvited (especially aggressive on mobile,
+    // where it would overlay the entire screen).
+    if (!playlistEverSet && playlist.length === 0 && tracks.length > 0) {
+      for (const t of tracks.slice(0, 10)) {
+        playlist.push({
+          cid: t.cid, name: t.name || '', genre: t.genre || '',
+          tempo: t.tempo || 0, seed: t.seed || 0,
+        });
+      }
+      savePlaylist();
+      renderPlaylist();
+      syncCardAddButtons();
+    }
   } catch (err) {
     stateEl.textContent = `Failed to load: ${err.message}`;
     stateEl.style.display = 'block';
