@@ -459,11 +459,41 @@ const loadCurrent = (autoplay = true) => {
   audioEl.src = `/audio/${encodeURIComponent(t.cid)}.webm`;
   nowTitle.textContent = trackTitle(t);
   nowSub.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean).join(' · ');
+  // MediaSession metadata + artwork so lock-screen / now-playing
+  // widgets (Mac Touch Bar, iOS lock screen, Android notification,
+  // Chrome's media hub) get the right title and the share-card SVG
+  // as cover art. The action handlers below let hardware media
+  // keys (▶ / ⏸ / ⏭ / ⏮) drive the playlist.
+  if ('mediaSession' in navigator) {
+    const cardURL = `${location.origin}/share-card/${encodeURIComponent(t.cid)}.png`;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: trackTitle(t),
+      artist: 'beats.bitwrap.io',
+      album: t.genre || 'beats.bitwrap.io',
+      artwork: [
+        { src: cardURL, sizes: '1200x630', type: 'image/png' },
+      ],
+    });
+  }
   if (autoplay) {
     audioEl.play().catch(() => {});
   }
   renderPlaylist();
 };
+
+// Wire MediaSession action handlers once. The audio element handles
+// play/pause natively, but explicit handlers tell the browser the
+// site is media-aware so the system surfaces the controls properly.
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('play',  () => audioEl.play().catch(() => {}));
+  navigator.mediaSession.setActionHandler('pause', () => audioEl.pause());
+  navigator.mediaSession.setActionHandler('previoustrack', () => {
+    if (current > 0) playIndex(current - 1);
+  });
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    if (current < playlist.length - 1) playIndex(current + 1);
+  });
+}
 
 const playIndex = (i) => {
   if (i < 0 || i >= playlist.length) return;
