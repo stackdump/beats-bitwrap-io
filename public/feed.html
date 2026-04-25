@@ -319,6 +319,7 @@
       </select>
     </label>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
+    <button class="pn-toggle-pl" id="toggle-wa" title="Open in Winamp-style player">webamp</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
   </div>
 </header>
@@ -353,6 +354,7 @@
     <button id="more" class="more-btn" hidden>Load more</button>
   </main>
 </div>
+<div id="webamp-mount"></div>
 <footer>
   Tracks
   <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
@@ -1002,6 +1004,74 @@ search.addEventListener('input', () => {
 });
 
 more.addEventListener('click', fetchPage);
+
+// ----- Webamp (vendored Winamp 2.9 clone) -----
+//
+// Loaded on demand the first time the user clicks "webamp" so the
+// ~920 KB bundle doesn't hit every feed-page visitor. Webamp's UMD
+// build exposes a global Webamp constructor; we hand it the current
+// playlist as `initialTracks`. The site's plain <audio> playlist
+// keeps running in parallel — this is an alternative chrome, not a
+// replacement.
+let webampInstance = null;
+let webampLoading = null;
+const loadWebamp = () => {
+  if (window.Webamp) return Promise.resolve(window.Webamp);
+  if (webampLoading) return webampLoading;
+  webampLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = '/vendor/webamp/webamp.bundle.min.js'; // see public/vendor/NOTICE.md
+    s.onload = () => resolve(window.Webamp);
+    s.onerror = () => reject(new Error('webamp bundle failed to load'));
+    document.head.appendChild(s);
+  });
+  return webampLoading;
+};
+
+const openWebamp = async () => {
+  try {
+    const Webamp = await loadWebamp();
+    if (!Webamp) throw new Error('Webamp constructor missing');
+    if (webampInstance) {
+      // Already open — just refresh the queue from the live playlist.
+      const tracks = playlist.map(toWebampTrack);
+      // Webamp lacks a "replace queue" API; closest is appendTracks.
+      // For UX consistency we close + reopen so the user gets a
+      // clean state matching what they currently see in the sidebar.
+      try { webampInstance.dispose(); } catch {}
+      webampInstance = null;
+    }
+    if (playlist.length === 0) {
+      alert('Playlist is empty — add some tracks first.');
+      return;
+    }
+    webampInstance = new Webamp({
+      initialTracks: playlist.map(toWebampTrack),
+    });
+    // Pause the site's <audio> when Webamp opens — same reason the
+    // welcome card auto-pauses Tone.js when its embedded audio
+    // plays. Two streams of the same track is jarring.
+    audioEl.pause();
+    await webampInstance.renderWhenReady(document.getElementById('webamp-mount'));
+    webampInstance.onClose(() => {
+      try { webampInstance?.dispose(); } catch {}
+      webampInstance = null;
+    });
+  } catch (err) {
+    alert(`Couldn't open Webamp: ${err.message}`);
+  }
+};
+
+const toWebampTrack = (t) => ({
+  metaData: {
+    artist: 'beats.bitwrap.io',
+    title:  trackTitle(t),
+    album:  t.genre || 'beats.bitwrap.io',
+  },
+  url: `${location.origin}/audio/${encodeURIComponent(t.cid)}.webm`,
+});
+
+document.getElementById('toggle-wa').addEventListener('click', openWebamp);
 
 renderPlaylist();
 fetchPage();
