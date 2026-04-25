@@ -104,6 +104,13 @@ type Status struct {
 // caller doesn't provide an expectedMs. Roughly the average track length.
 const fallbackRenderMs int64 = 90_000
 
+// maxQueueWaitMs caps the projected cumulative wait of the queue.
+// Enqueues that would push the projected wait past this are rejected.
+// 30 min is generous enough to absorb a small burst of fresh shares
+// (each ~2 min realtime) while keeping the host from being held
+// hostage by a long backlog if someone hammers the endpoint.
+const maxQueueWaitMs int64 = 30 * 60 * 1000
+
 func New(cfg Config) (*Renderer, error) {
 	if cfg.CacheDir == "" {
 		return nil, errors.New("audiorender: CacheDir required")
@@ -354,13 +361,40 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) 
 // if the same cid is enqueued multiple times or also requested via the
 // HTTP path. Cache hits are a near-no-op (a cheap walk). expectedMs
 // is the caller's track-length estimate; pass 0 to use the fallback.
-func (r *Renderer) Enqueue(cid string, expectedMs int64) {
+// Returns false if rejected because the projected queue wait would
+// exceed maxQueueWaitMs — callers should surface this to the user
+// (POST → 503) or just drop silently (auto-enqueue from PUT).
+func (r *Renderer) Enqueue(cid string, expectedMs int64) bool {
 	if !ValidCID(cid) {
-		return
+		return false
 	}
 	if path := r.findExisting(cid); path != "" {
-		return
+		return true
 	}
+	if expectedMs <= 0 {
+		expectedMs = fallbackRenderMs
+	}
+	r.mu.Lock()
+	// In-flight already counts — same single-flight as Render. Don't
+	// double-count by adding to wait; just allow.
+	if _, ok := r.inflight[cid]; !ok {
+		projected := expectedMs
+		for _, run := range r.running {
+			rem := run.ExpectedMs - time.Since(run.StartedAt).Milliseconds()
+			if rem < 0 {
+				rem = 0
+			}
+			projected += rem
+		}
+		for _, q := range r.queued {
+			projected += q
+		}
+		if projected > maxQueueWaitMs {
+			r.mu.Unlock()
+			return false
+		}
+	}
+	r.mu.Unlock()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), r.cfg.RenderTimeout)
 		defer cancel()
@@ -368,6 +402,7 @@ func (r *Renderer) Enqueue(cid string, expectedMs int64) {
 			log.Printf("audiorender: prerender %s failed: %v", cid, err)
 		}
 	}()
+	return true
 }
 
 // Status reports the current state of cid: ready (cached), rendering

@@ -613,7 +613,14 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		if r.Method == http.MethodPost {
 			var body struct{ ExpectedMs int64 `json:"expectedMs"` }
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			ar.Enqueue(cid, body.ExpectedMs)
+			if !ar.Enqueue(cid, body.ExpectedMs) {
+				// Queue is too deep (>30 min projected wait). Tell the
+				// caller to back off — single-flight means an in-flight
+				// render of the same cid already returns true above,
+				// so 503 here is genuinely about queue saturation.
+				http.Error(w, "render queue full — try again later", http.StatusServiceUnavailable)
+				return
+			}
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}

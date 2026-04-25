@@ -372,6 +372,16 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ expectedMs: Math.round(expectedMs) }),
                 });
+                if (r.status === 503) {
+                    // Queue saturated (>30 min projected wait). Distinct
+                    // from a transient failure — give the user honest
+                    // feedback instead of a generic retry prompt.
+                    btn.disabled = false;
+                    btn.textContent = 'Render now';
+                    audioBlock.querySelector('span').textContent =
+                        'Render queue is full right now. Try again in a few minutes.';
+                    return;
+                }
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 // Optimistically flip to queued; the next poll will
                 // refine with real position + cumulative wait.
