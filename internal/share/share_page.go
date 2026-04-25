@@ -229,6 +229,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
 		cardPNG := fmt.Sprintf("%s/share-card/%s.png", origin, cid)
 		cardSVG := fmt.Sprintf("%s/share-card/%s.svg", origin, cid)
+		audioURL := fmt.Sprintf("%s/audio/%s.webm", origin, cid)
 		if userTitle != "" {
 			shareURL += "&title=" + urlQueryEscape(userTitle)
 			cardPNG += "?title=" + urlQueryEscape(userTitle)
@@ -257,8 +258,8 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		}
 		var buf strings.Builder
 		if err := tpl.Execute(&buf, struct {
-			Title, Desc, CardPNG, CardSVG, ImgAlt, ShareURL, CID string
-			Payload, Projection                                  template.JS
+			Title, Desc, CardPNG, CardSVG, ImgAlt, ShareURL, AudioURL, CID string
+			Payload, Projection                                            template.JS
 		}{
 			Title:      title,
 			Desc:       desc,
@@ -266,6 +267,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 			CardSVG:    cardSVG,
 			ImgAlt:     imgAlt,
 			ShareURL:   shareURL,
+			AudioURL:   audioURL,
 			CID:        cid,
 			Payload:    template.JS(escapeJSONForScriptTag(raw)),
 			Projection: template.JS(projection),
@@ -525,6 +527,9 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta property="og:image:height" content="630"/>
 <meta property="og:image:alt" content="{{.ImgAlt}}"/>
 <meta property="og:site_name" content="beats.bitwrap.io"/>
+<meta property="og:audio" content="{{.AudioURL}}"/>
+<meta property="og:audio:secure_url" content="{{.AudioURL}}"/>
+<meta property="og:audio:type" content="audio/webm"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="{{.Title}}"/>
 <meta name="twitter:description" content="{{.Desc}}"/>

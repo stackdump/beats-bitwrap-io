@@ -1,0 +1,326 @@
+// Package audiorender turns a stored share-CID into a cached audio file
+// by playing the page in headless Chromium and capturing its WebAudio
+// output via MediaRecorder. The renderer is single-flight per CID, so a
+// viral link only triggers one render even under concurrent fetches.
+//
+// Output is webm/opus — what MediaRecorder produces natively, no
+// transcoding required. Cached at {storeDir}/audio/{YYYY}/{MM}/{cid}.webm
+// (mirrors the share store's bucketing). Cache is LRU-evicted by access
+// time when total bytes exceed the configured cap.
+package audiorender
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"log"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	cdlog "github.com/chromedp/cdproto/log"
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
+)
+
+const (
+	// Hard ceiling on a single render. Realistic tracks are 30s-3min;
+	// anything past 10 minutes is almost certainly a render that hung.
+	defaultRenderTimeout = 10 * time.Minute
+	// How often to poll window.__renderDone in chromedp.
+	pollInterval = 500 * time.Millisecond
+)
+
+var cidPattern = regexp.MustCompile(`^z[1-9A-HJ-NP-Za-km-z]{40,80}$`)
+
+// ValidCID returns true when s looks like a share-store CID. Mirrors the
+// pattern in internal/share/seal.go so the audio route can 400 obviously
+// bad input before going near the renderer or the store.
+func ValidCID(s string) bool { return cidPattern.MatchString(s) }
+
+type Config struct {
+	// CacheDir is the on-disk root for rendered audio. Year/month bucketing
+	// happens under this. Required.
+	CacheDir string
+	// BaseURL is the host the headless browser navigates to (e.g.
+	// "http://127.0.0.1:8089"). Required — chromedp opens
+	// {BaseURL}/?cid={cid}&render=1.
+	BaseURL string
+	// MaxBytes caps total cache size in bytes. <=0 disables LRU eviction.
+	MaxBytes int64
+	// MaxConcurrent caps simultaneous renders. <=0 means 1 (renders are
+	// CPU + RAM heavy, headless Chromium per render).
+	MaxConcurrent int
+	// RenderTimeout per CID. <=0 uses the default (10 min). This is the
+	// hard kill for the chromedp context — covers stuck browsers,
+	// hung audio devices, etc. Make it generously larger than MaxDuration.
+	RenderTimeout time.Duration
+	// MaxDuration caps the audio length the page is asked to record.
+	// 0 = unbounded (still subject to RenderTimeout). Passed to the page
+	// as ?maxMs=N so the recorder stops on its own without waiting for
+	// the natural end of an arbitrarily-long arranged track.
+	MaxDuration time.Duration
+	// ChromePath overrides chromedp's exec autodetection. Empty = autodetect.
+	ChromePath string
+}
+
+type Renderer struct {
+	cfg Config
+
+	sem chan struct{} // bounds concurrent renders
+
+	mu       sync.Mutex
+	inflight map[string]chan struct{} // cid → channel closed when render finishes
+}
+
+func New(cfg Config) (*Renderer, error) {
+	if cfg.CacheDir == "" {
+		return nil, errors.New("audiorender: CacheDir required")
+	}
+	if cfg.BaseURL == "" {
+		return nil, errors.New("audiorender: BaseURL required")
+	}
+	if cfg.MaxConcurrent <= 0 {
+		cfg.MaxConcurrent = 1
+	}
+	if cfg.RenderTimeout <= 0 {
+		cfg.RenderTimeout = defaultRenderTimeout
+	}
+	if err := os.MkdirAll(cfg.CacheDir, 0o755); err != nil {
+		return nil, fmt.Errorf("audiorender: mkdir cache: %w", err)
+	}
+	return &Renderer{
+		cfg:      cfg,
+		sem:      make(chan struct{}, cfg.MaxConcurrent),
+		inflight: map[string]chan struct{}{},
+	}, nil
+}
+
+// CachePath returns the on-disk path where {cid}.webm lives (or would
+// live). The file may not exist yet — call Stat or Render to check/produce.
+func (r *Renderer) CachePath(cid string) string {
+	now := time.Now().UTC()
+	return filepath.Join(r.cfg.CacheDir,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", int(now.Month())),
+		cid+".webm")
+}
+
+// findExisting walks the cache dir looking for {cid}.webm in any
+// year/month bucket. Returns "" if absent. Slower than an in-memory
+// index, but the cache is small enough (~10 GiB cap, ~100 KB/file =
+// 100k files max) that the walk is fine and avoids restart bookkeeping.
+func (r *Renderer) findExisting(cid string) string {
+	var found string
+	target := cid + ".webm"
+	_ = filepath.Walk(r.cfg.CacheDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if info.Name() == target {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// Render returns the path to the rendered audio file for cid. On a cache
+// hit it's instant; on a miss it spawns headless Chromium, records the
+// track, and writes the file before returning. Concurrent calls for the
+// same cid coalesce — only one render runs.
+func (r *Renderer) Render(ctx context.Context, cid string) (string, error) {
+	if !ValidCID(cid) {
+		return "", fmt.Errorf("audiorender: invalid cid %q", cid)
+	}
+	if path := r.findExisting(cid); path != "" {
+		_ = touchAccessTime(path)
+		return path, nil
+	}
+
+	// Single-flight: if another goroutine is rendering the same CID,
+	// wait on its channel and then retry the cache lookup.
+	r.mu.Lock()
+	if ch, ok := r.inflight[cid]; ok {
+		r.mu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if path := r.findExisting(cid); path != "" {
+			return path, nil
+		}
+		return "", fmt.Errorf("audiorender: peer render of %s failed", cid)
+	}
+	ch := make(chan struct{})
+	r.inflight[cid] = ch
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		delete(r.inflight, cid)
+		r.mu.Unlock()
+		close(ch)
+	}()
+
+	// Bound concurrent renders.
+	select {
+	case r.sem <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-r.sem }()
+
+	path := r.CachePath(cid)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("audiorender: mkdir bucket: %w", err)
+	}
+
+	renderCtx, cancel := context.WithTimeout(ctx, r.cfg.RenderTimeout)
+	defer cancel()
+
+	data, err := r.captureBlob(renderCtx, cid)
+	if err != nil {
+		return "", err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return "", fmt.Errorf("audiorender: write tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("audiorender: rename: %w", err)
+	}
+
+	r.evictIfOverCap()
+
+	return path, nil
+}
+
+func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) {
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", "new"),
+		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		chromedp.Flag("mute-audio", "false"),
+		chromedp.Flag("disable-gpu", "true"),
+		chromedp.Flag("no-sandbox", "true"),
+		chromedp.Flag("disable-dev-shm-usage", "true"),
+	)
+	if r.cfg.ChromePath != "" {
+		opts = append(opts, chromedp.ExecPath(r.cfg.ChromePath))
+	}
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
+	defer cancelAlloc()
+
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	// Surface page-side console messages + uncaught exceptions to the
+	// server log. Indispensable when render-mode.js stalls — without
+	// this, a thrown error in the page is invisible.
+	chromedp.ListenTarget(browserCtx, func(ev any) {
+		switch e := ev.(type) {
+		case *runtime.EventConsoleAPICalled:
+			parts := make([]string, 0, len(e.Args))
+			for _, a := range e.Args {
+				parts = append(parts, string(a.Value))
+			}
+			log.Printf("audiorender[%s] console.%s: %s", cid, e.Type, strings.Join(parts, " "))
+		case *runtime.EventExceptionThrown:
+			log.Printf("audiorender[%s] exception: %s", cid, e.ExceptionDetails.Error())
+		case *cdlog.EventEntryAdded:
+			log.Printf("audiorender[%s] log[%s/%s]: %s (%s)", cid,
+				e.Entry.Source, e.Entry.Level, e.Entry.Text, e.Entry.URL)
+		}
+	})
+
+	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=1"
+	if r.cfg.MaxDuration > 0 {
+		target += fmt.Sprintf("&maxMs=%d", r.cfg.MaxDuration.Milliseconds())
+	}
+
+	if err := chromedp.Run(browserCtx,
+		runtime.Enable(),
+		cdlog.Enable(),
+		chromedp.Navigate(target),
+	); err != nil {
+		return nil, fmt.Errorf("audiorender: navigate: %w", err)
+	}
+
+	// Poll window.__renderDone until set or context expires.
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		var done bool
+		if err := chromedp.Run(browserCtx, chromedp.Evaluate(`window.__renderDone === true`, &done)); err != nil {
+			return nil, fmt.Errorf("audiorender: poll: %w", err)
+		}
+		if done {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	var renderErr string
+	if err := chromedp.Run(browserCtx, chromedp.Evaluate(`window.__renderError || ""`, &renderErr)); err != nil {
+		return nil, fmt.Errorf("audiorender: read error flag: %w", err)
+	}
+	if renderErr != "" {
+		return nil, fmt.Errorf("audiorender: page error: %s", renderErr)
+	}
+
+	var b64 string
+	if err := chromedp.Run(browserCtx, chromedp.Evaluate(`window.__renderBlob || ""`, &b64)); err != nil {
+		return nil, fmt.Errorf("audiorender: read blob: %w", err)
+	}
+	if b64 == "" {
+		return nil, errors.New("audiorender: empty blob")
+	}
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("audiorender: decode blob: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, errors.New("audiorender: zero-byte blob")
+	}
+	return data, nil
+}
+
+// Enqueue triggers a background render of cid. Returns immediately.
+// Safe to call from any goroutine; single-flight in Render() de-dupes
+// if the same cid is enqueued multiple times or also requested via the
+// HTTP path. Cache hits are a near-no-op (a cheap walk).
+func (r *Renderer) Enqueue(cid string) {
+	if !ValidCID(cid) {
+		return
+	}
+	if path := r.findExisting(cid); path != "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), r.cfg.RenderTimeout)
+		defer cancel()
+		if _, err := r.Render(ctx, cid); err != nil {
+			log.Printf("audiorender: prerender %s failed: %v", cid, err)
+		}
+	}()
+}
+
+// touchAccessTime bumps the file's mtime so LRU eviction sees recent
+// hits as fresh. atime is unreliable (mounts often disable it); mtime
+// works everywhere and we control the writes.
+func touchAccessTime(path string) error {
+	now := time.Now()
+	return os.Chtimes(path, now, now)
+}

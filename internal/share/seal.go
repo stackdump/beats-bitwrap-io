@@ -87,6 +87,33 @@ type Store struct {
 	ipHits   map[string]*ipBucket // hashed-IP → fixed 1-min PUT counter
 	global   ipBucket             // all-IP fixed 1-min PUT counter
 	index    map[string]string    // cid → absolute file path (rebuilt at startup)
+
+	// onSeal callbacks run after a successful new write (HTTP PUT or
+	// in-process Seal). Idempotent re-PUTs of an already-stored CID do
+	// NOT fire callbacks. Use for side effects like background audio
+	// rendering. Callbacks run synchronously on the seal path — keep
+	// them non-blocking (spawn a goroutine if needed).
+	onSeal []func(cid string)
+}
+
+// OnSeal registers a callback that fires after a NEW canonical-JSON
+// payload is sealed under cid. Re-PUTs of an already-stored CID don't
+// fire — only first writes do. Callbacks run on the seal goroutine, so
+// they should be cheap (e.g. hand off to a worker pool).
+func (s *Store) OnSeal(cb func(cid string)) {
+	s.mu.Lock()
+	s.onSeal = append(s.onSeal, cb)
+	s.mu.Unlock()
+}
+
+// fireOnSeal invokes registered callbacks. Caller must NOT hold s.mu.
+func (s *Store) fireOnSeal(cid string) {
+	s.mu.Lock()
+	cbs := append([]func(string){}, s.onSeal...)
+	s.mu.Unlock()
+	for _, cb := range cbs {
+		cb(cid)
+	}
 }
 
 type ipBucket struct {
@@ -320,6 +347,7 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request, cid string) {
 	s.curBytes += int64(len(body))
 	s.index[cid] = path
 	s.mu.Unlock()
+	s.fireOnSeal(cid)
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -367,6 +395,7 @@ func (s *Store) sealDirect(cid string, body []byte) error {
 	s.curBytes += int64(len(body))
 	s.index[cid] = path
 	s.mu.Unlock()
+	s.fireOnSeal(cid)
 	return nil
 }
 

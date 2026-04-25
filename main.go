@@ -13,10 +13,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"beats-bitwrap-io/internal/audiorender"
 	mcpserver "beats-bitwrap-io/internal/mcp"
 	"beats-bitwrap-io/internal/midiout"
 	"beats-bitwrap-io/internal/pflow"
@@ -54,6 +56,16 @@ func main() {
 	maxStoreBytes := flag.Int64("max-store-bytes", 256<<20, "hard cap on total share-store bytes on disk")
 	putPerMin := flag.Int("put-per-min", 10, "per-IP PUT rate limit (requests per minute)")
 	globalPutPerMin := flag.Int("global-put-per-min", 120, "global PUT rate limit across all IPs (0 = disabled)")
+
+	// --- Server-side audio render flags ---
+	audioEnabled := flag.Bool("audio-render", false, "Enable /audio/{cid}.webm endpoint (requires headless Chromium on PATH).")
+	audioBaseURL := flag.String("audio-base-url", "", "Base URL the headless browser navigates to for renders (e.g. http://127.0.0.1:8089). Defaults to http://127.0.0.1{addr}.")
+	audioMaxBytes := flag.Int64("audio-max-bytes", 4<<30, "LRU cap on the audio cache directory.")
+	audioConcurrent := flag.Int("audio-concurrent", 1, "Max simultaneous audio renders (each spawns a headless Chromium tab).")
+	audioChromePath := flag.String("audio-chrome", "", "Path to chromium/chrome binary. Empty = chromedp autodetect.")
+	audioMaxDuration := flag.Duration("audio-max-duration", 3*time.Minute, "Cap on audio length per render. 0 = unbounded (still subject to -audio-render-timeout).")
+	audioRenderTimeout := flag.Duration("audio-render-timeout", 10*time.Minute, "Hard kill timer per render (covers stuck browsers / hung devices). Should comfortably exceed -audio-max-duration.")
+	audioAutoEnqueue := flag.Bool("audio-auto-enqueue", true, "Pre-render newly sealed CIDs in the background so listeners hit a warm cache.")
 
 	// --- Authoring-mode flags (ignored when -authoring is false) ---
 	authoring := flag.Bool("authoring", false, "Local authoring mode: enables /api/* sequencer routes, /ws, and server-side MIDI output. Production beats.bitwrap.io runs without this flag.")
@@ -142,6 +154,34 @@ func main() {
 		svgCard.ServeHTTP(w, r)
 	}))
 	mux.Handle("/qr", share.HandleQRCode())
+
+	// --- Server-side audio render (production-safe; not authoring-gated) ---
+	if *audioEnabled {
+		base := *audioBaseURL
+		if base == "" {
+			base = "http://127.0.0.1" + *addr
+		}
+		ar, err := audiorender.New(audiorender.Config{
+			CacheDir:      filepath.Join(*dataDir, "audio"),
+			BaseURL:       base,
+			MaxBytes:      *audioMaxBytes,
+			MaxConcurrent: *audioConcurrent,
+			RenderTimeout: *audioRenderTimeout,
+			MaxDuration:   *audioMaxDuration,
+			ChromePath:    *audioChromePath,
+		})
+		if err != nil {
+			log.Fatalf("audio renderer: %v", err)
+		}
+		log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s)",
+			filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
+			*audioMaxDuration, *audioRenderTimeout)
+		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler))
+		if *audioAutoEnqueue {
+			shareStore.OnSeal(func(cid string) { ar.Enqueue(cid) })
+			log.Printf("Audio render: auto-enqueue on PUT /o/{cid} ON")
+		}
+	}
 
 	// --- Authoring-only wiring ---
 	var (
@@ -511,6 +551,58 @@ func midiRoutingHandler(single *midiout.Output, multi *midiout.MultiOutput, fan 
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// --- /audio/{cid}.webm handler ---
+//
+// Validates the CID, confirms it exists in the share store (so we never
+// render arbitrary input), then asks the renderer for a cached path.
+// First request for a CID waits for the realtime render; subsequent
+// requests stream the static file with HTTP Range support.
+//
+// The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
+// Anything that doesn't match /audio/{cid}.webm falls through to the
+// static handler so existing module imports keep working.
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path: /audio/{cid}.webm — anything else is a static asset.
+		name := strings.TrimPrefix(r.URL.Path, "/audio/")
+		if !strings.HasSuffix(name, ".webm") {
+			fallback.ServeHTTP(w, r)
+			return
+		}
+		cid := strings.TrimSuffix(name, ".webm")
+		if !audiorender.ValidCID(cid) {
+			fallback.ServeHTTP(w, r)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := shareStore.Lookup(cid); err != nil {
+			http.Error(w, "cid not in share store", http.StatusNotFound)
+			return
+		}
+		// A cold render can take minutes; the parent http.Server's
+		// WriteTimeout (15s) would otherwise kill the connection long
+		// before the file is ready. Clear the deadline for this route.
+		if rc := http.NewResponseController(w); rc != nil {
+			_ = rc.SetWriteDeadline(time.Time{})
+			_ = rc.SetReadDeadline(time.Time{})
+		}
+		path, err := ar.Render(r.Context(), cid)
+		if err != nil {
+			log.Printf("audio render %s: %v", cid, err)
+			http.Error(w, "render failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/webm")
+		// CIDs are immutable, so the rendered bytes for a given CID never
+		// change either — let intermediaries cache forever.
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeFile(w, r, path)
+	})
 }
 
 // --- share envelope helpers (formerly in cmd/petri-note/main.go) ---

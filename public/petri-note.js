@@ -36,6 +36,7 @@ import {
     buildShareUrlForms, buildShareUrl,
     uploadShare, fetchShare, onShareClick,
 } from './lib/share/url.js';
+import { initRenderMode } from './lib/share/render-mode.js';
 import { loadUploadedProject, serializeProject, downloadProject } from './lib/project/serialize.js';
 import {
     applyProjectInstruments, prewarmPreviewInstruments, applyDefaultPans,
@@ -250,6 +251,9 @@ class PetriNote extends HTMLElement {
         this._showWelcomeOnSync = hasUrlTitle
             || (!localStorage.getItem('pn-welcome-seen')
                 && !localStorage.getItem('pn-quickstart-seen'));
+        // ?render=1 — headless capture mode for the server-side audio
+        // renderer. No-op when the param is absent.
+        initRenderMode(this);
     }
 
     _bindGlobalWheel() {
