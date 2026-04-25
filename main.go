@@ -965,7 +965,12 @@ func backfillIndex(idx *index.DB, store *share.Store, audioDir string) {
 		if err != nil {
 			return nil // share blob may have been pruned; skip silently
 		}
-		if err := idx.RecordRender(cid, raw, info.Size()); err != nil {
+		// Use file mtime as rendered_at so backfilled rows preserve
+		// their original render order — otherwise everything would
+		// collapse to "rendered at boot time" and sort alphabetically
+		// by CID for visually-equal timestamps.
+		renderedAt := info.ModTime().UnixMilli()
+		if err := idx.RecordRenderAt(cid, raw, info.Size(), renderedAt); err != nil {
 			log.Printf("backfill: record %s: %v", cid, err)
 			return nil
 		}

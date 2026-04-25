@@ -51,16 +51,23 @@ type payload struct {
 	Structure string `json:"structure,omitempty"`
 }
 
-// RecordRender upserts the index row for cid. Re-renders bump
-// rendered_at and bytes so re-listened tracks resurface in the feed.
-// Bad payload bytes are reported as an error; callers should log and
-// continue (the audio render itself is already on disk).
+// RecordRender upserts the index row for cid using the current time
+// as rendered_at. Re-renders bump rendered_at and bytes so re-listened
+// tracks resurface in the feed. Bad payload bytes are reported as an
+// error; callers should log and continue (the audio file itself is
+// already on disk).
 func (d *DB) RecordRender(cid string, payloadBytes []byte, bytes int64) error {
+	return d.RecordRenderAt(cid, payloadBytes, bytes, time.Now().UnixMilli())
+}
+
+// RecordRenderAt is the explicit-timestamp variant. The backfill path
+// passes the file's mtime so reconstructed rows preserve the original
+// render order rather than collapsing to "all rendered at boot time".
+func (d *DB) RecordRenderAt(cid string, payloadBytes []byte, bytes, renderedAt int64) error {
 	var p payload
 	if err := json.Unmarshal(payloadBytes, &p); err != nil {
 		return fmt.Errorf("index: parse payload: %w", err)
 	}
-	now := time.Now().UnixMilli()
 	_, err := d.sql.Exec(
 		`INSERT INTO tracks
 		    (cid, genre, name, seed, tempo, swing, humanize,
@@ -70,7 +77,7 @@ func (d *DB) RecordRender(cid string, payloadBytes []byte, bytes int64) error {
 		    rendered_at = excluded.rendered_at,
 		    bytes       = excluded.bytes`,
 		cid, p.Genre, p.Name, p.Seed, p.Tempo, p.Swing, p.Humanize,
-		nullableInt(p.RootNote), p.ScaleName, p.Bars, p.Structure, now, bytes,
+		nullableInt(p.RootNote), p.ScaleName, p.Bars, p.Structure, renderedAt, bytes,
 	)
 	if err != nil {
 		return fmt.Errorf("index: insert: %w", err)
