@@ -104,10 +104,33 @@ export function handleMidiMessage(el, event) {
 }
 
 export function handleMidiCC(el, cc, value) {
-    if (el._hoveredSlider && !el._ccBindings.has(cc)) {
-        const binding = sliderBindingKey(el._hoveredSlider);
-        if (binding) {
-            el._ccBindings.set(cc, binding);
+    // Hover-bind paths — slider, mute button, section divider — all
+    // overwrite any existing binding so re-binding is a one-touch
+    // operation. Mute / section bindings are useful for pads in CC
+    // mode (most controllers offer it) where the pad latches between
+    // 0 and >0 instead of sending Note On/Off.
+    if (el._hoveredMute) {
+        const target = el._hoveredMute.dataset.riffGroup || el._hoveredMute.dataset.netId;
+        if (target) {
+            el._ccBindings.set(cc, { type: 'mute', target });
+            const btn = el._hoveredMute;
+            btn.style.outline = '2px solid #64ffda';
+            setTimeout(() => { btn.style.outline = ''; }, 300);
+            el._renderMidiPanel?.();
+        }
+    } else if (el._hoveredSection) {
+        const target = el._hoveredSection.dataset.section;
+        if (target) {
+            el._ccBindings.set(cc, { type: 'mute', target });
+            const div = el._hoveredSection;
+            div.style.outline = '2px solid #64ffda';
+            setTimeout(() => { div.style.outline = ''; }, 300);
+            el._renderMidiPanel?.();
+        }
+    } else if (el._hoveredSlider && !el._ccBindings.has(cc)) {
+        const b = sliderBindingKey(el._hoveredSlider);
+        if (b) {
+            el._ccBindings.set(cc, b);
             el._hoveredSlider.style.outline = '2px solid #64ffda';
             setTimeout(() => { if (el._hoveredSlider) el._hoveredSlider.style.outline = ''; }, 300);
             el._renderMidiPanel?.();
@@ -116,6 +139,15 @@ export function handleMidiCC(el, cc, value) {
 
     const binding = el._ccBindings.get(cc);
     if (!binding) return;
+
+    // Mute binding (CC-mode pad in latching mode): value > 0 → pad
+    // lit → unmute; value 0 → pad off → mute. Refresh panel so the
+    // ●/○ indicator flips.
+    if (binding.type === 'mute') {
+        setMuteGroup(el, binding.target, value === 0);
+        el._renderMidiPanel?.();
+        return;
+    }
 
     const slider = resolveBinding(el, binding);
     if (!slider) return;
@@ -304,6 +336,20 @@ export function toggleMuteGroup(el, riffGroup) {
     const muted = !allMuted;
 
     // Let the server handle riff group logic (only unmutes the active slot).
+    el._sendWs({ type: 'mute-group', riffGroup, muted });
+}
+
+// Explicit mute setter — used by the CC-mode pad path where the
+// controller sends absolute on/off values (not a toggle). value > 0
+// means "pad lit" → unmute; value 0 means "pad off" → mute.
+export function setMuteGroup(el, riffGroup, muted) {
+    const netIds = [];
+    for (const [id, net] of Object.entries(el._project.nets)) {
+        if (net.riffGroup === riffGroup) netIds.push(id);
+    }
+    if (netIds.length === 0) return;
+    const allCurrent = netIds.every(nid => el._mutedNets.has(nid)) === muted;
+    if (allCurrent) return; // already in desired state — skip churn
     el._sendWs({ type: 'mute-group', riffGroup, muted });
 }
 

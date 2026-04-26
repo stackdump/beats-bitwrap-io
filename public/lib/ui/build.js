@@ -790,8 +790,21 @@ export function buildUI(el) {
             if (!el._ccBindings || el._ccBindings.size === 0) {
                 return 'none — hover a slider then move a CC knob';
             }
+            // Build per-group muted-set so mute-bound CC entries can
+            // show the same ●/○ live indicator as note bindings.
+            const mutedGroups = new Set();
+            const mutedNets = new Set(el._project?.initialMutes || []);
+            for (const [id, net] of Object.entries(el._project?.nets || {})) {
+                if (mutedNets.has(id) && net?.riffGroup) mutedGroups.add(net.riffGroup);
+            }
             return [...el._ccBindings.entries()]
-                .map(([cc, b]) => `CC${cc} → ${b.key}`)
+                .map(([cc, b]) => {
+                    if (b?.type === 'mute') {
+                        const dot = mutedGroups.has(b.target) ? '○' : '●';
+                        return `CC${cc} ${dot} ${b.target} (mute)`;
+                    }
+                    return `CC${cc} → ${b.key}`;
+                })
                 .join('  ·  ');
         };
         const formatPads = () => {
