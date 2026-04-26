@@ -15,7 +15,6 @@ import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 import { sanitizeNote, liveScrubNote } from '../note/note.js';
-import { applyMidiPreset } from '../backend/audio-io.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -565,11 +564,6 @@ export function buildUI(el) {
                 <button type="button" class="pn-midi-monitor" title="Open the MIDI Monitor — logs every incoming message so you can identify pad / note / CC numbers your controller is sending">Monitor</button>
                 <button type="button" class="pn-midi-reset-all" title="Clear every MIDI input binding (CC + pads + keyboard notes) and reset live transpose to +0">Reset MIDI</button>
             </div>
-            <div class="pn-midi-row pn-midi-preset-row" hidden>
-                <span class="pn-midi-label">Preset</span>
-                <span class="pn-midi-preset-status"></span>
-                <button type="button" class="pn-midi-preset-apply" title="Replace current bindings with the preset's defaults">Apply</button>
-            </div>
             <div class="pn-midi-row" title="Live transpose — applied to all non-drum channels at fire time. The 🎹 toggle arms 'listen' mode: the next MIDI Note On from your keybed snaps the transpose to that key (relative to the project root or C4 fallback). Latched.">
                 <span class="pn-midi-label">Xpose</span>
                 <span class="pn-transpose">
@@ -783,9 +777,6 @@ export function buildUI(el) {
         const padList    = midiPanel.querySelector('.pn-midi-pad-list');
         const statusEl   = midiPanel.querySelector('.pn-midi-status');
         const padResetBtn = midiPanel.querySelector('.pn-pad-reset');
-        const presetRow    = midiPanel.querySelector('.pn-midi-preset-row');
-        const presetStatus = midiPanel.querySelector('.pn-midi-preset-status');
-        const presetApply  = midiPanel.querySelector('.pn-midi-preset-apply');
         const formatCC = () => {
             if (!el._ccBindings || el._ccBindings.size === 0) {
                 return 'none — hover a slider then move a CC knob';
@@ -845,16 +836,6 @@ export function buildUI(el) {
             ccList.textContent = formatCC();
             padList.textContent = formatPads();
             statusEl.textContent = formatStatus();
-            // Preset row: only shown when a known controller has been
-            // detected and we have a recommended preset for it.
-            const preset = el._detectedMidiPreset;
-            if (preset) {
-                presetRow.hidden = false;
-                presetStatus.textContent = `${preset.label} (detected as “${el._detectedMidiInputName}”). ${preset.notes}`;
-                presetApply.title = `Apply ${preset.label}: ${Object.keys(preset.pads||{}).length} pad mappings + ${Object.keys(preset.ccs||{}).length} CC mappings. Replaces existing bindings.`;
-            } else {
-                presetRow.hidden = true;
-            }
         };
         el._renderMidiPanel = renderMidi;
         midiBtn.addEventListener('click', () => {
@@ -866,14 +847,6 @@ export function buildUI(el) {
         padResetBtn.addEventListener('click', () => {
             el._padBindings?.clear();
             el._savePadBindings?.();
-            renderMidi();
-        });
-        // Apply detected preset — overwrites current CC + pad bindings
-        // with the registry's defaults for the detected controller.
-        presetApply.addEventListener('click', () => {
-            const preset = el._detectedMidiPreset;
-            if (!preset) return;
-            applyMidiPreset(el, preset);
             renderMidi();
         });
         // Monitor — pops the MIDI Monitor modal so the user can

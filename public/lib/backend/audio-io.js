@@ -428,16 +428,15 @@ export function setMuteGroup(el, target, muted) {
     if (netIds.length === 0) return;
     // Use mute-group when we found a riff-group match (lets the
     // server pick the active riff slot when unmuting); fall back to
-    // per-net for section-targeted bindings.
+    // per-net for section-targeted bindings. Always send — the
+    // worker is idempotent and the previous in-process "already in
+    // state, skip" check could miss when _mutedNets hadn't received
+    // its first mute-state broadcast yet.
     if (direct.length > 0) {
-        const allCurrent = direct.every(nid => el._mutedNets.has(nid)) === muted;
-        if (allCurrent) return;
         el._sendWs({ type: 'mute-group', riffGroup: target, muted });
         return;
     }
     for (const nid of netIds) {
-        const isMuted = el._mutedNets.has(nid);
-        if (isMuted === muted) continue;
         el._sendWs({ type: 'mute', netId: nid, muted });
     }
 }
