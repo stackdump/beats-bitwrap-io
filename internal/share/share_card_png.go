@@ -143,21 +143,46 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 	}
 	drawText(dc, false, 24, 340, 440, 0.8, 0.8, 0.8, fmt.Sprintf("%s · %s", keyStr, barLabel(p.Bars, p.Structure)))
 
-	// Ring + dots — same geometry as the SVG template.
-	dc.SetRGBA(cr, cg, cb, 0.4)
+	// Hero artwork — per-genre layout primitive with seeded variation.
+	// Same geometry as the SVG template so the social card and the PNG
+	// thumbnail render identically.
+	art := cardArtForSeed(p.Genre, p.Seed)
 	dc.SetLineWidth(2)
-	dc.DrawCircle(1000, 315, 220)
-	dc.Stroke()
-
-	for _, d := range ringDotsForSeed(p.Seed, 16) {
-		if d.On {
+	dc.SetRGBA(cr, cg, cb, 0.4)
+	for _, ring := range art.Rings {
+		dc.DrawCircle(ring.Cx, ring.Cy, ring.R)
+		dc.Stroke()
+	}
+	dc.SetRGBA(cr, cg, cb, 0.55)
+	for _, pl := range art.Polylines {
+		if len(pl.Pts) == 0 {
+			continue
+		}
+		dc.MoveTo(pl.Pts[0].X, pl.Pts[0].Y)
+		for _, pt := range pl.Pts[1:] {
+			dc.LineTo(pt.X, pt.Y)
+		}
+		if pl.Closed {
+			dc.LineTo(pl.Pts[0].X, pl.Pts[0].Y)
+		}
+		dc.Stroke()
+	}
+	for _, gph := range art.Glyphs {
+		if gph.Filled {
 			dc.SetRGB(cr, cg, cb)
-			dc.DrawCircle(d.X, d.Y, d.R)
-			dc.Fill()
 		} else {
 			dc.SetRGBA(cr, cg, cb, 0.5)
 			dc.SetLineWidth(2)
-			dc.DrawCircle(d.X, d.Y, d.R)
+		}
+		if gph.Square {
+			s := gph.R
+			dc.DrawRectangle(gph.X-s, gph.Y-s, 2*s, 2*s)
+		} else {
+			dc.DrawCircle(gph.X, gph.Y, gph.R)
+		}
+		if gph.Filled {
+			dc.Fill()
+		} else {
 			dc.Stroke()
 		}
 	}
@@ -267,11 +292,14 @@ func HandleShareCardPNG(store *Store) http.Handler {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
+		userTitle := resolveCardTitle(r.URL.Query().Get("title"), p)
 		origin := schemeHost(r)
 		qrTarget := fmt.Sprintf("%s/?cid=%s", origin, name)
-		if userTitle != "" {
-			qrTarget += "&title=" + urlQueryEscape(userTitle)
+		// Mirror the SVG handler — only echo the explicit user title in
+		// the QR target. Synthesised names are recoverable from (genre,
+		// seed) on the other side.
+		if t := sanitizeTitle(r.URL.Query().Get("title")); t != "" {
+			qrTarget += "&title=" + urlQueryEscape(t)
 		}
 		body, err := renderShareCardPNG(p, userTitle, qrTarget)
 		if err != nil {

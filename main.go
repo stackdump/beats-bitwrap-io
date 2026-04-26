@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"log"
@@ -70,6 +71,7 @@ func main() {
 	audioMaxDuration := flag.Duration("audio-max-duration", 3*time.Minute, "Cap on audio length per render. 0 = unbounded (still subject to -audio-render-timeout).")
 	audioRenderTimeout := flag.Duration("audio-render-timeout", 10*time.Minute, "Hard kill timer per render (covers stuck browsers / hung devices). Should comfortably exceed -audio-max-duration.")
 	audioAutoEnqueue := flag.Bool("audio-auto-enqueue", true, "Pre-render newly sealed CIDs in the background so listeners hit a warm cache.")
+	rebuildQueueEnabled := flag.Bool("rebuild-queue", false, "Expose /api/rebuild-{mark,queue,clear} so listeners can flag broken renders for an off-host worker to re-render. Adds a ⟳ button on each feed card.")
 
 	// --- Authoring-mode flags (ignored when -authoring is false) ---
 	authoring := flag.Bool("authoring", false, "Local authoring mode: enables /api/* sequencer routes, /ws, and server-side MIDI output. Production beats.bitwrap.io runs without this flag.")
@@ -278,6 +280,13 @@ func main() {
 		})
 		mux.HandleFunc("/api/feed", feedHandler(idx))
 		mux.HandleFunc("/feed.rss", rssFeedHandler(idx, publicURL))
+		mux.HandleFunc("/api/features", featuresHandler(*rebuildQueueEnabled))
+		if *rebuildQueueEnabled {
+			mux.HandleFunc("/api/rebuild-mark", rebuildMarkHandler(idx, shareStore))
+			mux.HandleFunc("/api/rebuild-queue", rebuildQueueHandler(idx))
+			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx))
+			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear})")
+		}
 		// /feed serves the gallery page; /feed.html resolves the same
 		// file via the static handler. Explicit route here avoids the
 		// catch-all routing /feed → DecoratedIndex (which would 404
@@ -333,6 +342,15 @@ func main() {
 			log.Printf("WARN: -midi/-midi-per-net/-midi-fanout ignored; pass -authoring to enable.")
 		}
 	}
+
+	// Browsers and crawlers auto-request /favicon.ico even when an
+	// explicit <link rel="icon"> points at favicon.svg — serve the
+	// SVG with the right Content-Type so they stop logging 404s.
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/favicon.svg"
+		w.Header().Set("Content-Type", "image/svg+xml")
+		staticHandler.ServeHTTP(w, r)
+	})
 
 	// CORS wrap (unchanged from previous beats-bitwrap-io behavior).
 	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1003,6 +1021,130 @@ func feedHandler(idx *index.DB) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(tracks)
 	}
+}
+
+// featuresHandler exposes runtime feature flags so the gallery JS can
+// decide whether to render optional UI (currently just the rebuild
+// queue button). Cheap, no-cache, public.
+func featuresHandler(rebuildQueue bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]bool{
+			"rebuildQueue": rebuildQueue,
+		})
+	}
+}
+
+// rebuildMarkHandler accepts POST /api/rebuild-mark {cid}. Validates
+// the CID exists in the share store, then inserts into the queue.
+// Per-IP rate limit (reuses the share-store limiter) is the only
+// abuse mitigation — the worker simply ignores duplicates and a
+// successful re-render is idempotent on the audio side.
+func rebuildMarkHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if ok, reason := store.RateLimitPUT(r); !ok {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, reason, http.StatusTooManyRequests)
+			return
+		}
+		var req struct {
+			CID string `json:"cid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidCID(req.CID) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		if _, err := store.Lookup(req.CID); err != nil {
+			http.Error(w, "cid not in share store", http.StatusNotFound)
+			return
+		}
+		// Hash the requester IP so per-attribution stats are possible
+		// without storing the raw IP. h64(ip) is plenty.
+		hash := fnv.New64a()
+		hash.Write([]byte(clientIP(r)))
+		if err := idx.MarkRebuild(req.CID, fmt.Sprintf("%x", hash.Sum64())); err != nil {
+			log.Printf("rebuild-mark %s: %v", req.CID, err)
+			http.Error(w, "mark failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "cid": req.CID})
+	}
+}
+
+// rebuildQueueHandler answers GET /api/rebuild-queue?limit= with a JSON
+// array of CIDs awaiting re-render, oldest mark first. Off-host workers
+// poll this and call /api/rebuild-clear after a successful upload.
+func rebuildQueueHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		cids, err := idx.RebuildQueue(limit)
+		if err != nil {
+			log.Printf("rebuild-queue: %v", err)
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(cids)
+	}
+}
+
+// rebuildClearHandler accepts POST /api/rebuild-clear {cid} from
+// workers after a successful re-render+upload. No auth — same trust
+// model as the queue itself (anyone could clear, but the cost is one
+// extra attempt that the worker is harmlessly idempotent against).
+func rebuildClearHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			CID string `json:"cid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if err := idx.ClearRebuild(req.CID); err != nil {
+			log.Printf("rebuild-clear %s: %v", req.CID, err)
+			http.Error(w, "clear failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}
+
+// clientIP returns the best-effort source IP from common forwarding
+// headers, falling back to the raw RemoteAddr. Used only as input to
+// the FNV hash stored in rebuild_queue.marked_by.
+func clientIP(r *http.Request) string {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if i := strings.IndexByte(v, ','); i >= 0 {
+			return strings.TrimSpace(v[:i])
+		}
+		return strings.TrimSpace(v)
+	}
+	if v := r.Header.Get("X-Real-IP"); v != "" {
+		return strings.TrimSpace(v)
+	}
+	return r.RemoteAddr
 }
 
 // rssFeedHandler answers GET /feed.rss with a podcast-shaped feed

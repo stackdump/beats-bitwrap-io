@@ -145,6 +145,16 @@
   .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
   .card-bm[data-bm="true"] { background: #3a2a08; border-color: #6a4a18; color: #fc6; }
   .card-play[data-state="playing"] { background: #1a2a3a; color: #67e8f9; border-color: #2a4a6a; }
+  .card-rebuild { display: none; }
+  body[data-rebuild-queue="on"] .card-rebuild { display: inline-flex; align-items: center; justify-content: center; }
+  .card-rebuild[data-marked="true"] {
+    background: #3a1818; border-color: #6a2828; color: #f88;
+    animation: rebuild-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes rebuild-pulse {
+    0%, 100% { opacity: 0.7; }
+    50%      { opacity: 1; }
+  }
   .empty, .loading, .end {
     padding: 48px 0;
     text-align: center;
@@ -460,6 +470,7 @@
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-wa" title="Open in Winamp-style player">webamp</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
+    <a href="/" class="rss" title="Open the synth editor — generate a new track">studio →</a>
   </div>
 </header>
 <div class="layout" id="layout">
@@ -1094,6 +1105,7 @@ const renderCard = (t) => {
       <button class="card-play" data-cid="${t.cid}" title="Play / pause this track">▶</button>
       <button class="card-bm" data-cid="${t.cid}" title="Bookmark — saves to your local history with the bookmarked tag">★</button>
       <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
+      <button class="card-rebuild" data-cid="${t.cid}" title="Mark this track for re-render by an off-host worker">⟳</button>
     </div>
   `;
   // Phone tap-to-play binding (desktop falls through to <a href>).
@@ -1151,8 +1163,90 @@ const renderCard = (t) => {
     }
     playIndex(idx);
   });
+  // Rebuild button — POSTs /api/rebuild-mark so an off-host worker
+  // (scripts/process-rebuild-queue.py) can re-render. Hidden by CSS
+  // unless the body data-rebuild-queue attribute is set during boot.
+  const rebuildBtn = card.querySelector('.card-rebuild');
+  rebuildBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (rebuildBtn.dataset.marked === 'true') return; // already queued
+    rebuildBtn.disabled = true;
+    try {
+      const r = await fetch('/api/rebuild-mark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cid: t.cid }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      rebuildPending.add(t.cid);
+      saveRebuildHints();
+      rebuildBtn.dataset.marked = 'true';
+      rebuildBtn.title = 'Marked for rebuild — waiting for worker';
+    } catch (err) {
+      rebuildBtn.title = `Mark failed: ${err.message}`;
+    } finally {
+      rebuildBtn.disabled = false;
+    }
+  });
+  if (rebuildPending.has(t.cid)) {
+    rebuildBtn.dataset.marked = 'true';
+    rebuildBtn.title = 'Marked for rebuild — waiting for worker';
+  }
   return card;
 };
+
+// Rebuild-queue feature: feature-detected on boot via /api/features,
+// then wired in. Pending CIDs cached in localStorage so a refresh
+// doesn't lose the visual hint while the worker is offline.
+const rebuildPending = new Set();
+const REBUILD_HINTS_KEY = 'pn-rebuild-pending';
+const loadRebuildHints = () => {
+  try {
+    const raw = localStorage.getItem(REBUILD_HINTS_KEY);
+    if (raw) JSON.parse(raw).forEach(c => rebuildPending.add(c));
+  } catch {}
+};
+const saveRebuildHints = () => {
+  try {
+    localStorage.setItem(REBUILD_HINTS_KEY, JSON.stringify([...rebuildPending]));
+  } catch {}
+};
+const refreshRebuildQueue = async () => {
+  try {
+    const r = await fetch('/api/rebuild-queue?limit=500');
+    if (!r.ok) return;
+    const cids = await r.json();
+    // Authoritative — rebuild from server, drop any local hints whose
+    // worker has already finished and called /api/rebuild-clear.
+    rebuildPending.clear();
+    for (const c of cids) rebuildPending.add(c);
+    saveRebuildHints();
+    // Reflect onto already-rendered cards.
+    for (const btn of grid.querySelectorAll('.card-rebuild')) {
+      const marked = rebuildPending.has(btn.dataset.cid);
+      btn.dataset.marked = marked ? 'true' : 'false';
+      btn.title = marked
+        ? 'Marked for rebuild — waiting for worker'
+        : 'Mark this track for re-render by an off-host worker';
+    }
+  } catch {}
+};
+const initRebuildFeature = async () => {
+  loadRebuildHints();
+  try {
+    const r = await fetch('/api/features');
+    if (!r.ok) return;
+    const flags = await r.json();
+    if (flags.rebuildQueue) {
+      document.body.dataset.rebuildQueue = 'on';
+      refreshRebuildQueue();
+      // Refresh every 30s so multiple users see each other's marks.
+      setInterval(refreshRebuildQueue, 30000);
+    }
+  } catch {}
+};
+initRebuildFeature();
 
 const fetchPage = async () => {
   if (loading || exhausted) return;

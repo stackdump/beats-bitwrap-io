@@ -172,3 +172,66 @@ func nullableInt(p *int) any {
 	}
 	return int64(*p)
 }
+
+// MarkRebuild adds cid to the rebuild queue (no-op if already present).
+// markedBy is a free-form attribution tag (currently the requester's IP
+// hash so per-IP rate limiting can be approximated without storing PII).
+func (d *DB) MarkRebuild(cid, markedBy string) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO rebuild_queue (cid, marked_at, marked_by)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(cid) DO NOTHING`,
+		cid, time.Now().UnixMilli(), markedBy,
+	)
+	if err != nil {
+		return fmt.Errorf("index: mark rebuild: %w", err)
+	}
+	return nil
+}
+
+// RebuildQueue returns up to limit pending CIDs in marked_at order.
+// Workers should claim by calling ClearRebuild after a successful
+// re-render+upload — there's no two-phase claim, so two workers running
+// concurrently can race on the same CID (acceptable: prod's audio
+// PUT is idempotent within the seal window).
+func (d *DB) RebuildQueue(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := d.sql.Query(
+		`SELECT cid FROM rebuild_queue ORDER BY marked_at LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("index: rebuild queue: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, err
+		}
+		out = append(out, cid)
+	}
+	return out, rows.Err()
+}
+
+// ClearRebuild removes a CID from the rebuild queue. Workers call this
+// after a successful re-render+upload.
+func (d *DB) ClearRebuild(cid string) error {
+	_, err := d.sql.Exec(`DELETE FROM rebuild_queue WHERE cid = ?`, cid)
+	if err != nil {
+		return fmt.Errorf("index: clear rebuild: %w", err)
+	}
+	return nil
+}
+
+// IsMarkedForRebuild returns true if cid is currently in the queue.
+func (d *DB) IsMarkedForRebuild(cid string) (bool, error) {
+	var n int
+	err := d.sql.QueryRow(
+		`SELECT 1 FROM rebuild_queue WHERE cid = ?`, cid).Scan(&n)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}

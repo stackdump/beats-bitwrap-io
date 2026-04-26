@@ -32,6 +32,8 @@ import (
 	"strings"
 	texttemplate "text/template"
 
+	"beats-bitwrap-io/internal/generator"
+
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -137,6 +139,35 @@ func titleCase(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// resolveCardTitle picks the best display title in order:
+//   1. user-supplied ?title= query param (sanitised)
+//   2. payload.Name (set by the composer at seal time on newer envelopes)
+//   3. deterministic synthesised name from (genre, seed)
+//
+// The card layout shows the genre as its own subtitle right below the
+// title, so a "{genre} · {name}" prefix on the synthesised form would
+// duplicate it — strip the leading "{genre} · " when present.
+func resolveCardTitle(userTitle string, p sharePayload) string {
+	if t := sanitizeTitle(userTitle); t != "" {
+		return t
+	}
+	if t := sanitizeTitle(p.Name); t != "" {
+		return stripGenrePrefix(t, p.Genre)
+	}
+	return stripGenrePrefix(sanitizeTitle(generator.NameForSeed(p.Genre, p.Seed)), p.Genre)
+}
+
+func stripGenrePrefix(name, genre string) string {
+	if genre == "" {
+		return name
+	}
+	prefix := genre + " · "
+	if strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+		return name[len(prefix):]
+	}
+	return name
+}
+
 // sanitizeTitle strips control chars + trims, caps at 60 runes. The
 // cap keeps the SVG layout predictable and the og:title reasonable,
 // and stripping control chars closes a trivial XML-injection vector
@@ -219,12 +250,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		}
 		// Build the injection block from the payload.
 		origin := schemeHost(r)
-		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
-		// Hand-authored payloads can carry a `name` — use it as the default
-		// title when no ?title= override was supplied on the card URL.
-		if userTitle == "" && p.Name != "" {
-			userTitle = sanitizeTitle(p.Name)
-		}
+		userTitle := resolveCardTitle(r.URL.Query().Get("title"), p)
 		genreCap := titleCase(p.Genre)
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
 		cardPNG := fmt.Sprintf("%s/share-card/%s.png", origin, cid)
@@ -562,7 +588,11 @@ func HandleShareCard(store *Store) http.Handler {
 	// svgEscape helper so angle brackets / ampersands / quotes in the
 	// user's title can't break out of the <text> element.
 	tpl := texttemplate.Must(texttemplate.New("svg").
-		Funcs(texttemplate.FuncMap{"svgEscape": svgEscape}).
+		Funcs(texttemplate.FuncMap{
+			"svgEscape": svgEscape,
+			"sub":       func(a, b float64) float64 { return a - b },
+			"mul":       func(a, b float64) float64 { return a * b },
+		}).
 		Parse(shareSvgTemplate))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/share-card/")
@@ -585,16 +615,20 @@ func HandleShareCard(store *Store) http.Handler {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-		dots := ringDotsForSeed(p.Seed, 16)
-		userTitle := sanitizeTitle(r.URL.Query().Get("title"))
+		art := cardArtForSeed(p.Genre, p.Seed)
+		userTitle := resolveCardTitle(r.URL.Query().Get("title"), p)
 		// Short URL identical to the one shortShareUrl() builds on
 		// the client — both sides encode the same bytes so a scanner
 		// reads the same destination regardless of which renderer drew
 		// the card.
 		origin := schemeHost(r)
 		qrTarget := fmt.Sprintf("%s/?cid=%s", origin, name)
-		if userTitle != "" {
-			qrTarget += "&title=" + urlQueryEscape(userTitle)
+		// QR target only includes &title= when an explicit user-set
+		// title was provided. Synthesised names are recoverable from
+		// (genre, seed) on the receiving end, so omitting them keeps
+		// scanned URLs short.
+		if t := sanitizeTitle(r.URL.Query().Get("title")); t != "" {
+			qrTarget += "&title=" + urlQueryEscape(t)
 		}
 		qrDataURL, _ := qrPngDataURL(qrTarget, 512)
 		data := struct {
@@ -604,7 +638,7 @@ func HandleShareCard(store *Store) http.Handler {
 			Seed                            int64
 			Key, Mode                       string
 			CID                             string
-			Dots                            []ringDot
+			Art                             cardArt
 			QRDataURL                       string
 		}{
 			Genre:      p.Genre,
@@ -617,7 +651,7 @@ func HandleShareCard(store *Store) http.Handler {
 			Key:        keyLabel(p.RootNote, p.ScaleName),
 			Mode:       barLabel(p.Bars, p.Structure),
 			CID:        name,
-			Dots:       dots,
+			Art:        art,
 			QRDataURL:  qrDataURL,
 		}
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -628,40 +662,260 @@ func HandleShareCard(store *Store) http.Handler {
 	})
 }
 
-// ringDot is one glyph in the hero ring. Coordinates are pre-computed
-// in template data so the SVG template stays simple.
-type ringDot struct {
+// cardGlyph is one shape (circle or square) on the card. Pre-computed
+// so the SVG template stays simple.
+type cardGlyph struct {
 	X, Y, R float64
-	On      bool
+	Square  bool // false = circle, true = square (R is half-side)
+	Filled  bool
 }
 
-// ringDotsForSeed returns `n` evenly-spaced dots around a ring; which
-// ones are "on" is derived from the seed so the visual fingerprint is
-// unique per track but deterministic. Coordinates are absolute (card
-// centre at 1000, 315; radius 220).
-func ringDotsForSeed(seed int64, n int) []ringDot {
-	// Use fnv on the seed bytes so the distribution isn't biased by
-	// seed being small / sequential across sessions.
+// cardArt is the assembled hero artwork: a list of glyphs plus
+// connecting strokes (rings and polylines). Both the SVG template and
+// the PNG renderer consume this same structure so the OG image and
+// the gallery thumbnail are visually identical.
+type cardArt struct {
+	Glyphs    []cardGlyph
+	Rings     []cardRing       // stroked circles (concentric backdrops)
+	Polylines []cardPolyline   // open or closed point chains
+}
+
+type cardRing struct {
+	Cx, Cy, R float64
+}
+
+type cardPolyline struct {
+	Pts    []cardPoint
+	Closed bool
+}
+
+type cardPoint struct {
+	X, Y float64
+}
+
+// Art-layout buckets keyed by genre. Each bucket gets a different
+// underlying topology so a wall of cards reads as visually distinct
+// even at thumbnail size.
+var genreLayout = map[string]string{
+	"techno":    "concentric",
+	"house":     "concentric",
+	"edm":       "concentric",
+	"dnb":       "concentric",
+	"dubstep":   "concentric",
+	"trance":    "spiral",
+	"synthwave": "spiral",
+	"metal":     "polygon",
+	"speedcore": "polygon",
+	"trap":      "grid",
+	"garage":    "grid",
+	"ambient":   "orbit",
+	"lofi":      "orbit",
+	"jazz":      "irregular",
+	"blues":     "irregular",
+	"bossa":     "irregular",
+	"funk":      "irregular",
+	"country":   "irregular",
+	"reggae":    "irregular",
+}
+
+func layoutForGenre(g string) string {
+	if l, ok := genreLayout[g]; ok {
+		return l
+	}
+	return "concentric"
+}
+
+// cardArtForSeed dispatches to a per-genre layout, seeded so the same
+// (genre, seed) pair always renders identically.
+func cardArtForSeed(genre string, seed int64) cardArt {
 	h := fnv.New64a()
-	_ = h.Sum([]byte{})
-	fmt.Fprintf(h, "%d", seed)
+	fmt.Fprintf(h, "%s:%d", genre, seed)
 	prng := rand.New(rand.NewSource(int64(h.Sum64()) ^ seed))
-	cx, cy, radius := 1000.0, 315.0, 220.0
-	out := make([]ringDot, n)
-	for i := range n {
-		theta := 2*math.Pi*float64(i)/float64(n) - math.Pi/2
-		on := prng.Intn(100) < 45
-		r := 11.0
-		if on {
-			r = 17.0
-		}
-		out[i] = ringDot{
-			X:  cx + radius*math.Cos(theta),
-			Y:  cy + radius*math.Sin(theta),
-			R:  r,
-			On: on,
+	switch layoutForGenre(genre) {
+	case "spiral":
+		return artSpiral(prng)
+	case "polygon":
+		return artPolygon(prng)
+	case "grid":
+		return artGrid(prng)
+	case "orbit":
+		return artOrbit(prng)
+	case "irregular":
+		return artIrregular(prng)
+	default:
+		return artConcentric(prng)
+	}
+}
+
+// All layouts share a 220-radius bounding circle centered at (1000, 315)
+// so they slot into the same panel as the original ring.
+const (
+	artCx = 1000.0
+	artCy = 315.0
+	artR  = 220.0
+)
+
+// artConcentric: 2-3 nested rings of dots. Used for high-energy
+// electronic genres (techno, house, edm, dnb, dubstep) where the music
+// itself stacks layered repeating patterns.
+func artConcentric(prng *rand.Rand) cardArt {
+	rings := 2 + prng.Intn(2) // 2 or 3
+	steps := []int{16, 12, 8}
+	radii := []float64{artR, artR * 0.66, artR * 0.36}
+	out := cardArt{}
+	for i := 0; i < rings; i++ {
+		out.Rings = append(out.Rings, cardRing{Cx: artCx, Cy: artCy, R: radii[i]})
+		n := steps[i]
+		for j := 0; j < n; j++ {
+			theta := 2*math.Pi*float64(j)/float64(n) - math.Pi/2
+			on := prng.Intn(100) < 50
+			r := 9.0
+			if on {
+				r = 14.0
+			}
+			out.Glyphs = append(out.Glyphs, cardGlyph{
+				X: artCx + radii[i]*math.Cos(theta),
+				Y: artCy + radii[i]*math.Sin(theta),
+				R: r, Filled: on,
+			})
 		}
 	}
+	return out
+}
+
+// artSpiral: archimedean spiral of dots. Used for trance / synthwave
+// where the music has a hypnotic forward-pull quality.
+func artSpiral(prng *rand.Rand) cardArt {
+	const n = 36
+	out := cardArt{}
+	turns := 2.5 + prng.Float64()*1.5
+	pts := make([]cardPoint, 0, n)
+	for i := 0; i < n; i++ {
+		t := float64(i) / float64(n-1)
+		theta := turns*2*math.Pi*t - math.Pi/2
+		r := artR * (0.18 + 0.82*t)
+		x := artCx + r*math.Cos(theta)
+		y := artCy + r*math.Sin(theta)
+		pts = append(pts, cardPoint{X: x, Y: y})
+		on := prng.Intn(100) < 55
+		gr := 7.0 + 6.0*t
+		out.Glyphs = append(out.Glyphs, cardGlyph{
+			X: x, Y: y, R: gr, Filled: on,
+		})
+	}
+	out.Polylines = append(out.Polylines, cardPolyline{Pts: pts})
+	return out
+}
+
+// artPolygon: vertex points of an N-gon with chord edges drawn.
+// Used for metal / speedcore — sharp, angular, deliberately aggressive.
+func artPolygon(prng *rand.Rand) cardArt {
+	n := 5 + prng.Intn(4) // 5..8 sides
+	out := cardArt{}
+	pts := make([]cardPoint, n)
+	for i := 0; i < n; i++ {
+		theta := 2*math.Pi*float64(i)/float64(n) - math.Pi/2
+		pts[i].X = artCx + artR*math.Cos(theta)
+		pts[i].Y = artCy + artR*math.Sin(theta)
+		out.Glyphs = append(out.Glyphs, cardGlyph{
+			X: pts[i].X, Y: pts[i].Y, R: 16, Filled: true,
+		})
+	}
+	// Outline + inner star (chord skip).
+	out.Polylines = append(out.Polylines, cardPolyline{Pts: pts, Closed: true})
+	skip := n / 2
+	if skip < 2 {
+		skip = 2
+	}
+	for i := 0; i < n; i++ {
+		j := (i + skip) % n
+		out.Polylines = append(out.Polylines, cardPolyline{
+			Pts: []cardPoint{pts[i], pts[j]},
+		})
+	}
+	return out
+}
+
+// artGrid: 5×5 grid of squares with a seeded on/off pattern. Used for
+// trap / garage — these genres lean on quantised step-grid programming
+// so the visual mirrors the underlying production style.
+func artGrid(prng *rand.Rand) cardArt {
+	const cells = 5
+	step := (artR * 1.7) / float64(cells)
+	originX := artCx - step*float64(cells-1)/2
+	originY := artCy - step*float64(cells-1)/2
+	out := cardArt{}
+	for i := 0; i < cells; i++ {
+		for j := 0; j < cells; j++ {
+			on := prng.Intn(100) < 45
+			r := 12.0
+			if on {
+				r = 18.0
+			}
+			out.Glyphs = append(out.Glyphs, cardGlyph{
+				X: originX + step*float64(i),
+				Y: originY + step*float64(j),
+				R: r, Square: true, Filled: on,
+			})
+		}
+	}
+	return out
+}
+
+// artOrbit: a central node with 3-5 satellite clusters. Used for
+// ambient / lofi — sparse, drifting, anchored by a long pad.
+func artOrbit(prng *rand.Rand) cardArt {
+	out := cardArt{}
+	out.Glyphs = append(out.Glyphs, cardGlyph{
+		X: artCx, Y: artCy, R: 22, Filled: true,
+	})
+	clusters := 3 + prng.Intn(3) // 3..5
+	for i := 0; i < clusters; i++ {
+		theta := 2*math.Pi*float64(i)/float64(clusters) - math.Pi/2 + prng.Float64()*0.4 - 0.2
+		dist := artR * (0.55 + prng.Float64()*0.4)
+		ccX := artCx + dist*math.Cos(theta)
+		ccY := artCy + dist*math.Sin(theta)
+		out.Polylines = append(out.Polylines, cardPolyline{
+			Pts: []cardPoint{{X: artCx, Y: artCy}, {X: ccX, Y: ccY}},
+		})
+		k := 3 + prng.Intn(3)
+		orbit := 22.0 + prng.Float64()*14
+		for j := 0; j < k; j++ {
+			ang := 2*math.Pi*float64(j)/float64(k) + prng.Float64()*0.3
+			out.Glyphs = append(out.Glyphs, cardGlyph{
+				X: ccX + orbit*math.Cos(ang),
+				Y: ccY + orbit*math.Sin(ang),
+				R: 6.5, Filled: prng.Intn(100) < 60,
+			})
+		}
+	}
+	return out
+}
+
+// artIrregular: a single ring whose dots are pushed in/out from the
+// nominal radius by a seeded jitter. Reads as "organic / not on the
+// grid" — used for swing-driven genres (jazz, blues, bossa, funk,
+// country, reggae).
+func artIrregular(prng *rand.Rand) cardArt {
+	const n = 14
+	out := cardArt{}
+	pts := make([]cardPoint, n)
+	for i := 0; i < n; i++ {
+		theta := 2*math.Pi*float64(i)/float64(n) - math.Pi/2
+		jitter := 0.78 + prng.Float64()*0.32 // 0.78..1.10 of artR
+		r := artR * jitter
+		pts[i].X = artCx + r*math.Cos(theta)
+		pts[i].Y = artCy + r*math.Sin(theta)
+		on := prng.Intn(100) < 50
+		gr := 9.0
+		if on {
+			gr = 15.0
+		}
+		out.Glyphs = append(out.Glyphs, cardGlyph{
+			X: pts[i].X, Y: pts[i].Y, R: gr, Filled: on,
+		})
+	}
+	out.Polylines = append(out.Polylines, cardPolyline{Pts: pts, Closed: true})
 	return out
 }
 
@@ -706,16 +960,27 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     </g>
   </g>
 
-  <!-- Right panel: Petri ring -->
+  <!-- Right panel: per-genre Petri-flavoured artwork -->
   <g stroke="{{.Color}}" stroke-width="2" fill="none" opacity="0.4">
-    <circle cx="1000" cy="315" r="220"/>
+    {{- range .Art.Rings}}
+    <circle cx="{{printf "%.1f" .Cx}}" cy="{{printf "%.1f" .Cy}}" r="{{printf "%.1f" .R}}"/>
+    {{- end}}
+  </g>
+  <g stroke="{{.Color}}" stroke-width="2" fill="none" opacity="0.55">
+    {{- range .Art.Polylines}}
+    <polyline points="{{range .Pts}}{{printf "%.1f,%.1f " .X .Y}}{{end}}{{if .Closed}}{{with index .Pts 0}}{{printf "%.1f,%.1f" .X .Y}}{{end}}{{end}}"/>
+    {{- end}}
   </g>
   <g>
-    {{- range .Dots}}
-    {{if .On}}<circle cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="{{printf "%.1f" .R}}" fill="{{$.Color}}"/>
-    {{else}}<circle cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="{{printf "%.1f" .R}}" fill="none" stroke="{{$.Color}}" stroke-width="2" opacity="0.5"/>
-    {{end -}}
-    {{end}}
+    {{- range .Art.Glyphs}}
+    {{- if .Square -}}
+      {{if .Filled}}<rect x="{{printf "%.1f" (sub .X .R)}}" y="{{printf "%.1f" (sub .Y .R)}}" width="{{printf "%.1f" (mul .R 2.0)}}" height="{{printf "%.1f" (mul .R 2.0)}}" fill="{{$.Color}}"/>
+      {{else}}<rect x="{{printf "%.1f" (sub .X .R)}}" y="{{printf "%.1f" (sub .Y .R)}}" width="{{printf "%.1f" (mul .R 2.0)}}" height="{{printf "%.1f" (mul .R 2.0)}}" fill="none" stroke="{{$.Color}}" stroke-width="2" opacity="0.5"/>{{end}}
+    {{- else -}}
+      {{if .Filled}}<circle cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="{{printf "%.1f" .R}}" fill="{{$.Color}}"/>
+      {{else}}<circle cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="{{printf "%.1f" .R}}" fill="none" stroke="{{$.Color}}" stroke-width="2" opacity="0.5"/>{{end}}
+    {{- end}}
+    {{- end}}
   </g>
   {{if .QRDataURL}}<image href="{{.QRDataURL}}" x="900" y="215" width="200" height="200" preserveAspectRatio="xMidYMid meet"/>{{end}}
 
