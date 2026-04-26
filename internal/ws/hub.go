@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"sync"
 
 	"beats-bitwrap-io/internal/pflow"
@@ -209,7 +210,13 @@ func (h *Hub) BroadcastProjectSync(project map[string]interface{}) {
 
 // readPump pumps messages from the WebSocket connection to the hub
 func (c *Client) readPump() {
+	// Background goroutine — recover so a panic in handleMessage
+	// (bad JSON, unhandled message variant, slice OOB on a malformed
+	// payload) doesn't take down the whole process.
 	defer func() {
+		if rv := recover(); rv != nil {
+			log.Printf("ws: panic in readPump: %v\n%s", rv, debug.Stack())
+		}
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -228,7 +235,12 @@ func (c *Client) readPump() {
 
 // writePump pumps messages from the hub to the WebSocket connection
 func (c *Client) writePump() {
-	defer c.conn.Close()
+	defer func() {
+		if rv := recover(); rv != nil {
+			log.Printf("ws: panic in writePump: %v\n%s", rv, debug.Stack())
+		}
+		c.conn.Close()
+	}()
 
 	for message := range c.send {
 		if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {

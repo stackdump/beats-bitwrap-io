@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -585,6 +586,14 @@ func (r *Renderer) Enqueue(cid string, expectedMs int64) bool {
 	}
 	r.mu.Unlock()
 	go func() {
+		// Background goroutine — a panic here would otherwise take
+		// down the whole server (no http handler upstream to recover).
+		defer func() {
+			if rv := recover(); rv != nil {
+				log.Printf("audiorender: panic in prerender %s: %v\n%s",
+					cid, rv, debug.Stack())
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), r.cfg.RenderTimeout)
 		defer cancel()
 		if _, err := r.Render(ctx, cid, expectedMs); err != nil {

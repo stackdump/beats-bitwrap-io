@@ -5,6 +5,7 @@
 package index
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -34,6 +35,9 @@ func Open(path string) (*DB, error) {
 }
 
 func (d *DB) Close() error { return d.sql.Close() }
+
+// Ping verifies the SQLite connection is reachable. Used by /readyz.
+func (d *DB) Ping(ctx context.Context) error { return d.sql.PingContext(ctx) }
 
 // payload mirrors the indexed fields of share.sharePayload. Duplicated
 // rather than imported to keep the package decoupled — the schema is

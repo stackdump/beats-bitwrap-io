@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -294,7 +295,7 @@ func main() {
 		if *rebuildQueueEnabled {
 			mux.HandleFunc("/api/rebuild-mark", rebuildMarkHandler(idx, shareStore))
 			mux.HandleFunc("/api/rebuild-queue", rebuildQueueHandler(idx))
-			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx))
+			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx, shareStore))
 			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear})")
 		}
 		// /feed serves the gallery page; /feed.html resolves the same
@@ -305,6 +306,11 @@ func main() {
 			r.URL.Path = "/feed.html"
 			staticHandler.ServeHTTP(w, r)
 		})
+		// /readyz: confirms the DB + share-store are reachable. Used
+		// by external monitors (nginx, ~/healthcheck) to distinguish
+		// "process up but hung" from "actually serving traffic".
+		shareDir := *dataDir
+		mux.HandleFunc("/readyz", readyzHandler(idx, shareDir))
 		if *audioEnabled && *audioAutoEnqueue {
 			// Auto-enqueue from the seal hook can't know the track length —
 			// use the renderer's fallback estimate.
@@ -362,6 +368,15 @@ func main() {
 		staticHandler.ServeHTTP(w, r)
 	})
 
+	// /healthz: cheap liveness probe. Always 200; no I/O. Distinct
+	// from /readyz (which probes deps and only mounts when the
+	// index/audio block ran).
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+
 	// CORS wrap (unchanged from previous beats-bitwrap-io behavior).
 	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -373,9 +388,17 @@ func main() {
 		mux.ServeHTTP(w, r)
 	})
 
+	// Panic-recovery middleware. A panic inside any handler — JSON
+	// unmarshal of malformed input, slice OOB on a corrupt payload,
+	// nil-deref on a half-init dependency — would otherwise propagate
+	// up the goroutine and kill the whole server. Recover, log with
+	// stack, write a 500 if no bytes were sent yet.
+	handler := http.Handler(cors)
+	handler = recoverMiddleware(handler)
+
 	server := &http.Server{
 		Addr:         *addr,
-		Handler:      cors,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -1133,13 +1156,20 @@ func rebuildQueueHandler(idx *index.DB) http.HandlerFunc {
 }
 
 // rebuildClearHandler accepts POST /api/rebuild-clear {cid} from
-// workers after a successful re-render+upload. No auth — same trust
-// model as the queue itself (anyone could clear, but the cost is one
-// extra attempt that the worker is harmlessly idempotent against).
-func rebuildClearHandler(idx *index.DB) http.HandlerFunc {
+// workers after a successful re-render+upload. Rate-limited via the
+// share-store limiter so the endpoint can't be spammed; no auth
+// otherwise (same trust model as the queue itself — anyone could
+// clear, but the cost is one extra worker attempt that is harmlessly
+// idempotent).
+func rebuildClearHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if ok, reason := store.RateLimitPUT(r); !ok {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, reason, http.StatusTooManyRequests)
 			return
 		}
 		var req struct {
@@ -1185,6 +1215,54 @@ func loadOrCreateRebuildSecret(path string) (string, error) {
 		return "", fmt.Errorf("write secret: %w", err)
 	}
 	return secret, nil
+}
+
+// readyzHandler probes the SQLite handle and the share-store directory
+// so external monitors can tell "process up but hung" from "serving".
+// Returns 503 with a `reason` field on any check failure; 200
+// `{"ok":true}` otherwise. Wall-clock budget is small (sub-100ms on
+// a healthy host).
+func readyzHandler(idx *index.DB, shareDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if idx != nil {
+			if err := idx.Ping(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintf(w, `{"ok":false,"reason":"db: %s"}`, err)
+				return
+			}
+		}
+		if _, err := os.Stat(shareDir); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"ok":false,"reason":"share dir: %s"}`, err)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}
+}
+
+// recoverMiddleware wraps an http.Handler so a panic in any downstream
+// handler is caught, logged with stack, and (if no response has been
+// written yet) returned as a 500 instead of taking down the process.
+// Panics from after the headers were written are unavoidable on the
+// wire — the connection just closes — but the server stays up.
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rv := recover(); rv != nil {
+				log.Printf("panic: %s %s: %v\n%s",
+					r.Method, r.URL.Path, rv, debug.Stack())
+				// Best-effort 500 — http.ResponseWriter doesn't expose
+				// "headers written" reliably, but Write returning an
+				// error is fine since we're already in panic-recovery.
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // constantTimeEq compares two strings in constant time; safe for
