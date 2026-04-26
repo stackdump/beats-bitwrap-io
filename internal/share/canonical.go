@@ -11,7 +11,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
+	"time"
 )
 
 // canonicalJSON serializes v with sorted object keys. Numbers are emitted
@@ -104,4 +106,23 @@ func (s *Store) Seal(cid string, canonical []byte) error {
 // without going through the HTTP layer.
 func (s *Store) Lookup(cid string) ([]byte, error) {
 	return s.lookup(cid)
+}
+
+// SealedAt returns the on-disk mtime of the share envelope for cid,
+// which is the moment the seal landed (we always write fresh files;
+// duplicates short-circuit before touching the disk). Used by the audio
+// upload path to enforce a "no faster than realtime" rule. Returns the
+// zero Time + os.ErrNotExist if the cid isn't stored.
+func (s *Store) SealedAt(cid string) (time.Time, error) {
+	s.mu.Lock()
+	path, ok := s.index[cid]
+	s.mu.Unlock()
+	if !ok {
+		return time.Time{}, os.ErrNotExist
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
 }

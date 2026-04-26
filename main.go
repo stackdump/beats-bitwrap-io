@@ -735,6 +735,27 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 				httpErrorNoStore(w, reason, http.StatusTooManyRequests)
 				return
 			}
+			// Faster-than-realtime check: an honest in-tab render runs for
+			// the full track wall-clock. If the upload arrives sooner than
+			// the envelope's minimum render duration after seal, the user
+			// fabricated the .webm offline rather than recording playback.
+			// Reject with 403 and a Retry-After hinting how long they need
+			// to actually wait. The share-store mtime is the seal moment;
+			// duplicate seals short-circuit before touching disk.
+			if sealedAt, err := shareStore.SealedAt(cid); err == nil {
+				if envelope, err := shareStore.Lookup(cid); err == nil {
+					minMs := share.EstimateMinRenderMs(envelope)
+					elapsedMs := time.Since(sealedAt).Milliseconds()
+					if elapsedMs < minMs {
+						remain := minMs - elapsedMs
+						w.Header().Set("Retry-After", fmt.Sprintf("%d", (remain+999)/1000))
+						httpErrorNoStore(w,
+							fmt.Sprintf("upload arrived faster than realtime: %dms elapsed since seal, need at least %dms", elapsedMs, minMs),
+							http.StatusForbidden)
+						return
+					}
+				}
+			}
 			const maxAudioPutBytes = 5 * 1024 * 1024 // 5 MiB
 			r.Body = http.MaxBytesReader(w, r.Body, maxAudioPutBytes+1)
 			body, err := io.ReadAll(r.Body)
