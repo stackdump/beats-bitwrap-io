@@ -15,6 +15,53 @@ import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 
+// Footer metadata cache — these GETs are server-global, idempotent,
+// and stable for the page's lifetime. We fetch them once at first
+// _buildUI call and reuse the results to repaint the footer on every
+// subsequent project-sync, instead of refetching and tripping
+// nginx's per-IP rate limit on rapid Generate cycles.
+let _footerVersion = null;
+let _footerLatestCid = null;
+let _footerFeedHasRows = null;
+let _footerFetchStarted = false;
+
+function populateFooterMetadata(footer) {
+    const apply = () => {
+        if (_footerVersion) {
+            const slot = footer.querySelector('.pn-footer-version');
+            if (slot) slot.textContent = _footerVersion;
+        }
+        if (_footerLatestCid) {
+            const link = footer.querySelector('.pn-footer-latest');
+            const sep  = footer.querySelector('.pn-footer-latest-sep');
+            if (link) { link.href = `/?cid=${_footerLatestCid}`; link.hidden = false; }
+            if (sep) sep.hidden = false;
+        }
+        if (_footerFeedHasRows) {
+            for (const cls of ['.pn-footer-feed', '.pn-footer-feed-sep',
+                               '.pn-footer-rss', '.pn-footer-rss-sep']) {
+                const node = footer.querySelector(cls);
+                if (node) node.hidden = false;
+            }
+        }
+    };
+    apply(); // paint cached values immediately on every call
+    if (_footerFetchStarted) return;
+    _footerFetchStarted = true;
+    fetch('/version').then(r => r.ok ? r.text() : '').then(v => {
+        _footerVersion = (v || '').trim() || null;
+        apply();
+    }).catch(() => {});
+    fetch('/api/audio-latest').then(r => r.ok ? r.json() : null).then(data => {
+        _footerLatestCid = data?.cid || null;
+        apply();
+    }).catch(() => {});
+    fetch('/api/feed?limit=1').then(r => r.ok ? r.json() : []).then(rows => {
+        _footerFeedHasRows = Array.isArray(rows) && rows.length > 0;
+        apply();
+    }).catch(() => {});
+}
+
 // Live label for a master-FX slider. Mirrors the inline-span formats
 // the panel used to show, now surfaced via the floating cursor tip
 // so the panel itself stays narrow.
@@ -1120,43 +1167,14 @@ export function buildUI(el) {
         <span class="pn-footer-version" title="Server build">…</span>
     `;
     el.appendChild(footer);
-    // Pull the running version into the footer + thread it into the
-    // bug-report link so a freshly-filed issue carries the build it
-    // was filed against. Pre-fills the structured fields in
-    // .github/ISSUE_TEMPLATE/bug_report.yml via per-id query params
-    // (share-url, browser, build) — GitHub matches them to inputs by
-    // YAML id. Best-effort: if /version 404s the placeholder stays.
-    fetch('/version').then(r => r.ok ? r.text() : '').then(v => {
-        v = (v || '').trim();
-        if (!v) return;
-        const slot = footer.querySelector('.pn-footer-version');
-        if (slot) slot.textContent = v;
-    }).catch(() => {});
-    // "latest" — link to the most recently rendered track if the
-    // server has audio rendering on. /api/audio-latest 404s on hosts
-    // without -audio-render, in which case we leave the link hidden.
-    fetch('/api/audio-latest').then(r => r.ok ? r.json() : null).then(data => {
-        const cid = data?.cid;
-        if (!cid) return;
-        const link = footer.querySelector('.pn-footer-latest');
-        const sep = footer.querySelector('.pn-footer-latest-sep');
-        if (link) {
-            link.href = `/?cid=${cid}`;
-            link.hidden = false;
-        }
-        if (sep) sep.hidden = false;
-    }).catch(() => {});
-    // "feed" / "rss" — only surface when the index has anything in
-    // it. Saves the user from clicking through to an empty page on
-    // a fresh dev server.
-    fetch('/api/feed?limit=1').then(r => r.ok ? r.json() : []).then(rows => {
-        if (!Array.isArray(rows) || rows.length === 0) return;
-        for (const cls of ['.pn-footer-feed', '.pn-footer-feed-sep',
-                           '.pn-footer-rss', '.pn-footer-rss-sep']) {
-            const node = footer.querySelector(cls);
-            if (node) node.hidden = false;
-        }
-    }).catch(() => {});
+    // Footer metadata: version, "latest" link, feed/rss visibility.
+    // None of this depends on the loaded project — the values are
+    // server-global and stable for the page's lifetime. _buildUI runs
+    // on every project-sync (Generate, share-load, worker echo), so
+    // refetching here would burn 3 GETs per regen and trip nginx's
+    // per-IP rate limit on rapid sessions. Cache the results once and
+    // only repaint the DOM on subsequent calls.
+    populateFooterMetadata(footer);
     // "history" — only show when the user has at least one entry.
     // Click opens the standalone modal (lazy-imported to avoid
     // bloating the dialogs.js initial parse).
