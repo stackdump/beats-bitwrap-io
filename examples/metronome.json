@@ -1,0 +1,75 @@
+{
+    "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
+    "@type": "BeatsShare",
+    "v": 1,
+    "genre": "techno",
+    "seed": 0,
+    "name": "metronome (timing diagnostic)",
+    "tempo": 120,
+    "swing": 0,
+    "humanize": 0,
+    "nets": {
+        "kick": {
+            "role": "music",
+            "track": {
+                "channel": 1,
+                "defaultVelocity": 115,
+                "group": "drums"
+            },
+            "places": {
+                "p0":  { "initial": [1] },
+                "p1":  { "initial": [0] },
+                "p2":  { "initial": [0] },
+                "p3":  { "initial": [0] },
+                "p4":  { "initial": [0] },
+                "p5":  { "initial": [0] },
+                "p6":  { "initial": [0] },
+                "p7":  { "initial": [0] },
+                "p8":  { "initial": [0] },
+                "p9":  { "initial": [0] },
+                "p10": { "initial": [0] },
+                "p11": { "initial": [0] },
+                "p12": { "initial": [0] },
+                "p13": { "initial": [0] },
+                "p14": { "initial": [0] },
+                "p15": { "initial": [0] }
+            },
+            "transitions": {
+                "t0":  { "midi": { "note": 36, "channel": 1, "velocity": 115, "duration": 80 } },
+                "t1":  {},
+                "t2":  {},
+                "t3":  {},
+                "t4":  { "midi": { "note": 36, "channel": 1, "velocity": 115, "duration": 80 } },
+                "t5":  {},
+                "t6":  {},
+                "t7":  {},
+                "t8":  { "midi": { "note": 36, "channel": 1, "velocity": 115, "duration": 80 } },
+                "t9":  {},
+                "t10": {},
+                "t11": {},
+                "t12": { "midi": { "note": 36, "channel": 1, "velocity": 115, "duration": 80 } },
+                "t13": {},
+                "t14": {},
+                "t15": {}
+            },
+            "arcs": [
+                { "source": "p0",  "target": "t0",  "weight": [1] }, { "source": "t0",  "target": "p1",  "weight": [1] },
+                { "source": "p1",  "target": "t1",  "weight": [1] }, { "source": "t1",  "target": "p2",  "weight": [1] },
+                { "source": "p2",  "target": "t2",  "weight": [1] }, { "source": "t2",  "target": "p3",  "weight": [1] },
+                { "source": "p3",  "target": "t3",  "weight": [1] }, { "source": "t3",  "target": "p4",  "weight": [1] },
+                { "source": "p4",  "target": "t4",  "weight": [1] }, { "source": "t4",  "target": "p5",  "weight": [1] },
+                { "source": "p5",  "target": "t5",  "weight": [1] }, { "source": "t5",  "target": "p6",  "weight": [1] },
+                { "source": "p6",  "target": "t6",  "weight": [1] }, { "source": "t6",  "target": "p7",  "weight": [1] },
+                { "source": "p7",  "target": "t7",  "weight": [1] }, { "source": "t7",  "target": "p8",  "weight": [1] },
+                { "source": "p8",  "target": "t8",  "weight": [1] }, { "source": "t8",  "target": "p9",  "weight": [1] },
+                { "source": "p9",  "target": "t9",  "weight": [1] }, { "source": "t9",  "target": "p10", "weight": [1] },
+                { "source": "p10", "target": "t10", "weight": [1] }, { "source": "t10", "target": "p11", "weight": [1] },
+                { "source": "p11", "target": "t11", "weight": [1] }, { "source": "t11", "target": "p12", "weight": [1] },
+                { "source": "p12", "target": "t12", "weight": [1] }, { "source": "t12", "target": "p13", "weight": [1] },
+                { "source": "p13", "target": "t13", "weight": [1] }, { "source": "t13", "target": "p14", "weight": [1] },
+                { "source": "p14", "target": "t14", "weight": [1] }, { "source": "t14", "target": "p15", "weight": [1] },
+                { "source": "p15", "target": "t15", "weight": [1] }, { "source": "t15", "target": "p0",  "weight": [1] }
+            ]
+        }
+    }
+}

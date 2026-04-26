@@ -389,6 +389,16 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) 
 		chromedp.Flag("disable-gpu", "true"),
 		chromedp.Flag("no-sandbox", "true"),
 		chromedp.Flag("disable-dev-shm-usage", "true"),
+		// Headless Chromium (even with --headless=new) treats the
+		// render target as a backgrounded/occluded tab and throttles
+		// setInterval/setTimeout — the sequencer worker fires slow
+		// and bunchy, the audio scheduler re-anchors per fire, and
+		// the recording captures audible jitter (see
+		// scripts/measure-jitter.py against examples/metronome.json).
+		// These three flags keep timers running at full rate.
+		chromedp.Flag("disable-background-timer-throttling", "true"),
+		chromedp.Flag("disable-backgrounding-occluded-windows", "true"),
+		chromedp.Flag("disable-renderer-backgrounding", "true"),
 	)
 	if r.cfg.ChromePath != "" {
 		opts = append(opts, chromedp.ExecPath(r.cfg.ChromePath))
