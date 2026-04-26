@@ -571,21 +571,9 @@ export function buildUI(el) {
                     if (!byGroup.has(g)) byGroup.set(g, []);
                     byGroup.get(g).push(m);
                 }
-                // Live transpose pill — lives inside the Pitch group so
-                // it sits with the rest of the per-track pitch controls
-                // instead of crowding the action row.
-                const transposePill = `
-                    <span class="pn-transpose" title="Live transpose — applied to all non-drum channels at fire time. Click ± to nudge, double-click value to reset, MIDI button to listen for keybed input.">
-                        <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
-                        <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
-                        <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
-                        <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
-                    </span>
-                `;
                 return [...byGroup.entries()].map(([label, items]) => `
                     <div class="pn-macro-group">
                         <div class="pn-macro-group-label">${label}</div>
-                        ${label === 'Pitch' ? transposePill : ''}
                         ${items.map(m => {
                             const needsDuration = m.durationOpts.length > 1 || (m.durationLabel && m.durationLabel.length > 0);
                             // Kinds where "∞" (permanent — fire and don't auto-restore) is meaningful.
@@ -669,6 +657,15 @@ export function buildUI(el) {
                 <div class="pn-fx-control">
                     <span>Semi</span>
                     <input type="range" class="pn-fx-slider" data-fx="master-pitch" data-default="0" min="-12" max="12" step="1" value="0">
+                </div>
+                <div class="pn-fx-control" title="Live transpose — applied to all non-drum channels at fire time (MIDI level, distinct from the master-pitch audio shifter above).">
+                    <span>Xpose</span>
+                    <span class="pn-transpose">
+                        <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
+                        <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
+                        <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                        <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
+                    </span>
                 </div>
             </div>
             <div class="pn-fx-group">
