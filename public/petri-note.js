@@ -1398,6 +1398,13 @@ class PetriNote extends HTMLElement {
                 this._traitOverrides[k] = v;
             }
             this._currentGen = { genre: share.genre, params: { ...share.params } };
+            // Provenance: record the source CID + any inherited parents
+            // so the next Share carries this CID forward as its parent.
+            // Newest-first, capped at 8 in the collector.
+            if (cidParam) {
+                const inherited = Array.isArray(share.parents) ? share.parents : [];
+                this._shareParents = [cidParam, ...inherited.filter(c => c !== cidParam)].slice(0, 8);
+            }
             // Stash the overrides block so _applyProjectSync can layer it
             // onto the regenerated project once the worker replies. One-shot.
             if (share.overrides) this._pendingShareOverrides = share.overrides;

@@ -169,4 +169,17 @@ export function applyShareOverrides(el, ov) {
     if (ov.ui) applyUiState(el, ov.ui);
     if (ov.hits) applyHitState(el, ov.hits);
     if (ov.loop) applyLoopRegion(el, ov.loop);
+    if (typeof ov.note === 'string' && el._project) {
+        el._project.note = ov.note;
+        // If the Note tab is currently rendered, push the value into
+        // the textarea + counter directly. The build-time inline
+        // value handles first-paint; this handles re-applies after
+        // load.
+        const ta = el.querySelector('.pn-note-text');
+        if (ta) {
+            ta.value = ov.note;
+            const counter = el.querySelector('.pn-note-counter');
+            if (counter) counter.textContent = `${[...ov.note].length} / 280`;
+        }
+    }
 }

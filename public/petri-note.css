@@ -1118,6 +1118,39 @@ input[type="range"][data-default] {
     flex-wrap: wrap;
 }
 
+.pn-note-panel {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 14px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+}
+.pn-note-field { display: flex; flex-direction: column; gap: 6px; }
+.pn-note-text {
+    width: 100%;
+    background: #050a14;
+    border: 1px solid #1a2a3a;
+    border-radius: 4px;
+    color: #ddd;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+    resize: vertical;
+    min-height: 56px;
+    box-sizing: border-box;
+}
+.pn-note-text:focus { outline: none; border-color: #4a90d9; }
+.pn-note-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: #888;
+    font-family: ui-monospace, monospace;
+}
+.pn-note-counter { font-variant-numeric: tabular-nums; }
+.pn-note-hint { color: #666; }
+
 .pn-arrange-apply {
     background: transparent;
     border: 1px solid #0f3460;

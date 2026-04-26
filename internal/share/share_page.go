@@ -52,8 +52,10 @@ type sharePayload struct {
 	Humanize  int    `json:"humanize"`
 	RootNote  *int   `json:"rootNote,omitempty"`
 	ScaleName string `json:"scaleName,omitempty"`
-	Bars      int    `json:"bars,omitempty"`
-	Structure string `json:"structure,omitempty"`
+	Bars      int      `json:"bars,omitempty"`
+	Structure string   `json:"structure,omitempty"`
+	Note      string   `json:"note,omitempty"`
+	Parents   []string `json:"parents,omitempty"`
 }
 
 // keyLabel renders the musical key for the card. Mirrors the JS

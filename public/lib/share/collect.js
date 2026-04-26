@@ -8,6 +8,8 @@
 
 const SHARE_CONTEXT = 'https://beats.bitwrap.io/schema/beats-share.context.jsonld';
 
+import { sanitizeNote } from '../note/note.js';
+
 export function collectFxState(el) {
     const fx = {};
     el.querySelectorAll('.pn-effects-panel .pn-fx-slider').forEach(s => {
@@ -209,6 +211,22 @@ export function buildSharePayload(el) {
     if (Object.keys(ui).length) payload.ui = ui;
     const loop = collectLoopRegion(el);
     if (loop) payload.loop = loop;
+    // Plain-text note attached to the track. Sanitised through the
+    // same filter the Go server uses (lib/note/note.js mirrors
+    // internal/share/note.go) — empty after sanitisation = omit so
+    // the CID stays stable for tracks with whitespace-only input.
+    const noteRaw = el._project?.note ?? '';
+    if (noteRaw) {
+        const note = sanitizeNote(noteRaw);
+        if (note) payload.note = note;
+    }
+    // Provenance: when this share derives from another (the user
+    // opened a CID, edited, re-shared), carry forward the source
+    // CID(s) so the new envelope references its parents. Newest
+    // first; cap at 8 so the chain doesn't grow unbounded.
+    if (Array.isArray(el._shareParents) && el._shareParents.length) {
+        payload.parents = el._shareParents.slice(0, 8);
+    }
     // Hand-authored escape hatch: when there's no (genre, seed) recipe to
     // reconstruct from, dump the raw nets so the share URL round-trips
     // the literal petri net authoring. Inflates the URL (≈10-100 kB

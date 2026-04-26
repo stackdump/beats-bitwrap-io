@@ -442,6 +442,17 @@ func validateSharePayload(body []byte) error {
 	if err := compiledShareSchema.Validate(v); err != nil {
 		return errors.New(schemaErrorString(err))
 	}
+	// `note` must already be sanitised — if SanitizeNote(note) != note
+	// the client either skipped its mirror sanitiser or hand-authored
+	// the payload past the filter. Reject so the canonical bytes
+	// addressed by the CID always reflect the post-filter form.
+	if m, ok := v.(map[string]any); ok {
+		if raw, ok := m["note"].(string); ok {
+			if SanitizeNote(raw) != raw {
+				return errors.New("note: must be pre-sanitised (no tags / urls / control chars / leading-trailing space; see SanitizeNote rules)")
+			}
+		}
+	}
 	return nil
 }
 

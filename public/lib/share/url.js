@@ -86,6 +86,7 @@ export function shareFromPayload(payload, cid) {
     if (typeof payload.tempo === 'number') overrides.tempo = payload.tempo;
     if (typeof payload.swing === 'number') overrides.swing = payload.swing;
     if (typeof payload.humanize === 'number') overrides.humanize = payload.humanize;
+    if (typeof payload.note === 'string') overrides.note = payload.note;
     return {
         genre: payload.genre,
         name: payload.name || null,
@@ -111,6 +112,10 @@ export function shareFromPayload(payload, cid) {
         // CID is threaded through so hand-authored payloads without
         // an explicit `name` can derive a deterministic one from it.
         cid: cid || null,
+        // Provenance chain — list of CIDs this payload was derived
+        // from. Carried forward by the Share collector when the user
+        // re-shares so the parent CID isn't lost.
+        parents: Array.isArray(payload.parents) ? payload.parents : null,
     };
 }
 

@@ -14,6 +14,7 @@ import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
+import { sanitizeNote } from '../note/note.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -373,6 +374,7 @@ export function buildUI(el) {
             <button class="pn-oneshots-btn ${el._showOneShots ? 'active' : ''}" title="Beat fire pads" ${hasStingers ? '' : 'style="display:none"'}>Beats</button>
             <button class="pn-autodj-btn ${el._showAutoDj ? 'active' : ''}" title="Auto-DJ: fires random macros on a cadence">Auto-DJ</button>
             <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
+            <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
             <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
             <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
             <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
@@ -544,6 +546,16 @@ export function buildUI(el) {
             </label>
             <button class="pn-arrange-apply" title="Apply the selected arrangement as an overlay on the current track">Arrange ⟳</button>
             <span class="pn-arrange-status">idle</span>
+        </div>
+        <div class="pn-note-panel" style="display:${el._showNote ? 'flex' : 'none'}">
+            <label class="pn-note-field" title="Plain-text note attached to this track. No HTML, no URLs. Travels in the share envelope and influences the CID.">
+                <textarea class="pn-note-text" maxlength="280" rows="3"
+                          placeholder="A short note about this track — plain text only.">${el._project?.note ? String(el._project.note).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''}</textarea>
+                <div class="pn-note-meta">
+                    <span class="pn-note-counter">0 / 280</span>
+                    <span class="pn-note-hint">Tags, links and URLs are stripped on save.</span>
+                </div>
+            </label>
         </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
@@ -762,6 +774,53 @@ export function buildUI(el) {
     arrangePanel.querySelector('.pn-arrange-apply')?.addEventListener('click', () => {
         applyArrangeFromPanel(el, arrangePanel);
     });
+
+    // Note tab: textarea bound to el._project.note. Sanitises on every
+    // input event so a paste of "<a href=...>x</a>" or
+    // "https://evil.example" becomes plain text immediately. The Go
+    // sanitiser (internal/share/note.go::SanitizeNote) is the
+    // authority and rejects mismatched envelopes at seal time — this
+    // is just for live UX.
+    const noteBtn   = fx.querySelector('.pn-note-btn');
+    const notePanel = fx.querySelector('.pn-note-panel');
+    const noteText  = notePanel.querySelector('.pn-note-text');
+    const noteCount = notePanel.querySelector('.pn-note-counter');
+    const updateNoteCount = () => {
+        const n = [...noteText.value].length; // rune-ish count via spread
+        noteCount.textContent = `${n} / 280`;
+        noteCount.style.color = n > 260 ? '#f5a623' : '#888';
+    };
+    noteBtn.addEventListener('click', () => {
+        el._showNote = !el._showNote;
+        notePanel.style.display = el._showNote ? 'flex' : 'none';
+        noteBtn.classList.toggle('active', el._showNote);
+        if (el._showNote) {
+            updateNoteCount();
+            noteText.focus();
+        }
+    });
+    noteText.addEventListener('input', () => {
+        const cleaned = sanitizeNote(noteText.value);
+        if (cleaned !== noteText.value) {
+            // Stash + restore caret so a strip in the middle doesn't
+            // jump it to the end.
+            const pos = Math.min(noteText.selectionStart, cleaned.length);
+            noteText.value = cleaned;
+            noteText.setSelectionRange(pos, pos);
+        }
+        if (el._project) el._project.note = noteText.value;
+        updateNoteCount();
+    });
+    // On paste, sanitise the pasted slice up front rather than wait
+    // for the input event — keeps the visible state cleaner.
+    noteText.addEventListener('paste', (e) => {
+        const data = (e.clipboardData || window.clipboardData)?.getData('text');
+        if (data == null) return;
+        e.preventDefault();
+        const cleaned = sanitizeNote(data);
+        document.execCommand('insertText', false, cleaned);
+    });
+    updateNoteCount();
 
     // Feel icon (inside the traits row) opens a modal with the 4 sliders.
     // Slider positions are persisted so even without opening the modal

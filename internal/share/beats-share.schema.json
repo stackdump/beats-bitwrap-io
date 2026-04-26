@@ -24,6 +24,17 @@
     "scaleName":{ "type": ["string", "null"], "maxLength": 32 },
     "bars":     { "type": ["integer", "null"], "minimum": 0, "maximum": 4096 },
     "structure":{ "type": ["string", "null"], "maxLength": 32 },
+    "note":     {
+      "type": ["string", "null"],
+      "maxLength": 280,
+      "description": "Optional plain-text annotation set by the author. Heavily filtered server-side (see SanitizeNote in internal/share/note.go) — no HTML tags, no URLs, no control chars, no zero-width / RTL-override Unicode. Influences the CID."
+    },
+    "parents":  {
+      "type": ["array", "null"],
+      "maxItems": 8,
+      "description": "Provenance chain — CIDs of shares this one was derived from (typically the prior CID when the user opened a share, edited it, and re-shared). Newest-first ordering; cap at 8 keeps envelopes small.",
+      "items": { "type": "string", "pattern": "^z[1-9A-HJ-NP-Za-km-z]{1,128}$" }
+    },
     "arrangeSeed": { "type": ["integer", "null"], "minimum": 0, "maximum": 2147483647 },
     "velocityDeltas": {
       "type": ["object", "null"],
