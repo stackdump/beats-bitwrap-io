@@ -336,6 +336,16 @@
     font-size: 12px;
     padding: 32px 8px;
   }
+  .pl-empty-mobile { padding: 48px 16px; color: #ccc; }
+  .pl-empty-title { font-size: 18px; font-weight: 700; color: #eee; margin-bottom: 6px; }
+  .pl-empty-sub   { font-size: 14px; color: #888; margin-bottom: 20px; line-height: 1.4; }
+  .pl-empty-cta {
+    display: inline-block;
+    background: #1a3a2a; color: #aea; border: 1px solid #2a5a3a;
+    border-radius: 6px; padding: 12px 22px; font-size: 15px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .pl-empty-cta:hover, .pl-empty-cta:active { background: #245a3a; color: #cfc; }
   /* Narrow viewports: phone-class. The 360px sidebar column would
      leave ~15px for the grid, so flip it into a full-screen overlay
      when toggled open. The grid always has the full width; the
@@ -803,7 +813,17 @@ const trackTitle = (t) => {
 
 const clearNow = () => {
   nowTitle.textContent = playlist.length ? 'No track selected' : 'No track loaded';
-  nowSub.textContent = playlist.length ? 'Click a row to play' : 'Add tracks from the grid →';
+  if (playlist.length) {
+    nowSub.textContent = 'Click a row to play';
+  } else {
+    // On mobile the playlist is a full-screen overlay and the grid
+    // is hidden behind it — "from the grid →" is meaningless. Tell
+    // them to close the overlay first.
+    const isPhone = window.matchMedia('(max-width: 720px)').matches;
+    nowSub.textContent = isPhone
+      ? 'Tap × to return to the grid, then tap a card'
+      : 'Add tracks from the grid →';
+  }
   playBtn.textContent = '▶';
 };
 
@@ -1001,13 +1021,24 @@ const renderPlaylist = () => {
   plCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
   plExport.disabled = playlist.length === 0;
   if (playlist.length === 0) {
-    // Mobile copy nudges the user to close the overlay first —
-    // "the grid" reads weird when the grid is hidden behind the
-    // sidebar they're staring at.
+    // Mobile copy turns the empty-state into a one-tap CTA that
+    // closes the overlay so the grid (hidden behind it) becomes
+    // visible. Desktop keeps the static hint.
     const isPhone = window.matchMedia('(max-width: 720px)').matches;
-    plList.innerHTML = isPhone
-      ? `<div class="pl-empty">Empty queue. Tap <b>×</b> (top right) to return to the grid, then tap a card to add it.</div>`
-      : `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
+    if (isPhone) {
+      plList.innerHTML = `
+        <div class="pl-empty pl-empty-mobile">
+          <div class="pl-empty-title">Your queue is empty</div>
+          <div class="pl-empty-sub">Browse the gallery and tap a card to add it.</div>
+          <button type="button" class="pl-empty-cta" id="pl-empty-cta">← Browse the gallery</button>
+        </div>`;
+      plList.querySelector('#pl-empty-cta').addEventListener('click', () => {
+        // Same path the × button takes — flips data-pl back to "closed".
+        document.getElementById('pl-close')?.click();
+      });
+    } else {
+      plList.innerHTML = `<div class="pl-empty">Add tracks from the grid with the <b>+</b> button.</div>`;
+    }
     return;
   }
   plList.innerHTML = '';

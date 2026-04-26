@@ -271,6 +271,36 @@ func (r *Renderer) IngestClientRender(cid string, body []byte) (path string, wro
 	return dst, true, nil
 }
 
+// OverwriteClientRender writes body unconditionally, replacing any
+// existing cached render. Intended for authenticated worker uploads
+// (the rebuild-queue path) where the operator explicitly wants to
+// replace a broken file. Caller must verify auth before calling.
+func (r *Renderer) OverwriteClientRender(cid string, body []byte) (path string, err error) {
+	if !ValidCID(cid) {
+		return "", fmt.Errorf("audiorender: invalid cid %q", cid)
+	}
+	dst := r.CachePath(cid)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", fmt.Errorf("audiorender: mkdir bucket: %w", err)
+	}
+	// Sweep any prior render at a stale path (the bucket is YYYY/MM
+	// from write time; a stub written in a different month would not
+	// be at dst). findExisting walks the cache, so trust it.
+	if old := r.findExisting(cid); old != "" && old != dst {
+		_ = os.Remove(old)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", fmt.Errorf("audiorender: write tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("audiorender: rename: %w", err)
+	}
+	r.evictIfOverCap()
+	return dst, nil
+}
+
 // Render returns the path to the rendered audio file for cid. On a cache
 // hit it's instant; on a miss it spawns headless Chromium, records the
 // track, and writes the file before returning. Concurrent calls for the

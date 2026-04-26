@@ -29,6 +29,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -56,7 +57,8 @@ def fetch_queue(remote: str) -> list[str]:
         return []
 
 
-def process_one(cid: str, local: str, remote: str, min_bytes: int) -> bool:
+def process_one(cid: str, local: str, remote: str, min_bytes: int,
+                rebuild_secret: str = "") -> bool:
     print(f"--- {cid}")
     code, envelope = http("GET", f"{remote}/o/{cid}", timeout=30)
     if code != 200 or not envelope:
@@ -78,8 +80,11 @@ def process_one(cid: str, local: str, remote: str, min_bytes: int) -> bool:
               file=sys.stderr)
         return False
     print(f"  render: {render_s:.1f}s, {len(webm):,} bytes")
+    headers = {"Content-Type": "audio/webm"}
+    if rebuild_secret:
+        headers["X-Rebuild-Secret"] = rebuild_secret
     code, body = http("PUT", f"{remote}/audio/{cid}.webm", webm,
-                      {"Content-Type": "audio/webm"}, timeout=120)
+                      headers, timeout=120)
     if code not in (200, 201):
         print(f"  ! remote PUT HTTP {code}: {body[:200].decode('utf-8','replace')}",
               file=sys.stderr)
@@ -108,7 +113,16 @@ def main():
                     help="Poll the queue forever instead of one-shot")
     ap.add_argument("--interval", type=float, default=30.0,
                     help="Seconds between polls in --watch mode (default 30)")
+    ap.add_argument("--secret",
+                    help="X-Rebuild-Secret header value (overrides BEATS_REBUILD_SECRET env). "
+                         "Reads from data/.rebuild-secret on the server.")
     args = ap.parse_args()
+
+    rebuild_secret = (args.secret or os.environ.get("BEATS_REBUILD_SECRET", "")).strip()
+    if rebuild_secret:
+        print(f"auth: X-Rebuild-Secret set ({len(rebuild_secret)} chars) — overwrites enabled")
+    else:
+        print("auth: no secret — uploads will fall under first-write-wins (won't replace stuck audio)")
 
     while True:
         queue = fetch_queue(args.remote)
@@ -117,7 +131,7 @@ def main():
         else:
             print(f"queue: {len(queue)} CIDs")
             for cid in queue:
-                process_one(cid, args.local, args.remote, args.min_bytes)
+                process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
         if not args.watch:
             return
         time.sleep(args.interval)

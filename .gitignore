@@ -4,3 +4,6 @@ beats-bitwrap-io
 !public/docs/*.png
 .playwright-mcp/
 data/
+.claude/
+__pycache__/
+*.pyc

@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -127,6 +130,13 @@ func main() {
 	}
 	log.Printf("Share store: %s (cap %d bytes, %d PUT/min/IP, %d PUT/min global)",
 		*dataDir, *maxStoreBytes, *putPerMin, *globalPutPerMin)
+
+	rebuildSecret, err := loadOrCreateRebuildSecret(filepath.Join(*dataDir, ".rebuild-secret"))
+	if err != nil {
+		log.Fatalf("rebuild-secret init: %v", err)
+	}
+	log.Printf("Rebuild secret: %s (X-Rebuild-Secret bypasses first-write-wins on PUT /audio)",
+		filepath.Join(*dataDir, ".rebuild-secret"))
 
 	share.GoogleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
 	if share.GoogleAnalyticsID != "" {
@@ -265,7 +275,7 @@ func main() {
 		// index. Walk the cache and project them in. Bounded at 30s
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
-		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete))
+		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
 			cid, _ := idx.Latest()
@@ -708,7 +718,7 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
-func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string)) http.Handler {
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string) http.Handler {
 	// httpErrorNoStore writes an error response with explicit no-store
 	// caching so browsers and intermediaries don't poison themselves
 	// with a transient 404/500 from this route. Without it, a probe
@@ -748,29 +758,34 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		// model is "treat as a hint" — clients are unauthenticated and
 		// uploads share the share-store rate-limit budget.
 		if r.Method == http.MethodPut {
-			if ok, reason := shareStore.RateLimitPUT(r); !ok {
-				w.Header().Set("Retry-After", "60")
-				httpErrorNoStore(w, reason, http.StatusTooManyRequests)
-				return
-			}
-			// Faster-than-realtime check: an honest in-tab render runs for
-			// the full track wall-clock. If the upload arrives sooner than
-			// the envelope's minimum render duration after seal, the user
-			// fabricated the .webm offline rather than recording playback.
-			// Reject with 403 and a Retry-After hinting how long they need
-			// to actually wait. The share-store mtime is the seal moment;
-			// duplicate seals short-circuit before touching disk.
-			if sealedAt, err := shareStore.SealedAt(cid); err == nil {
-				if envelope, err := shareStore.Lookup(cid); err == nil {
-					minMs := share.EstimateMinRenderMs(envelope)
-					elapsedMs := time.Since(sealedAt).Milliseconds()
-					if elapsedMs < minMs {
-						remain := minMs - elapsedMs
-						w.Header().Set("Retry-After", fmt.Sprintf("%d", (remain+999)/1000))
-						httpErrorNoStore(w,
-							fmt.Sprintf("upload arrived faster than realtime: %dms elapsed since seal, need at least %dms", elapsedMs, minMs),
-							http.StatusForbidden)
-						return
+			// Authenticated worker uploads (X-Rebuild-Secret header
+			// matches data/.rebuild-secret) bypass the rate limit, the
+			// faster-than-realtime check, AND first-write-wins so the
+			// rebuild-queue worker can replace stuck/broken audio.
+			authed := rebuildSecret != "" &&
+				constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret)
+			if !authed {
+				if ok, reason := shareStore.RateLimitPUT(r); !ok {
+					w.Header().Set("Retry-After", "60")
+					httpErrorNoStore(w, reason, http.StatusTooManyRequests)
+					return
+				}
+				// Faster-than-realtime check — see CLAUDE.md and
+				// share/duration.go for the "honest in-tab render"
+				// model. Worker uploads skip this because they're
+				// trusted by secret.
+				if sealedAt, err := shareStore.SealedAt(cid); err == nil {
+					if envelope, err := shareStore.Lookup(cid); err == nil {
+						minMs := share.EstimateMinRenderMs(envelope)
+						elapsedMs := time.Since(sealedAt).Milliseconds()
+						if elapsedMs < minMs {
+							remain := minMs - elapsedMs
+							w.Header().Set("Retry-After", fmt.Sprintf("%d", (remain+999)/1000))
+							httpErrorNoStore(w,
+								fmt.Sprintf("upload arrived faster than realtime: %dms elapsed since seal, need at least %dms", elapsedMs, minMs),
+								http.StatusForbidden)
+							return
+						}
 					}
 				}
 			}
@@ -785,11 +800,23 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 				httpErrorNoStore(w, "empty audio body", http.StatusBadRequest)
 				return
 			}
-			_, wrote, err := ar.IngestClientRender(cid, body)
-			if err != nil {
-				log.Printf("audio ingest %s: %v", cid, err)
-				httpErrorNoStore(w, "ingest failed", http.StatusInternalServerError)
-				return
+			var wrote bool
+			if authed {
+				if _, err := ar.OverwriteClientRender(cid, body); err != nil {
+					log.Printf("audio overwrite %s: %v", cid, err)
+					httpErrorNoStore(w, "overwrite failed", http.StatusInternalServerError)
+					return
+				}
+				wrote = true
+				log.Printf("audio: authenticated overwrite %s (%d bytes)", cid, len(body))
+			} else {
+				_, w2, err := ar.IngestClientRender(cid, body)
+				if err != nil {
+					log.Printf("audio ingest %s: %v", cid, err)
+					httpErrorNoStore(w, "ingest failed", http.StatusInternalServerError)
+					return
+				}
+				wrote = w2
 			}
 			// Mirror the server-render path so the feed / RSS pick up
 			// client uploads. onIngest is the same closure as the
@@ -1129,6 +1156,43 @@ func rebuildClearHandler(idx *index.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}
+}
+
+// loadOrCreateRebuildSecret reads the rebuild secret from path or
+// generates a fresh 32-byte hex string and writes it (mode 0600) on
+// first run. The secret authenticates worker uploads to PUT /audio
+// — see audioHandler. Operators can read the file and pass it to
+// scripts/process-rebuild-queue.py via BEATS_REBUILD_SECRET=$(cat ...).
+func loadOrCreateRebuildSecret(path string) (string, error) {
+	if b, err := os.ReadFile(path); err == nil {
+		s := strings.TrimSpace(string(b))
+		if len(s) >= 32 {
+			return s, nil
+		}
+		// Existing file too short — regenerate rather than half-trust.
+		log.Printf("rebuild-secret at %s too short (%d bytes); regenerating", path, len(s))
+	}
+	buf := make([]byte, 32)
+	if _, err := cryptorand.Read(buf); err != nil {
+		return "", fmt.Errorf("rand read: %w", err)
+	}
+	secret := hex.EncodeToString(buf)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("mkdir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("write secret: %w", err)
+	}
+	return secret, nil
+}
+
+// constantTimeEq compares two strings in constant time; safe for
+// secret comparison without the timing-attack risk of regular ==.
+func constantTimeEq(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // clientIP returns the best-effort source IP from common forwarding
