@@ -695,7 +695,10 @@ export function showMidiMonitorModal(el) {
             <div class="pn-midi-monitor-last">Waiting for MIDI…</div>
             <div class="pn-midi-monitor-meta">
                 <span class="pn-midi-monitor-status">Hint: enable MIDI in the top-right toolbar first.</span>
-                <button class="pn-midi-monitor-clear" type="button">Clear</button>
+                <span style="display:flex;gap:6px">
+                    <button class="pn-midi-monitor-copy" type="button" title="Copy the full log to the clipboard">Copy</button>
+                    <button class="pn-midi-monitor-clear" type="button">Clear</button>
+                </span>
             </div>
             <pre class="pn-midi-monitor-log" aria-live="polite"></pre>
         </div>
@@ -748,6 +751,29 @@ export function showMidiMonitorModal(el) {
     overlay.querySelector('.pn-midi-monitor-clear').addEventListener('click', () => {
         logEl.textContent = '';
         lastEl.textContent = 'Waiting for MIDI…';
+    });
+    const copyBtn = overlay.querySelector('.pn-midi-monitor-copy');
+    copyBtn.addEventListener('click', async () => {
+        const text = logEl.textContent;
+        if (!text) return;
+        const original = copyBtn.textContent;
+        try {
+            await navigator.clipboard.writeText(text);
+            copyBtn.textContent = 'Copied';
+        } catch {
+            // Clipboard API can fail under non-https / sandboxed
+            // contexts — fall back to a hidden textarea + execCommand.
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); copyBtn.textContent = 'Copied'; }
+            catch { copyBtn.textContent = 'Copy failed'; }
+            ta.remove();
+        }
+        setTimeout(() => { copyBtn.textContent = original; }, 1200);
     });
     const close = () => {
         delete el._midiMonitorTap;

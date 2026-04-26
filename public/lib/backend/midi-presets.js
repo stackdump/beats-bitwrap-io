@@ -20,25 +20,25 @@ export const PRESETS = [
         // the user's MPK Editor app — these are the factory defaults.
         match: /mpk\s*mini/i,
         label: 'Akai MPK Mini',
-        notes: 'Factory pad bank A on channel 10; knobs K1–K8 on CC70–77. ' +
-               'Pads mute / unmute riff groups (drums / bass / melody / ' +
-               'harmony / arp / pad / lead / stinger). Knobs map to the ' +
-               'master FX. If you remapped via Akai\'s MPK Editor your CC ' +
-               'numbers may differ — bind manually instead.',
-        // Pad bank A — 8 pads, MIDI notes 36..43 (default).
-        // Each pad toggles mute on a riff group. Tap once to mute,
-        // tap again to unmute. Maps to the standard composer-emitted
-        // groups; tracks tagged with these riff groups in hand-authored
-        // shares pick up the mapping automatically.
+        notes: 'Pad bank B (notes 44–51) on channel 1 — the layout most ' +
+               'units ship with via Akai\'s MPK Editor. Knobs K1–K8 on ' +
+               'CC70–77. Pads mute / unmute riff groups (drums / bass / ' +
+               'melody / harmony / arp / pad / lead / stinger). If your ' +
+               'pads send different numbers, open Monitor to verify.',
+        // Pad bank B — 8 pads, notes 44..51 on channel 1. This is what
+        // user-tested units actually send (verified 2026-04-26 against
+        // an MPK Mini Mk3); the factory "bank A starts at 36 channel
+        // 10" claim from older Akai docs doesn't reflect the firmware.
+        // Each pad toggles mute on a riff group.
         pads: {
-            36: { type: 'mute', target: 'drums'   },
-            37: { type: 'mute', target: 'bass'    },
-            38: { type: 'mute', target: 'melody'  },
-            39: { type: 'mute', target: 'harmony' },
-            40: { type: 'mute', target: 'arp'     },
-            41: { type: 'mute', target: 'pad'     },
-            42: { type: 'mute', target: 'lead'    },
-            43: { type: 'mute', target: 'stinger' },
+            44: { type: 'mute', target: 'drums'   },
+            45: { type: 'mute', target: 'bass'    },
+            46: { type: 'mute', target: 'melody'  },
+            47: { type: 'mute', target: 'harmony' },
+            48: { type: 'mute', target: 'arp'     },
+            49: { type: 'mute', target: 'pad'     },
+            50: { type: 'mute', target: 'lead'    },
+            51: { type: 'mute', target: 'stinger' },
         },
         // K1..K8 → master mixer + the heavy-hitter FX wets. CC70 starts
         // here because that's the MPK's factory default for K1; if the

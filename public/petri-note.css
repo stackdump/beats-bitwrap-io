@@ -1234,6 +1234,17 @@ input[type="range"][data-default] {
     font-size: 10px;
 }
 .pn-midi-monitor-clear:hover { border-color: #4a90d9; color: #cdf; }
+.pn-midi-monitor-copy {
+    background: transparent;
+    border: 1px solid #2a3550;
+    color: #67e8f9;
+    padding: 2px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+}
+.pn-midi-monitor-copy:hover { border-color: #67e8f9; color: #adf; }
 .pn-midi-monitor-log {
     background: #050a14;
     border: 1px solid #1a2a3a;
