@@ -1106,6 +1106,25 @@ input[type="range"][data-default] {
     color: #e94560;
 }
 
+.pn-note-btn {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+}
+.pn-note-btn:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+.pn-note-btn.active {
+    background: #0f3460;
+    color: #e94560;
+}
+
 .pn-arrange-panel {
     display: flex;
     align-items: center;
