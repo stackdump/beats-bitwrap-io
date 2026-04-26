@@ -100,7 +100,23 @@ export function handleMidiMessage(el, event) {
     const type = status & 0xF0;
     if (type === 0xB0) return handleMidiCC(el, data1, data2);
     if (type === 0x90 && data2 > 0) return handleMidiNoteOn(el, data1);
+    // Pitch Bend (0xE0) drives the live Xpose pill when MIDI input
+    // is on — the joystick's pitch axis becomes a continuous
+    // semitone slider. Standard pitch range: ±8192 → ±12 semitones
+    // (1 octave each way). The +0 dead-zone at the rest position
+    // (joystick released) re-centres Xpose to 0 so a brief push
+    // doesn't leave the loop transposed indefinitely.
+    if (type === 0xE0) return handleMidiPitchBend(el, ((data2 << 7) | data1) - 8192);
     // Ignore Note Off (0x80) and velocity-0 Note On.
+}
+
+export function handleMidiPitchBend(el, value) {
+    if (typeof el._setLiveTranspose !== 'function') return;
+    // Map full-range pitch bend (-8192..+8191) to ±12 semitones.
+    // Round to nearest semitone for crisp snap; sub-semitone
+    // micro-bends would need to feed setMasterPitch instead.
+    const semis = Math.max(-12, Math.min(12, Math.round(value / 8192 * 12)));
+    el._setLiveTranspose(semis);
 }
 
 export function handleMidiCC(el, cc, value) {
@@ -339,18 +355,49 @@ export function toggleMuteGroup(el, riffGroup) {
     el._sendWs({ type: 'mute-group', riffGroup, muted });
 }
 
-// Explicit mute setter — used by the CC-mode pad path where the
-// controller sends absolute on/off values (not a toggle). value > 0
-// means "pad lit" → unmute; value 0 means "pad off" → mute.
-export function setMuteGroup(el, riffGroup, muted) {
-    const netIds = [];
+// Explicit mute setter that handles BOTH riff groups and section
+// groups. Used by the CC-mode pad path (where the controller sends
+// absolute on/off values, not toggle intent) and by section-divider
+// bindings (which target track.group, not riffGroup).
+//
+// Resolution order:
+//   1. Match nets by riffGroup === target (covers per-row mute
+//      button hover-bind on tracks like "kick" / "bass").
+//   2. If empty, match by sectionGroupForNet (track.group fallback)
+//      so a section like "drums" resolves to its constituent
+//      kick/snare/hihat/clap nets even though no net has
+//      riffGroup === "drums".
+// Sends one `mute` message per resolved net so the worker doesn't
+// have to know about sections.
+export function setMuteGroup(el, target, muted) {
+    if (!el._project?.nets) return;
+    const direct = [];
     for (const [id, net] of Object.entries(el._project.nets)) {
-        if (net.riffGroup === riffGroup) netIds.push(id);
+        if (net.riffGroup === target) direct.push(id);
+    }
+    let netIds = direct;
+    if (netIds.length === 0) {
+        // Section fallback — resolve via track.group.
+        for (const [id, net] of Object.entries(el._project.nets)) {
+            const section = net?.track?.group;
+            if (section === target) netIds.push(id);
+        }
     }
     if (netIds.length === 0) return;
-    const allCurrent = netIds.every(nid => el._mutedNets.has(nid)) === muted;
-    if (allCurrent) return; // already in desired state — skip churn
-    el._sendWs({ type: 'mute-group', riffGroup, muted });
+    // Use mute-group when we found a riff-group match (lets the
+    // server pick the active riff slot when unmuting); fall back to
+    // per-net for section-targeted bindings.
+    if (direct.length > 0) {
+        const allCurrent = direct.every(nid => el._mutedNets.has(nid)) === muted;
+        if (allCurrent) return;
+        el._sendWs({ type: 'mute-group', riffGroup: target, muted });
+        return;
+    }
+    for (const nid of netIds) {
+        const isMuted = el._mutedNets.has(nid);
+        if (isMuted === muted) continue;
+        el._sendWs({ type: 'mute', netId: nid, muted });
+    }
 }
 
 export function debouncedRenderMixer(el) {
