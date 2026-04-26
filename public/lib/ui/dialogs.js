@@ -7,6 +7,7 @@ import { noteToName, nameToNote } from '../audio/note-name.js';
 import { renderCurrentCard } from '../share/card.js';
 import { openAiPromptModal } from './ai-prompt.js';
 import { listHistory, clearHistory } from '../share/history.js';
+import { renderToBlob, downloadBlob, isClientRenderSupported } from '../share/client-render.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -366,27 +367,94 @@ export function showWelcomeCard(el, force = false) {
         .replace(/[^a-zA-Z0-9]/g, '');
     if (cid) {
         const audioUrl = `${location.origin}/audio/${cid}.webm`;
+        const fname = (urlTitle || `beats-${cid.slice(0, 12)}`)
+            .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
+        const slot = overlay.querySelector('.pn-welcome-modal > div:last-child');
         fetch(audioUrl, { method: 'HEAD' }).then(r => {
-            if (!r.ok) return;
-            const block = document.createElement('div');
-            block.className = 'pn-welcome-audio';
-            block.style.cssText = 'margin-top:14px;padding-top:14px;border-top:1px solid #1f1f1f';
-            const fname = (urlTitle || `beats-${cid.slice(0, 12)}`)
-                .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
-            block.innerHTML = `
-                <div style="font-size:11px;color:#777;margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase">Pre-rendered audio</div>
-                <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
-                <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
-            `;
-            // Stop the Tone.js engine if the user starts the
-            // pre-rendered audio — same track played twice over each
-            // other otherwise.
-            block.querySelector('audio').addEventListener('play', () => {
-                if (el._playing) el._togglePlay();
-            });
-            overlay.querySelector('.pn-welcome-modal > div:last-child')?.appendChild(block);
-        }).catch(() => {});
+            if (r.ok) {
+                // Server has a cached render — surface play + download.
+                const block = document.createElement('div');
+                block.className = 'pn-welcome-audio';
+                block.style.cssText = 'margin-top:14px;padding-top:14px;border-top:1px solid #1f1f1f';
+                block.innerHTML = `
+                    <div style="font-size:11px;color:#777;margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase">Pre-rendered audio</div>
+                    <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
+                    <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
+                `;
+                // Stop the Tone.js engine if the user starts the
+                // pre-rendered audio — same track played twice over
+                // each other otherwise.
+                block.querySelector('audio').addEventListener('play', () => {
+                    if (el._playing) el._togglePlay();
+                });
+                slot?.appendChild(block);
+            } else if (isClientRenderSupported()) {
+                // No server-side render available (queue saturated, just
+                // sealed, or this build has -audio-render off). Offer to
+                // render locally — same MediaRecorder pipeline the
+                // headless renderer uses, just running in the user's
+                // tab. Wall-clock = track duration, requires the tab to
+                // stay foreground.
+                attachClientRenderBlock(slot, el, fname);
+            }
+        }).catch(() => {
+            if (isClientRenderSupported()) attachClientRenderBlock(slot, el, fname);
+        });
     }
+}
+
+// Builds the "Render in this tab" block surfaced by the welcome modal
+// when the server doesn't have a pre-rendered .webm cached. Click →
+// disable button + show progress → run the in-tab render → trigger a
+// download. Wall-clock cost = track duration; the tab must stay in
+// the foreground (Chromium throttles backgrounded timers, same issue
+// we hit on the server before adding the audio-grid scheduler).
+function attachClientRenderBlock(slot, el, fname) {
+    if (!slot) return;
+    const block = document.createElement('div');
+    block.className = 'pn-welcome-audio pn-client-render';
+    block.style.cssText = 'margin-top:14px;padding-top:14px;border-top:1px solid #1f1f1f';
+    block.innerHTML = `
+        <div style="font-size:11px;color:#777;margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase">Render audio</div>
+        <button class="pn-client-render-btn" style="background:#222;border:1px solid #333;color:#9ad;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:13px">⬇ Render &amp; download in this tab</button>
+        <div style="font-size:11px;color:#666;margin-top:6px">Records the playback in real time. Keep this tab visible until it finishes.</div>
+        <div class="pn-client-render-status" style="font-size:12px;color:#9ad;margin-top:8px;display:none"></div>
+    `;
+    const btn    = block.querySelector('.pn-client-render-btn');
+    const status = block.querySelector('.pn-client-render-status');
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'default';
+        status.style.display = 'block';
+        status.textContent = 'preparing…';
+        try {
+            const { blob } = await renderToBlob(el, {
+                onProgress(ms, totalMs) {
+                    const pct = Math.floor(100 * ms / totalMs);
+                    status.textContent = `rendering ${fmtSec(ms)} / ${fmtSec(totalMs)} (${pct}%)`;
+                },
+            });
+            status.textContent = `done — ${(blob.size / 1024).toFixed(0)} KB`;
+            downloadBlob(blob, fname);
+            btn.textContent = '⬇ Download again';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.onclick = () => downloadBlob(blob, fname);
+        } catch (err) {
+            status.textContent = `failed: ${err.message || err}`;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    });
+    slot.appendChild(block);
+}
+
+function fmtSec(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 export function showHelpModal(el) {
