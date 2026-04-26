@@ -121,11 +121,28 @@ export function handleMidiPitchBend(el, value) {
 
 // Drives the BPM input from a 0-127 CC value mapped to the practical
 // performance range 60-200 BPM. Used by the joystick Y-axis default
-// binding when CC1 isn't otherwise claimed. Mirrors the slider-bind
-// dispatch (input + change events) so the tempo input picks it up.
+// binding when CC1 isn't otherwise claimed. Spring-return semantics
+// match pitch bend → Xpose: push to drive BPM, release (value 0)
+// snaps back to whatever BPM was set before the user grabbed the
+// joystick. So the rest position never silently locks BPM to 60.
 function setBpmFromCC(el, value) {
     const input = el.querySelector('.pn-tempo input[type="number"]');
     if (!input) return;
+    if (value === 0) {
+        // Joystick released — restore the pre-grab tempo if we had
+        // saved one. No-op when nothing to restore (e.g. user never
+        // pushed the joystick this session).
+        if (el._bpmBeforeJoystick != null) {
+            input.value = el._bpmBeforeJoystick;
+            el._bpmBeforeJoystick = null;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+    }
+    if (el._bpmBeforeJoystick == null) {
+        el._bpmBeforeJoystick = parseInt(input.value, 10) || el._tempo || 120;
+    }
     const min = 60, max = 200;
     input.value = Math.round(min + (value / 127) * (max - min));
     input.dispatchEvent(new Event('input', { bubbles: true }));
