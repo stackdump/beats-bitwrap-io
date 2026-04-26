@@ -12,6 +12,7 @@ import {
 } from './codec.js';
 import { buildSharePayload } from './collect.js';
 import { recordShared, recordRendered } from './history.js';
+import { renderToBlob, downloadBlob, isClientRenderSupported } from './client-render.js';
 
 // --- URL parsing ---
 
@@ -365,10 +366,14 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
     const showMissing = () => {
         stop();
         audioBlock.dataset.state = 'missing';
+        const localBtn = isClientRenderSupported()
+            ? `<button class="pn-share-local-btn" title="Render in this tab (no server queue, but tab must stay foreground)" style="padding:6px 12px;background:#0a0a0a;border:1px solid #333;color:#9ad;border-radius:4px;cursor:pointer;font-size:12px">In this tab</button>`
+            : '';
         audioBlock.innerHTML = `
-            <div style="display:flex;align-items:center;gap:10px">
-                <span style="flex:1;color:#aaa">Audio not rendered yet. <span style="color:#666;font-size:11px">(~${fmtSec(expectedMs)} render)</span></span>
-                <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Render now</button>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span class="pn-share-audio-msg" style="flex:1;min-width:180px;color:#aaa">Audio not rendered yet. <span style="color:#666;font-size:11px">(~${fmtSec(expectedMs)} render)</span></span>
+                <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Server queue</button>
+                ${localBtn}
             </div>
         `;
         audioBlock.querySelector('.pn-share-render-btn').addEventListener('click', async (e) => {
@@ -385,11 +390,12 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                 if (r.status === 503) {
                     // Queue saturated (>30 min projected wait). Distinct
                     // from a transient failure — give the user honest
-                    // feedback instead of a generic retry prompt.
+                    // feedback instead of a generic retry prompt. Local
+                    // render is still available; the button stays.
                     btn.disabled = false;
-                    btn.textContent = 'Render now';
-                    audioBlock.querySelector('span').textContent =
-                        'Render queue is full right now. Try again in a few minutes.';
+                    btn.textContent = 'Server queue';
+                    audioBlock.querySelector('.pn-share-audio-msg').textContent =
+                        'Server queue is full — try "In this tab" instead.';
                     return;
                 }
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -401,11 +407,84 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                 startPolling();
             } catch (err) {
                 btn.disabled = false;
-                btn.textContent = 'Render now';
-                audioBlock.querySelector('span').textContent = `Queue failed: ${err.message}. Try again?`;
+                btn.textContent = 'Server queue';
+                audioBlock.querySelector('.pn-share-audio-msg').textContent = `Queue failed: ${err.message}. Try again?`;
             }
         });
+        const localBtnEl = audioBlock.querySelector('.pn-share-local-btn');
+        if (localBtnEl) {
+            localBtnEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                stop(); // we own the block now; stop server polling
+                runLocalRender();
+            });
+        }
     };
+
+    // Run an in-tab render of the currently-loaded project and trigger
+    // a download. Same MediaRecorder pipeline the server uses
+    // (lib/share/client-render.js). Identifies the file by the SAME
+    // CID the share modal computed for the in-memory project, so what
+    // the user downloads matches what they'd get from the server (modulo
+    // any humanize/drift non-determinism between renders).
+    function runLocalRender() {
+        const fname = (titleInput?.value?.trim() || `beats-${cid.slice(0, 12)}`)
+            .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
+        audioBlock.dataset.state = 'local-rendering';
+        audioBlock.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="font-size:11px;color:#888;letter-spacing:0.06em;text-transform:uppercase">Rendering in this tab</span>
+                <span class="pn-share-local-eta" style="flex:1;color:#aaa;font-size:12px;font-variant-numeric:tabular-nums">starting…</span>
+            </div>
+            <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
+                <div class="pn-share-local-bar" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#0f3460,#9ad);transition:width 0.3s linear"></div>
+            </div>
+            <div style="font-size:11px;color:#666;margin-top:6px">Keep this tab visible until it finishes — backgrounded tabs throttle.</div>
+        `;
+        const bar = audioBlock.querySelector('.pn-share-local-bar');
+        const eta = audioBlock.querySelector('.pn-share-local-eta');
+        renderToBlob(el, {
+            onProgress(ms, totalMs) {
+                const pct = Math.min(99, 100 * ms / totalMs);
+                bar.style.width = `${pct.toFixed(1)}%`;
+                const remaining = Math.max(0, totalMs - ms);
+                eta.textContent = remaining > 0
+                    ? `~${fmtSec(remaining)} remaining`
+                    : 'finishing up…';
+            },
+        }).then(({ blob }) => {
+            bar.style.width = '100%';
+            audioBlock.dataset.state = 'local-ready';
+            audioBlock.innerHTML = `
+                <div style="font-size:11px;color:#777;margin-bottom:6px;letter-spacing:0.06em;text-transform:uppercase">Local render${sizeKbStr(blob.size)}</div>
+                <audio controls preload="none" style="width:100%;height:32px"></audio>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                    <a class="pn-share-local-dl" href="#" style="font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
+                    <span style="color:#555;font-size:11px">·</span>
+                    <span style="font-size:11px;color:#666">Rendered in your browser</span>
+                </div>
+            `;
+            const url = URL.createObjectURL(blob);
+            audioBlock.querySelector('audio').src = url;
+            audioBlock.querySelector('audio').addEventListener('play', () => {
+                if (el._playing) el._togglePlay();
+            });
+            const dl = audioBlock.querySelector('.pn-share-local-dl');
+            dl.addEventListener('click', (e) => {
+                e.preventDefault();
+                downloadBlob(blob, fname);
+            });
+            // Trigger the first download immediately — the user clicked
+            // "render", they want the file.
+            downloadBlob(blob, fname);
+        }).catch((err) => {
+            audioBlock.dataset.state = 'local-error';
+            audioBlock.innerHTML = `
+                <div style="color:#e94560;font-size:13px">Local render failed: ${(err && err.message) || err}</div>
+                <div style="font-size:11px;color:#666;margin-top:4px">Try the server queue instead.</div>
+            `;
+        });
+    }
 
     const showQueued = (st) => {
         audioBlock.dataset.state = 'queued';
