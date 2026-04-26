@@ -67,6 +67,37 @@ Documented in CLAUDE.md under "Arrange-on-load and the polyphony ceiling".
 - **`silence` directive** — inject a full mute across all music nets
   for N bars at a named section (complementary to drumBreak).
 
+## Audio upload auth + competitive rendering market
+
+The `/audio/{cid}.webm` PUT endpoint is currently first-write-wins
+with only the share-store rate limit gating it: anyone can claim a
+CID's audio slot before a real renderer gets there, and once claimed
+the bytes are sticky (we just hit this with the 110-byte stub race
+during the 2026-04-26 feed seed — recovery required SSH-deleting the
+broken files server-side before a fresh PUT was accepted).
+
+Near-term: gate PUT /audio with a signed-token / shared-secret header
+so only authorised renderers (the local worker, a future rebuild-queue
+worker pool) can write, plus an admin override to overwrite bad bytes
+without SSH.
+
+Long-term ambition: turn this into a **competitive submission +
+reward delegation** market. A CID is a content-addressed contract for
+"give me audio of this track"; multiple renderers can submit candidate
+.webms (with bond / signature), listeners vote on which they prefer
+(the existing EIP-191 vote infra is a starting point), and the winning
+renderer earns delegation rewards. Different renderers can offer
+*augmented* variants — mastered for headphones, lo-fi tape sim,
+binaural spatial mix, stem separation — addressed under the same CID
+via a variant qualifier (e.g. `/audio/{cid}.webm?v=mastered`). The CID
+stays canonical; the audio surface becomes a marketplace.
+
+Pre-work before this is worth designing in detail:
+- per-renderer identity (DID / wallet address)
+- variant addressing scheme + canonical-URL discovery
+- dispute / replacement protocol (slashing for fraud or silence)
+- listener vote → reward distribution path
+
 ## Stinger-group custom IDs in the Beats tab
 
 `build.js` filters Fire pads by the MACROS-catalog IDs (`hit1..hit4`).
