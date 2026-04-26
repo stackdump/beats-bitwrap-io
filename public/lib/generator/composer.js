@@ -317,7 +317,15 @@ export const GenreInstrumentSets = {
 // Yoneda (the dark-planet reading), Noether, Lawvere, Brouwer.
 // Nouns lean into the categorical vocabulary we use in the Stage
 // help modal — functors, colimits, sheaves, operads.
-export function generateTrackName(genre, rng) {
+export function generateTrackName(genre, seedOrRng) {
+    // Accepts either a numeric seed (preferred — gives Go parity via a
+    // dedicated mulberry32 sub-RNG keyed only on the seed) or an
+    // already-built rng object (legacy callers passing the composer's
+    // shared rng). Internal Go side uses the seed-only path; we keep
+    // the rng path for any caller that hasn't migrated yet.
+    const rng = (typeof seedOrRng === 'number')
+        ? createRng(seedOrRng | 0)
+        : seedOrRng;
     const adjectives = [
         'Neon', 'Velvet', 'Crystal', 'Midnight', 'Golden',
         'Electric', 'Cosmic', 'Faded', 'Phantom', 'Solar',
@@ -567,7 +575,7 @@ export function compose(genreName, overrides = {}) {
     if (typeof overrides['ghost-notes'] === 'number') gn = overrides['ghost-notes'];
 
     const proj = {
-        name: generateTrackName(genre.name, rng),
+        name: generateTrackName(genre.name, seed),
         tempo: bpm,
         swing: genre.swing,
         humanize: genre.humanize,

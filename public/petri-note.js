@@ -129,7 +129,7 @@ function deriveShareName(share) {
         seed = share.params.seed >>> 0;
     }
     if (seed === 0) seed = 1; // mulberry32 degenerates at 0
-    return generateTrackName(genre, createRng(seed));
+    return generateTrackName(genre, seed);
 }
 
 class PetriNote extends HTMLElement {

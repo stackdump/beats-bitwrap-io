@@ -470,7 +470,7 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 	}
 
 	proj := &pflow.Project{
-		Name:     generateTrackName(genre.Name, rng),
+		Name:     generateTrackName(genre.Name, seed),
 		Tempo:    bpm,
 		Swing:    genre.Swing,
 		Humanize: genre.Humanize,
@@ -1113,38 +1113,71 @@ func groupForRole(netId, riffGroup string) string {
 }
 
 // NameForSeed returns the canonical track name for a (genre, seed)
-// pair — same one Compose() would emit. Cheap to call (one rand.Rand,
-// two intN draws). Used by the feed handler to backfill display names
-// for indexed rows that were stored before the name column was wired
-// up, so the UI doesn't fall back to showing the raw seed integer.
+// pair — byte-identical to what the JS-side generateTrackName emits in
+// public/lib/generator/composer.js. Both sides use a dedicated
+// mulberry32 sub-RNG keyed only on the seed so the name is independent
+// of any other composer draws and stays stable across refactors.
 func NameForSeed(genre string, seed int64) string {
 	g, ok := Genres[genre]
 	if !ok {
 		g = Genres["techno"]
 	}
-	rng := rand.New(rand.NewSource(seed))
-	return generateTrackName(g.Name, rng)
+	return generateTrackName(g.Name, seed)
 }
 
-// generateTrackName creates a random creative name like "ambient · Neon Drift"
-func generateTrackName(genre string, rng *rand.Rand) string {
-	adjectives := []string{
-		"Neon", "Velvet", "Crystal", "Midnight", "Golden",
-		"Electric", "Cosmic", "Faded", "Phantom", "Solar",
-		"Liquid", "Frozen", "Burning", "Silent", "Digital",
-		"Hollow", "Iron", "Violet", "Crimson", "Silver",
-		"Amber", "Azure", "Jade", "Obsidian", "Ivory",
-		"Rusted", "Wired", "Broken", "Floating", "Endless",
-	}
-	nouns := []string{
-		"Drift", "Pulse", "Echo", "Haze", "Bloom",
-		"Wave", "Storm", "Glow", "Shade", "Vibe",
-		"Circuit", "Signal", "Mirage", "Orbit", "Tide",
-		"Vapor", "Ember", "Fracture", "Horizon", "Spine",
-		"Flicker", "Reverb", "Cipher", "Arc", "Lattice",
-		"Prism", "Rust", "Grain", "Thread", "Void",
-	}
-	adj := adjectives[rng.Intn(len(adjectives))]
-	noun := nouns[rng.Intn(len(nouns))]
+// nameAdjectives / nameNouns must stay in lockstep with the lists in
+// public/lib/generator/composer.js::generateTrackName. Order matters —
+// indices are picked from a deterministic mulberry32 stream and a
+// reorder would silently change every track name.
+var nameAdjectives = []string{
+	"Neon", "Velvet", "Crystal", "Midnight", "Golden",
+	"Electric", "Cosmic", "Faded", "Phantom", "Solar",
+	"Liquid", "Frozen", "Burning", "Silent", "Digital",
+	"Hollow", "Iron", "Violet", "Crimson", "Silver",
+	"Amber", "Azure", "Jade", "Obsidian", "Ivory",
+	"Rusted", "Wired", "Broken", "Floating", "Endless",
+	"Petri", "Yoneda", "Meseguer", "Montanari", "Murata",
+	"Baez", "Fong", "Spivak", "Best", "Baccelli",
+	"Noether", "Lawvere", "Brouwer",
+}
+
+var nameNouns = []string{
+	"Drift", "Pulse", "Echo", "Haze", "Bloom",
+	"Wave", "Storm", "Glow", "Shade", "Vibe",
+	"Circuit", "Signal", "Mirage", "Orbit", "Tide",
+	"Vapor", "Ember", "Fracture", "Horizon", "Spine",
+	"Flicker", "Reverb", "Cipher", "Arc", "Lattice",
+	"Prism", "Rust", "Grain", "Thread", "Void",
+	"Functor", "Morphism", "Colimit", "Sheaf", "Topos",
+	"Monad", "Adjoint", "Fibration", "Operad", "Stalk",
+	"Cone", "Simplex", "Quiver",
+}
+
+// mulberry32Intn matches the JS rng pattern in public/lib/generator/core.js:
+//
+//	s |= 0; s = s + 0x6D2B79F5 | 0
+//	t = Math.imul(s ^ s>>>15, 1 | s)
+//	t = t + Math.imul(t ^ t>>>7, 61 | t) ^ t
+//	next() = ((t ^ t>>>14) >>> 0) / 2^32
+//	intn(n) = floor(next() * n)
+//
+// uint32 wrap-around arithmetic is bit-equivalent to Math.imul +
+// `|0` int32 truncation, so this returns the same index sequence JS
+// produces from the same seed.
+func mulberry32Intn(s *uint32, n int) int {
+	*s = *s + 0x6D2B79F5
+	t := (*s ^ (*s >> 15)) * (1 | *s)
+	t = (t + (t^(t>>7))*(61|t)) ^ t
+	v := t ^ (t >> 14)
+	return int(float64(v) / 4294967296.0 * float64(n))
+}
+
+// generateTrackName creates a random creative name like "ambient · Neon Drift".
+// Uses mulberry32 keyed only on `seed` so Go and JS produce identical names.
+func generateTrackName(genre string, seed int64) string {
+	// Match JS `s = seed | 0` — int32 truncation, then reinterpret as uint32.
+	s := uint32(int32(seed))
+	adj := nameAdjectives[mulberry32Intn(&s, len(nameAdjectives))]
+	noun := nameNouns[mulberry32Intn(&s, len(nameNouns))]
 	return fmt.Sprintf("%s · %s %s", genre, adj, noun)
 }

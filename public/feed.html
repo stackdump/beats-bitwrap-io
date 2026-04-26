@@ -515,6 +515,7 @@
 <script type="module">
 import { recordBookmarked, unrecordBookmarked, isBookmarked }
   from '/lib/share/history.js';
+import { generateTrackName } from '/lib/generator/composer.js';
 
 const GENRES = [
   'ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage',
@@ -781,7 +782,13 @@ playlistAside.addEventListener('drop', (e) => {
   importPlaylistJsonld(e.dataTransfer.files[0]);
 });
 
-const trackTitle = (t) => t.name || `${t.genre || 'track'} · ${t.seed}`;
+const trackTitle = (t) => {
+  if (t.name) return t.name;
+  if (t.genre && Number.isFinite(+t.seed)) {
+    try { return generateTrackName(t.genre, +t.seed); } catch {}
+  }
+  return `${t.genre || 'track'} · ${t.seed}`;
+};
 
 const clearNow = () => {
   nowTitle.textContent = playlist.length ? 'No track selected' : 'No track loaded';
