@@ -1186,6 +1186,22 @@ input[type="range"][data-default] {
 }
 .pn-midi-reset-all:hover { background: #3a1818; color: #fcc; border-color: #aa3838; }
 
+.pn-midi-preset-row { background: rgba(0, 255, 102, 0.04); padding: 6px 8px; margin: -2px -8px; border-radius: 3px; }
+.pn-midi-preset-status { flex: 1; color: #8fc; font-size: 11px; line-height: 1.4; }
+.pn-midi-preset-apply {
+    background: linear-gradient(180deg, #00ff66 0%, #00aa44 100%);
+    color: #002211;
+    border: 1px solid #006633;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px #66ffaa;
+}
+.pn-midi-preset-apply:hover { filter: brightness(1.15); }
+
 .pn-arrange-panel {
     display: flex;
     align-items: center;

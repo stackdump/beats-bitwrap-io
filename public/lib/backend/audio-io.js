@@ -20,21 +20,43 @@ export async function connectMidiInputs(el) {
     if (el._midiInputConnected || !navigator.requestMIDIAccess) return;
     try {
         const midi = await navigator.requestMIDIAccess({ sysex: false });
-        for (const input of midi.inputs.values()) {
-            input.onmidimessage = (e) => handleMidiMessage(el, e);
-        }
-        // Listen for new devices plugged in.
-        midi.onstatechange = () => {
+        el._midiAccess = el._midiAccess || midi;
+        const wireInputs = () => {
             for (const input of midi.inputs.values()) {
                 if (!input.onmidimessage) {
                     input.onmidimessage = (e) => handleMidiMessage(el, e);
                 }
             }
+            detectAndStorePreset(el);
+            el._renderMidiPanel?.();
         };
+        wireInputs();
+        midi.onstatechange = wireInputs;
         el._midiInputConnected = true;
     } catch (e) {
         console.warn('MIDI input access denied:', e);
     }
+}
+
+// detectAndStorePreset scans connected MIDI inputs against the
+// preset registry and remembers the first match on
+// el._detectedMidiPreset. Picks up newly-plugged devices on
+// statechange — the user can plug in mid-session and the MIDI panel
+// reflects the new device on next render.
+import { detectPreset as _detectPreset } from './midi-presets.js';
+export { applyPreset as applyMidiPreset } from './midi-presets.js';
+function detectAndStorePreset(el) {
+    if (!el._midiAccess) return;
+    for (const input of el._midiAccess.inputs.values()) {
+        const preset = _detectPreset(input.name);
+        if (preset) {
+            el._detectedMidiPreset = preset;
+            el._detectedMidiInputName = input.name;
+            return;
+        }
+    }
+    el._detectedMidiPreset = null;
+    el._detectedMidiInputName = null;
 }
 
 // --- MIDI bindings ---
