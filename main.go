@@ -1056,9 +1056,10 @@ func feedHandler(idx *index.DB) http.HandlerFunc {
 func featuresHandler(rebuildQueue bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(map[string]bool{
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"rebuildQueue": rebuildQueue,
+			"genreColors":  share.GenreColors(),
 		})
 	}
 }

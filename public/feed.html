@@ -125,8 +125,11 @@
   .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
   .card-genre-chip {
     background: transparent;
-    border: 1px solid #2a2a3a;
-    color: #9ad;
+    /* Per-genre accent — hue from --genre-color (set inline at render
+       time from /api/features.genreColors). Falls back to the muted
+       blue when the color isn't known. */
+    border: 1px solid var(--genre-color, #2a2a3a);
+    color: var(--genre-color, #9ad);
     border-radius: 3px;
     padding: 1px 6px;
     font-size: 11px;
@@ -136,7 +139,7 @@
     transition: background-color 80ms;
   }
   .card-genre-chip:hover, .card-genre-chip:focus-visible {
-    background: #1a2a3a; color: #cdf; border-color: #4a5a7a;
+    background: color-mix(in srgb, var(--genre-color, #4a90d9) 18%, transparent);
     outline: none;
   }
   .card-actions {
@@ -1182,6 +1185,8 @@ const renderCard = (t) => {
     chip.className = 'card-genre-chip';
     chip.textContent = t.genre;
     chip.title = `Filter feed to ${t.genre}`;
+    const gc = colorForGenre(t.genre);
+    if (gc) chip.style.setProperty('--genre-color', gc);
     chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1305,12 +1310,44 @@ const refreshRebuildQueue = async () => {
     }
   } catch {}
 };
+// genreColors lives outside initRebuildFeature so the chip-render path
+// (which can fire before /api/features resolves) safely no-ops with
+// `{}` until the colors are loaded.
+let genreColors = {};
+const colorForGenre = (g) => genreColors[g] || '';
+const applyGenreColorsToFilter = () => {
+  // Color the existing filter <select> options + the active selection
+  // background so the genre dropdown carries the same accent the
+  // cards do.
+  for (const opt of genreSel.options) {
+    const c = colorForGenre(opt.value);
+    if (c) opt.style.color = c;
+  }
+  syncGenreSelectAccent();
+};
+const syncGenreSelectAccent = () => {
+  const c = colorForGenre(genreSel.value);
+  genreSel.style.borderColor = c || '';
+  genreSel.style.color = c || '';
+};
+const recolorExistingChips = () => {
+  for (const chip of grid.querySelectorAll('.card-genre-chip')) {
+    const c = colorForGenre(chip.textContent);
+    if (c) chip.style.setProperty('--genre-color', c);
+  }
+};
+
 const initRebuildFeature = async () => {
   loadRebuildHints();
   try {
     const r = await fetch('/api/features');
     if (!r.ok) return;
     const flags = await r.json();
+    if (flags.genreColors) {
+      genreColors = flags.genreColors;
+      applyGenreColorsToFilter();
+      recolorExistingChips();
+    }
     if (flags.rebuildQueue) {
       document.body.dataset.rebuildQueue = 'on';
       refreshRebuildQueue();
@@ -1320,6 +1357,7 @@ const initRebuildFeature = async () => {
   } catch {}
 };
 initRebuildFeature();
+genreSel.addEventListener('change', syncGenreSelectAccent);
 
 const fetchPage = async () => {
   if (loading || exhausted) return;

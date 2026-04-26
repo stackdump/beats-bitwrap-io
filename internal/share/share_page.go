@@ -122,6 +122,17 @@ var genreColors = map[string]string{
 	"funk":      "#e94560",
 }
 
+// GenreColors returns the public read-only genre→hex colour map.
+// Exposed so the frontend can color-code genre chips identically to
+// the SVG cards without duplicating the palette in JS.
+func GenreColors() map[string]string {
+	out := make(map[string]string, len(genreColors))
+	for k, v := range genreColors {
+		out[k] = v
+	}
+	return out
+}
+
 func colorForGenre(g string) string {
 	if c, ok := genreColors[g]; ok {
 		return c
@@ -862,60 +873,73 @@ func artGrid(prng *rand.Rand) cardArt {
 	return out
 }
 
-// artOrbit: a central node with 3-5 satellite clusters. Used for
-// ambient / lofi — sparse, drifting, anchored by a long pad.
+// artOrbit: a central node with N-fold rotationally-symmetric satellite
+// clusters. Used for ambient / lofi — sparse, anchored by a long pad.
+// Symmetry comes from equal-length spokes at evenly-spaced angles, each
+// ending in a same-sized constellation of K dots; only the seed picks
+// N (3..6) and K (3..5), so two cards from different seeds look
+// distinct without any one card looking off-balance.
 func artOrbit(prng *rand.Rand) cardArt {
 	out := cardArt{}
 	out.Glyphs = append(out.Glyphs, cardGlyph{
 		X: artCx, Y: artCy, R: 22, Filled: true,
 	})
-	clusters := 3 + prng.Intn(3) // 3..5
+	clusters := 3 + prng.Intn(4) // 3..6
+	dist := artR * 0.78          // fixed spoke length
+	clusterR := 28.0             // fixed cluster radius
+	k := 3 + prng.Intn(3)        // 3..5 dots per cluster, same for all
 	for i := 0; i < clusters; i++ {
-		theta := 2*math.Pi*float64(i)/float64(clusters) - math.Pi/2 + prng.Float64()*0.4 - 0.2
-		dist := artR * (0.55 + prng.Float64()*0.4)
+		theta := 2*math.Pi*float64(i)/float64(clusters) - math.Pi/2
 		ccX := artCx + dist*math.Cos(theta)
 		ccY := artCy + dist*math.Sin(theta)
 		out.Polylines = append(out.Polylines, cardPolyline{
 			Pts: []cardPoint{{X: artCx, Y: artCy}, {X: ccX, Y: ccY}},
 		})
-		k := 3 + prng.Intn(3)
-		orbit := 22.0 + prng.Float64()*14
 		for j := 0; j < k; j++ {
-			ang := 2*math.Pi*float64(j)/float64(k) + prng.Float64()*0.3
+			// Cluster angle aligns one dot with the spoke so the
+			// constellation reads as "anchored at the spoke tip"
+			// rather than a free-floating ring.
+			ang := theta + 2*math.Pi*float64(j)/float64(k)
 			out.Glyphs = append(out.Glyphs, cardGlyph{
-				X: ccX + orbit*math.Cos(ang),
-				Y: ccY + orbit*math.Sin(ang),
-				R: 6.5, Filled: prng.Intn(100) < 60,
+				X: ccX + clusterR*math.Cos(ang),
+				Y: ccY + clusterR*math.Sin(ang),
+				R: 7, Filled: true,
 			})
 		}
 	}
 	return out
 }
 
-// artIrregular: a single ring whose dots are pushed in/out from the
-// nominal radius by a seeded jitter. Reads as "organic / not on the
-// grid" — used for swing-driven genres (jazz, blues, bossa, funk,
-// country, reggae).
+// artIrregular: rotationally-symmetric ring with a seeded chord skip.
+// Used for swing-driven genres (jazz, blues, bossa, funk, country,
+// reggae). All vertices sit on the nominal radius (no jitter) so the
+// card reads as patterned; the seed picks the chord skip and the
+// on/off mask. The chord network gives the same Petri-net visual cue
+// the polygon / orbit layouts have without the lumpy contour the
+// previous random-radius version produced.
 func artIrregular(prng *rand.Rand) cardArt {
-	const n = 14
+	const n = 12
 	out := cardArt{}
 	pts := make([]cardPoint, n)
 	for i := 0; i < n; i++ {
 		theta := 2*math.Pi*float64(i)/float64(n) - math.Pi/2
-		jitter := 0.78 + prng.Float64()*0.32 // 0.78..1.10 of artR
-		r := artR * jitter
-		pts[i].X = artCx + r*math.Cos(theta)
-		pts[i].Y = artCy + r*math.Sin(theta)
-		on := prng.Intn(100) < 50
-		gr := 9.0
-		if on {
-			gr = 15.0
-		}
+		pts[i].X = artCx + artR*math.Cos(theta)
+		pts[i].Y = artCy + artR*math.Sin(theta)
+		on := prng.Intn(100) < 60
 		out.Glyphs = append(out.Glyphs, cardGlyph{
-			X: pts[i].X, Y: pts[i].Y, R: gr, Filled: on,
+			X: pts[i].X, Y: pts[i].Y, R: 13, Filled: on,
 		})
 	}
-	out.Polylines = append(out.Polylines, cardPolyline{Pts: pts, Closed: true})
+	// Chord skip varies the visual texture per seed: skip=2 makes
+	// neighbour-pair triangles, skip=3 makes a 4-pointed star,
+	// skip=4 a 3-pointed Mercedes star, skip=5 a near-diameter web.
+	skip := 2 + prng.Intn(4) // 2..5
+	for i := 0; i < n; i++ {
+		j := (i + skip) % n
+		out.Polylines = append(out.Polylines, cardPolyline{
+			Pts: []cardPoint{pts[i], pts[j]},
+		})
+	}
 	return out
 }
 
