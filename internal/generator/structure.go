@@ -4,11 +4,22 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 
 	"beats-bitwrap-io/internal/pflow"
 
 	"github.com/pflow-xyz/go-pflow/petri"
 )
+
+// boundaryStagger spreads simultaneous unmute / activate-slot firings at
+// section / phrase boundaries across a window of ticks. Without this,
+// every role's struct-* control net activates its next slot on the
+// exact same tick — a "blast" re-entry. 12 ticks ≈ 3 beats at PPQ=4:
+// enough slots to fully separate the typical 10–12 roles + stinger
+// targets in an arrangement (drum slots, bass, harmony variants, hits),
+// while keeping every role inside the same bar as the boundary.
+// mute-track firings are NOT staggered (silence has no transient).
+const boundaryStagger = 12
 
 // Section defines a segment of a song structure.
 type Section struct {
@@ -375,6 +386,33 @@ func SongStructure(proj *pflow.Project, template *SongTemplate, musicNets []stri
 		}
 	}
 
+	// Build a deterministic stagger offset per control-net target so unmute /
+	// activate-slot events at the same boundary land on different ticks.
+	var staggerKeys []string
+	seenForStagger := make(map[string]bool)
+	for _, netId := range musicNets {
+		nb, ok := proj.Nets[netId]
+		if !ok {
+			continue
+		}
+		key := netId
+		if nb.RiffGroup != "" {
+			key = nb.RiffGroup
+		} else if slotRoles[netId] {
+			continue
+		}
+		if seenForStagger[key] {
+			continue
+		}
+		seenForStagger[key] = true
+		staggerKeys = append(staggerKeys, key)
+	}
+	sort.Strings(staggerKeys)
+	staggerOf := make(map[string]int, len(staggerKeys))
+	for i, k := range staggerKeys {
+		staggerOf[k] = i % boundaryStagger
+	}
+
 	// Build one control net per role (using SlotMap)
 	processedRoles := make(map[string]bool)
 	for _, netId := range musicNets {
@@ -391,7 +429,7 @@ func SongStructure(proj *pflow.Project, template *SongTemplate, musicNets []stri
 			processedRoles[role] = true
 
 			slotMap := template.SlotMap[role]
-			ctrl := roleControlNet(role, slotMap, template, totalSteps)
+			ctrl := roleControlNet(role, slotMap, template, totalSteps, staggerOf[role])
 			proj.Nets[fmt.Sprintf("struct-%s", role)] = ctrl
 
 			// Determine initial mutes: all slot nets start muted except the first active one
@@ -409,7 +447,7 @@ func SongStructure(proj *pflow.Project, template *SongTemplate, musicNets []stri
 			}
 		} else if !slotRoles[netId] {
 			// Non-variant net — use original section-boundary control
-			ctrl := linearControlNet(netId, template, totalSteps)
+			ctrl := linearControlNet(netId, template, totalSteps, staggerOf[netId])
 			proj.Nets[fmt.Sprintf("struct-%s", netId)] = ctrl
 
 			if !template.Sections[0].Active[netId] {
@@ -453,7 +491,7 @@ func ExtractSlotIndex(netId, riffGroup string) int {
 // roleControlNet creates a single linear control net for a role.
 // It uses activate-slot at phrase boundaries to switch between slot nets,
 // and mute-track when the role becomes inactive in a section.
-func roleControlNet(role string, slotMap [][]int, template *SongTemplate, totalSteps int) *pflow.NetBundle {
+func roleControlNet(role string, slotMap [][]int, template *SongTemplate, totalSteps, stagger int) *pflow.NetBundle {
 	net := petri.NewPetriNet()
 	controlBindings := make(map[string]*pflow.ControlBinding)
 
@@ -485,7 +523,24 @@ func roleControlNet(role string, slotMap [][]int, template *SongTemplate, totalS
 			}
 
 			if curSlot != prevSlot {
-				tLabel := fmt.Sprintf("t%d", phraseStart)
+				// Stagger the activate-slot — but never the mute, and never
+				// past the next phrase or the end of the chain.
+				bindPos := phraseStart
+				if curSlot >= 0 && stagger > 0 {
+					maxOff := totalSteps - 1 - phraseStart
+					if maxOff > phraseLen-1 {
+						maxOff = phraseLen - 1
+					}
+					off := stagger
+					if off > maxOff {
+						off = maxOff
+					}
+					if off < 0 {
+						off = 0
+					}
+					bindPos = phraseStart + off
+				}
+				tLabel := fmt.Sprintf("t%d", bindPos)
 				if curSlot >= 0 {
 					// Activate new slot (mutes all others in riff group, unmutes target)
 					controlBindings[tLabel] = &pflow.ControlBinding{
@@ -544,7 +599,7 @@ func roleControlNet(role string, slotMap [][]int, template *SongTemplate, totalS
 // linearControlNet creates a linear chain of places (not a ring).
 // At section boundaries where the target net's active state changes,
 // it emits mute-track or unmute-track control bindings.
-func linearControlNet(targetNet string, template *SongTemplate, totalSteps int) *pflow.NetBundle {
+func linearControlNet(targetNet string, template *SongTemplate, totalSteps, stagger int) *pflow.NetBundle {
 	net := petri.NewPetriNet()
 	controlBindings := make(map[string]*pflow.ControlBinding)
 
@@ -577,8 +632,24 @@ func linearControlNet(targetNet string, template *SongTemplate, totalSteps int) 
 		pos += template.Sections[si-1].Steps
 		isActive := template.Sections[si].Active[targetNet]
 		if isActive != wasActive {
-			// Boundary at position pos: emit control
-			tLabel := fmt.Sprintf("t%d", pos)
+			// Stagger only the unmute side, and never past the next section.
+			bindPos := pos
+			if isActive && stagger > 0 {
+				nextSec := totalSteps
+				if si+1 < len(template.Sections) {
+					nextSec = pos + template.Sections[si].Steps
+				}
+				maxOff := nextSec - pos - 1
+				off := stagger
+				if off > maxOff {
+					off = maxOff
+				}
+				if off < 0 {
+					off = 0
+				}
+				bindPos = pos + off
+			}
+			tLabel := fmt.Sprintf("t%d", bindPos)
 			if isActive {
 				controlBindings[tLabel] = &pflow.ControlBinding{
 					Action:    "unmute-track",

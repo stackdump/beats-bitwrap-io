@@ -403,7 +403,13 @@ function extractSlotIndex(netId, riffGroup) {
     return n;
 }
 
-function roleControlNet(role, slotMap, tmpl, totalSteps) {
+// boundaryStagger spreads simultaneous unmute / activate-slot firings at
+// section / phrase boundaries across a few ticks so the re-entry doesn't
+// read as a "blast." Mute firings stay on the boundary (silence has no
+// transient). Mirrors the Go constant in internal/generator/structure.go.
+const BOUNDARY_STAGGER = 12;
+
+function roleControlNet(role, slotMap, tmpl, totalSteps, stagger) {
     const ctrlAt = {};
     let prevSlot = (slotMap.length > 0 && slotMap[0].length > 0) ? slotMap[0][0] : -1;
     let pos = 0;
@@ -416,10 +422,19 @@ function roleControlNet(role, slotMap, tmpl, totalSteps) {
             let curSlot = -1;
             if (si < slotMap.length && pi < slotMap[si].length) curSlot = slotMap[si][pi];
             if (curSlot !== prevSlot) {
+                let bindPos = phraseStart;
+                if (curSlot >= 0 && stagger > 0) {
+                    let maxOff = totalSteps - 1 - phraseStart;
+                    if (maxOff > phraseLen - 1) maxOff = phraseLen - 1;
+                    let off = stagger;
+                    if (off > maxOff) off = maxOff;
+                    if (off < 0) off = 0;
+                    bindPos = phraseStart + off;
+                }
                 if (curSlot >= 0) {
-                    ctrlAt[phraseStart] = { action: 'activate-slot', targetNet: `${role}-${curSlot}`, targetNote: 0 };
+                    ctrlAt[bindPos] = { action: 'activate-slot', targetNet: `${role}-${curSlot}`, targetNote: 0 };
                 } else {
-                    ctrlAt[phraseStart] = { action: 'mute-track', targetNet: `${role}-${prevSlot}`, targetNote: 0 };
+                    ctrlAt[bindPos] = { action: 'mute-track', targetNet: `${role}-${prevSlot}`, targetNote: 0 };
                 }
                 prevSlot = curSlot;
             }
@@ -429,7 +444,7 @@ function roleControlNet(role, slotMap, tmpl, totalSteps) {
     return buildControlBundle(totalSteps, { ctrlAt, sink: true });
 }
 
-function linearControlNet(targetNet, tmpl, totalSteps) {
+function linearControlNet(targetNet, tmpl, totalSteps, stagger) {
     const ctrlAt = {};
     let wasActive = tmpl.sections[0].active[targetNet];
     let pos = 0;
@@ -437,7 +452,15 @@ function linearControlNet(targetNet, tmpl, totalSteps) {
         pos += tmpl.sections[si - 1].steps;
         const isActive = tmpl.sections[si].active[targetNet];
         if (isActive !== wasActive) {
-            ctrlAt[pos] = { action: isActive ? 'unmute-track' : 'mute-track', targetNet, targetNote: 0 };
+            let bindPos = pos;
+            if (isActive && stagger > 0) {
+                const maxOff = tmpl.sections[si].steps - 1;
+                let off = stagger;
+                if (off > maxOff) off = maxOff;
+                if (off < 0) off = 0;
+                bindPos = pos + off;
+            }
+            ctrlAt[bindPos] = { action: isActive ? 'unmute-track' : 'mute-track', targetNet, targetNote: 0 };
             wasActive = isActive;
         }
     }
@@ -458,6 +481,23 @@ function songStructure(proj, tmpl, musicNets) {
         const nb = proj.nets[id];
         if (nb?.riffGroup) slotRoles.add(nb.riffGroup);
     }
+    // Deterministic stagger offset per control-net target (parity with Go).
+    const staggerKeys = [];
+    const seenForStagger = new Set();
+    for (const id of musicNets) {
+        const nb = proj.nets[id];
+        if (!nb) continue;
+        let key = id;
+        if (nb.riffGroup) key = nb.riffGroup;
+        else if (slotRoles.has(id)) continue;
+        if (seenForStagger.has(key)) continue;
+        seenForStagger.add(key);
+        staggerKeys.push(key);
+    }
+    staggerKeys.sort();
+    const staggerOf = new Map();
+    staggerKeys.forEach((k, i) => staggerOf.set(k, i % BOUNDARY_STAGGER));
+
     const processed = new Set();
     for (const id of musicNets) {
         const nb = proj.nets[id];
@@ -467,7 +507,7 @@ function songStructure(proj, tmpl, musicNets) {
             if (processed.has(role)) continue;
             processed.add(role);
             const slotMap = tmpl.slotMap[role] || [];
-            proj.nets[`struct-${role}`] = roleControlNet(role, slotMap, tmpl, totalSteps);
+            proj.nets[`struct-${role}`] = roleControlNet(role, slotMap, tmpl, totalSteps, staggerOf.get(role) || 0);
             let firstSlot = -1;
             if (slotMap.length > 0 && slotMap[0].length > 0) firstSlot = slotMap[0][0];
             for (const nId of musicNets) {
@@ -478,7 +518,7 @@ function songStructure(proj, tmpl, musicNets) {
                 }
             }
         } else if (!slotRoles.has(id)) {
-            proj.nets[`struct-${id}`] = linearControlNet(id, tmpl, totalSteps);
+            proj.nets[`struct-${id}`] = linearControlNet(id, tmpl, totalSteps, staggerOf.get(id) || 0);
             if (!tmpl.sections[0].active[id]) initialMutes.push(id);
         }
     }
@@ -571,15 +611,25 @@ export function drumBreak(proj, targets, cycleLen, breakLen, _seed) {
     if (breakLen < 4) breakLen = 8;
     if (breakLen >= cycleLen) breakLen = Math.floor(cycleLen / 4);
     const mutePos = Math.floor(cycleLen / 2);
-    const unmutePos = (mutePos + breakLen) % cycleLen;
-    for (const target of targets) {
-        if (!proj.nets[target]) continue;
+    // Stagger unmutes by sorted target index — without this every non-drum
+    // track unmutes on the same tick and re-entry reads as a "blast". Cap
+    // at the available headroom between the unmute base and the next
+    // cycle's mute (works whether or not the break wraps around).
+    const sorted = [...targets].sort();
+    const unmuteBase = (mutePos + breakLen) % cycleLen;
+    const headroom = ((mutePos - unmuteBase - 1) % cycleLen + cycleLen) % cycleLen;
+    let maxStagger = BOUNDARY_STAGGER;
+    if (maxStagger > headroom) maxStagger = headroom;
+    if (maxStagger < 1) maxStagger = 1;
+    sorted.forEach((target, i) => {
+        if (!proj.nets[target]) return;
+        const unmutePos = (mutePos + breakLen + (i % maxStagger)) % cycleLen;
         const ctrlAt = {
             [mutePos]:   { action: 'mute-track',   targetNet: target, targetNote: 0 },
             [unmutePos]: { action: 'unmute-track', targetNet: target, targetNote: 0 },
         };
         proj.nets[`break-${target}`] = buildControlBundle(cycleLen, { ctrlAt });
-    }
+    });
 }
 
 // --- Overlays (shared between full + overlay-only modes) --------------

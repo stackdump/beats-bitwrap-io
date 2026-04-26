@@ -219,6 +219,16 @@ export function buildUI(el) {
             </div>
         </div>
         <div class="pn-generate">
+            <select class="pn-structure-select" title="Song structure">
+                <option value="">Loop</option>
+                <option value="ab">A/B</option>
+                <option value="drop">Drop</option>
+                <option value="build">Build</option>
+                <option value="jam">Jam</option>
+                <option value="minimal">Minimal</option>
+                <option value="standard">Standard</option>
+                <option value="extended">Extended</option>
+            </select>
             <select class="pn-genre-select">
                 <option value="ambient">Ambient</option>
                 <option value="blues">Blues</option>
@@ -250,16 +260,6 @@ export function buildUI(el) {
             <button class="pn-upload-btn" title="Upload JSON-LD track">&#x2B06;</button>
             <button class="pn-share-btn" title="Share this track"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="11.49"/></svg></button>
             <input type="file" class="pn-upload-input" accept=".jsonld,.json" style="display:none">
-            <select class="pn-structure-select" title="Song structure">
-                <option value="">Loop</option>
-                <option value="ab">A/B</option>
-                <option value="drop">Drop</option>
-                <option value="build">Build</option>
-                <option value="jam">Jam</option>
-                <option value="minimal">Minimal</option>
-                <option value="standard">Standard</option>
-                <option value="extended">Extended</option>
-            </select>
         </div>
         <div class="pn-audio-mode">
             <button class="${el._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>

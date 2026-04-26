@@ -722,7 +722,25 @@ func DrumBreak(proj *pflow.Project, targets []string, cycleLen, breakLen int, se
 		breakLen = cycleLen / 4
 	}
 
-	for _, target := range targets {
+	// Sort targets deterministically so the stagger cascade is stable.
+	sortedTargets := append([]string(nil), targets...)
+	sort.Strings(sortedTargets)
+
+	// Cap stagger window at the available headroom between the unmute
+	// position and the next cycle's mute. Without staggering, every
+	// target would unmute on the same tick — a "blast" re-entry.
+	mutePos := cycleLen / 2
+	unmuteBase := (mutePos + breakLen) % cycleLen
+	headroom := (mutePos - unmuteBase - 1 + cycleLen) % cycleLen
+	maxStagger := boundaryStagger
+	if maxStagger > headroom {
+		maxStagger = headroom
+	}
+	if maxStagger < 1 {
+		maxStagger = 1
+	}
+
+	for i, target := range sortedTargets {
 		if _, ok := proj.Nets[target]; !ok {
 			continue
 		}
@@ -732,9 +750,8 @@ func DrumBreak(proj *pflow.Project, targets []string, cycleLen, breakLen int, se
 
 		cx, cy, radius := ringLayout(cycleLen)
 
-		// Mute position and unmute position
-		mutePos := cycleLen / 2
-		unmutePos := mutePos + breakLen
+		unmutePos := (mutePos + breakLen + (i % maxStagger)) % cycleLen
+
 
 		for i := 0; i < cycleLen; i++ {
 			initial := 0.0
@@ -762,7 +779,7 @@ func DrumBreak(proj *pflow.Project, targets []string, cycleLen, breakLen int, se
 					Action:    "mute-track",
 					TargetNet: target,
 				}
-			} else if i == unmutePos%cycleLen {
+			} else if i == unmutePos {
 				controlBindings[tLabel] = &pflow.ControlBinding{
 					Action:    "unmute-track",
 					TargetNet: target,
