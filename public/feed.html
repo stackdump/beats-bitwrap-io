@@ -123,6 +123,22 @@
     white-space: nowrap;
   }
   .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .card-genre-chip {
+    background: transparent;
+    border: 1px solid #2a2a3a;
+    color: #9ad;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    text-transform: lowercase;
+    transition: background-color 80ms;
+  }
+  .card-genre-chip:hover, .card-genre-chip:focus-visible {
+    background: #1a2a3a; color: #cdf; border-color: #4a5a7a;
+    outline: none;
+  }
   .card-actions {
     position: absolute;
     top: 8px; right: 8px;
@@ -1113,7 +1129,10 @@ const renderCard = (t) => {
   const card = document.createElement('div');
   card.className = 'card';
   const title = trackTitle(t);
-  const sub = [t.genre, t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
+  // Genre is rendered as a separate clickable chip so tapping it
+  // pivots the feed filter to that genre. Tempo + relative time
+  // stay as plain text in the same line.
+  const subRest = [t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
     .filter(Boolean).join(' · ');
   // On a narrow / touch viewport, the card body is a tap-to-play
   // affordance instead of a link to the synth editor (which would
@@ -1152,7 +1171,29 @@ const renderCard = (t) => {
     });
   }
   card.querySelector('.card-title').textContent = title;
-  card.querySelector('.card-sub').textContent = sub;
+  // .card-sub: clickable genre chip + plain text rest. The chip is
+  // a <button> so it gets keyboard focus + correct ARIA without
+  // overriding the parent <a class="card-link"> navigation.
+  const subEl = card.querySelector('.card-sub');
+  subEl.innerHTML = '';
+  if (t.genre) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'card-genre-chip';
+    chip.textContent = t.genre;
+    chip.title = `Filter feed to ${t.genre}`;
+    chip.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (genreSel.value === t.genre) return; // already filtered
+      genreSel.value = t.genre;
+      genreSel.dispatchEvent(new Event('change'));
+    });
+    subEl.appendChild(chip);
+    if (subRest) subEl.appendChild(document.createTextNode(' · ' + subRest));
+  } else {
+    subEl.textContent = subRest;
+  }
   const addBtn = card.querySelector('.card-add');
   addBtn.addEventListener('click', (e) => {
     e.preventDefault();
