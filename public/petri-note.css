@@ -1938,6 +1938,15 @@ input[type="range"][data-default] {
     padding: 24px;
     min-width: 400px;
     max-width: 90vw;
+    /* Cap modal height so content never overflows the viewport — the
+       share modal in particular grew to ~90vh after audio status +
+       client-render UI was added, and the bottom action buttons could
+       fall below the fold on shorter screens with no way to scroll
+       (the overlay flex-centers; child overflow has no scroll surface
+       unless we set one). Internal scroll keeps Close/Copy reachable. */
+    max-height: 90vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 

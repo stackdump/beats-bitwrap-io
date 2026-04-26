@@ -688,9 +688,30 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
         //    for the WS backend, which doesn't emit playbackTicks.
         //  - Plain (no fields): legacy setTimeout-based delay.
         if (typeof playbackTicks === 'number' && typeof tickIntervalMs === 'number') {
+            // Re-anchor when:
+            //   - first fire of a session (anchor is null);
+            //   - playbackTicks regressed (worker reset, new playback);
+            //   - tempo changed (interval changed → grid changed);
+            //   - the anchor is stale and would schedule audio in the
+            //     past. The classic case is the first Play after a fresh
+            //     page load: togglePlay calls resumeContext() async but
+            //     doesn't await it, so the very first transition-fired
+            //     can land while Tone.now() is still 0 (or a tiny
+            //     pre-unlock value). We anchor to that bogus baseline
+            //     and every scheduled note ends up "in the past" — Tone
+            //     silently drops them, no audio. Detect by checking
+            //     whether the computed playAt < Tone.now(), and if so
+            //     reset against fresh Tone.now() so subsequent fires
+            //     stay on the grid relative to the corrected anchor.
+            const candidatePlayAt = el._audioGridStartTone != null
+                ? el._audioGridStartTone
+                  + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
+                : -Infinity;
+            const stale = candidatePlayAt < toneEngine.now();
             if (el._audioGridStartTone == null
                 || playbackTicks < (el._audioGridStartPlaybackTicks ?? 0)
-                || el._audioGridTickIntervalMs !== tickIntervalMs) {
+                || el._audioGridTickIntervalMs !== tickIntervalMs
+                || stale) {
                 el._audioGridStartTone = toneEngine.now() + LOOKAHEAD_MS / 1000;
                 el._audioGridStartPlaybackTicks = playbackTicks;
                 el._audioGridTickIntervalMs = tickIntervalMs;
