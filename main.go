@@ -160,7 +160,12 @@ func main() {
 	mux.Handle("/qr", share.HandleQRCode())
 
 	// --- Server-side audio render (production-safe; not authoring-gated) ---
-	if *audioEnabled {
+	// Always wire the audio storage layer (cache + uploads + feed) — the
+	// only thing -audio-render gates is the server-side render fallback
+	// when a GET arrives for a CID that no client has uploaded yet. With
+	// it OFF, GETs of un-uploaded CIDs return 404; with it ON they trigger
+	// a headless-Chromium render. Uploads work either way.
+	{
 		base := *audioBaseURL
 		if base == "" {
 			base = "http://127.0.0.1" + *addr
@@ -247,14 +252,18 @@ func main() {
 		if err != nil {
 			log.Fatalf("audio renderer: %v", err)
 		}
-		log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s)",
-			filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
-			*audioMaxDuration, *audioRenderTimeout)
+		if *audioEnabled {
+			log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s)",
+				filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
+				*audioMaxDuration, *audioRenderTimeout)
+		} else {
+			log.Printf("Audio render: OFF (uploads + cached serving still active at /audio/{cid}.webm)")
+		}
 		// One-time backfill: any pre-existing renders predate the
 		// index. Walk the cache and project them in. Bounded at 30s
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
-		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler))
+		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
 			cid, _ := idx.Latest()
@@ -277,7 +286,7 @@ func main() {
 			r.URL.Path = "/feed.html"
 			staticHandler.ServeHTTP(w, r)
 		})
-		if *audioAutoEnqueue {
+		if *audioEnabled && *audioAutoEnqueue {
 			// Auto-enqueue from the seal hook can't know the track length —
 			// use the renderer's fallback estimate.
 			shareStore.OnSeal(func(cid string) { ar.Enqueue(cid, 0) })
@@ -681,7 +690,7 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
-func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler) http.Handler {
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string)) http.Handler {
 	// httpErrorNoStore writes an error response with explicit no-store
 	// caching so browsers and intermediaries don't poison themselves
 	// with a transient 404/500 from this route. Without it, a probe
@@ -706,13 +715,78 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			fallback.ServeHTTP(w, r)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
+			r.Method != http.MethodPost && r.Method != http.MethodPut {
 			httpErrorNoStore(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if _, err := shareStore.Lookup(cid); err != nil {
 			httpErrorNoStore(w, "cid not in share store", http.StatusNotFound)
 			return
+		}
+		// PUT accepts a client-rendered .webm and stores it at the canonical
+		// cache path. First-write-wins; subsequent uploads return 200 with
+		// {"wrote":false} and leave the existing render untouched. Trust
+		// model is "treat as a hint" — clients are unauthenticated and
+		// uploads share the share-store rate-limit budget.
+		if r.Method == http.MethodPut {
+			if ok, reason := shareStore.RateLimitPUT(r); !ok {
+				w.Header().Set("Retry-After", "60")
+				httpErrorNoStore(w, reason, http.StatusTooManyRequests)
+				return
+			}
+			const maxAudioPutBytes = 5 * 1024 * 1024 // 5 MiB
+			r.Body = http.MaxBytesReader(w, r.Body, maxAudioPutBytes+1)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				httpErrorNoStore(w, "audio upload too large or unreadable", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if len(body) == 0 {
+				httpErrorNoStore(w, "empty audio body", http.StatusBadRequest)
+				return
+			}
+			_, wrote, err := ar.IngestClientRender(cid, body)
+			if err != nil {
+				log.Printf("audio ingest %s: %v", cid, err)
+				httpErrorNoStore(w, "ingest failed", http.StatusInternalServerError)
+				return
+			}
+			// Mirror the server-render path so the feed / RSS pick up
+			// client uploads. onIngest is the same closure as the
+			// renderer's OnRenderComplete callback — projects the share
+			// envelope into the SQLite index.
+			if wrote && onIngest != nil {
+				onIngest(cid)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			status := http.StatusCreated
+			if !wrote {
+				status = http.StatusOK
+			}
+			w.WriteHeader(status)
+			fmt.Fprintf(w, `{"wrote":%v,"bytes":%d}`, wrote, len(body))
+			return
+		}
+		// With server-side render disabled, GET / POST against an
+		// un-uploaded CID has no fallback path — return 404 instead of
+		// blocking. Cached files still serve normally.
+		if !enableServerRender {
+			if r.Method == http.MethodGet {
+				if path := ar.CachedPath(cid); path != "" {
+					w.Header().Set("Content-Type", "audio/webm")
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					http.ServeFile(w, r, path)
+					return
+				}
+				httpErrorNoStore(w, "audio not yet uploaded — render in your tab and PUT to this URL", http.StatusNotFound)
+				return
+			}
+			if r.Method == http.MethodPost {
+				httpErrorNoStore(w, "server-side render disabled — PUT a client render instead", http.StatusServiceUnavailable)
+				return
+			}
 		}
 		// POST enqueues a background render and returns 202 Accepted.
 		// The share modal uses this when its HEAD probe shows no

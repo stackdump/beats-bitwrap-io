@@ -12,7 +12,7 @@ import {
 } from './codec.js';
 import { buildSharePayload } from './collect.js';
 import { recordShared, recordRendered } from './history.js';
-import { renderToBlob, downloadBlob, isClientRenderSupported } from './client-render.js';
+import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from './client-render.js';
 
 // --- URL parsing ---
 
@@ -501,6 +501,9 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
             // Trigger the first download immediately — the user clicked
             // "render", they want the file.
             downloadBlob(blob, fname);
+            // Background upload to /audio/{cid}.webm so the next listener /
+            // RSS feed picks it up without a server re-render. Fire-and-forget.
+            uploadBlob(cid, blob);
         }).catch((err) => {
             audioBlock.dataset.state = 'local-error';
             audioBlock.innerHTML = `

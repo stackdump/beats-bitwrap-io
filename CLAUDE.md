@@ -291,6 +291,38 @@ ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && git pull && make build && ~/se
 
 Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx. Only restart `beats-bitwrap` — other services on pflow.dev are independent.
 
+### Production data layout
+
+Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
+
+| Path | Purpose |
+|---|---|
+| `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
+| `data/audio/` | Cached audio renders (wav/mp3) served to the feed. Safe to delete — server re-creates them on demand when audio-render is enabled. |
+| `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`. Recreated on startup from `schema.sql` if missing. Safe to delete. |
+
+### Purge the feed without nuking shares
+
+Clears the gallery / RSS feed but keeps every `?cid=…` link working. Existing audio renders are dropped; the server re-renders on the next visit:
+
+```bash
+# 1. Stop the service (NOTE: ~/services stop ignores its argument and stops
+#    everything — record what was running first if you care).
+ssh pflow.dev "~/services list"                 # snapshot before
+ssh pflow.dev "~/services stop"
+
+# 2. Wipe feed index + audio cache (leave data/o/ alone).
+ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -f data/index.db && rm -rf data/audio"
+
+# 3. Bring services back. ~/services start only restarts the SERVICE_ORDER set,
+#    so verify each one came back; restart any stragglers individually.
+ssh pflow.dev "~/services start && ~/services list"
+```
+
+Verify the feed is empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
+
+To **also** purge every shared CID (much more destructive — every `?cid=…` URL anyone has ever made returns 404 forever): `rm -rf data/o`. Don't do this unless that's specifically what you want.
+
 ## Conventions
 
 - **No npm/bundler** — vanilla ES modules, Tone.js from CDN.

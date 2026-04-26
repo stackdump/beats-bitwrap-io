@@ -99,6 +99,33 @@ export async function renderToBlob(el, opts = {}) {
     return { blob, mimeType: recorder.mimeType || mimeType || '', durationMs, totalSteps };
 }
 
+// Background-upload a freshly-rendered .webm to /audio/{cid}.webm so the
+// server's audio cache picks it up (and the next listener / RSS feed gets
+// it instantly instead of waiting for a server-side re-render). Trust
+// model: first-write-wins on the server; this is fire-and-forget. Errors
+// are logged to the console but never surfaced — failure to upload only
+// means the next listener triggers a server render. Skips when the blob
+// is empty or the CID is missing.
+export async function uploadBlob(cid, blob) {
+    if (!cid || !blob || !blob.size) return { uploaded: false, reason: 'no-blob' };
+    try {
+        const r = await fetch(`/audio/${encodeURIComponent(cid)}.webm`, {
+            method: 'PUT',
+            headers: { 'Content-Type': blob.type || 'audio/webm' },
+            body: blob,
+        });
+        if (!r.ok) {
+            console.warn(`[uploadBlob] ${cid}: ${r.status} ${r.statusText}`);
+            return { uploaded: false, status: r.status };
+        }
+        // 201 = wrote; 200 = first-write-wins, server already had one.
+        return { uploaded: r.status === 201, status: r.status };
+    } catch (err) {
+        console.warn('[uploadBlob] network error:', err);
+        return { uploaded: false, error: err };
+    }
+}
+
 // Trigger a browser download of a Blob. Cleans up the object URL on
 // the next tick (revoke happens after the click event has dispatched
 // and the browser has started the download stream).

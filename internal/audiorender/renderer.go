@@ -240,6 +240,37 @@ func (r *Renderer) findExisting(cid string) string {
 	return found
 }
 
+// IngestClientRender stores a pre-rendered .webm blob (typically uploaded
+// by the browser after its OfflineAudioContext finishes) at the canonical
+// CachePath for cid. First-write-wins: returns (path, false, nil) if a
+// render already exists so the original is never silently overwritten;
+// returns (path, true, nil) on a successful new write. The caller is
+// responsible for size + rate limiting before calling. Triggers eviction
+// on the same LRU policy as server-side renders.
+func (r *Renderer) IngestClientRender(cid string, body []byte) (path string, wrote bool, err error) {
+	if !ValidCID(cid) {
+		return "", false, fmt.Errorf("audiorender: invalid cid %q", cid)
+	}
+	if existing := r.findExisting(cid); existing != "" {
+		_ = touchAccessTime(existing)
+		return existing, false, nil
+	}
+	dst := r.CachePath(cid)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", false, fmt.Errorf("audiorender: mkdir bucket: %w", err)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", false, fmt.Errorf("audiorender: write tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", false, fmt.Errorf("audiorender: rename: %w", err)
+	}
+	r.evictIfOverCap()
+	return dst, true, nil
+}
+
 // Render returns the path to the rendered audio file for cid. On a cache
 // hit it's instant; on a miss it spawns headless Chromium, records the
 // track, and writes the file before returning. Concurrent calls for the

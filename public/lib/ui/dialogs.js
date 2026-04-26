@@ -7,7 +7,7 @@ import { noteToName, nameToNote } from '../audio/note-name.js';
 import { renderCurrentCard } from '../share/card.js';
 import { openAiPromptModal } from './ai-prompt.js';
 import { listHistory, clearHistory } from '../share/history.js';
-import { renderToBlob, downloadBlob, isClientRenderSupported } from '../share/client-render.js';
+import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from '../share/client-render.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -395,10 +395,10 @@ export function showWelcomeCard(el, force = false) {
                 // headless renderer uses, just running in the user's
                 // tab. Wall-clock = track duration, requires the tab to
                 // stay foreground.
-                attachClientRenderBlock(slot, el, fname);
+                attachClientRenderBlock(slot, el, fname, cid);
             }
         }).catch(() => {
-            if (isClientRenderSupported()) attachClientRenderBlock(slot, el, fname);
+            if (isClientRenderSupported()) attachClientRenderBlock(slot, el, fname, cid);
         });
     }
 }
@@ -409,7 +409,7 @@ export function showWelcomeCard(el, force = false) {
 // download. Wall-clock cost = track duration; the tab must stay in
 // the foreground (Chromium throttles backgrounded timers, same issue
 // we hit on the server before adding the audio-grid scheduler).
-function attachClientRenderBlock(slot, el, fname) {
+function attachClientRenderBlock(slot, el, fname, cid) { // cid optional — enables background upload when provided
     if (!slot) return;
     const block = document.createElement('div');
     block.className = 'pn-welcome-audio pn-client-render';
@@ -437,6 +437,8 @@ function attachClientRenderBlock(slot, el, fname) {
             });
             status.textContent = `done — ${(blob.size / 1024).toFixed(0)} KB`;
             downloadBlob(blob, fname);
+            // Background upload so the server cache picks up this render.
+            uploadBlob(cid, blob);
             btn.textContent = '⬇ Download again';
             btn.disabled = false;
             btn.style.opacity = '1';

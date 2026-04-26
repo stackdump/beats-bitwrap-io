@@ -224,6 +224,14 @@ func (s *Store) rateLimitOK(ip string) (bool, string) {
 	return true, ""
 }
 
+// RateLimitPUT consumes one PUT slot from the same two-tier budget that
+// gates /o/{cid} writes. Used by adjacent write paths (e.g. /audio/{cid}.webm
+// uploads) so abuse caps are unified across content types. Returns false +
+// reason when the per-IP or global window is exhausted.
+func (s *Store) RateLimitPUT(r *http.Request) (bool, string) {
+	return s.rateLimitOK(s.anonIP(clientIP(r)))
+}
+
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.Index(xff, ","); i > 0 {
