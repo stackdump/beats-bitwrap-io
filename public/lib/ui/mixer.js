@@ -453,10 +453,17 @@ function bindMixerEvents(el) {
     el._mixerEl.addEventListener('mouseover', (e) => {
         const slider = e.target.closest('.pn-mixer-slider');
         if (slider) el._hoveredSlider = slider;
+        // Mute-button hover tracking — handleMidiNoteOn picks this up
+        // so a pad press while hovering a mute button creates a
+        // {type:'mute'} pad binding for that riff group / net id.
+        const mute = e.target.closest('.pn-mixer-mute');
+        if (mute) el._hoveredMute = mute;
     });
     el._mixerEl.addEventListener('mouseout', (e) => {
         const slider = e.target.closest('.pn-mixer-slider');
         if (slider && slider === el._hoveredSlider) el._hoveredSlider = null;
+        const mute = e.target.closest('.pn-mixer-mute');
+        if (mute && mute === el._hoveredMute) el._hoveredMute = null;
     });
 
     // Cursor-anchored value tip — follows the mouse over any slider

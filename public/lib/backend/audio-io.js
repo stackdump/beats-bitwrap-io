@@ -117,7 +117,9 @@ export function handleMidiCC(el, cc, value) {
 }
 
 export function handleMidiNoteOn(el, note) {
-    if (el._hoveredMacro && !el._padBindings.has(note)) {
+    // Hover-bind: hover intent always overwrites the existing binding
+    // for that note (was previously silently no-op on a re-bind).
+    if (el._hoveredMacro) {
         const macroId = el._hoveredMacro.dataset.macro;
         el._padBindings.set(note, macroId);
         el._savePadBindings();
@@ -126,6 +128,20 @@ export function handleMidiNoteOn(el, note) {
         setTimeout(() => { btn.style.outline = ''; }, 300);
         el._renderMidiPanel?.();
         return;
+    }
+    // Mixer mute-button hover + pad press = bind pad to a mute toggle
+    // for that track / riff group. Same hover-overwrite semantics.
+    if (el._hoveredMute) {
+        const target = el._hoveredMute.dataset.riffGroup || el._hoveredMute.dataset.netId;
+        if (target) {
+            el._padBindings.set(note, { type: 'mute', target });
+            el._savePadBindings();
+            const btn = el._hoveredMute;
+            btn.style.outline = '2px solid #64ffda';
+            setTimeout(() => { btn.style.outline = ''; }, 300);
+            el._renderMidiPanel?.();
+            return;
+        }
     }
     const binding = el._padBindings.get(note);
     if (binding) {
