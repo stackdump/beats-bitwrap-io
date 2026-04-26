@@ -397,47 +397,47 @@ export function toggleMuteGroup(el, riffGroup) {
     el._sendWs({ type: 'mute-group', riffGroup, muted });
 }
 
-// Explicit mute setter that handles BOTH riff groups and section
-// groups. Used by the CC-mode pad path (where the controller sends
-// absolute on/off values, not toggle intent) and by section-divider
-// bindings (which target track.group, not riffGroup).
+// Explicit mute setter. Handles three target shapes so the same
+// binding works regardless of where in the UI the user hovered:
 //
-// Resolution order:
-//   1. Match nets by riffGroup === target (covers per-row mute
-//      button hover-bind on tracks like "kick" / "bass").
-//   2. If empty, match by sectionGroupForNet (track.group fallback)
-//      so a section like "drums" resolves to its constituent
-//      kick/snare/hihat/clap nets even though no net has
-//      riffGroup === "drums".
-// Sends one `mute` message per resolved net so the worker doesn't
-// have to know about sections.
+//   1. target matches a net's riffGroup
+//      (per-row mute button hover where the row has an explicit
+//      riff group like "kick-A" / "bass-B"). Sends `mute-group`
+//      so the worker can pick the active variant on unmute.
+//   2. target matches a track.group (section)
+//      (section-divider hover-bind, e.g. "drums" → all the
+//      kick/snare/hihat nets). Sends one `mute` per net.
+//   3. target matches a net id directly
+//      (per-row mute button hover where the project has no
+//      riffGroup set at all — composer output uses netIds like
+//      "kick" / "snare" without a riffGroup). Sends one `mute`.
+//
+// Always sends — the worker is idempotent, and the previous
+// in-process "already in state, skip" check could miss when
+// _mutedNets hadn't received its first mute-state broadcast yet.
 export function setMuteGroup(el, target, muted) {
     if (!el._project?.nets) return;
-    const direct = [];
-    for (const [id, net] of Object.entries(el._project.nets)) {
-        if (net.riffGroup === target) direct.push(id);
+    const nets = el._project.nets;
+    const directGroup = [];
+    for (const [id, net] of Object.entries(nets)) {
+        if (net.riffGroup === target) directGroup.push(id);
     }
-    let netIds = direct;
-    if (netIds.length === 0) {
-        // Section fallback — resolve via track.group.
-        for (const [id, net] of Object.entries(el._project.nets)) {
-            const section = net?.track?.group;
-            if (section === target) netIds.push(id);
-        }
-    }
-    if (netIds.length === 0) return;
-    // Use mute-group when we found a riff-group match (lets the
-    // server pick the active riff slot when unmuting); fall back to
-    // per-net for section-targeted bindings. Always send — the
-    // worker is idempotent and the previous in-process "already in
-    // state, skip" check could miss when _mutedNets hadn't received
-    // its first mute-state broadcast yet.
-    if (direct.length > 0) {
+    if (directGroup.length > 0) {
         el._sendWs({ type: 'mute-group', riffGroup: target, muted });
         return;
     }
-    for (const nid of netIds) {
-        el._sendWs({ type: 'mute', netId: nid, muted });
+    const sectionMatches = [];
+    for (const [id, net] of Object.entries(nets)) {
+        if (net?.track?.group === target) sectionMatches.push(id);
+    }
+    if (sectionMatches.length > 0) {
+        for (const nid of sectionMatches) {
+            el._sendWs({ type: 'mute', netId: nid, muted });
+        }
+        return;
+    }
+    if (nets[target]) {
+        el._sendWs({ type: 'mute', netId: target, muted });
     }
 }
 
