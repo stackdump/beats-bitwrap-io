@@ -163,6 +163,16 @@ export function applyProjectSync(el, project, seamless = false) {
     // entries and the prev/next nav reads "4/4" on first load. Cheap
     // fingerprint over the bits a regen would change (name + nets);
     // skips false positives without needing a deep compare.
+    //
+    // Also: an echo MUST NOT trigger the autoplay branch below. The
+    // autoplay path sends `transport play` to the worker without going
+    // through togglePlay, so ensureToneStarted is never called and the
+    // AudioContext is never user-gesture-unlocked. Notes flow into a
+    // suspended context and get dropped. User report: "first 1/1 has
+    // no audio, but Generate works" — Generate is a real click, the
+    // autoplay echo isn't. Track whether this sync was a content-new
+    // project so the autoplay code can gate on it.
+    let isEcho = false;
     if (!el._navingHistory) {
         const fingerprint = (project.name || '') + '|' + JSON.stringify(project.nets || {});
         const head = el._trackHistory[el._trackHistory.length - 1];
@@ -177,6 +187,8 @@ export function applyProjectSync(el, project, seamless = false) {
                 el._trackHistory.shift();
             }
             el._trackIndex = el._trackHistory.length - 1;
+        } else {
+            isEcho = true;
         }
     }
     el._navingHistory = false;
@@ -241,6 +253,13 @@ export function applyProjectSync(el, project, seamless = false) {
     if (seamless) {
         el._playing = true;
         el._vizStartLoop();
+    } else if (isEcho) {
+        // Worker just echoed our own project-load. Don't autoplay —
+        // the autoplay path bypasses togglePlay, so the AudioContext
+        // never gets user-gesture-unlocked and notes flow into a
+        // suspended context. Leave button state untouched; the user
+        // is the one who decides when to play.
+        return;
     } else {
         el._sendWs({ type: 'project-load', project: el._project });
         el._playing = true;
