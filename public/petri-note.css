@@ -1106,7 +1106,8 @@ input[type="range"][data-default] {
     color: #e94560;
 }
 
-.pn-note-btn {
+.pn-note-btn,
+.pn-midi-btn {
     background: transparent;
     border: 1px solid #0f3460;
     color: #4a90d9;
@@ -1116,14 +1117,61 @@ input[type="range"][data-default] {
     font-size: 11px;
     font-weight: bold;
 }
-.pn-note-btn:hover {
+.pn-note-btn:hover,
+.pn-midi-btn:hover {
     border-color: #e94560;
     color: #e94560;
 }
-.pn-note-btn.active {
+.pn-note-btn.active,
+.pn-midi-btn.active {
     background: #0f3460;
     color: #e94560;
 }
+
+.pn-midi-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+    font-size: 11px;
+    color: #ccc;
+}
+.pn-midi-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 24px;
+}
+.pn-midi-label {
+    flex: 0 0 60px;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #4a90d9;
+}
+.pn-midi-status { color: #999; font-size: 11px; }
+.pn-midi-bindings {
+    flex: 1;
+    color: #aaa;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+.pn-midi-bindings-row button {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+}
+.pn-midi-bindings-row button:hover { border-color: #e94560; color: #e94560; }
 
 .pn-arrange-panel {
     display: flex;

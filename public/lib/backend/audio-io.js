@@ -71,6 +71,7 @@ export function handleMidiCC(el, cc, value) {
             el._ccBindings.set(cc, binding);
             el._hoveredSlider.style.outline = '2px solid #64ffda';
             setTimeout(() => { if (el._hoveredSlider) el._hoveredSlider.style.outline = ''; }, 300);
+            el._renderMidiPanel?.();
         }
     }
 
@@ -94,6 +95,7 @@ export function handleMidiNoteOn(el, note) {
         const btn = el._hoveredMacro;
         btn.style.outline = '2px solid #64ffda';
         setTimeout(() => { btn.style.outline = ''; }, 300);
+        el._renderMidiPanel?.();
         return;
     }
     const macroId = el._padBindings.get(note);

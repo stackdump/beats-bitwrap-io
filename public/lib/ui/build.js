@@ -375,9 +375,9 @@ export function buildUI(el) {
             <button class="pn-autodj-btn ${el._showAutoDj ? 'active' : ''}" title="Auto-DJ: fires random macros on a cadence">Auto-DJ</button>
             <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
             <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
+            <button class="pn-midi-btn ${el._showMidi ? 'active' : ''}" title="MIDI — input bindings, live transpose, pad / CC learn">MIDI</button>
             <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
             <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
-            <button class="pn-cc-reset" title="Clear all MIDI CC bindings">CC Reset</button>
             <button class="pn-macro-panic" title="Cancel all queued/running macros and animations">Panic</button>
             <button class="pn-crop-bar-btn" title="Crop track to loop region" style="display:none">✂ Crop</button>
             <select class="pn-loop-mode-select" title="Loop conflict resolution mode">
@@ -557,6 +557,31 @@ export function buildUI(el) {
                 </div>
             </label>
         </div>
+        <div class="pn-midi-panel" style="display:${el._showMidi ? 'flex' : 'none'}">
+            <div class="pn-midi-row">
+                <span class="pn-midi-label">Status</span>
+                <span class="pn-midi-status">Enable MIDI in the top-right toolbar to start binding.</span>
+            </div>
+            <div class="pn-midi-row" title="Live transpose — applied to all non-drum channels at fire time. The 🎹 toggle arms 'listen' mode: the next MIDI Note On from your keybed snaps the transpose to that key (relative to the project root or C4 fallback). Latched.">
+                <span class="pn-midi-label">Xpose</span>
+                <span class="pn-transpose">
+                    <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
+                    <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
+                    <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                    <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
+                </span>
+            </div>
+            <div class="pn-midi-row pn-midi-bindings-row">
+                <span class="pn-midi-label" title="Hover an FX or mixer slider, then move a MIDI CC knob — binds them. List clears on Reset.">CC</span>
+                <span class="pn-midi-bindings pn-midi-cc-list">none — hover a slider then move a CC knob</span>
+                <button type="button" class="pn-cc-reset" title="Clear all MIDI CC bindings">Reset CC</button>
+            </div>
+            <div class="pn-midi-row pn-midi-bindings-row">
+                <span class="pn-midi-label" title="Hover a macro tile, then press a pad — binds them. List clears on Reset.">Pads</span>
+                <span class="pn-midi-bindings pn-midi-pad-list">none — hover a macro then press a pad</span>
+                <button type="button" class="pn-pad-reset" title="Clear all MIDI pad bindings">Reset Pads</button>
+            </div>
+        </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
@@ -658,15 +683,6 @@ export function buildUI(el) {
                     <span>Semi</span>
                     <input type="range" class="pn-fx-slider" data-fx="master-pitch" data-default="0" min="-12" max="12" step="1" value="0">
                 </div>
-                <div class="pn-fx-control" title="Live transpose — applied to all non-drum channels at fire time (MIDI level, distinct from the master-pitch audio shifter above).">
-                    <span>Xpose</span>
-                    <span class="pn-transpose">
-                        <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
-                        <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
-                        <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
-                        <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
-                    </span>
-                </div>
             </div>
             <div class="pn-fx-group">
                 <span class="pn-fx-label">Filter</span>
@@ -708,9 +724,9 @@ export function buildUI(el) {
     el._fxNotchesAdded = true;
     requestAnimationFrame(() => el._addDefaultNotches(fx));
 
-    // Live transpose pill — lives inside the Pitch macro group inside
-    // the Macros panel. Wiring runs AFTER fx is appended so the
-    // querySelectors actually find the elements.
+    // Live transpose pill — lives inside the new MIDI panel. Wiring
+    // runs AFTER fx is appended so the querySelectors actually find
+    // the elements.
     if (el._liveTranspose == null) el._liveTranspose = 0;
     if (el._transposeListen == null) el._transposeListen = false;
     const tVal    = fx.querySelector('.pn-transpose-val');
@@ -743,6 +759,62 @@ export function buildUI(el) {
             renderTranspose();
         });
         renderTranspose();
+    }
+
+    // MIDI tab — bindings list refreshes from el._ccBindings /
+    // el._padBindings; status text reflects whether MIDI input has
+    // been authorised. Reset Pads / Reset CC clear the maps in place.
+    const midiBtn   = fx.querySelector('.pn-midi-btn');
+    const midiPanel = fx.querySelector('.pn-midi-panel');
+    if (midiBtn && midiPanel) {
+        const ccList     = midiPanel.querySelector('.pn-midi-cc-list');
+        const padList    = midiPanel.querySelector('.pn-midi-pad-list');
+        const statusEl   = midiPanel.querySelector('.pn-midi-status');
+        const padResetBtn = midiPanel.querySelector('.pn-pad-reset');
+        const formatCC = () => {
+            if (!el._ccBindings || el._ccBindings.size === 0) {
+                return 'none — hover a slider then move a CC knob';
+            }
+            return [...el._ccBindings.entries()]
+                .map(([cc, b]) => `CC${cc} → ${b.key}`)
+                .join('  ·  ');
+        };
+        const formatPads = () => {
+            if (!el._padBindings || el._padBindings.size === 0) {
+                return 'none — hover a macro then press a pad';
+            }
+            return [...el._padBindings.entries()]
+                .map(([note, macro]) => `n${note} → ${macro}`)
+                .join('  ·  ');
+        };
+        const formatStatus = () => {
+            if (!el._midiInputConnected) {
+                return 'MIDI input not enabled — click MIDI in the top toolbar.';
+            }
+            const inputs = el._midiAccess
+                ? [...el._midiAccess.inputs.values()].map(i => i.name).filter(Boolean)
+                : [];
+            if (!inputs.length) return 'MIDI ON — no input devices detected.';
+            return `MIDI ON — ${inputs.join(', ')}`;
+        };
+        const renderMidi = () => {
+            ccList.textContent = formatCC();
+            padList.textContent = formatPads();
+            statusEl.textContent = formatStatus();
+        };
+        el._renderMidiPanel = renderMidi;
+        midiBtn.addEventListener('click', () => {
+            el._showMidi = !el._showMidi;
+            midiPanel.style.display = el._showMidi ? 'flex' : 'none';
+            midiBtn.classList.toggle('active', el._showMidi);
+            if (el._showMidi) renderMidi();
+        });
+        padResetBtn.addEventListener('click', () => {
+            el._padBindings?.clear();
+            el._savePadBindings?.();
+            renderMidi();
+        });
+        renderMidi();
     }
 
     // FX, One-Shots and Macros each toggle independently. Stacking order
@@ -1029,6 +1101,7 @@ export function buildUI(el) {
 
     fx.querySelector('.pn-cc-reset').addEventListener('click', () => {
         el._ccBindings.clear();
+        el._renderMidiPanel?.();
     });
 
     // Panic: drop the macro queue, cancel every live animation token,
