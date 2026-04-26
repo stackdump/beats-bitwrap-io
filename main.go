@@ -681,6 +681,18 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
 func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler) http.Handler {
+	// httpErrorNoStore writes an error response with explicit no-store
+	// caching so browsers and intermediaries don't poison themselves
+	// with a transient 404/500 from this route. Without it, a probe
+	// during the window between "share sealed" and "render finished"
+	// (which is up to 2-3 min on cold renders) gets a 404 that some
+	// browsers will then serve from cache for hours, even after the
+	// real audio is ready. Audio routes never carry sensitive data, so
+	// no-store is purely a freshness guarantee.
+	httpErrorNoStore := func(w http.ResponseWriter, msg string, code int) {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, msg, code)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path: /audio/{cid}.webm — anything else is a static asset.
 		name := strings.TrimPrefix(r.URL.Path, "/audio/")
@@ -694,11 +706,11 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httpErrorNoStore(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if _, err := shareStore.Lookup(cid); err != nil {
-			http.Error(w, "cid not in share store", http.StatusNotFound)
+			httpErrorNoStore(w, "cid not in share store", http.StatusNotFound)
 			return
 		}
 		// POST enqueues a background render and returns 202 Accepted.
@@ -716,7 +728,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 				// caller to back off — single-flight means an in-flight
 				// render of the same cid already returns true above,
 				// so 503 here is genuinely about queue saturation.
-				http.Error(w, "render queue full — try again later", http.StatusServiceUnavailable)
+				httpErrorNoStore(w, "render queue full — try again later", http.StatusServiceUnavailable)
 				return
 			}
 			w.WriteHeader(http.StatusAccepted)
@@ -737,7 +749,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 					return
 				}
 			}
-			http.Error(w, "audio not yet rendered", http.StatusNotFound)
+			httpErrorNoStore(w, "audio not yet rendered", http.StatusNotFound)
 			return
 		}
 		// A cold render can take minutes; the parent http.Server's
@@ -752,7 +764,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		path, err := ar.Render(r.Context(), cid, 0)
 		if err != nil {
 			log.Printf("audio render %s: %v", cid, err)
-			http.Error(w, "render failed", http.StatusInternalServerError)
+			httpErrorNoStore(w, "render failed", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "audio/webm")
