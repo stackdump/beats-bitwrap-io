@@ -301,6 +301,15 @@ let _currentTickOffsetMs = 0;
 // a long suspension (mobile screen lock) so the user doesn't hear a
 // blast of compressed catch-up beats on resume.
 let _silentAdvance = false;
+// Monotonic tick counter for audio-grid scheduling. Unlike `tickCount`,
+// this never resets on loop wrap (fastForwardTo) — only on transport
+// play/stop/swap. The main thread anchors `_audioGridStartTone` to the
+// AudioContext clock at the first `playbackTicks` it sees and schedules
+// every subsequent fire at `anchor + (playbackTicks - startTicks) *
+// tickIntervalSec`. Result: audio onsets land on the grid regardless of
+// when the worker's setInterval-driven fire actually arrives, so headless
+// renders on a CPU-saturated host stay in time.
+let playbackTicks = 0;
 function tick() {
     if (!project) return;
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -335,6 +344,7 @@ function _advanceOneTick() {
     if (!project) return;
 
     tickCount++;
+    playbackTicks++;
 
     // Loop wrap
     if (loopEnd > 0 && loopStart >= 0 && tickCount >= loopEnd) {
@@ -363,6 +373,7 @@ function _advanceOneTick() {
         tempo = project.tempo;
         tickCount = 0;
         loopIteration = 0;
+        playbackTicks = 0; // re-anchor audio grid for the new project
         mutedNets = {};
         mutedNotes = {};
         mutedGroups = {};
@@ -407,11 +418,18 @@ function _advanceOneTick() {
                     post({
                         type: 'transition-fired',
                         netId, transitionId: tLabel, midi,
-                        // Audio-clock scheduling fields. Main thread converts
-                        // these to an absolute Tone.now()-relative play time;
-                        // visual side effects still fire on receipt.
+                        // Per-burst anchor fields — kept for backward
+                        // compat with the WS path (Go server doesn't emit
+                        // `playbackTicks` yet) and for browsers that load
+                        // an older worker against a newer main thread.
                         playAtOffsetMs: _currentTickOffsetMs,
                         tickEpochMs: _currentTickEpochMs,
+                        // Audio-grid scheduling: main thread anchors
+                        // `playbackTicks` to a `Tone.now()` baseline once
+                        // and schedules every subsequent fire at exact
+                        // grid positions. Drops setInterval jitter.
+                        playbackTicks,
+                        tickIntervalMs: tickInterval(),
                     });
                 }
             }
@@ -469,6 +487,7 @@ function doPlay() {
         broadcastState();
     }
     playing = true;
+    playbackTicks = 0; // re-anchor audio grid on next fire
     restartTimer();
 }
 
@@ -481,6 +500,7 @@ function doStop() {
     stopRequested = false;
     tickCount = loopStart >= 0 ? loopStart : 0;
     loopIteration = 0;
+    playbackTicks = 0;
     mutedNets = {};
     mutedNotes = {};
 

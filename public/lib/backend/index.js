@@ -42,6 +42,10 @@ export function togglePlay(el) {
 
     el._playing = !el._playing;
 
+    // Drop the audio grid anchor. The next worker fire after a fresh
+    // play (or the silence after a stop) re-anchors against Tone.now().
+    el._audioGridStartTone = null;
+
     // After resume() settles, check if the context actually unlocked.
     if (el._playing) {
         setTimeout(() => {
@@ -379,7 +383,8 @@ export function handleWsMessage(el, msg) {
     switch (msg.type) {
         case 'transition-fired':
             onRemoteTransitionFired(el, msg.netId, msg.transitionId, msg.midi,
-                                    msg.playAtOffsetMs, msg.tickEpochMs);
+                                    msg.playAtOffsetMs, msg.tickEpochMs,
+                                    msg.playbackTicks, msg.tickIntervalMs);
             break;
         case 'state-sync': {
             const prevTick = el._tick;
@@ -416,8 +421,15 @@ export function handleWsMessage(el, msg) {
         case 'tempo-changed':
             el._tempo = msg.tempo;
             el.querySelector('.pn-tempo input').value = msg.tempo;
+            // Tempo change invalidates the audio grid (interval changed).
+            // Next fire re-anchors against the new tickIntervalMs.
+            el._audioGridStartTone = null;
             break;
         case 'project-sync':
+            // Worker swapped projects (or just synced state) — drop
+            // the audio grid anchor so the next fire re-establishes
+            // it at Tone.now() + LOOKAHEAD against the new project.
+            el._audioGridStartTone = null;
             if (el._playing) {
                 // Server swapped at bar boundary — apply seamlessly.
                 toneEngine.panic();
@@ -607,7 +619,7 @@ export function handleWsMessage(el, msg) {
 
 // --- Remote-fire + humanize/swing ---
 
-export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs) {
+export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs, playbackTicks, tickIntervalMs) {
     // Visual feedback — match by exact ID or riff group.
     const activeNet = el._project?.nets?.[el._activeNetId];
     const firedNet = el._project?.nets?.[netId];
@@ -652,17 +664,34 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
                 m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
             }
         }
-        // Two playback paths:
-        //  - Worker path (playAtOffsetMs defined): per-burst anchor +
-        //    relative offsets. First event of every burst sets an
-        //    audio-clock anchor at `Tone.now() + LOOKAHEAD/1000`;
-        //    subsequent events in the same burst space out from that
-        //    anchor by their slot offset. Audio plays at exact spacing
-        //    on the AudioContext clock — postMessage / setInterval
-        //    throttling can't desync it.
-        //  - WS path (no fields): legacy setTimeout-based delay. WS
-        //    server doesn't emit audio-clock fields yet.
-        if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
+        // Three playback paths, picked in order of preference:
+        //  - Audio-grid path (playbackTicks + tickIntervalMs defined):
+        //    anchor `_audioGridStartTone` to a `Tone.now()` baseline
+        //    on the first fire of a playback session, then schedule
+        //    every subsequent fire at `anchor + n * tickIntervalSec`.
+        //    Audio onsets land on the AudioContext-clock grid no
+        //    matter when the worker fire arrives — immune to
+        //    setInterval jitter / Chromium throttling under load.
+        //    Re-anchors when `_audioGridStartTone` is null (set by
+        //    tempo-changed, transport stop, project swap), or when
+        //    `playbackTicks` regresses (new playback session), or when
+        //    `tickIntervalMs` changes (tempo change).
+        //  - Per-burst anchor (playAtOffsetMs only): legacy fallback
+        //    for the WS backend, which doesn't emit playbackTicks.
+        //  - Plain (no fields): legacy setTimeout-based delay.
+        if (typeof playbackTicks === 'number' && typeof tickIntervalMs === 'number') {
+            if (el._audioGridStartTone == null
+                || playbackTicks < (el._audioGridStartPlaybackTicks ?? 0)
+                || el._audioGridTickIntervalMs !== tickIntervalMs) {
+                el._audioGridStartTone = toneEngine.now() + LOOKAHEAD_MS / 1000;
+                el._audioGridStartPlaybackTicks = playbackTicks;
+                el._audioGridTickIntervalMs = tickIntervalMs;
+            }
+            const playAt = el._audioGridStartTone
+                + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
+                + swingDelay(el) / 1000;
+            el._playNote(m, netId, playAt);
+        } else if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
             if (el._lastTickEpochMs !== tickEpochMs) {
                 el._lastTickEpochMs = tickEpochMs;
                 el._burstAnchorAudio = toneEngine.now() + LOOKAHEAD_MS / 1000;
