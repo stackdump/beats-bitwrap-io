@@ -256,12 +256,6 @@ export function buildUI(el) {
             <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
             <button class="pn-stage-btn" title="Stage — full-page visualizer (M)" aria-label="Open Stage">&#9635; Stage</button>
             <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the feed player" aria-label="Open feed player">&#9658; Player</a>
-            <span class="pn-transpose" title="Live transpose — applied to all non-drum channels at fire time. Click ± to nudge, double-click value to reset, MIDI button to listen for keybed input.">
-                <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
-                <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
-                <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
-                <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
-            </span>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
             <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
             <button class="pn-download-btn" title="Download track as JSON-LD">&#x2B07;</button>
@@ -616,9 +610,21 @@ export function buildUI(el) {
                     if (!byGroup.has(g)) byGroup.set(g, []);
                     byGroup.get(g).push(m);
                 }
+                // Live transpose pill — lives inside the Pitch group so
+                // it sits with the rest of the per-track pitch controls
+                // instead of crowding the action row.
+                const transposePill = `
+                    <span class="pn-transpose" title="Live transpose — applied to all non-drum channels at fire time. Click ± to nudge, double-click value to reset, MIDI button to listen for keybed input.">
+                        <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
+                        <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
+                        <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                        <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
+                    </span>
+                `;
                 return [...byGroup.entries()].map(([label, items]) => `
                     <div class="pn-macro-group">
                         <div class="pn-macro-group-label">${label}</div>
+                        ${label === 'Pitch' ? transposePill : ''}
                         ${items.map(m => {
                             const needsDuration = m.durationOpts.length > 1 || (m.durationLabel && m.durationLabel.length > 0);
                             // Kinds where "∞" (permanent — fire and don't auto-restore) is meaningful.
