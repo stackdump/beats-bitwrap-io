@@ -119,7 +119,30 @@ export function handleMidiPitchBend(el, value) {
     el._setLiveTranspose(semis);
 }
 
+// Drives the BPM input from a 0-127 CC value mapped to the practical
+// performance range 60-200 BPM. Used by the joystick Y-axis default
+// binding when CC1 isn't otherwise claimed. Mirrors the slider-bind
+// dispatch (input + change events) so the tempo input picks it up.
+function setBpmFromCC(el, value) {
+    const input = el.querySelector('.pn-tempo input[type="number"]');
+    if (!input) return;
+    const min = 60, max = 200;
+    input.value = Math.round(min + (value / 127) * (max - min));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 export function handleMidiCC(el, cc, value) {
+    // Default joystick Y-axis (CC1 / modwheel) → BPM unless the user
+    // has explicitly bound CC1 to something else. Most controllers
+    // (including the MPK Mini) ship the joystick's vertical axis as
+    // CC1, so this gives "joystick X bends pitch, joystick Y drives
+    // tempo" out of the box. The hover-bind path below still wins
+    // if the user wants to remap CC1 — explicit beats default.
+    if (cc === 1 && !el._ccBindings?.has(1) && !el._hoveredSlider
+        && !el._hoveredMute && !el._hoveredSection) {
+        return setBpmFromCC(el, value);
+    }
     // Hover-bind paths — slider, mute button, section divider — all
     // overwrite any existing binding so re-binding is a one-touch
     // operation. Mute / section bindings are useful for pads in CC
