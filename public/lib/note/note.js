@@ -30,23 +30,31 @@ const COLLAPSE_BLANKS_RE = /\n{2,}/g;
 // surrogate / private-use / unassigned). Newline + tab are added back.
 const NON_PRINTABLE_RE = /[\p{C}]/gu;
 
+// liveScrubNote strips the dangerous shapes (tags / URLs / non-printables)
+// but DOES NOT trim whitespace — used by the textarea on every input
+// event so the user can type "hello world" without the trailing space
+// being eaten before they reach the second word. The full sanitiseNote
+// runs again at Share time to bring the canonical form into alignment
+// with the Go server's SanitizeNote.
+export function liveScrubNote(s) {
+    if (!s) return '';
+    s = s.replace(TAG_RE, '');
+    s = s.replace(URL_SCHEME_RE, '').replace(URL_WWW_RE, '');
+    s = s.replace(NON_PRINTABLE_RE, (ch) => (ch === '\n' || ch === '\t' ? ch : ''));
+    // Hard cap by runes — keep as a hard stop even live.
+    if ([...s].length > NOTE_MAX_RUNES) {
+        s = [...s].slice(0, NOTE_MAX_RUNES).join('');
+    }
+    return s;
+}
+
 export function sanitizeNote(s) {
     if (!s) return '';
-    // 1. Strip tags.
-    s = s.replace(TAG_RE, '');
-    // 2. Strip URLs.
-    s = s.replace(URL_SCHEME_RE, '').replace(URL_WWW_RE, '');
-    // 3+4. Drop non-printables; keep \n and \t.
-    s = s.replace(NON_PRINTABLE_RE, (ch) => (ch === '\n' || ch === '\t' ? ch : ''));
-    // 5. Trim each line, collapse blank-line runs.
+    s = liveScrubNote(s);
+    // Trim each line, collapse blank-line runs, overall trim.
     s = s.split('\n').map((line) => line.trim()).join('\n');
     s = s.replace(COLLAPSE_BLANKS_RE, '\n');
-    // 6. Overall trim.
     s = s.trim();
-    // 7. Rune cap. [...s] iterates code points so multi-unit chars
-    //    (emoji, surrogate pairs) count as one. .slice on the array
-    //    keeps the cap rune-accurate, then trim again in case the
-    //    truncation left trailing whitespace.
     if ([...s].length > NOTE_MAX_RUNES) {
         s = [...s].slice(0, NOTE_MAX_RUNES).join('').trim();
     }

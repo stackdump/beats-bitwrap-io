@@ -233,52 +233,126 @@
     .pl-close { display: flex; align-items: center; justify-content: center; }
   }
   .layout[data-pl="open"] aside.playlist { display: flex; }
+  /* Built-in player — Winamp-flavoured chrome.
+     Titlebar gradient + LCD-style track readout + beveled transport
+     buttons. The vibe is "skinned media player from 2002", not the
+     full Webamp experience (which is a click away via the toolbar).
+     Real Winamp icons via inline SVG so they scale crisp on retina. */
   .pl-now {
-    border: 1px solid #1a1a1a;
-    border-radius: 6px;
-    padding: 10px 12px;
-    background: #050505;
+    border: 1px solid #000;
+    border-radius: 4px;
+    padding: 0;
+    background: #1a1a2e;
+    overflow: hidden;
+    box-shadow: inset 1px 1px 0 #2a2a4a, 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .pl-now-bar {
+    background: linear-gradient(180deg, #2a3550 0%, #1a2440 50%, #0d1530 100%);
+    border-bottom: 1px solid #000;
+    padding: 4px 8px;
+    font-family: ui-monospace, "Courier New", monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: #67e8f9;
+    text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pl-now-bar::after { content: '— B E A T S —'; opacity: 0.55; }
+  .pl-now-lcd {
+    background: #050a14;
+    border: 1px solid #000;
+    box-shadow: inset 0 0 0 1px #1a2a3a, inset 0 4px 8px rgba(0,0,0,0.6);
+    margin: 6px 8px 4px;
+    padding: 6px 10px;
+    border-radius: 2px;
   }
   .pl-now-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #eee;
+    font-size: 12px;
+    font-weight: 700;
+    color: #00ff66;
+    font-family: ui-monospace, "Courier New", monospace;
+    letter-spacing: 0.05em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-shadow: 0 0 4px rgba(0,255,102,0.4);
   }
-  .pl-now-sub { font-size: 11px; color: #777; margin-top: 2px; }
-  .pl-now audio { width: 100%; height: 32px; margin-top: 8px; }
+  .pl-now-sub {
+    font-size: 10px;
+    color: #4a90d9;
+    font-family: ui-monospace, "Courier New", monospace;
+    margin-top: 2px;
+    letter-spacing: 0.05em;
+  }
+  .pl-now audio {
+    width: calc(100% - 16px);
+    height: 28px;
+    margin: 4px 8px;
+    display: block;
+    /* WebKit's native audio chrome is dark-friendly; force the
+       background dark so it sits on the chassis cleanly. */
+    filter: hue-rotate(180deg) brightness(0.85);
+  }
   .pl-controls {
     display: flex;
-    gap: 6px;
-    margin-top: 8px;
-    font-size: 11px;
+    gap: 2px;
+    margin: 0 8px 8px;
+    padding: 4px;
+    background: #0d1530;
+    border: 1px solid #000;
+    box-shadow: inset 1px 1px 0 #2a2a4a;
+    border-radius: 3px;
   }
   .pl-controls button {
     flex: 1;
-    background: #1a1a2e;
-    color: #ddd;
-    border: 1px solid #2a2a3a;
-    border-radius: 4px;
-    padding: 5px 0;
+    background: linear-gradient(180deg, #2a3550 0%, #1a2440 100%);
+    color: #c3d1e8;
+    border: 1px solid #000;
+    box-shadow: inset 1px 1px 0 #4a5a7a, inset -1px -1px 0 #0a1020;
+    border-radius: 2px;
+    padding: 4px 0;
     cursor: pointer;
     font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    transition: filter 60ms;
   }
-  .pl-controls button:hover { border-color: #3a3a5a; }
-  .pl-controls button:disabled { opacity: 0.4; cursor: default; }
-  /* Shuffle / repeat modes glow when active. Repeat-one carries
-     a tiny "1" superscript so the user can tell it from "all". */
+  .pl-controls button svg { display: block; pointer-events: none; }
+  .pl-controls button:hover { filter: brightness(1.25); }
+  .pl-controls button:active {
+    /* Pressed-in beveled-button look — flip the highlight + shadow. */
+    box-shadow: inset -1px -1px 0 #4a5a7a, inset 1px 1px 0 #0a1020;
+    filter: brightness(0.9);
+  }
+  .pl-controls button:disabled {
+    opacity: 0.45;
+    cursor: default;
+    filter: none;
+  }
+  /* Shuffle / repeat lit-up state — Winamp green LED. */
   .pl-controls button[data-on="true"] {
-    background: #1a2a3a;
-    color: #67e8f9;
-    border-color: #2a4a6a;
+    background: linear-gradient(180deg, #00ff66 0%, #00aa44 100%);
+    color: #002211;
+    box-shadow: inset 1px 1px 0 #66ffaa, inset -1px -1px 0 #006633,
+                0 0 6px rgba(0,255,102,0.5);
+  }
+  .pl-controls button[data-on="true"] svg { color: #002211; }
+  /* Play button stays distinct when active. */
+  #pl-play[data-state="playing"] {
+    background: linear-gradient(180deg, #00ff66 0%, #00aa44 100%);
+    color: #002211;
+    box-shadow: inset 1px 1px 0 #66ffaa, inset -1px -1px 0 #006633,
+                0 0 6px rgba(0,255,102,0.5);
   }
   #pl-repeat[data-mode="one"]::after {
     content: '1';
     font-size: 8px;
     vertical-align: super;
-    margin-left: 1px;
+    margin-left: 2px;
+    color: inherit;
+    font-weight: 700;
   }
   .pl-list {
     flex: 1;
@@ -528,15 +602,47 @@
   <aside class="playlist">
     <button class="pl-close" id="pl-close" title="Close playlist (back to grid)">×</button>
     <div class="pl-now" id="pl-now">
-      <div class="pl-now-title" id="pl-now-title">No track loaded</div>
-      <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
+      <div class="pl-now-bar"><span>BEATS · BITWRAP</span></div>
+      <div class="pl-now-lcd">
+        <div class="pl-now-title" id="pl-now-title">No track loaded</div>
+        <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
+      </div>
       <audio id="pl-audio" controls preload="none"></audio>
       <div class="pl-controls">
-        <button id="pl-shuffle" title="Shuffle off">🔀</button>
-        <button id="pl-prev" title="Previous">◀◀</button>
-        <button id="pl-play" title="Play / pause">▶</button>
-        <button id="pl-next" title="Next">▶▶</button>
-        <button id="pl-repeat" title="Repeat off">↻</button>
+        <button id="pl-prev" title="Previous (skip back)" aria-label="Previous">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <rect x="2" y="3" width="2" height="10"/>
+            <polygon points="14,3 14,13 5,8"/>
+          </svg>
+        </button>
+        <button id="pl-play" title="Play / pause" aria-label="Play / pause">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <polygon points="3,2 14,8 3,14"/>
+          </svg>
+        </button>
+        <button id="pl-next" title="Next (skip forward)" aria-label="Next">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <polygon points="2,3 11,8 2,13"/>
+            <rect x="12" y="3" width="2" height="10"/>
+          </svg>
+        </button>
+        <button id="pl-shuffle" title="Shuffle off" aria-label="Shuffle">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="11,2 14,2 14,5"/>
+            <line x1="14" y1="2" x2="9.5" y2="6.5"/>
+            <polyline points="11,14 14,14 14,11"/>
+            <line x1="14" y1="14" x2="2" y2="2"/>
+            <line x1="2" y1="14" x2="6.5" y2="9.5"/>
+          </svg>
+        </button>
+        <button id="pl-repeat" title="Repeat off" aria-label="Repeat">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3,5 13,5 11,3"/>
+            <polyline points="13,5 13,8"/>
+            <polyline points="13,11 3,11 5,13"/>
+            <polyline points="3,11 3,8"/>
+          </svg>
+        </button>
       </div>
     </div>
     <div class="pl-meta">
@@ -637,6 +743,16 @@ const toggleBtn = document.getElementById('toggle-pl');
 const layout = document.getElementById('layout');
 const audioEl = document.getElementById('pl-audio');
 const playBtn = document.getElementById('pl-play');
+
+// Play / pause SVG icons swapped by setPlayIcon. Inline so the button
+// renders crisp on retina without an extra HTTP fetch. data-state
+// drives the green-LED background style in CSS.
+const PLAY_ICON_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><polygon points="3,2 14,8 3,14"/></svg>`;
+const PAUSE_ICON_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="3" y="2" width="4" height="12"/><rect x="9" y="2" width="4" height="12"/></svg>`;
+const setPlayIcon = (playing) => {
+  playBtn.innerHTML = playing ? PAUSE_ICON_SVG : PLAY_ICON_SVG;
+  playBtn.dataset.state = playing ? 'playing' : 'idle';
+};
 const prevBtn = document.getElementById('pl-prev');
 const nextBtn = document.getElementById('pl-next');
 const shuffleBtn = document.getElementById('pl-shuffle');
@@ -906,7 +1022,7 @@ const clearNow = () => {
       ? 'Tap × to return to the grid, then tap a card'
       : 'Add tracks from the grid →';
   }
-  playBtn.textContent = '▶';
+  setPlayIcon(false);
 };
 
 // Pre-load the next track via <link rel=preload> so the
@@ -1002,8 +1118,8 @@ nextBtn.addEventListener('click', () => {
   if (current < playlist.length - 1) playIndex(current + 1);
   else if (repeatMode === 'all') playIndex(0);
 });
-audioEl.addEventListener('play',  () => { playBtn.textContent = '⏸'; requestWake(); syncCardPlayButtons(); });
-audioEl.addEventListener('pause', () => { playBtn.textContent = '▶'; releaseWake(); savePlaybackState(); syncCardPlayButtons(); });
+audioEl.addEventListener('play',  () => { setPlayIcon(true);  requestWake(); syncCardPlayButtons(); });
+audioEl.addEventListener('pause', () => { setPlayIcon(false); releaseWake(); savePlaybackState(); syncCardPlayButtons(); });
 
 // ----- Shuffle / repeat modes -----
 const SHUFFLE_KEY = 'pn-playlist-shuffle';
@@ -1058,7 +1174,7 @@ const nextIndex = () => {
 
 audioEl.addEventListener('ended', () => {
   const nxt = nextIndex();
-  if (nxt < 0) { playBtn.textContent = '▶'; releaseWake(); return; }
+  if (nxt < 0) { setPlayIcon(false); releaseWake(); return; }
   // repeat=one against the same index: rewind + play instead of
   // re-loading the src (no decoder churn).
   if (nxt === current) {

@@ -14,7 +14,7 @@ import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
-import { sanitizeNote } from '../note/note.js';
+import { sanitizeNote, liveScrubNote } from '../note/note.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -800,10 +800,13 @@ export function buildUI(el) {
         }
     });
     noteText.addEventListener('input', () => {
-        const cleaned = sanitizeNote(noteText.value);
+        // liveScrub strips dangerous shapes (tags / URLs /
+        // non-printables) but preserves whitespace so the user can
+        // type "hello world" without the trailing space being eaten
+        // before they reach the next word. Full sanitiseNote (with
+        // per-line trim + collapse) runs at Share time.
+        const cleaned = liveScrubNote(noteText.value);
         if (cleaned !== noteText.value) {
-            // Stash + restore caret so a strip in the middle doesn't
-            // jump it to the end.
             const pos = Math.min(noteText.selectionStart, cleaned.length);
             noteText.value = cleaned;
             noteText.setSelectionRange(pos, pos);
@@ -811,14 +814,24 @@ export function buildUI(el) {
         if (el._project) el._project.note = noteText.value;
         updateNoteCount();
     });
-    // On paste, sanitise the pasted slice up front rather than wait
-    // for the input event — keeps the visible state cleaner.
+    // On paste, scrub the pasted slice up front (still preserving
+    // whitespace) so the visible state is clean.
     noteText.addEventListener('paste', (e) => {
         const data = (e.clipboardData || window.clipboardData)?.getData('text');
         if (data == null) return;
         e.preventDefault();
-        const cleaned = sanitizeNote(data);
+        const cleaned = liveScrubNote(data);
         document.execCommand('insertText', false, cleaned);
+    });
+    // On blur, run the full sanitiser so the textarea reflects what
+    // would be sealed (trimmed lines, collapsed blank-line runs).
+    noteText.addEventListener('blur', () => {
+        const cleaned = sanitizeNote(noteText.value);
+        if (cleaned !== noteText.value) {
+            noteText.value = cleaned;
+            if (el._project) el._project.note = cleaned;
+            updateNoteCount();
+        }
     });
     updateNoteCount();
 
