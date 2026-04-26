@@ -303,6 +303,44 @@ export function parseNetBundle(data) {
         }
     }
 
+    // Re-parse fallback: if the input was a previously-parsed bundle
+    // (round-tripped main → worker via postMessage / structured clone),
+    // its `bindings` and `controlBindings` live as separate top-level
+    // fields rather than nested under transitions[id].midi/control.
+    // The loop above only reads the nested form, so on re-parse the
+    // bundle would lose all MIDI bindings — `bundle.fire()` would
+    // return `result.midi = null`, no `transition-fired` posted, no
+    // audio. Symptom: first auto-loaded track was silent, but Generate
+    // (which produces a fresh bundle inside the worker without re-
+    // parsing) worked fine. Adopt sibling bindings when present.
+    if (data.bindings && typeof data.bindings === 'object') {
+        for (const [id, m] of Object.entries(data.bindings)) {
+            if (!nb.bindings[id] && m && typeof m === 'object') {
+                nb.bindings[id] = {
+                    note:     getInt(m, 'note', 60),
+                    channel:  getInt(m, 'channel', nb.track.channel),
+                    velocity: getInt(m, 'velocity', nb.track.defaultVelocity),
+                    duration: getInt(m, 'duration', 100),
+                };
+            }
+        }
+    }
+    if (data.controlBindings && typeof data.controlBindings === 'object') {
+        for (const [id, c] of Object.entries(data.controlBindings)) {
+            if (!nb.controlBindings[id] && c && typeof c === 'object') {
+                const cb = {
+                    action:     getString(c, 'action', 'toggle-track'),
+                    targetNet:  getString(c, 'targetNet', ''),
+                    targetNote: getInt(c, 'targetNote', 0),
+                };
+                if (c.macro) cb.macro = getString(c, 'macro', '');
+                if (c.macroBars) cb.macroBars = getFloat(c, 'macroBars', 0);
+                if (c.macroParams && typeof c.macroParams === 'object') cb.macroParams = c.macroParams;
+                nb.controlBindings[id] = cb;
+            }
+        }
+    }
+
     nb.buildArcIndex();
     nb.resetState();
 
