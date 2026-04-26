@@ -547,6 +547,9 @@ export function handleWsMessage(el, msg) {
             break;
         case 'mute-state':
             el._mutedNets = new Set(Object.entries(msg.mutedNets || {}).filter(([,v]) => v).map(([k]) => k));
+            // Mirror onto _project.initialMutes so MIDI panel reads
+            // the current state when rendering pad indicators.
+            if (el._project) el._project.initialMutes = [...el._mutedNets];
             // Re-apply manual mutes to server (manual overrides auto).
             for (const nid of el._manualMutedNets) {
                 if (!el._mutedNets.has(nid)) {
@@ -555,6 +558,7 @@ export function handleWsMessage(el, msg) {
             }
             el._renderMixer();
             stageOnMuteStateChange(el);
+            el._renderMidiPanel?.();
             break;
         case 'playback-complete':
             // Sequencer has stopped — mark as not playing so project-sync

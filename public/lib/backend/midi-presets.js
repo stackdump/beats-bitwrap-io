@@ -21,20 +21,24 @@ export const PRESETS = [
         match: /mpk\s*mini/i,
         label: 'Akai MPK Mini',
         notes: 'Factory pad bank A on channel 10; knobs K1–K8 on CC70–77. ' +
-               'If you remapped via Akai\'s MPK Editor, your CC numbers ' +
-               'may differ — bind manually instead.',
+               'Pads mute / unmute riff groups (drums / bass / melody / ' +
+               'harmony / arp / pad / lead / stinger). Knobs map to the ' +
+               'master FX. If you remapped via Akai\'s MPK Editor your CC ' +
+               'numbers may differ — bind manually instead.',
         // Pad bank A — 8 pads, MIDI notes 36..43 (default).
-        // Mapped to a curated FX/macro spread that covers the most
-        // performance-useful tricks.
+        // Each pad toggles mute on a riff group. Tap once to mute,
+        // tap again to unmute. Maps to the standard composer-emitted
+        // groups; tracks tagged with these riff groups in hand-authored
+        // shares pick up the mapping automatically.
         pads: {
-            36: 'reverb-wash',
-            37: 'delay-throw',
-            38: 'riser',
-            39: 'beat-repeat',
-            40: 'bit-crush',
-            41: 'phaser-drone',
-            42: 'cathedral',
-            43: 'dub-delay',
+            36: { type: 'mute', target: 'drums'   },
+            37: { type: 'mute', target: 'bass'    },
+            38: { type: 'mute', target: 'melody'  },
+            39: { type: 'mute', target: 'harmony' },
+            40: { type: 'mute', target: 'arp'     },
+            41: { type: 'mute', target: 'pad'     },
+            42: { type: 'mute', target: 'lead'    },
+            43: { type: 'mute', target: 'stinger' },
         },
         // K1..K8 → master mixer + the heavy-hitter FX wets. CC70 starts
         // here because that's the MPK's factory default for K1; if the

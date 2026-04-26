@@ -791,10 +791,26 @@ export function buildUI(el) {
         };
         const formatPads = () => {
             if (!el._padBindings || el._padBindings.size === 0) {
-                return 'none — hover a macro then press a pad';
+                return 'none — hover a macro then press a pad / key';
+            }
+            // Compute current per-group mute state once so the binding
+            // list can show MUTED indicators inline. Looks at the
+            // shared sequencer mute state mirrored on _project.
+            const mutedGroups = new Set();
+            const mutedNets = new Set(el._project?.initialMutes || []);
+            for (const [id, net] of Object.entries(el._project?.nets || {})) {
+                if (mutedNets.has(id) && net?.riffGroup) mutedGroups.add(net.riffGroup);
             }
             return [...el._padBindings.entries()]
-                .map(([note, macro]) => `n${note} → ${macro}`)
+                .map(([note, b]) => {
+                    if (typeof b === 'string') return `n${note} → ${b}`;
+                    if (b?.type === 'mute') {
+                        const lit = !mutedGroups.has(b.target);
+                        const dot = lit ? '●' : '○';
+                        return `n${note} ${dot} ${b.target}`;
+                    }
+                    return `n${note} → ?`;
+                })
                 .join('  ·  ');
         };
         const formatStatus = () => {

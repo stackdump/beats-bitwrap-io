@@ -120,8 +120,21 @@ export function handleMidiNoteOn(el, note) {
         el._renderMidiPanel?.();
         return;
     }
-    const macroId = el._padBindings.get(note);
-    if (macroId) { el._fireMacro(macroId); return; }
+    const binding = el._padBindings.get(note);
+    if (binding) {
+        // Two binding shapes:
+        //   string         → macroId, fire as a macro
+        //   { type, ... }  → action (currently only 'mute')
+        if (typeof binding === 'string') {
+            el._fireMacro(binding);
+        } else if (binding && binding.type === 'mute') {
+            // Toggle mute on a riff group. Re-render the MIDI panel
+            // so the binding-list reflects the new state.
+            toggleMuteGroup(el, binding.target);
+            el._renderMidiPanel?.();
+        }
+        return;
+    }
     // Live transpose listen mode: an unbound Note On (i.e. anything
     // that wasn't a pad-binding) sets the transpose offset relative
     // to the project's natural root (C4 fallback). Latched — the
