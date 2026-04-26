@@ -13,8 +13,13 @@
     <link rel="apple-touch-icon" href="favicon.svg"/>
     <link rel="manifest" href="manifest.json"/>
     <link rel="stylesheet" href="petri-note.css"/>
-    <!-- Tone.js for audio synthesis -->
-    <script src="https://unpkg.com/tone@14"></script>
+    <!-- Tone.js for audio synthesis. Version pinned + SRI-hashed so a
+         compromise of the unpkg CDN can't silently swap the bundle and
+         turn this into a full XSS vector. Bump both fields together
+         when upgrading. -->
+    <script src="https://unpkg.com/tone@14.9.17/build/Tone.js"
+            integrity="sha384-yRqCsPVM7qOD5eE8nkSeglBStE2HatcmQR23AtEma1Z5SoGJeSu1furZPm8YNTnv"
+            crossorigin="anonymous"></script>
     <!-- QR code renderer — davidshimjs/qrcodejs, MIT; see vendor/NOTICE.md -->
     <script src="/vendor/qrcode.js"></script>
 </head>

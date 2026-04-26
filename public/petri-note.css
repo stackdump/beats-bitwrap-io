@@ -2212,6 +2212,12 @@ input[type="range"][data-default] {
     background: #533483;
     color: #fff;
 }
+/* Player link wears the Stage button styles so the two read as a
+   pair in the action row. Anchors get text-decoration + visited
+   colours by default — override both. */
+a.pn-stage-btn { text-decoration: none; display: inline-block; }
+a.pn-stage-btn:visited { color: #c3a6ff; }
+a.pn-stage-btn:hover { color: #fff; }
 
 .pn-download-btn,
 .pn-upload-btn,

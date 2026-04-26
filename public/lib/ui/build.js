@@ -254,6 +254,7 @@ export function buildUI(el) {
             <button class="pn-generate-btn" title="Generate new track">Generate</button>
             <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
             <button class="pn-stage-btn" title="Stage — full-page visualizer (M)" aria-label="Open Stage">&#9635; Stage</button>
+            <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the feed player" aria-label="Open feed player">&#9658; Player</a>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
             <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
             <button class="pn-download-btn" title="Download track as JSON-LD">&#x2B07;</button>
@@ -265,9 +266,6 @@ export function buildUI(el) {
             <button class="${el._audioModes.has('web-midi') ? 'active' : ''}" data-mode="web-midi">MIDI</button>
             <button class="pn-wakelock-btn ${el._wakeLock ? 'active' : ''}" title="Keep screen awake during playback (screen wake lock)" aria-pressed="${el._wakeLock ? 'true' : 'false'}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
             <button class="pn-help-btn" title="Performance tips">?</button>
-            <a class="pn-gh-link pn-player-link" href="/feed" title="Go to player">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polygon points="10,8 16,12 10,16" fill="currentColor"/></svg>
-            </a>
             <button class="pn-gh-link pn-category-btn" title="Control category map — how beat fans out through generators, instruments, macros, controls">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="12" y1="12" x2="5" y2="5"/><line x1="12" y1="12" x2="19" y2="5"/><line x1="12" y1="12" x2="5" y2="19"/><line x1="12" y1="12" x2="19" y2="19"/></svg>
             </button>
