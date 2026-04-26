@@ -73,7 +73,7 @@ export function sliderBindingKey(slider) {
         return {
             key: 'tempo',
             selector: '.pn-tempo input[type="number"]',
-            min: 60, max: 200,
+            min: 60, max: 300,
         };
     }
     const row = slider.closest('.pn-mixer-row');
@@ -143,7 +143,9 @@ function setBpmFromCC(el, value) {
     if (el._bpmBeforeJoystick == null) {
         el._bpmBeforeJoystick = parseInt(input.value, 10) || el._tempo || 120;
     }
-    const min = 60, max = 200;
+    // 60..300 covers everything from chillhop to speedcore — release
+    // (value 0) snaps back to the track's configured tempo.
+    const min = 60, max = 300;
     input.value = Math.round(min + (value / 127) * (max - min));
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
