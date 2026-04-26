@@ -346,45 +346,6 @@ export function buildUI(el) {
     });
     el._initTraitClicks();
 
-    // Live transpose pill — applied to non-drum channels at fire time
-    // by onRemoteTransitionFired. Performance state, not persisted to
-    // the share envelope. The MIDI listen mode latches: turn it on,
-    // play any key on your keybed, transpose snaps to that key
-    // (relative to project root or C4 fallback), latch stays until
-    // you press another key.
-    if (el._liveTranspose == null) el._liveTranspose = 0;
-    if (el._transposeListen == null) el._transposeListen = false;
-    const tVal    = el.querySelector('.pn-transpose-val');
-    const tDown   = el.querySelector('.pn-transpose-down');
-    const tUp     = el.querySelector('.pn-transpose-up');
-    const tListen = el.querySelector('.pn-transpose-listen');
-    const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const renderTranspose = () => {
-        const n = el._liveTranspose | 0;
-        const sign = n > 0 ? '+' : (n < 0 ? '−' : '+');
-        tVal.textContent = `${sign}${Math.abs(n)}`;
-        tVal.dataset.lit = n !== 0 ? 'true' : 'false';
-        // Resolved key name = (project root || C) + transpose, mod 12.
-        const root = (el._project?.rootNote ?? 60) | 0;
-        const key  = NOTE_NAMES[(((root + n) % 12) + 12) % 12];
-        tVal.title = `Live transpose: ${sign}${Math.abs(n)} semitones (current key ≈ ${key}). Double-click to reset.`;
-        tListen.dataset.on = el._transposeListen ? 'true' : 'false';
-        tListen.setAttribute('aria-pressed', el._transposeListen ? 'true' : 'false');
-    };
-    el._renderTranspose = renderTranspose;
-    el._setLiveTranspose = (n) => {
-        el._liveTranspose = Math.max(-24, Math.min(24, n | 0));
-        renderTranspose();
-    };
-    tDown.addEventListener('click',  () => el._setLiveTranspose(el._liveTranspose - 1));
-    tUp.addEventListener('click',    () => el._setLiveTranspose(el._liveTranspose + 1));
-    tVal.addEventListener('dblclick', () => el._setLiveTranspose(0));
-    tListen.addEventListener('click', () => {
-        el._transposeListen = !el._transposeListen;
-        renderTranspose();
-    });
-    renderTranspose();
-
     // Mixer panel (replaces tabs + track settings)
     const mixer = document.createElement('div');
     mixer.className = 'pn-mixer';
@@ -749,6 +710,43 @@ export function buildUI(el) {
     el._fxEl = fx;
     el._fxNotchesAdded = true;
     requestAnimationFrame(() => el._addDefaultNotches(fx));
+
+    // Live transpose pill — lives inside the Pitch macro group inside
+    // the Macros panel. Wiring runs AFTER fx is appended so the
+    // querySelectors actually find the elements.
+    if (el._liveTranspose == null) el._liveTranspose = 0;
+    if (el._transposeListen == null) el._transposeListen = false;
+    const tVal    = fx.querySelector('.pn-transpose-val');
+    const tDown   = fx.querySelector('.pn-transpose-down');
+    const tUp     = fx.querySelector('.pn-transpose-up');
+    const tListen = fx.querySelector('.pn-transpose-listen');
+    if (tVal && tDown && tUp && tListen) {
+        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const renderTranspose = () => {
+            const n = el._liveTranspose | 0;
+            const sign = n > 0 ? '+' : (n < 0 ? '−' : '+');
+            tVal.textContent = `${sign}${Math.abs(n)}`;
+            tVal.dataset.lit = n !== 0 ? 'true' : 'false';
+            const root = (el._project?.rootNote ?? 60) | 0;
+            const key  = NOTE_NAMES[(((root + n) % 12) + 12) % 12];
+            tVal.title = `Live transpose: ${sign}${Math.abs(n)} semitones (current key ≈ ${key}). Double-click to reset.`;
+            tListen.dataset.on = el._transposeListen ? 'true' : 'false';
+            tListen.setAttribute('aria-pressed', el._transposeListen ? 'true' : 'false');
+        };
+        el._renderTranspose = renderTranspose;
+        el._setLiveTranspose = (n) => {
+            el._liveTranspose = Math.max(-24, Math.min(24, n | 0));
+            renderTranspose();
+        };
+        tDown.addEventListener('click',   () => el._setLiveTranspose(el._liveTranspose - 1));
+        tUp.addEventListener('click',     () => el._setLiveTranspose(el._liveTranspose + 1));
+        tVal.addEventListener('dblclick', () => el._setLiveTranspose(0));
+        tListen.addEventListener('click', () => {
+            el._transposeListen = !el._transposeListen;
+            renderTranspose();
+        });
+        renderTranspose();
+    }
 
     // FX, One-Shots and Macros each toggle independently. Stacking order
     // is controlled via CSS `order` on the .pn-effects flex container.
