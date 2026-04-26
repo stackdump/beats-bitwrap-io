@@ -79,6 +79,13 @@ export function resolveBinding(el, binding) {
 }
 
 export function handleMidiMessage(el, event) {
+    // Optional debug tap — when the MIDI Monitor modal is open, every
+    // raw message is mirrored to it before normal dispatch so the user
+    // can see exactly what their controller is sending without losing
+    // bound-action behaviour.
+    if (typeof el._midiMonitorTap === 'function') {
+        try { el._midiMonitorTap(event.data); } catch {}
+    }
     const [status, data1, data2] = event.data;
     const type = status & 0xF0;
     if (type === 0xB0) return handleMidiCC(el, data1, data2);

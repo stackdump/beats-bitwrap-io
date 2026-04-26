@@ -562,6 +562,7 @@ export function buildUI(el) {
             <div class="pn-midi-row">
                 <span class="pn-midi-label">Status</span>
                 <span class="pn-midi-status">Enable MIDI in the top-right toolbar to start binding.</span>
+                <button type="button" class="pn-midi-monitor" title="Open the MIDI Monitor — logs every incoming message so you can identify pad / note / CC numbers your controller is sending">Monitor</button>
                 <button type="button" class="pn-midi-reset-all" title="Clear every MIDI input binding (CC + pads + keyboard notes) and reset live transpose to +0">Reset MIDI</button>
             </div>
             <div class="pn-midi-row pn-midi-preset-row" hidden>
@@ -857,6 +858,11 @@ export function buildUI(el) {
             if (!preset) return;
             applyMidiPreset(el, preset);
             renderMidi();
+        });
+        // Monitor — pops the MIDI Monitor modal so the user can
+        // identify pad / note / CC numbers without binding anything.
+        midiPanel.querySelector('.pn-midi-monitor').addEventListener('click', () => {
+            el._showMidiMonitor?.();
         });
         // Master "Reset MIDI" — wipes every input binding (CC + pad
         // + keybed-note) and resets live transpose to +0. Useful when

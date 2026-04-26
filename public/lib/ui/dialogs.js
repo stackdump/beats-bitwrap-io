@@ -675,6 +675,97 @@ export function showHelpModal(el) {
     }
 }
 
+// Live MIDI monitor — pops a modal that prints every incoming MIDI
+// message verbatim so the user can identify pad/note numbers and CC
+// numbers their controller is actually sending. The normal binding
+// dispatch still runs (so they see both the raw message AND any
+// already-bound action firing).
+export function showMidiMonitorModal(el) {
+    el.querySelector('.pn-midi-monitor-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'pn-help-overlay pn-midi-monitor-overlay';
+    overlay.tabIndex = -1;
+    overlay.innerHTML = `
+        <div class="pn-help-modal" style="max-width:640px;width:96vw">
+            <button class="pn-help-close">&times;</button>
+            <h2>MIDI Monitor</h2>
+            <p style="color:#aaa;margin:0 0 12px;font-size:13px">
+                Logs every incoming MIDI message. Press a pad or twist a knob — the type, channel, and number show below. Bindings still fire as normal so you can verify what's wired.
+            </p>
+            <div class="pn-midi-monitor-last">Waiting for MIDI…</div>
+            <div class="pn-midi-monitor-meta">
+                <span class="pn-midi-monitor-status">Hint: enable MIDI in the top-right toolbar first.</span>
+                <button class="pn-midi-monitor-clear" type="button">Clear</button>
+            </div>
+            <pre class="pn-midi-monitor-log" aria-live="polite"></pre>
+        </div>
+    `;
+    el.appendChild(overlay);
+    overlay.focus();
+
+    const lastEl   = overlay.querySelector('.pn-midi-monitor-last');
+    const logEl    = overlay.querySelector('.pn-midi-monitor-log');
+    const statusEl = overlay.querySelector('.pn-midi-monitor-status');
+    const updateStatus = () => {
+        if (!el._midiInputConnected) {
+            statusEl.textContent = 'MIDI not enabled — click MIDI in the top-right toolbar.';
+            return;
+        }
+        const inputs = el._midiAccess
+            ? [...el._midiAccess.inputs.values()].map(i => i.name).filter(Boolean)
+            : [];
+        statusEl.textContent = inputs.length
+            ? `Listening on: ${inputs.join(', ')}`
+            : 'MIDI ON — no input devices detected.';
+    };
+    updateStatus();
+
+    // Sentinel: presence of this function on the element activates
+    // the logging hook in handleMidiMessage. Cleared on close.
+    el._midiMonitorTap = (data) => {
+        const [status, d1, d2 = 0] = data;
+        const ch = (status & 0x0F) + 1;
+        const type = status & 0xF0;
+        let label;
+        if      (type === 0x80) label = `NOTE OFF  ch${ch}  note ${d1} (${noteName(d1)})  vel ${d2}`;
+        else if (type === 0x90) label = (d2 === 0
+                                        ? `NOTE OFF  ch${ch}  note ${d1} (${noteName(d1)})`
+                                        : `NOTE ON   ch${ch}  note ${d1} (${noteName(d1)})  vel ${d2}`);
+        else if (type === 0xA0) label = `AFT TOUCH ch${ch}  note ${d1}  pres ${d2}`;
+        else if (type === 0xB0) label = `CC        ch${ch}  CC${d1}  val ${d2}`;
+        else if (type === 0xC0) label = `PROG CHG  ch${ch}  prog ${d1}`;
+        else if (type === 0xD0) label = `CH PRES   ch${ch}  pres ${d1}`;
+        else if (type === 0xE0) label = `PITCH     ch${ch}  ${(d2<<7|d1) - 8192}`;
+        else                    label = `0x${status.toString(16).toUpperCase()}  ${d1}  ${d2}`;
+        const ts = new Date().toLocaleTimeString([], { hour12: false });
+        lastEl.textContent = label;
+        // Prepend so the newest line is on top — keeps the cursor
+        // glued to where new data lands. Cap at 200 lines.
+        const next = `[${ts}] ${label}\n${logEl.textContent}`;
+        const lines = next.split('\n');
+        logEl.textContent = lines.slice(0, 200).join('\n');
+    };
+    overlay.querySelector('.pn-midi-monitor-clear').addEventListener('click', () => {
+        logEl.textContent = '';
+        lastEl.textContent = 'Waiting for MIDI…';
+    });
+    const close = () => {
+        delete el._midiMonitorTap;
+        overlay.remove();
+    };
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('.pn-help-close')) close();
+    });
+    overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+}
+
+function noteName(n) {
+    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    return `${names[n % 12]}${Math.floor(n / 12) - 1}`;
+}
+
 export function showCategoryModal(el) {
     el.querySelector('.pn-help-overlay')?.remove();
     const overlay = document.createElement('div');

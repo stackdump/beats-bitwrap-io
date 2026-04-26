@@ -53,7 +53,7 @@ import {
 } from './lib/ui/canvas.js';
 import {
     openMidiEditor, fireTransition,
-    showQuickstartModal, showHelpModal, showCategoryModal, showWelcomeCard,
+    showQuickstartModal, showHelpModal, showCategoryModal, showMidiMonitorModal, showWelcomeCard,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
 import { toggleStage } from './lib/ui/stage.js';
@@ -1581,6 +1581,7 @@ class PetriNote extends HTMLElement {
     _showWelcomeCard() { return showWelcomeCard(this); }
     _showHelpModal() { return showHelpModal(this); }
     _showCategoryModal() { return showCategoryModal(this); }
+    _showMidiMonitor() { return showMidiMonitorModal(this); }
     _toggleStage() { return toggleStage(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
