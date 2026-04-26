@@ -477,6 +477,7 @@
         <option value="">all</option>
       </select>
     </label>
+    <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-wa" title="Open in Winamp-style player">webamp</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
@@ -1304,12 +1305,17 @@ const fetchPage = async () => {
       return;
     }
     const q = search.value.trim().toLowerCase();
-    const matched = q ? tracks.filter(t => matchesSearch(t, q)) : tracks;
+    let matched = q ? tracks.filter(t => matchesSearch(t, q)) : tracks;
+    if (favOnly) matched = matched.filter(t => isBookmarked(t.cid));
     for (const t of matched) grid.appendChild(renderCard(t));
     if (tracks.length === 0) {
       exhausted = true;
       more.hidden = true;
-      stateEl.textContent = `${grid.children.length} tracks · end of feed`;
+      if (favOnly && grid.children.length === 0) {
+        stateEl.textContent = 'No favorites yet. Tap ★ on a card to bookmark it.';
+      } else {
+        stateEl.textContent = `${grid.children.length} tracks · end of feed`;
+      }
       stateEl.className = 'end';
       stateEl.style.display = 'block';
     } else {
@@ -1377,6 +1383,48 @@ search.addEventListener('input', () => {
 });
 
 more.addEventListener('click', fetchPage);
+
+// Favorites filter — toggles a client-side ★ filter on the grid.
+// Bookmarks are localStorage so the server keeps paginating the full
+// feed; we just hide non-bookmarked cards. Auto-loads more pages
+// while the on-screen match count is small so the user isn't left
+// staring at an empty grid when their favorites live on page 4.
+const favBtn = document.getElementById('toggle-fav');
+let favOnly = url.searchParams.get('fav') === '1';
+const renderFavBtnState = () => {
+  favBtn.dataset.on = favOnly ? 'true' : 'false';
+  favBtn.title = favOnly
+    ? 'Showing favorites only — click to show all'
+    : 'Show only bookmarked tracks';
+};
+renderFavBtnState();
+const refillIfFavorThin = async () => {
+  if (!favOnly) return;
+  // Keep paging until we have a screenful, the feed is exhausted, or
+  // we've burned through 10 pages (defensive cap so a user with no
+  // favorites doesn't trigger an infinite fetch loop).
+  let safety = 10;
+  while (favOnly && !exhausted && grid.children.length < 12 && safety-- > 0) {
+    await fetchPage();
+  }
+};
+favBtn.addEventListener('click', () => {
+  favOnly = !favOnly;
+  const u = new URL(location.href);
+  if (favOnly) u.searchParams.set('fav', '1');
+  else u.searchParams.delete('fav');
+  history.replaceState(null, '', u);
+  renderFavBtnState();
+  reset();
+  refillIfFavorThin();
+});
+// First-load: if landed with ?fav=1, fetchPage already ran; just
+// refill if needed once it returns.
+if (favOnly) {
+  // Defer one tick so the first fetchPage in <body onload> kicks off
+  // before we start counting children.
+  setTimeout(refillIfFavorThin, 50);
+}
 
 // ----- Webamp (vendored Winamp 2.9 clone) -----
 //
