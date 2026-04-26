@@ -474,9 +474,14 @@ export function openFeelModal(el) {
     redraw();
 
     let dragging = false;
+    let puckBeforeGrab = null;
     const onDown = (e) => {
         // Clicking anywhere inside the pad jumps the puck there and
-        // starts a drag — matches Alchemy / Massive X feel.
+        // starts a drag — matches Alchemy / Massive X feel. Snapshot
+        // the pre-grab position so release can restore it (spring
+        // return — Feel becomes a temporary modulation, not a
+        // destructive setter, mirroring the joystick BPM model).
+        puckBeforeGrab = [...puck];
         dragging = true;
         puck = svgToPuck(svg, e.clientX, e.clientY);
         puckEl.classList.add('dragging');
@@ -497,6 +502,14 @@ export function openFeelModal(el) {
         dragging = false;
         puckEl.classList.remove('dragging');
         svg.releasePointerCapture?.(e.pointerId);
+        // Spring-return: snap back to where the puck was before the
+        // grab, re-applying the corresponding BPM + tone.
+        if (puckBeforeGrab) {
+            puck = puckBeforeGrab;
+            puckBeforeGrab = null;
+            redraw();
+            pushLive();
+        }
     };
     svg.addEventListener('pointerdown', onDown);
     svg.addEventListener('pointermove', onMove);
