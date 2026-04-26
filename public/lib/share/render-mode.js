@@ -41,18 +41,6 @@ export function initRenderMode(el) {
     window.__renderError = null;
     window.__renderInfo = { started: false };
 
-    // Visual work the page does every frame (ring canvas redraw,
-    // particle viz, chase-light pulses, stage panels, mixer DOM)
-    // saturates the CPU on a small render box and starves the worker's
-    // setInterval, producing audible jitter in the captured webm. The
-    // headless render doesn't need any of it. Stub rAF before runRender
-    // awaits — every rAF chain in the page no-ops itself out at the
-    // first tick, freeing the core for the worker. Audio scheduling
-    // runs through Tone.js / AudioContext, never touches rAF.
-    let rafId = 0;
-    window.requestAnimationFrame = function () { return ++rafId; };
-    window.cancelAnimationFrame  = function () {};
-
     runRender(el).catch((err) => {
         console.error('[render-mode] failed:', err && err.message || err);
         window.__renderError = String(err && err.message || err);
