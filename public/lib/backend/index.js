@@ -303,12 +303,20 @@ export function connectWorker(el) {
         // Older handler logged just `err`, which serializes to "[object Event]"
         // because Worker error events are plain Events without a parsed Error.
         // Pull every field that might exist so a real failure leaves a trail.
-        console.error(
-            'Worker error:',
+        const detail = [
             err.message || '(no message)',
             err.filename ? `at ${err.filename}:${err.lineno}:${err.colno}` : '',
             err.error?.stack || '',
-        );
+        ].filter(Boolean).join(' ');
+        // First-spawn errors are expected (documented service-worker
+        // activation race — the workaround above respawns cleanly).
+        // Log them quietly so users don't think the page is broken;
+        // only escalate to console.error if the respawn ALSO fails.
+        if (!el._workerRespawned) {
+            console.info('Worker first-spawn failed (will respawn):', detail);
+        } else {
+            console.error('Worker error after respawn:', detail);
+        }
         respawnIfNeeded();
     };
 
