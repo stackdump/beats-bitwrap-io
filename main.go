@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"beats-bitwrap-io/internal/audiorender"
+	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
 	mcpserver "beats-bitwrap-io/internal/mcp"
 	"beats-bitwrap-io/internal/midiout"
@@ -892,6 +893,17 @@ func feedHandler(idx *index.DB) http.HandlerFunc {
 			http.Error(w, "feed query failed", http.StatusInternalServerError)
 			return
 		}
+		// Backfill display names for rows persisted before the name
+		// column was wired up. Names are deterministic from
+		// (genre, seed) — same composer that produced the project
+		// would emit the same string. Without this, the playlist /
+		// feed cards fall back to "techno · -1800543357" (raw seed)
+		// instead of "techno · Wired Pulse".
+		for i := range tracks {
+			if tracks[i].Name == "" {
+				tracks[i].Name = generator.NameForSeed(tracks[i].Genre, tracks[i].Seed)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(tracks)
@@ -925,7 +937,9 @@ func rssFeedHandler(idx *index.DB, publicURL string) http.HandlerFunc {
 		for _, t := range tracks {
 			title := t.Name
 			if title == "" {
-				title = fmt.Sprintf("%s · %d", t.Genre, t.Seed)
+				// Same backfill the JSON feed does — keep RSS titles
+				// in sync with the playlist UI.
+				title = generator.NameForSeed(t.Genre, t.Seed)
 			}
 			itemURL := fmt.Sprintf("%s/?cid=%s", publicURL, t.CID)
 			audioURL := fmt.Sprintf("%s/audio/%s.webm", publicURL, t.CID)

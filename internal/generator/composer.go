@@ -1112,6 +1112,20 @@ func groupForRole(netId, riffGroup string) string {
 	return ""
 }
 
+// NameForSeed returns the canonical track name for a (genre, seed)
+// pair — same one Compose() would emit. Cheap to call (one rand.Rand,
+// two intN draws). Used by the feed handler to backfill display names
+// for indexed rows that were stored before the name column was wired
+// up, so the UI doesn't fall back to showing the raw seed integer.
+func NameForSeed(genre string, seed int64) string {
+	g, ok := Genres[genre]
+	if !ok {
+		g = Genres["techno"]
+	}
+	rng := rand.New(rand.NewSource(seed))
+	return generateTrackName(g.Name, rng)
+}
+
 // generateTrackName creates a random creative name like "ambient · Neon Drift"
 func generateTrackName(genre string, rng *rand.Rand) string {
 	adjectives := []string{
