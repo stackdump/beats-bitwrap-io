@@ -142,6 +142,11 @@
     background: color-mix(in srgb, var(--genre-color, #4a90d9) 18%, transparent);
     outline: none;
   }
+  .card-genre-chip[data-active="true"] {
+    background: color-mix(in srgb, var(--genre-color, #4a90d9) 30%, transparent);
+    color: #fff;
+    font-weight: 600;
+  }
   .card-actions {
     position: absolute;
     top: 8px; right: 8px;
@@ -365,6 +370,21 @@
     cursor: pointer; font-family: inherit;
   }
   .pl-empty-cta:hover, .pl-empty-cta:active { background: #245a3a; color: #cfc; }
+  .help-modal-inner { max-height: 86vh; overflow-y: auto; }
+  .help-modal-body { padding: 28px 32px; line-height: 1.5; }
+  .help-modal-body h2 { margin: 0 0 6px; font-size: 22px; color: #eee; }
+  .help-modal-body h3 { margin: 22px 0 8px; font-size: 14px; letter-spacing: 0.06em;
+                        text-transform: uppercase; color: #9ad; font-weight: 600; }
+  .help-modal-body .help-tag { margin: 0 0 8px; font-size: 13px; color: #aaa; }
+  .help-modal-body code {
+    background: #1a1a2e; padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, monospace; font-size: 12px; color: #cdf;
+  }
+  .help-modal-body a { color: #9ad; }
+  .help-dl { display: grid; grid-template-columns: max-content 1fr;
+             column-gap: 14px; row-gap: 6px; margin: 0; font-size: 13px; }
+  .help-dl dt { color: #cdf; font-weight: 600; font-family: ui-monospace, monospace; }
+  .help-dl dd { color: #ccc; margin: 0; }
   /* Narrow viewports: phone-class. The 360px sidebar column would
      leave ~15px for the grid, so flip it into a full-screen overlay
      when toggled open. The grid always has the full width; the
@@ -499,6 +519,7 @@
     <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-wa" title="Open in Winamp-style player">webamp</button>
+    <button class="pn-toggle-pl" id="toggle-help" title="Help (?)">?</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
     <a href="/" class="rss" title="Open the synth editor — generate a new track">studio →</a>
   </div>
@@ -545,6 +566,47 @@
     <div class="card-modal-actions">
       <button class="card-modal-play">▶ Play</button>
       <a class="card-modal-open" href="#">Open in editor</a>
+    </div>
+  </div>
+</div>
+<div id="help-modal" class="card-modal" hidden>
+  <div class="card-modal-inner help-modal-inner">
+    <button class="card-modal-close" title="Close (Esc)">&times;</button>
+    <div class="help-modal-body">
+      <h2>beats.bitwrap.io · feed</h2>
+      <p class="help-tag">Curated, deterministic Petri-net beats. Every card is a content-addressed share — same URL, same audio, forever.</p>
+
+      <h3>Card actions</h3>
+      <dl class="help-dl">
+        <dt>▶</dt><dd>Play / pause this track inline.</dd>
+        <dt>★</dt><dd>Bookmark — saved locally to this browser only.</dd>
+        <dt>+</dt><dd>Add to your playlist queue.</dd>
+        <dt>⟳</dt><dd>Flag broken or stuck audio for an off-host worker to re-render. Hidden when the rebuild queue isn't enabled on this server.</dd>
+        <dt>genre chip</dt><dd>Click to filter the feed to that genre. Click again to clear.</dd>
+        <dt>card body</dt><dd>Tap (mobile) plays inline. Click (desktop) opens the synth editor with that track loaded.</dd>
+      </dl>
+
+      <h3>Filter bar</h3>
+      <dl class="help-dl">
+        <dt>search</dt><dd>Match by name, seed, genre, or CID.</dd>
+        <dt>genre</dt><dd>Server-side filter to one genre. Drives the URL <code>?genre=…</code>.</dd>
+        <dt>★ favorites</dt><dd>Show only locally-bookmarked tracks.</dd>
+        <dt>playlist</dt><dd>Toggle the queue sidebar (overlay on mobile).</dd>
+        <dt>webamp</dt><dd>Open your queue in a Winamp 2.9-style player.</dd>
+        <dt>RSS</dt><dd>Podcast-shaped feed of recent renders.</dd>
+        <dt>studio →</dt><dd>Jump to the synth editor to generate a new track.</dd>
+      </dl>
+
+      <h3>Keyboard</h3>
+      <dl class="help-dl">
+        <dt>?</dt><dd>Open this help.</dd>
+        <dt>Esc</dt><dd>Close any open modal.</dd>
+      </dl>
+
+      <h3>Sharing</h3>
+      <p class="help-tag">Every card URL (<code>/?cid=…</code>) reproduces the exact track in any browser. Append <code>&title=</code> to override the displayed name in the social card. Audio is rendered headless and cached on disk; a cold first listen takes 1-3 minutes.</p>
+
+      <p class="help-tag">Source &amp; docs: <a href="https://github.com/stackdump/beats-bitwrap-io">github.com/stackdump/beats-bitwrap-io</a> · <a href="/schema/beats-share">share-v1 schema</a></p>
     </div>
   </div>
 </div>
@@ -1184,14 +1246,20 @@ const renderCard = (t) => {
     chip.type = 'button';
     chip.className = 'card-genre-chip';
     chip.textContent = t.genre;
-    chip.title = `Filter feed to ${t.genre}`;
+    const isActive = genreSel.value === t.genre;
+    chip.dataset.active = isActive ? 'true' : 'false';
+    chip.title = isActive
+      ? `Showing only ${t.genre} — click to clear filter`
+      : `Filter feed to ${t.genre}`;
     const gc = colorForGenre(t.genre);
     if (gc) chip.style.setProperty('--genre-color', gc);
     chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (genreSel.value === t.genre) return; // already filtered
-      genreSel.value = t.genre;
+      // Same-chip click toggles back to "all" — useful when the user
+      // pivots into a genre via the chip and wants out without
+      // hunting for the dropdown.
+      genreSel.value = (genreSel.value === t.genre) ? '' : t.genre;
       genreSel.dispatchEvent(new Event('change'));
     });
     subEl.appendChild(chip);
@@ -1504,6 +1572,26 @@ if (favOnly) {
   // before we start counting children.
   setTimeout(refillIfFavorThin, 50);
 }
+
+// Help modal — opened by the ? button in the filter bar or the ?
+// keyboard shortcut. Esc / backdrop click / × all close. Mirrors
+// the card-modal pattern (single document keydown listener gated
+// on the modal's `hidden` attribute, so we don't pile up handlers).
+const helpModal = document.getElementById('help-modal');
+const helpBtn = document.getElementById('toggle-help');
+const openHelp = () => { helpModal.hidden = false; };
+const closeHelp = () => { helpModal.hidden = true; };
+helpBtn.addEventListener('click', openHelp);
+helpModal.querySelector('.card-modal-close').addEventListener('click', closeHelp);
+helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
+document.addEventListener('keydown', (e) => {
+  if (!helpModal.hidden && e.key === 'Escape') { closeHelp(); return; }
+  // Don't grab ? when focus is in a text input — they might be
+  // typing a search query that contains it.
+  const tag = (document.activeElement?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (e.key === '?') { openHelp(); }
+});
 
 // ----- Webamp (vendored Winamp 2.9 clone) -----
 //

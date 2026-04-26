@@ -299,7 +299,8 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 |---|---|
 | `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
 | `data/audio/` | Cached audio renders (wav/mp3) served to the feed. Safe to delete — server re-creates them on demand when audio-render is enabled. |
-| `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`. Recreated on startup from `schema.sql` if missing. Safe to delete. |
+| `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
+| `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Worker uploads carrying this in `X-Rebuild-Secret` bypass first-write-wins on PUT `/audio/{cid}.webm`. Treat as a credential — don't commit, don't paste in chat. |
 
 ### Purge the feed without nuking shares
 
@@ -322,6 +323,47 @@ ssh pflow.dev "~/services start && ~/services list"
 Verify the feed is empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
 
 To **also** purge every shared CID (much more destructive — every `?cid=…` URL anyone has ever made returns 404 forever): `rm -rf data/o`. Don't do this unless that's specifically what you want.
+
+### Rebuild queue (off-host audio repair)
+
+Listeners can flag a feed card with broken or stuck audio by tapping the
+⟳ button — the server records the CID in `data/index.db.rebuild_queue`,
+and an off-host worker (`scripts/process-rebuild-queue.py`) picks it
+up, re-renders, uploads, and clears the row. Live in production
+(prod's `~/services` script invokes the binary with `-rebuild-queue`);
+the ⟳ button is hidden when the flag is off.
+
+Routes (all open: anyone can mark, anyone can read, anyone can clear —
+the cost of abuse is bounded by the worker's render budget and the
+`X-Rebuild-Secret` gating on actual writes):
+
+- `POST /api/rebuild-mark {cid}` — adds to queue (rate-limited via the
+  share-store limiter).
+- `GET  /api/rebuild-queue?limit=N` — JSON array of pending CIDs.
+- `POST /api/rebuild-clear {cid}` — removes a row (worker calls after
+  a successful upload).
+- `GET  /api/features` — `{rebuildQueue, genreColors}`. Frontend
+  feature-detects the ⟳ button visibility from this.
+
+Worker (run on a MacBook with chromedp / Chrome):
+
+```bash
+ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret"
+# in one terminal — local server with -audio-auto-enqueue=false to avoid
+# the chromedp race that produced the original 110-byte stubs:
+./beats-bitwrap-io -authoring -audio-render -audio-auto-enqueue=false \
+    -audio-concurrent 2 -audio-max-duration 6m -audio-render-timeout 15m \
+    -addr :18090 -data /tmp/beats-worker-data
+# in another terminal:
+BEATS_REBUILD_SECRET=$(...) ./scripts/process-rebuild-queue.py --watch
+```
+
+The worker sends `X-Rebuild-Secret` on every PUT `/audio/{cid}.webm`
+which bypasses three checks: rate limit, faster-than-realtime, and
+first-write-wins. That last one is what lets it replace stuck audio
+without SSH-deleting the bad file. Without the secret, a worker can
+still queue and render but its uploads fall back to the public path —
+fine for fresh CIDs, useless for stuck ones.
 
 ## Conventions
 
