@@ -155,16 +155,29 @@ export function applyProjectSync(el, project, seamless = false) {
     el._normalizeProject();
     el._vizHistory = [];
     // Save to track history (unless navigating back). Capped at 99.
+    // Dedupe by content: every project-load we send to the worker
+    // echoes back as project-sync (worker.loadProject posts one to
+    // mirror state — required for the share-v2 raw-nets boot path).
+    // Without dedupe, that echo gets pushed as a "new" track, so a
+    // single user action like Generate produces 2-4 identical history
+    // entries and the prev/next nav reads "4/4" on first load. Cheap
+    // fingerprint over the bits a regen would change (name + nets);
+    // skips false positives without needing a deep compare.
     if (!el._navingHistory) {
-        if (el._trackIndex < el._trackHistory.length - 1) {
-            el._trackHistory.length = el._trackIndex + 1;
+        const fingerprint = (project.name || '') + '|' + JSON.stringify(project.nets || {});
+        const head = el._trackHistory[el._trackHistory.length - 1];
+        const headFingerprint = head ? (head.name || '') + '|' + JSON.stringify(head.nets || {}) : null;
+        if (fingerprint !== headFingerprint) {
+            if (el._trackIndex < el._trackHistory.length - 1) {
+                el._trackHistory.length = el._trackIndex + 1;
+            }
+            el._trackHistory.push(JSON.parse(JSON.stringify(project)));
+            const MAX_TRACK_HISTORY = 99;
+            while (el._trackHistory.length > MAX_TRACK_HISTORY) {
+                el._trackHistory.shift();
+            }
+            el._trackIndex = el._trackHistory.length - 1;
         }
-        el._trackHistory.push(JSON.parse(JSON.stringify(project)));
-        const MAX_TRACK_HISTORY = 99;
-        while (el._trackHistory.length > MAX_TRACK_HISTORY) {
-            el._trackHistory.shift();
-        }
-        el._trackIndex = el._trackHistory.length - 1;
     }
     el._navingHistory = false;
     el._tempo = project.tempo || 120;
