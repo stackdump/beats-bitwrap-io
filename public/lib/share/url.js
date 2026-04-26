@@ -421,6 +421,30 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
         }
     };
 
+    // Inline "or render in this tab" affordance for the queued / rendering
+    // states — lets the user skip the server queue entirely instead of
+    // staring at a wait timer. Returns empty when MediaRecorder isn't
+    // available so Safari iOS doesn't see a dead link.
+    const localRenderLink = () => {
+        if (!isClientRenderSupported()) return '';
+        return `
+            <div style="margin-top:8px;font-size:11px;color:#777">
+                Or
+                <a href="#" class="pn-share-local-link" style="color:#9ad;text-decoration:none">render in this tab now</a>
+                — keeps the server queue free.
+            </div>
+        `;
+    };
+    const wireLocalRenderLink = () => {
+        const link = audioBlock.querySelector('.pn-share-local-link');
+        if (!link) return;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            stop(); // we own the block now; halt server polling/timers
+            runLocalRender();
+        });
+    };
+
     // Run an in-tab render of the currently-loaded project and trigger
     // a download. Same MediaRecorder pipeline the server uses
     // (lib/share/client-render.js). Identifies the file by the SAME
@@ -504,7 +528,9 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
             <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
                 <div style="position:absolute;left:0;top:0;bottom:0;width:100%;background:repeating-linear-gradient(45deg,#1a1a2e 0,#1a1a2e 6px,#0f3460 6px,#0f3460 12px);opacity:0.6"></div>
             </div>
+            ${localRenderLink()}
         `;
+        wireLocalRenderLink();
     };
 
     // Once Status returns "rendering" we get a server-authoritative
@@ -523,7 +549,9 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
             <div style="position:relative;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
                 <div class="pn-share-audio-bar" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#0f3460,#e94560);transition:width 0.5s linear"></div>
             </div>
+            ${localRenderLink()}
         `;
+        wireLocalRenderLink();
         const bar = audioBlock.querySelector('.pn-share-audio-bar');
         const eta = audioBlock.querySelector('.pn-share-audio-eta');
         if (tickTimer) clearInterval(tickTimer);
