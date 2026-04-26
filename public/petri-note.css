@@ -2232,6 +2232,50 @@ input[type="range"][data-default] {
     background: #d63851;
 }
 
+/* Live transpose pill — sits in the action row near Stage / Player.
+   Three buttons + a value display, grouped as one visual unit so it
+   doesn't read as four loose controls. The MIDI-listen toggle lights
+   up green when armed; the value lights up amber when non-zero. */
+.pn-transpose {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #0a1428;
+    font-family: ui-monospace, "Courier New", monospace;
+    font-size: 11px;
+    margin-left: 4px;
+}
+.pn-transpose button {
+    background: transparent;
+    border: none;
+    color: #4a90d9;
+    cursor: pointer;
+    padding: 4px 7px;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+}
+.pn-transpose button:hover { background: #16213e; color: #fff; }
+.pn-transpose-val {
+    min-width: 28px;
+    text-align: center;
+    color: #888;
+    padding: 4px 4px;
+    border-left: 1px solid #0f3460;
+    border-right: 1px solid #0f3460;
+    cursor: default;
+    user-select: none;
+    font-weight: 700;
+}
+.pn-transpose-val[data-lit="true"] { color: #f5a623; text-shadow: 0 0 4px rgba(245,166,35,0.4); }
+.pn-transpose-listen[data-on="true"] {
+    background: linear-gradient(180deg, #00ff66 0%, #00aa44 100%);
+    color: #002211;
+    box-shadow: inset 0 0 0 1px #66ffaa;
+}
+
 .pn-shuffle-btn {
     padding: 6px 14px;
     border: 1px solid #0f3460;

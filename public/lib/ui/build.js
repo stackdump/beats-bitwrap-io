@@ -256,6 +256,12 @@ export function buildUI(el) {
             <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
             <button class="pn-stage-btn" title="Stage — full-page visualizer (M)" aria-label="Open Stage">&#9635; Stage</button>
             <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the feed player" aria-label="Open feed player">&#9658; Player</a>
+            <span class="pn-transpose" title="Live transpose — applied to all non-drum channels at fire time. Click ± to nudge, double-click value to reset, MIDI button to listen for keybed input.">
+                <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
+                <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
+                <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
+            </span>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
             <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
             <button class="pn-download-btn" title="Download track as JSON-LD">&#x2B07;</button>
@@ -345,6 +351,45 @@ export function buildUI(el) {
         el._updateTraits();
     });
     el._initTraitClicks();
+
+    // Live transpose pill — applied to non-drum channels at fire time
+    // by onRemoteTransitionFired. Performance state, not persisted to
+    // the share envelope. The MIDI listen mode latches: turn it on,
+    // play any key on your keybed, transpose snaps to that key
+    // (relative to project root or C4 fallback), latch stays until
+    // you press another key.
+    if (el._liveTranspose == null) el._liveTranspose = 0;
+    if (el._transposeListen == null) el._transposeListen = false;
+    const tVal    = el.querySelector('.pn-transpose-val');
+    const tDown   = el.querySelector('.pn-transpose-down');
+    const tUp     = el.querySelector('.pn-transpose-up');
+    const tListen = el.querySelector('.pn-transpose-listen');
+    const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const renderTranspose = () => {
+        const n = el._liveTranspose | 0;
+        const sign = n > 0 ? '+' : (n < 0 ? '−' : '+');
+        tVal.textContent = `${sign}${Math.abs(n)}`;
+        tVal.dataset.lit = n !== 0 ? 'true' : 'false';
+        // Resolved key name = (project root || C) + transpose, mod 12.
+        const root = (el._project?.rootNote ?? 60) | 0;
+        const key  = NOTE_NAMES[(((root + n) % 12) + 12) % 12];
+        tVal.title = `Live transpose: ${sign}${Math.abs(n)} semitones (current key ≈ ${key}). Double-click to reset.`;
+        tListen.dataset.on = el._transposeListen ? 'true' : 'false';
+        tListen.setAttribute('aria-pressed', el._transposeListen ? 'true' : 'false');
+    };
+    el._renderTranspose = renderTranspose;
+    el._setLiveTranspose = (n) => {
+        el._liveTranspose = Math.max(-24, Math.min(24, n | 0));
+        renderTranspose();
+    };
+    tDown.addEventListener('click',  () => el._setLiveTranspose(el._liveTranspose - 1));
+    tUp.addEventListener('click',    () => el._setLiveTranspose(el._liveTranspose + 1));
+    tVal.addEventListener('dblclick', () => el._setLiveTranspose(0));
+    tListen.addEventListener('click', () => {
+        el._transposeListen = !el._transposeListen;
+        renderTranspose();
+    });
+    renderTranspose();
 
     // Mixer panel (replaces tabs + track settings)
     const mixer = document.createElement('div');

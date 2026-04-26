@@ -97,7 +97,16 @@ export function handleMidiNoteOn(el, note) {
         return;
     }
     const macroId = el._padBindings.get(note);
-    if (macroId) el._fireMacro(macroId);
+    if (macroId) { el._fireMacro(macroId); return; }
+    // Live transpose listen mode: an unbound Note On (i.e. anything
+    // that wasn't a pad-binding) sets the transpose offset relative
+    // to the project's natural root (C4 fallback). Latched — the
+    // offset stays until the user plays another key. The toggle is
+    // the .pn-transpose-listen pill in the header.
+    if (el._transposeListen && typeof el._setLiveTranspose === 'function') {
+        const root = (el._project?.rootNote ?? 60) | 0;
+        el._setLiveTranspose(note - root);
+    }
 }
 
 // --- Tone.js bootstrap ---

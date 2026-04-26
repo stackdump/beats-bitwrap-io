@@ -7,7 +7,7 @@
 // petri-note.js keeps one-line wrapper methods so call sites are
 // unchanged (`el._togglePlay()`, `el._sendWs(msg)`, etc.).
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 
@@ -671,6 +671,16 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
             if (Number.isFinite(semi) && semi !== 0) {
                 m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
             }
+        }
+        // Live transpose: a runtime semitone offset set by the
+        // .pn-transpose pill (or a MIDI keybed press while
+        // transpose-listen mode is on). Applies to melodic / harmonic
+        // channels only — drums keep their fixed kit notes so the
+        // kick/snare don't slide off the wrong key when the user
+        // pivots into a new key mid-loop.
+        const xpose = el._liveTranspose | 0;
+        if (xpose !== 0 && m && !isDrumChannel(m.channel)) {
+            m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + xpose)) };
         }
         // Three playback paths, picked in order of preference:
         //  - Audio-grid path (playbackTicks + tickIntervalMs defined):
