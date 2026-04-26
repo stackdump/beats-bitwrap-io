@@ -11,51 +11,14 @@
 // public/lib/macros/catalog.js and public/lib/ui/build.js respectively.
 // If you change either source of truth, update presets to match.
 
-export const PRESETS = [
-    {
-        id: 'akai-mpk-mini',
-        // Matches "MPK mini 3", "MPKmini2", "Akai MPK mini", etc.
-        // The MK1/MK2/MK3 controllers all carry "MPK" + "mini" in the
-        // device name; differences in default CCs are smoothed over by
-        // the user's MPK Editor app — these are the factory defaults.
-        match: /mpk\s*mini/i,
-        label: 'Akai MPK Mini',
-        notes: 'Pad bank B (notes 44–51) on channel 1 — the layout most ' +
-               'units ship with via Akai\'s MPK Editor. Knobs K1–K8 on ' +
-               'CC70–77. Pads mute / unmute riff groups (drums / bass / ' +
-               'melody / harmony / arp / pad / lead / stinger). If your ' +
-               'pads send different numbers, open Monitor to verify.',
-        // Pad bank B — 8 pads, notes 44..51 on channel 1. This is what
-        // user-tested units actually send (verified 2026-04-26 against
-        // an MPK Mini Mk3); the factory "bank A starts at 36 channel
-        // 10" claim from older Akai docs doesn't reflect the firmware.
-        // Each pad toggles mute on a riff group.
-        pads: {
-            44: { type: 'mute', target: 'drums'   },
-            45: { type: 'mute', target: 'bass'    },
-            46: { type: 'mute', target: 'melody'  },
-            47: { type: 'mute', target: 'harmony' },
-            48: { type: 'mute', target: 'arp'     },
-            49: { type: 'mute', target: 'pad'     },
-            50: { type: 'mute', target: 'lead'    },
-            51: { type: 'mute', target: 'stinger' },
-        },
-        // K1..K8 → master mixer + the heavy-hitter FX wets. CC70 starts
-        // here because that's the MPK's factory default for K1; if the
-        // user has reprogrammed via Akai's editor, they'll need to
-        // re-bind manually.
-        ccs: {
-            70: 'master-vol',
-            71: 'reverb-wet',
-            72: 'delay-wet',
-            73: 'hp-freq',
-            74: 'lp-freq',
-            75: 'phaser-wet',
-            76: 'crush-bits',
-            77: 'master-pitch',
-        },
-    },
-];
+// No factory bindings ship right now — too many MPK / LaunchKey /
+// other-controller variants send different default note + CC numbers
+// for what looks like the same hardware (firmware revs, MPK Editor
+// presets, bank A vs B). The hover-bind flow + MIDI Monitor modal
+// produce a more reliable layout than guessing from the device name.
+// Add device-specific entries here only when a layout is verified
+// against real hardware AND the user wants a one-click setup.
+export const PRESETS = [];
 
 // Returns the first PRESETS entry that matches `name`, or null.
 export function detectPreset(name) {

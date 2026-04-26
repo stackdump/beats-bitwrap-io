@@ -197,6 +197,8 @@ export function renderMixer(el) {
                 .filter(Boolean);
             const divider = document.createElement('div');
             divider.className = 'pn-mixer-divider';
+            divider.dataset.section = section;
+            divider.title = `Hover + tap a pad to bind it to mute / unmute the whole ${label} section`;
             divider.innerHTML = `<span class="pn-mixer-divider-label">${label}</span>` +
                 `<span class="pn-mixer-divider-list">${membersInSection.join(' · ')}</span>`;
             el._mixerEl.appendChild(divider);
@@ -458,12 +460,19 @@ function bindMixerEvents(el) {
         // {type:'mute'} pad binding for that riff group / net id.
         const mute = e.target.closest('.pn-mixer-mute');
         if (mute) el._hoveredMute = mute;
+        // Section-divider hover — same flow but binds the pad to a
+        // section-wide mute (drums / bass / melody / …), not a single
+        // track. Useful for "kill the entire bass section" pads.
+        const divider = e.target.closest('.pn-mixer-divider[data-section]');
+        if (divider) el._hoveredSection = divider;
     });
     el._mixerEl.addEventListener('mouseout', (e) => {
         const slider = e.target.closest('.pn-mixer-slider');
         if (slider && slider === el._hoveredSlider) el._hoveredSlider = null;
         const mute = e.target.closest('.pn-mixer-mute');
         if (mute && mute === el._hoveredMute) el._hoveredMute = null;
+        const divider = e.target.closest('.pn-mixer-divider[data-section]');
+        if (divider && divider === el._hoveredSection) el._hoveredSection = null;
     });
 
     // Cursor-anchored value tip — follows the mouse over any slider

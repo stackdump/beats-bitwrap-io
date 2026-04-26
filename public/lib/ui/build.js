@@ -756,7 +756,11 @@ export function buildUI(el) {
         };
         el._renderTranspose = renderTranspose;
         el._setLiveTranspose = (n) => {
-            el._liveTranspose = Math.max(-24, Math.min(24, n | 0));
+            // ±48 semitones = 4 octaves up + down. Beyond that the
+            // post-transpose MIDI note clamp at fire time (0..127)
+            // starts swallowing notes — most synth voices already
+            // hit their natural range limit by 4 octaves anyway.
+            el._liveTranspose = Math.max(-48, Math.min(48, n | 0));
             renderTranspose();
         };
         tDown.addEventListener('click',   () => el._setLiveTranspose(el._liveTranspose - 1));
@@ -1247,6 +1251,24 @@ export function buildUI(el) {
     fx.addEventListener('mouseout', (e) => {
         const slider = e.target.closest('.pn-fx-slider');
         if (slider && slider === el._hoveredSlider) el._hoveredSlider = null;
+    });
+
+    // BPM input — hover tracking so a CC twist while hovering binds
+    // the knob to live tempo control. Lives on el (not fx) since the
+    // .pn-tempo input is in the header.
+    el.addEventListener('mouseover', (e) => {
+        const bpm = e.target.closest('.pn-tempo');
+        if (bpm) {
+            const input = bpm.querySelector('input[type="number"]');
+            if (input) el._hoveredSlider = input;
+        }
+    });
+    el.addEventListener('mouseout', (e) => {
+        const bpm = e.target.closest('.pn-tempo');
+        if (bpm) {
+            const input = bpm.querySelector('input[type="number"]');
+            if (input && input === el._hoveredSlider) el._hoveredSlider = null;
+        }
     });
 
     // FX scroll wheel support (1% per tick)

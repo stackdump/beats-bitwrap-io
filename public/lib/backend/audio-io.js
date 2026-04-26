@@ -62,9 +62,19 @@ function detectAndStorePreset(el) {
 // --- MIDI bindings ---
 
 // Build a logical key and CSS selector for a slider so bindings survive DOM rebuilds.
+// Optional `min`/`max` overrides bound the CC scaling range when the
+// slider's native range is too wide for usable knob control (e.g. BPM
+// natively allows 20-300, but 60-200 is the practical performance band).
 export function sliderBindingKey(slider) {
     if (slider.dataset.fx) {
         return { key: `fx:${slider.dataset.fx}`, selector: `.pn-fx-slider[data-fx="${slider.dataset.fx}"]` };
+    }
+    if (slider.closest('.pn-tempo')) {
+        return {
+            key: 'tempo',
+            selector: '.pn-tempo input[type="number"]',
+            min: 60, max: 200,
+        };
     }
     const row = slider.closest('.pn-mixer-row');
     if (!row) return null;
@@ -110,10 +120,16 @@ export function handleMidiCC(el, cc, value) {
     const slider = resolveBinding(el, binding);
     if (!slider) return;
 
-    const min = parseFloat(slider.min);
-    const max = parseFloat(slider.max);
+    // Binding-level overrides win over the input's native min/max so
+    // tempo (native 20-300) maps usable performance range 60-200 onto
+    // the 0-127 CC sweep.
+    const min = binding.min != null ? binding.min : parseFloat(slider.min);
+    const max = binding.max != null ? binding.max : parseFloat(slider.max);
     slider.value = Math.round(min + (value / 127) * (max - min));
+    // Fire BOTH events: FX sliders react to `input` for live updates,
+    // BPM input listens for `change` only.
     slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 export function handleMidiNoteOn(el, note) {
@@ -139,6 +155,22 @@ export function handleMidiNoteOn(el, note) {
             const btn = el._hoveredMute;
             btn.style.outline = '2px solid #64ffda';
             setTimeout(() => { btn.style.outline = ''; }, 300);
+            el._renderMidiPanel?.();
+            return;
+        }
+    }
+    // Section-divider hover (e.g. the "Drums" heading above the drum
+    // rows) + pad press = bind the pad to a section-wide mute toggle.
+    // Same {type:'mute'} shape — toggleMuteGroup walks the section by
+    // riff group, so the existing dispatch already covers it.
+    if (el._hoveredSection) {
+        const target = el._hoveredSection.dataset.section;
+        if (target) {
+            el._padBindings.set(note, { type: 'mute', target });
+            el._savePadBindings();
+            const div = el._hoveredSection;
+            div.style.outline = '2px solid #64ffda';
+            setTimeout(() => { div.style.outline = ''; }, 300);
             el._renderMidiPanel?.();
             return;
         }
