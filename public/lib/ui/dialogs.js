@@ -486,6 +486,28 @@ export function attachCidHandoffPill(el) {
                     playBtn.textContent = '❚❚';
                     label.textContent = 'Playing recording';
                     if (el._playing) el._togglePlay?.();
+                    // The browser will route media-key events to whichever
+                    // <audio> is the freshest active source, which means
+                    // playing this pill silently steals headphone next /
+                    // prev keys from the studio's MediaSession claim.
+                    // Re-register the studio's nexttrack-as-generate
+                    // handler against this audio so headphones keep doing
+                    // what the user expects regardless of which sound
+                    // source is currently active.
+                    if ('mediaSession' in navigator) {
+                        try {
+                            navigator.mediaSession.setActionHandler('nexttrack', () => {
+                                const genre = el.querySelector('.pn-genre-select')?.value || 'techno';
+                                const structure = el.querySelector('.pn-structure-select')?.value || '';
+                                const params = {};
+                                if (structure) params.structure = structure;
+                                el._sendWs?.({ type: 'generate', genre, params });
+                            });
+                            navigator.mediaSession.setActionHandler('previoustrack', () => {
+                                el._navTrack?.(-1);
+                            });
+                        } catch {}
+                    }
                 });
             }
             if (audio.paused) audio.play().catch(() => {});
