@@ -88,17 +88,60 @@ export async function renderToBlobOffline(el, opts = {}) {
     // the worker uses, just driven by a for-loop instead of setInterval.
     const events = simulateProjectNotes(el._project, totalSteps);
 
+    // Master FX settings from the project envelope. These values mirror
+    // tone-engine.js defaults; envelope overrides win when present. The
+    // perceptual gap between "dry triangles into destination" and
+    // "triangles into a real master chain with reverb + delay + comp"
+    // is huge — closing this is the single biggest fidelity win short
+    // of full per-instrument port.
+    const fx = el._project?.fx || {};
+    const reverbWet  = pct(fx['reverb-wet'],   20) / 100;
+    const reverbSize = pct(fx['reverb-size'],  50) / 100;
+    const reverbDamp = mapDamp(fx['reverb-damp'], 30);
+    const delayWet   = pct(fx['delay-wet'],    15) / 100;
+    const delayTime  = mapDelayTime(fx['delay-time'], 25);
+    const delayFb    = pct(fx['delay-feedback'], 25) / 100;
+    const masterVol  = mapMasterVol(fx['master-vol'], 80);
+
     const wallStart = performance.now();
     const buffer = await Tone.Offline(({ transport }) => {
-        // Build channel → PolySynth map. Generic synth; production work
-        // would use the per-channel instrument config (see module header).
+        // === Master FX chain (mirrors tone-engine.js init() topology) ===
+        //   PolySynth(s) → channel volume → master comp → reverb send + delay send → destination
+        // Stripped vs live: no phaser, no lp/hp filter, no distortion,
+        // no bitcrusher, no pitch-shift, no per-channel filter / pan /
+        // decay. Production fidelity needs full toneEngine refactor.
+        const masterComp = new Tone.Compressor(-12, 3).toDestination();
+        const masterVolume = new Tone.Volume(masterVol).connect(masterComp);
+        const reverb = new Tone.Freeverb({
+            roomSize: reverbSize,
+            dampening: reverbDamp,
+            wet: reverbWet,
+        }).connect(masterVolume);
+        const delay = new Tone.FeedbackDelay({
+            delayTime,
+            feedback: delayFb,
+            wet: delayWet,
+        }).connect(masterVolume);
+
+        // Each unique channel gets a PolySynth → channel-volume node
+        // → both master sends. Channel volume is unity for now (per-net
+        // mixer settings live on el._project but the offline mvp doesn't
+        // wire them yet).
         const synths = new Map();
         const ensureSynth = (channel) => {
             if (synths.has(channel)) return synths.get(channel);
+            // -18 dB per-channel headroom: with N PolySynths summing into
+            // the master, full-velocity hits across all channels sum to
+            // a hot mix without per-channel attenuation. Real
+            // tone-engine.js sets per-instrument gain (INSTRUMENT_GAIN
+            // map); the offline mvp uses a flat fallback. Tracking
+            // separately.
+            const chanVol = new Tone.Volume(-18);
+            chanVol.fan(masterVolume, reverb, delay);
             const s = new Tone.PolySynth(Tone.Synth, {
                 oscillator: { type: 'triangle' },
                 envelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.4 },
-            }).toDestination();
+            }).connect(chanVol);
             synths.set(channel, s);
             return s;
         };
@@ -235,4 +278,29 @@ function midiToNoteName(midi) {
     const octave = Math.floor(midi / 12) - 1;
     const name = NOTE_NAMES[midi % 12];
     return `${name}${octave}`;
+}
+
+// Slider value (0-100 by convention) → 0-100 with sane fallback.
+function pct(v, def) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : def;
+}
+
+// FX damping slider 0-100 → frequency 500-8000 Hz (mirrors tone-engine.js
+// dampening curve: low = darker tail, high = brighter tail).
+function mapDamp(v, def) {
+    const p = pct(v, def);
+    return 500 + (p / 100) * 7500;
+}
+
+// Delay time slider 0-100 → seconds 0.05-1.0.
+function mapDelayTime(v, def) {
+    const p = pct(v, def);
+    return 0.05 + (p / 100) * 0.95;
+}
+
+// Master volume slider 0-100 → dB -40..+6 (mirrors live curve).
+function mapMasterVol(v, def) {
+    const p = pct(v, def);
+    return -40 + (p / 100) * 46;
 }
