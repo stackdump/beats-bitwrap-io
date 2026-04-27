@@ -1160,7 +1160,35 @@ input[type="range"][data-default] {
     font-size: 10.5px;
     overflow-x: auto;
     white-space: nowrap;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
 }
+.pn-midi-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #050a14;
+    border: 1px solid #1a2a3a;
+    border-radius: 3px;
+    padding: 2px 4px 2px 6px;
+    color: #aaa;
+    font-family: inherit;
+    font-size: 10.5px;
+}
+.pn-midi-chip-x {
+    background: transparent;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 13px;
+    line-height: 1;
+    font-family: inherit;
+    border-radius: 2px;
+}
+.pn-midi-chip-x:hover { color: #f88; background: rgba(255, 100, 100, 0.12); }
 .pn-midi-bindings-row button {
     background: transparent;
     border: 1px solid #0f3460;

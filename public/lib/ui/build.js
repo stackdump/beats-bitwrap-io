@@ -812,50 +812,61 @@ export function buildUI(el) {
         const padList    = midiPanel.querySelector('.pn-midi-pad-list');
         const statusEl   = midiPanel.querySelector('.pn-midi-status');
         const padResetBtn = midiPanel.querySelector('.pn-pad-reset');
+        // Live mute view — riffGroups + sections + netIds that are
+        // currently muted. Used by both binding lists for the ●/○
+        // indicators inline.
+        const mutedTargets = () => {
+            const groups = new Set();
+            const sections = new Set();
+            const nets = new Set(el._project?.initialMutes || []);
+            for (const [id, net] of Object.entries(el._project?.nets || {})) {
+                if (nets.has(id)) {
+                    if (net?.riffGroup) groups.add(net.riffGroup);
+                    if (net?.track?.group) sections.add(net.track.group);
+                }
+            }
+            const isMuted = (target) =>
+                groups.has(target) || sections.has(target) || nets.has(target);
+            return { isMuted };
+        };
+        const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const renderChip = (label, removeKind, removeKey) =>
+            `<span class="pn-midi-chip">${label}` +
+            ` <button type="button" class="pn-midi-chip-x" ` +
+                `data-remove-kind="${removeKind}" data-remove-key="${escAttr(removeKey)}" ` +
+                `title="Remove this binding">&times;</button></span>`;
         const formatCC = () => {
             if (!el._ccBindings || el._ccBindings.size === 0) {
                 return 'none — hover a slider then move a CC knob';
             }
-            // Build per-group muted-set so mute-bound CC entries can
-            // show the same ●/○ live indicator as note bindings.
-            const mutedGroups = new Set();
-            const mutedNets = new Set(el._project?.initialMutes || []);
-            for (const [id, net] of Object.entries(el._project?.nets || {})) {
-                if (mutedNets.has(id) && net?.riffGroup) mutedGroups.add(net.riffGroup);
-            }
+            const { isMuted } = mutedTargets();
             return [...el._ccBindings.entries()]
                 .map(([cc, b]) => {
                     if (b?.type === 'mute') {
-                        const dot = mutedGroups.has(b.target) ? '○' : '●';
-                        return `CC${cc} ${dot} ${b.target} (mute)`;
+                        const dot = isMuted(b.target) ? '○' : '●';
+                        return renderChip(`CC${cc} ${dot} ${b.target} (mute)`, 'cc', cc);
                     }
-                    return `CC${cc} → ${b.key}`;
+                    return renderChip(`CC${cc} → ${b.key}`, 'cc', cc);
                 })
-                .join('  ·  ');
+                .join(' ');
         };
         const formatPads = () => {
             if (!el._padBindings || el._padBindings.size === 0) {
                 return 'none — hover a macro then press a pad / key';
             }
-            // Compute current per-group mute state once so the binding
-            // list can show MUTED indicators inline. Looks at the
-            // shared sequencer mute state mirrored on _project.
-            const mutedGroups = new Set();
-            const mutedNets = new Set(el._project?.initialMutes || []);
-            for (const [id, net] of Object.entries(el._project?.nets || {})) {
-                if (mutedNets.has(id) && net?.riffGroup) mutedGroups.add(net.riffGroup);
-            }
+            const { isMuted } = mutedTargets();
             return [...el._padBindings.entries()]
                 .map(([note, b]) => {
-                    if (typeof b === 'string') return `n${note} → ${b}`;
-                    if (b?.type === 'mute') {
-                        const lit = !mutedGroups.has(b.target);
-                        const dot = lit ? '●' : '○';
-                        return `n${note} ${dot} ${b.target}`;
+                    if (typeof b === 'string') {
+                        return renderChip(`n${note} → ${b}`, 'pad', note);
                     }
-                    return `n${note} → ?`;
+                    if (b?.type === 'mute') {
+                        const dot = isMuted(b.target) ? '○' : '●';
+                        return renderChip(`n${note} ${dot} ${b.target}`, 'pad', note);
+                    }
+                    return renderChip(`n${note} → ?`, 'pad', note);
                 })
-                .join('  ·  ');
+                .join(' ');
         };
         const formatStatus = () => {
             if (!el._midiInputConnected) {
@@ -868,10 +879,26 @@ export function buildUI(el) {
             return `MIDI ON — ${inputs.join(', ')}`;
         };
         const renderMidi = () => {
-            ccList.textContent = formatCC();
-            padList.textContent = formatPads();
+            ccList.innerHTML = formatCC();
+            padList.innerHTML = formatPads();
             statusEl.textContent = formatStatus();
         };
+        // Click delegation for the per-chip × removers. Both lists
+        // share the same data attributes so one delegated handler
+        // on the panel covers both.
+        midiPanel.addEventListener('click', (e) => {
+            const x = e.target.closest('.pn-midi-chip-x');
+            if (!x) return;
+            const kind = x.dataset.removeKind;
+            const key = x.dataset.removeKey;
+            if (kind === 'cc') {
+                el._ccBindings?.delete(parseInt(key, 10));
+            } else if (kind === 'pad') {
+                el._padBindings?.delete(parseInt(key, 10));
+                el._savePadBindings?.();
+            }
+            renderMidi();
+        });
         el._renderMidiPanel = renderMidi;
         midiBtn.addEventListener('click', () => {
             el._showMidi = !el._showMidi;
