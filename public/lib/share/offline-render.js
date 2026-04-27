@@ -92,7 +92,8 @@ export async function renderToBlobOffline(el, opts = {}) {
     // Also collects fire-macro events from control nets and Auto-DJ ticks
     // so the offline render gets the same performance flavor as live.
     const { events, macroFires } = simulateProjectNotes(
-        el._project, totalSteps, tickIntervalMs);
+        el._project, totalSteps, tickIntervalMs,
+        { loopStart: el._loopStart || 0, loopEnd: el._loopEnd || 0 });
 
     // Build the per-channel instrument map from the project's nets so
     // we know which Sampler / FMSynth / MetalSynth / etc. to load for
@@ -232,7 +233,12 @@ function strHash(str) {
     return h;
 }
 
-function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
+function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs, opts = {}) {
+    const loopStart = Math.max(0, opts.loopStart || 0);
+    // loopEnd > loopStart enables wrap behavior. When unset (<=0), the
+    // simulator walks totalSteps once and never wraps — same as live
+    // playback with no loop region set.
+    const loopEnd = (opts.loopEnd > loopStart) ? opts.loopEnd : 0;
     const proj = parseProject(projectMap);
     const events = [];
     const macroFires = [];
@@ -301,7 +307,25 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
         }
         return true;
     };
-    for (let tick = 0; tick < totalSteps; tick++) {
+    // Tick walker. With loopEnd set, virtTick wraps from loopEnd back
+    // to loopStart and we increment loopIteration + apply phase drift
+    // before continuing — mirrors sequencer-worker.js _advanceOneTick.
+    // Audio events still get scheduled at absolute audio time
+    // (`physTick * tickIntervalMs`), so the wrap doesn't compress
+    // playback timing — it just gives the engine a fresh slate to
+    // re-fire the loop from.
+    let loopIteration = 0;
+    for (let physTick = 0; physTick < totalSteps; physTick++) {
+        // Wrap detection BEFORE the music-net firing for this tick:
+        // the live worker wraps when tickCount reaches loopEnd. We
+        // align to the same cadence by applying the wrap right when
+        // the virtual tick would have crossed loopEnd.
+        const tick = physTick; // physical position within the recording
+        if (loopEnd > 0 && physTick > 0 && (physTick - loopStart) > 0
+            && ((physTick - loopStart) % (loopEnd - loopStart)) === 0) {
+            loopIteration++;
+            applyPhaseDriftSim(proj, musicNets, loopIteration);
+        }
         // 1. Fire control nets first so any mute / activate-slot effects
         //    apply before this tick's music notes get emitted.
         for (const [, nb] of controlNets) {
@@ -462,6 +486,30 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
         }
     }
     return { events, macroFires };
+}
+
+// Phase drift on loop wrap — port of sequencer-worker.js applyPhaseDrift.
+// Picks one music net (deterministically by loopIteration), with 12%
+// probability advances one of its tokens by one step in the place ring.
+// Same Mulberry32 seeding as the worker, so behavior is byte-identical
+// for a given loopIteration.
+function applyPhaseDriftSim(proj, musicNets, loopIteration) {
+    if (musicNets.length === 0) return;
+    const r = detRand(loopIteration * 31, 0xDEAD);
+    if (r >= 0.12) return;
+    const r2 = detRand(loopIteration * 37, 0xBEEF);
+    const [, nb] = musicNets[Math.floor(r2 * musicNets.length)];
+    const places = Object.keys(nb.places || {});
+    if (places.length < 3) return;
+    for (const p of places) {
+        if ((nb.state[p] || 0) >= 1) {
+            const idx = places.indexOf(p);
+            const nextIdx = (idx + 1) % places.length;
+            nb.state[p] -= 1;
+            nb.state[places[nextIdx]] = (nb.state[places[nextIdx]] || 0) + 1;
+            break;
+        }
+    }
 }
 
 // Convert a macro's bar/tick duration to ms at the project tempo.
