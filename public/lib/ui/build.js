@@ -764,6 +764,34 @@ export function buildUI(el) {
             el._transposeListen = !el._transposeListen;
             renderTranspose();
         });
+        // Hover-scroll + arrow-key nudge — mirrors the universal
+        // slider behaviour. Wheel down / ArrowDown / ArrowLeft go
+        // negative; wheel up / ArrowUp / ArrowRight go positive.
+        const transposePill = tVal.closest('.pn-transpose');
+        transposePill.addEventListener('mouseenter', () => { el._hoveredTranspose = true; });
+        transposePill.addEventListener('mouseleave', () => { el._hoveredTranspose = false; });
+        transposePill.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const step = e.deltaY < 0 ? 1 : -1;
+            el._setLiveTranspose(el._liveTranspose + step);
+        }, { passive: false });
+        // Single document keydown handler — gated on hover so it
+        // doesn't grab arrows when focus is elsewhere.
+        document.addEventListener('keydown', (e) => {
+            if (!el._hoveredTranspose) return;
+            const tag = (document.activeElement?.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                el._setLiveTranspose(el._liveTranspose + 1);
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                el._setLiveTranspose(el._liveTranspose - 1);
+            } else if (e.key === '0') {
+                e.preventDefault();
+                el._setLiveTranspose(0);
+            }
+        });
         renderTranspose();
     }
 
