@@ -1256,6 +1256,12 @@ class ToneEngine {
         // thread, which was the main cause of playback stutter on regen).
         this._pool = new Map();
         this._lastNoteTime = 0; // ensures strictly increasing times for Tone.js
+        // Offline render mode: skip the mobile MediaStreamDestination
+        // path (offline contexts don't have one), skip Tone.start()
+        // (offline contexts are auto-running). Set BEFORE init() —
+        // typically by offline-render.js right after `new ToneEngine()`
+        // inside a Tone.Offline callback.
+        this._offline = false;
     }
 
     // Call synchronously inside a user gesture to unlock Chrome AudioContext
@@ -1288,7 +1294,15 @@ class ToneEngine {
         if (this._initPromise) return this._initPromise;
 
         this._initPromise = (async () => {
-            await Tone.start();
+            // Offline mode skips Tone.start() (the offline context is
+            // auto-running inside the Tone.Offline callback) and the
+            // mobile audio-element path (offline contexts don't expose
+            // createMediaStreamDestination via the same shape). Output
+            // routes straight to Tone.getDestination(), which is the
+            // OfflineAudioContext's destination at this point.
+            if (!this._offline) {
+                await Tone.start();
+            }
 
             // Master chain: volume -> HP -> phaser -> LP -> crusher -> distortion -> pitch -> compressor -> dest
             // On mobile we route the master through a MediaStreamDestination
@@ -1298,7 +1312,8 @@ class ToneEngine {
             // mediaSession). AudioContext-only output gets suspended on lock.
             // Android benefits too: the OS treats this tab as proper media
             // playback and is much less aggressive about backgrounding it.
-            const isMobile = typeof navigator !== 'undefined'
+            const isMobile = !this._offline
+                && typeof navigator !== 'undefined'
                 && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
             if (isMobile) {
                 const raw = Tone.context.rawContext;

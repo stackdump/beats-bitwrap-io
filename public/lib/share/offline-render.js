@@ -48,6 +48,8 @@
 // Opus encoder library client-side. WAV keeps the MVP dependency-free.
 
 import { parseProject } from '../pflow.js';
+import { ToneEngine } from '../../audio/tone-engine.js';
+import { hpFreq, lpFreq } from '../ui/mixer-sliders.js';
 
 const PPQ = 4;
 const SAMPLE_RATE = 48000;
@@ -88,75 +90,52 @@ export async function renderToBlobOffline(el, opts = {}) {
     // the worker uses, just driven by a for-loop instead of setInterval.
     const events = simulateProjectNotes(el._project, totalSteps);
 
-    // Master FX settings from the project envelope. These values mirror
-    // tone-engine.js defaults; envelope overrides win when present. The
-    // perceptual gap between "dry triangles into destination" and
-    // "triangles into a real master chain with reverb + delay + comp"
-    // is huge — closing this is the single biggest fidelity win short
-    // of full per-instrument port.
+    // Build the per-channel instrument map from the project's nets so
+    // we know which Sampler / FMSynth / MetalSynth / etc. to load for
+    // each channel inside the Tone.Offline callback. Net.track.channel
+    // → instrument name. Drum channels (10, 20, 21, 22, 23) get the
+    // 'drums' kit. Channels with no track are skipped.
+    const channelInstruments = collectChannelInstruments(el._project);
+    // Per-track FX settings from the envelope feed straight into the
+    // engine via the same setters the live UI uses.
     const fx = el._project?.fx || {};
-    const reverbWet  = pct(fx['reverb-wet'],   20) / 100;
-    const reverbSize = pct(fx['reverb-size'],  50) / 100;
-    const reverbDamp = mapDamp(fx['reverb-damp'], 30);
-    const delayWet   = pct(fx['delay-wet'],    15) / 100;
-    const delayTime  = mapDelayTime(fx['delay-time'], 25);
-    const delayFb    = pct(fx['delay-feedback'], 25) / 100;
-    const masterVol  = mapMasterVol(fx['master-vol'], 80);
 
     const wallStart = performance.now();
-    const buffer = await Tone.Offline(({ transport }) => {
-        // === Master FX chain (mirrors tone-engine.js init() topology) ===
-        //   PolySynth(s) → channel volume → master comp → reverb send + delay send → destination
-        // Stripped vs live: no phaser, no lp/hp filter, no distortion,
-        // no bitcrusher, no pitch-shift, no per-channel filter / pan /
-        // decay. Production fidelity needs full toneEngine refactor.
-        const masterComp = new Tone.Compressor(-12, 3).toDestination();
-        const masterVolume = new Tone.Volume(masterVol).connect(masterComp);
-        const reverb = new Tone.Freeverb({
-            roomSize: reverbSize,
-            dampening: reverbDamp,
-            wet: reverbWet,
-        }).connect(masterVolume);
-        const delay = new Tone.FeedbackDelay({
-            delayTime,
-            feedback: delayFb,
-            wet: delayWet,
-        }).connect(masterVolume);
+    const buffer = await Tone.Offline(async ({ transport }) => {
+        // Spin up a fresh ToneEngine inside the Tone.Offline callback.
+        // Tone.context is the OfflineAudioContext for the duration of
+        // this callback, so any new Tone.X() (including the synths
+        // ToneEngine creates internally) lands on the offline graph.
+        // _offline=true skips the mobile audio-element path and
+        // Tone.start() — both meaningless in an offline context.
+        const engine = new ToneEngine();
+        engine._offline = true;
+        await engine.init();
 
-        // Each unique channel gets a PolySynth → channel-volume node
-        // → both master sends. Channel volume is unity for now (per-net
-        // mixer settings live on el._project but the offline mvp doesn't
-        // wire them yet).
-        const synths = new Map();
-        const ensureSynth = (channel) => {
-            if (synths.has(channel)) return synths.get(channel);
-            // -18 dB per-channel headroom: with N PolySynths summing into
-            // the master, full-velocity hits across all channels sum to
-            // a hot mix without per-channel attenuation. Real
-            // tone-engine.js sets per-instrument gain (INSTRUMENT_GAIN
-            // map); the offline mvp uses a flat fallback. Tracking
-            // separately.
-            const chanVol = new Tone.Volume(-18);
-            chanVol.fan(masterVolume, reverb, delay);
-            const s = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: 'triangle' },
-                envelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.4 },
-            }).connect(chanVol);
-            synths.set(channel, s);
-            return s;
-        };
+        // Apply project-level FX values BEFORE any notes fire so the
+        // recorded tail reflects them. Mirrors how the live UI applies
+        // overrides on project-load.
+        applyFxToEngine(engine, fx);
+
+        // Load each channel's instrument. loadInstrument is async
+        // (samplers fetch SoundFont files); await the whole batch
+        // before scheduling notes so sample buffers are warm.
+        await Promise.all(
+            [...channelInstruments].map(([ch, inst]) => engine.loadInstrument(ch, inst))
+        );
+
+        // Schedule every note via engine.playNote(midi, playAt). The
+        // second argument is an absolute audio-clock time; inside
+        // Tone.Offline this corresponds to offline-context time, so
+        // each note lands at the right beat in the rendered buffer.
         for (const ev of events) {
-            const synth = ensureSynth(ev.channel);
             const t = ev.tick * (tickIntervalMs / 1000);
-            const noteName = midiToNoteName(ev.midi);
-            const dur = Math.max(0.05, (ev.durationMs || 100) / 1000);
-            const vel = Math.max(0.1, Math.min(1, (ev.velocity || 90) / 127));
-            try {
-                synth.triggerAttackRelease(noteName, dur, t, vel);
-            } catch {
-                // Some synths reject overlapping notes on the same pitch;
-                // skip rather than abort the whole render.
-            }
+            engine.playNote({
+                channel: ev.channel,
+                note: ev.midi,
+                velocity: ev.velocity,
+                duration: ev.durationMs,
+            }, t);
         }
         transport.start();
     }, durationSec, 2, SAMPLE_RATE);
@@ -280,27 +259,54 @@ function midiToNoteName(midi) {
     return `${name}${octave}`;
 }
 
-// Slider value (0-100 by convention) → 0-100 with sane fallback.
-function pct(v, def) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : def;
+// Walk every music net and build channel → instrument-name map.
+// Falls back to 'piano' / 'drums' for missing instruments so a half-
+// authored project still renders something audible.
+function collectChannelInstruments(projectMap) {
+    const out = new Map();
+    const nets = projectMap?.nets || {};
+    for (const net of Object.values(nets)) {
+        if (net.role === 'control') continue;
+        const ch = net.track?.channel;
+        if (ch == null) continue;
+        if (out.has(ch)) continue; // first net wins per channel
+        const inst = net.track?.instrument;
+        if (inst) {
+            out.set(ch, inst);
+        } else {
+            // Drum channels (10, 20-23 in this codebase) get 'drums'.
+            out.set(ch, isDrumCh(ch) ? 'drums' : 'piano');
+        }
+    }
+    return out;
 }
 
-// FX damping slider 0-100 → frequency 500-8000 Hz (mirrors tone-engine.js
-// dampening curve: low = darker tail, high = brighter tail).
-function mapDamp(v, def) {
-    const p = pct(v, def);
-    return 500 + (p / 100) * 7500;
-}
+function isDrumCh(ch) { return ch === 10 || (ch >= 20 && ch <= 23); }
 
-// Delay time slider 0-100 → seconds 0.05-1.0.
-function mapDelayTime(v, def) {
-    const p = pct(v, def);
-    return 0.05 + (p / 100) * 0.95;
-}
-
-// Master volume slider 0-100 → dB -40..+6 (mirrors live curve).
-function mapMasterVol(v, def) {
-    const p = pct(v, def);
-    return -40 + (p / 100) * 46;
+// Apply project envelope's `fx` overrides to the engine. Mirrors the
+// switch in lib/ui/build.js applyFx() — same scaling, same setters,
+// same default values when a key is missing. Only applied keys touch
+// the engine, so unspecified values keep tone-engine.js init() defaults.
+function applyFxToEngine(engine, fx) {
+    if (!fx) return;
+    const v = (key) => {
+        const n = Number(fx[key]);
+        return Number.isFinite(n) ? n : null;
+    };
+    let n;
+    if ((n = v('reverb-size'))    !== null) engine.setReverbSize(n / 100);
+    if ((n = v('reverb-damp'))    !== null) engine.setReverbDampening(10000 - (n / 100) * 9800);
+    if ((n = v('reverb-wet'))     !== null) engine.setReverbWet(n / 100);
+    if ((n = v('delay-time'))     !== null) engine.setDelayTime(n / 100);
+    if ((n = v('delay-feedback')) !== null) engine.setDelayFeedback(n / 100);
+    if ((n = v('delay-wet'))      !== null) engine.setDelayWet(n / 100);
+    if ((n = v('master-vol'))     !== null) engine.setMasterVolume(n === 0 ? -60 : -60 + (n / 100) * 60);
+    if ((n = v('distortion'))     !== null) engine.setDistortion(n / 100);
+    if ((n = v('master-pitch'))   !== null) engine.setMasterPitch(n);
+    if ((n = v('hp-freq'))        !== null) engine.setHighpassFreq(hpFreq(n));
+    if ((n = v('lp-freq'))        !== null) engine.setLowpassFreq(lpFreq(n));
+    if ((n = v('phaser-freq'))    !== null) engine.setPhaserFreq(n === 0 ? 0 : 0.1 + (n / 100) * 9.9);
+    if ((n = v('phaser-depth'))   !== null) engine.setPhaserDepth(n / 100);
+    if ((n = v('phaser-wet'))     !== null) engine.setPhaserWet(n / 100);
+    if ((n = v('crush-bits'))     !== null) engine.setCrush(n / 100);
 }
