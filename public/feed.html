@@ -860,11 +860,6 @@
 </style>
 </head>
 <body>
-<div id="snapshot-banner" hidden style="background:#1a140a;border-bottom:1px solid #4a3a1a;padding:10px 24px;color:#ddd;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-  <code id="snapshot-name" style="background:#0a0a0a;padding:2px 8px;border-radius:3px;font-size:12px"></code>
-  <span style="flex:1"></span>
-  <a href="/archive" style="font-size:12px;color:#9ad;text-decoration:none">← back to archive</a>
-</div>
 <header>
   <h1><a href="/">beats.bitwrap.io</a> · feed</h1>
   <div class="filters">
@@ -2199,14 +2194,12 @@ const initRebuildFeature = async () => {
 initRebuildFeature();
 genreSel.addEventListener('change', syncGenreSelectAccent);
 
+// Snapshot mode (?snapshot=…) loads tracks from a persisted snapshot
+// instead of the live store. The actual filtering happens below in the
+// fetchPage URL switch — there's no user-facing banner because
+// /archive is operator-tooling, not a public surface.
 const SNAPSHOT_FILE = (new URLSearchParams(location.search).get('snapshot') || '').trim();
 if (SNAPSHOT_FILE) {
-  const banner = document.getElementById('snapshot-banner');
-  const nameEl = document.getElementById('snapshot-name');
-  if (banner && nameEl) {
-    banner.hidden = false;
-    nameEl.textContent = SNAPSHOT_FILE;
-  }
   document.title = `beats.bitwrap.io · snapshot ${SNAPSHOT_FILE}`;
 }
 const fetchPage = async () => {
