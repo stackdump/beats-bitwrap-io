@@ -50,7 +50,7 @@
 import { parseProject } from '../pflow.js';
 import { ToneEngine } from '../../audio/tone-engine.js';
 import { hpFreq, lpFreq } from '../ui/mixer-sliders.js';
-import { MACROS } from '../macros/catalog.js';
+import { MACROS, MACRO_TARGETS } from '../macros/catalog.js';
 
 const PPQ = 4;
 const SAMPLE_RATE = 48000;
@@ -150,8 +150,26 @@ export async function renderToBlobOffline(el, opts = {}) {
         // audibly disruptive mute + tempo group; the rest are smaller
         // performance touches that can be ported in a follow-up).
         const fxState = collectInitialFxState(fx);
+        // Channel list for per-channel macros (pan / shape) — built
+        // from the music nets we loaded so the macro selectors don't
+        // need a live `host` object.
+        const channelTargets = collectChannelTargets(el._project);
         for (const fire of macroFires) {
-            scheduleMacroEffect(engine, fire.macroId, fire.audioTime, fire.durationMs, fxState);
+            if (fire.macroId === '__set-feel__' && Array.isArray(fire.puck)) {
+                // set-feel control action: lp-freq snap from puck X axis.
+                const startLp = fxState['lp-freq'] ?? 100;
+                const targetLp = feelPuckToLpFreq(fire.puck);
+                Tone.Transport.scheduleOnce(() => setFxByKey(engine, 'lp-freq', targetLp), fire.audioTime);
+                if (!fire.oneShot) {
+                    Tone.Transport.scheduleOnce(
+                        () => setFxByKey(engine, 'lp-freq', startLp),
+                        fire.audioTime + fire.durationMs / 1000);
+                }
+                continue;
+            }
+            scheduleMacroEffect(
+                engine, fire.macroId, fire.audioTime, fire.durationMs,
+                fxState, channelTargets);
         }
         transport.start();
     }, durationSec, 2, SAMPLE_RATE);
@@ -251,6 +269,11 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
     // toggle-track flip the bits during the walk.
     const muted = new Set();
     for (const id of (projectMap?.initialMutes || [])) muted.add(id);
+    // Note-level mutes: `${netId}:${transitionLabel}` keys. When set,
+    // that transition's MIDI binding is suppressed even if the
+    // transition fires. Driven by mute-note / unmute-note / toggle-note
+    // control actions.
+    const mutedNotes = new Set();
     // riffGroup → currently-active variant id. activate-slot updates
     // this; emit notes only from the currently-active variant per group.
     const activeVariant = new Map();
@@ -333,8 +356,39 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
                     });
                     break;
                 }
-                // mute-note / unmute-note / toggle-note / set-feel /
-                // set-visualizer: not yet handled.
+                case 'mute-note':
+                case 'unmute-note':
+                case 'toggle-note': {
+                    // Per-transition mute scoped to one note. Track
+                    // (netId, transitionLabel) pairs in mutedNotes; the
+                    // music-net loop checks this set before emitting
+                    // the binding's MIDI.
+                    if (!target || !ctrl.targetNote) break;
+                    const key = `${target}:${ctrl.targetNote}`;
+                    if (ctrl.action === 'mute-note') mutedNotes.add(key);
+                    else if (ctrl.action === 'unmute-note') mutedNotes.delete(key);
+                    else { // toggle-note
+                        if (mutedNotes.has(key)) mutedNotes.delete(key);
+                        else mutedNotes.add(key);
+                    }
+                    break;
+                }
+                case 'set-feel': {
+                    // Schedule a feel snap as a pseudo-macro: applies
+                    // the puck's lpFreq mapping at audio time. Tempo
+                    // axis is no-op in offline (notes are pre-baked at
+                    // fixed audio times).
+                    if (!Array.isArray(ctrl.puck) || ctrl.puck.length !== 2) break;
+                    macroFires.push({
+                        audioTime: tick * (tickIntervalMs / 1000),
+                        macroId: '__set-feel__',
+                        durationMs: ctrl.holdMs || tickIntervalMs * 16, // 1 bar default; sticks
+                        puck: ctrl.puck,
+                        oneShot: true, // no restore
+                    });
+                    break;
+                }
+                // set-visualizer: pure UI, no audio effect — skip.
             }
         }
         // Auto-DJ tick: every autoDjRateBars * 16 ticks, pick a random
@@ -367,6 +421,7 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
             const tLabel = enabled[0];
             const result = nb.fire(tLabel);
             if (!isAudible(id, nb)) continue;
+            if (mutedNotes.has(`${id}:${tLabel}`)) continue;
             const binding = result?.midi;
             if (!binding || typeof binding.note !== 'number') continue;
             let velocity = binding.velocity ?? nb.track?.defaultVelocity ?? 90;
@@ -458,17 +513,63 @@ function setFxByKey(engine, key, val) {
     }
 }
 
+// Build channel-target buckets so pan-move / decay-move can pick the
+// same channel sets MACRO_TARGETS picks live. Returns
+// { nonDrums: [ch, …], everything: [ch, …] } from the project's nets.
+function collectChannelTargets(projectMap) {
+    const nonDrums = new Set();
+    const everything = new Set();
+    for (const net of Object.values(projectMap?.nets || {})) {
+        if (net.role === 'control') continue;
+        const ch = net.track?.channel;
+        if (ch == null) continue;
+        everything.add(ch);
+        if (!isDrumCh(ch)) nonDrums.add(ch);
+    }
+    return { nonDrums: [...nonDrums], everything: [...everything] };
+}
+
+// Bilinear lpFreq from a puck position. Same blend as
+// lib/feel/axes.js::blendCorners. CORNERS' lpFreq values are 50 / 100
+// for left / right columns (Y axis is BPM-only), so the blend reduces
+// to lpFreq = 50 + 50 * x. Returned in 0–100 range matching the
+// fxSlider's lp-freq scale.
+function feelPuckToLpFreq(puck) {
+    const x = Math.max(0, Math.min(1, puck[0] || 0));
+    return 50 + 50 * x;
+}
+
 // Schedule a macro's audio effect at audioTime via Tone.Transport. For
 // fx-sweep / fx-hold (with op list), schedules a peak-then-restore
-// curve. Other macro kinds noop for now — see module header.
-function scheduleMacroEffect(engine, macroId, audioTime, durationMs, fxState) {
-    const macro = MACROS.find(m => m.id === macroId);
-    if (!macro) return;
-    const ops = macro.ops || (macro.fxKey ? [{ fxKey: macro.fxKey, toValue: macro.toValue }] : null);
-    if (!ops || (macro.kind !== 'fx-sweep' && macro.kind !== 'fx-hold')) return;
+// curve. For pan-move / decay-move, schedules per-channel CC10 (pan)
+// or setChannelDecay calls following the macro's pattern. For
+// feel-snap / feel-sweep, applies the puck's lpFreq blend. Other
+// macro kinds (mute / tempo / one-shot) are noops here — covered
+// elsewhere or intentionally suppressed via macrosDisabled.
+function scheduleMacroEffect(engine, macroId, audioTime, durationMs, fxState, channelTargets) {
     const Tone = window.Tone;
     if (!Tone?.Transport) return;
+    // Special pseudo-macro emitted by set-feel control action.
+    if (macroId === '__set-feel__') {
+        // The caller pushed a `puck` field on the fire entry; we don't
+        // see it in this signature, so this branch is intentionally a
+        // no-op here. set-feel events are dispatched in the caller
+        // loop right before scheduleMacroEffect via a side path.
+        return;
+    }
+    const macro = MACROS.find(m => m.id === macroId);
+    if (!macro) return;
     const durSec = durationMs / 1000;
+
+    if (macro.kind === 'pan-move' || macro.kind === 'decay-move') {
+        return scheduleChannelMacro(macro, audioTime, durationMs, engine, channelTargets);
+    }
+    if (macro.kind === 'feel-snap' || macro.kind === 'feel-sweep') {
+        return scheduleFeelMacro(macro, audioTime, durationMs, engine, fxState);
+    }
+
+    const ops = macro.ops || (macro.fxKey ? [{ fxKey: macro.fxKey, toValue: macro.toValue }] : null);
+    if (!ops || (macro.kind !== 'fx-sweep' && macro.kind !== 'fx-hold')) return;
     const tailFrac = macro.tailFrac ?? 0.6;
     for (const op of ops) {
         const startVal = fxState[op.fxKey];
@@ -612,4 +713,97 @@ function applyFxToEngine(engine, fx) {
     if ((n = v('phaser-depth'))   !== null) engine.setPhaserDepth(n / 100);
     if ((n = v('phaser-wet'))     !== null) engine.setPhaserWet(n / 100);
     if ((n = v('crush-bits'))     !== null) engine.setCrush(n / 100);
+}
+
+// pan-move / decay-move: walk the macro's pattern over the duration,
+// scheduling per-channel param changes via Tone.Transport. 'hold' is
+// constant, 'pingpong' alternates per stepBeats, 'sweep' is a sine
+// wave at rateBeats period. Mirrors lib/ui/controllers.js
+// channelParamMove with the rAF clock replaced by audio-time.
+function scheduleChannelMacro(macro, audioTime, durationMs, engine, channelTargets) {
+    const Tone = window.Tone;
+    if (!Tone?.Transport) return;
+    const targetSet = (macro.targets === MACRO_TARGETS.nonDrums)
+        ? channelTargets.nonDrums
+        : channelTargets.everything;
+    if (!targetSet || targetSet.length === 0) return;
+    const isPan = macro.kind === 'pan-move';
+    const apply = (ch, v) => {
+        if (isPan) {
+            const cc = Math.max(0, Math.min(127, Math.round((v + 1) * 63.5)));
+            engine.controlChange(ch, 10, cc);
+        } else {
+            engine.setChannelDecay(ch, v);
+        }
+    };
+    const restore = isPan ? 0 : 1.0;
+    const durSec = durationMs / 1000;
+    // Step rate: 12 dispatches per second = ~80 ms throttle, same as
+    // the live channelParamMove. For "hold" pattern that's overkill
+    // but harmless; sweep / pingpong need it.
+    const STEP_SEC = 0.08;
+    const steps = Math.max(1, Math.floor(durSec / STEP_SEC));
+    // Use the project's tick interval to estimate beats — close enough
+    // for the macro patterns. (Approximate: ~16 ticks/bar × 4 bars/sec
+    // at 240 BPM; we don't have that here, so fall back on stepBeats
+    // expressed in seconds at 120 BPM = 0.5 s/beat baseline.)
+    const secPerBeat = 0.5;
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const elapsedSec = t * durSec;
+        let v = restore;
+        if (macro.pattern === 'pingpong') {
+            const beat = Math.floor(elapsedSec / (secPerBeat * (macro.stepBeats || 1)));
+            v = (beat % 2 === 0) ? -1 : 1;
+        } else if (macro.pattern === 'sweep') {
+            const rateSec = (macro.rateBeats || 4) * secPerBeat;
+            const sine = Math.sin((elapsedSec / rateSec) * 2 * Math.PI);
+            if (!isPan) {
+                const lo = macro.sweepMin ?? 0.3;
+                const hi = macro.sweepMax ?? 1.8;
+                v = lo + (sine + 1) * 0.5 * (hi - lo);
+            } else {
+                v = sine;
+            }
+        } else {
+            v = macro.toValue ?? restore;
+        }
+        const at = audioTime + elapsedSec;
+        for (const ch of targetSet) {
+            Tone.Transport.scheduleOnce(((c, vv) => () => apply(c, vv))(ch, v), at);
+        }
+    }
+    // Final restore at end of duration.
+    Tone.Transport.scheduleOnce(() => {
+        for (const ch of targetSet) apply(ch, restore);
+    }, audioTime + durSec);
+}
+
+// feel-snap / feel-sweep: project the puck X coordinate to lp-freq
+// (0–100 slider value), apply at audioTime, restore at end. Tempo /
+// swing / humanize axes are no-op in offline (notes are pre-baked at
+// fixed audio times). Sweep variant interpolates from the current
+// puck (assumed centered at [0.5, 0.5] in offline since we have no
+// live puck state) to the target over the duration.
+function scheduleFeelMacro(macro, audioTime, durationMs, engine, fxState) {
+    const Tone = window.Tone;
+    if (!Tone?.Transport) return;
+    if (!Array.isArray(macro.target) || macro.target.length !== 2) return;
+    const startLp = fxState['lp-freq'] ?? 100;
+    const targetLp = feelPuckToLpFreq(macro.target);
+    const durSec = durationMs / 1000;
+    if (macro.kind === 'feel-snap') {
+        Tone.Transport.scheduleOnce(() => setFxByKey(engine, 'lp-freq', targetLp), audioTime);
+        Tone.Transport.scheduleOnce(() => setFxByKey(engine, 'lp-freq', startLp), audioTime + durSec);
+        return;
+    }
+    // feel-sweep: 8 interpolation steps over durationMs, then snap back.
+    const STEPS = 8;
+    for (let i = 1; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const eased = 0.5 - 0.5 * Math.cos(t * Math.PI); // cosine ease, matches live feelSweep
+        const v = startLp + (targetLp - startLp) * eased;
+        Tone.Transport.scheduleOnce(((vv) => () => setFxByKey(engine, 'lp-freq', vv))(v), audioTime + t * durSec);
+    }
+    Tone.Transport.scheduleOnce(() => setFxByKey(engine, 'lp-freq', startLp), audioTime + durSec + 0.06);
 }
