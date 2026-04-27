@@ -65,7 +65,11 @@ export function updateTraits(el) {
         tag('Tension', 'tension-curve', tension, tension) +
         tag('Modal', 'modal-interchange', modal) +
         tag('Ghosts', 'ghost-notes', ghosts) +
-        `<span class="pn-trait-info">swing ${g.swing} · humanize ${g.humanize}</span>`;
+        `<span class="pn-trait-info">` +
+        `<span title="Swing (0–100): how much the off-beat 16th notes lag behind the grid. 0 = dead-on the grid (techno, EDM); ~50 = classic shuffle (jazz, blues); high values give a heavier groove.">swing ${g.swing}</span>` +
+        ` · ` +
+        `<span title="Humanize (0–100): random per-note timing + velocity jitter to soften machine-perfect playback. 0 = quantized; high values feel like a live performer (jazz, lofi).">humanize ${g.humanize}</span>` +
+        `</span>`;
 }
 
 export function initTraitClicks(el) {
