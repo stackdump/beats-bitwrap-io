@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>beats-bitwrap-io · macro category (DisCoPy)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="The live-performance macro catalog rendered as a free monoidal category via DisCoPy. Wire types encode each macro's project-state footprint; parallel-compose iff disjoint.">
+<meta property="og:title" content="beats-bitwrap-io · macro category">
+<meta property="og:description" content="Macros as boxes in a free monoidal category. Wire types reveal which macros stack and which conflict.">
+<style>
+  :root {
+    --bg: #020617;
+    --panel: #0b1020;
+    --ink: #e2e8f0;
+    --dim: #94a3b8;
+    --accent: #ec4899;
+    --line: #334155;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 28px 10px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
+  header p { margin: 4px 0 0; color: var(--dim); font-size: 13px; line-height: 1.5; max-width: 920px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  main { padding: 20px 28px 40px; }
+  .frame {
+    background: #0a0f1e;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .frame h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #f8fafc; }
+  .frame p { margin: 0 0 10px; font-size: 12px; color: var(--dim); line-height: 1.55; }
+  .frame img { width: 100%; height: auto; display: block; background: #fff; border-radius: 4px; }
+  footer { padding: 10px 28px 30px; color: var(--dim); font-size: 12px; line-height: 1.55; }
+  footer code { background: var(--panel); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>macro category · beats-bitwrap-io</h1>
+  <p>
+    The live-performance macro catalog (<code>public/lib/macros/catalog.js</code>)
+    rendered as a free monoidal category via <a href="https://discopy.readthedocs.io/" target="_blank" rel="noopener">DisCoPy</a>.
+    Each macro is a box; wire types encode the project-state footprint
+    (<code>fx:reverb-wet</code>, <code>tempo</code>, <code>pan</code>, <code>decay</code>, <code>mute</code>, …).
+    Two boxes parallel-compose (<code>@</code>) iff their wire sets are disjoint —
+    which is exactly the runtime's conflict resolution made categorical.
+    Companion to <a href="/docs/control-category">control category</a> and
+    <a href="/docs/audio-webm-anatomy">.webm anatomy</a>.
+  </p>
+</header>
+<main>
+  <div class="frame">
+    <h2>Auto-DJ tick — five compatible macros, parallel-composed</h2>
+    <p>
+      One macro from each of FX / Pitch / Pan / Shape / Feel families
+      that lands on disjoint wires. This is the largest stack the runtime
+      can fire concurrently without a wire collision. Auto-DJ's
+      stack-N parameter is bounded above by this picture.
+    </p>
+    <img src="/docs/macro-category-autodj.png" alt="DisCoPy diagram of a parallel-composed Auto-DJ tick">
+  </div>
+
+  <div class="frame">
+    <h2>FX family — 13 disjoint wires</h2>
+    <p>
+      Every fx-sweep / fx-hold macro is typed by the <code>fxKey</code>(s)
+      its <code>ops</code> touch. <code>reverb-wash</code> @ <code>delay-throw</code>
+      typechecks (different wires). Two macros that both touch
+      <code>reverb-wet</code> can't parallel-compose — one wins, the other is
+      sequential. The diagram shows each macro on its own wire(s); the
+      gaps between them are the parallel-composability contract.
+    </p>
+    <img src="/docs/macro-category-fx.png" alt="DisCoPy diagram of the FX macro group">
+  </div>
+
+  <div class="frame">
+    <h2>Feel family — touches lp-freq + tempo</h2>
+    <p>
+      Feel macros write the master LP filter and the BPM, so they
+      conflict with both FX (specifically <code>lp-freq</code>) and Tempo
+      macros. The two-wire dom captures that — try parallel-composing a
+      Feel macro with <code>sweep-lp</code> or <code>half-time</code> and DisCoPy refuses.
+    </p>
+    <img src="/docs/macro-category-feel.png" alt="DisCoPy diagram of the Feel macro group">
+  </div>
+
+  <div class="frame">
+    <h2>Mute family</h2>
+    <p>
+      All mute macros consume the <code>mute</code> wire, so they're sequential
+      with respect to each other. The compound macros (<code>double-drop</code>)
+      live on dedicated wires that name their composing steps.
+    </p>
+    <img src="/docs/macro-category-mute.png" alt="DisCoPy diagram of the Mute macro group">
+  </div>
+
+  <div class="frame">
+    <h2>Tempo · Pan · Shape · Pitch</h2>
+    <p>
+      Each on a single wire — within-family macros conflict, cross-family
+      macros parallel-compose freely. Pitch is interesting: it's
+      implemented through <code>master-pitch</code>'s FX wire, so a Pitch macro
+      and an FX macro touching <code>master-pitch</code> conflict — but Pitch +
+      any other FX macro is fine.
+    </p>
+    <img src="/docs/macro-category-tempo.png" alt="DisCoPy diagram of the Tempo macro group">
+    <img src="/docs/macro-category-pan.png" alt="DisCoPy diagram of the Pan macro group" style="margin-top: 10px;">
+    <img src="/docs/macro-category-shape.png" alt="DisCoPy diagram of the Shape macro group" style="margin-top: 10px;">
+    <img src="/docs/macro-category-pitch.png" alt="DisCoPy diagram of the Pitch macro group" style="margin-top: 10px;">
+  </div>
+
+  <div class="frame">
+    <h2>Hits (one-shot) — 4 independent pad wires</h2>
+    <p>
+      All four Beats-tab Fire pads are mutually parallel-composable: each
+      gets its own <code>oneshot:hitN</code> wire. The runtime confirms — you can
+      mash all four simultaneously and they don't step on each other.
+    </p>
+    <img src="/docs/macro-category-one-shot.png" alt="DisCoPy diagram of the Hits one-shot group">
+  </div>
+</main>
+<footer>
+  Generated by <code>scripts/draw_macro_category.py</code>. Source catalog:
+  <code>public/lib/macros/catalog.js</code>. Refresh after edits with
+  <code>node scripts/dump_macros.mjs | python3 scripts/draw_macro_category.py</code>.
+  Requires <code>discopy >= 1.2</code>.
+</footer>
+</body>
+</html>
