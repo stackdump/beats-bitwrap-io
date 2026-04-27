@@ -54,6 +54,7 @@ import {
 import {
     openMidiEditor, fireTransition,
     showQuickstartModal, showHelpModal, showCategoryModal, showMidiMonitorModal, showWelcomeCard,
+    attachCidHandoffPill,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
 import { toggleStage } from './lib/ui/stage.js';
@@ -1580,6 +1581,7 @@ class PetriNote extends HTMLElement {
 
     _showQuickstartModal() { return showQuickstartModal(this); }
     _showWelcomeCard() { return showWelcomeCard(this); }
+    _attachCidHandoffPill() { return attachCidHandoffPill(this); }
     _showHelpModal() { return showHelpModal(this); }
     _showCategoryModal() { return showCategoryModal(this); }
     _showMidiMonitor() { return showMidiMonitorModal(this); }

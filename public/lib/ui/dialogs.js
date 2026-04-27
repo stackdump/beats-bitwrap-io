@@ -418,6 +418,96 @@ export function showWelcomeCard(el, force = false) {
     }
 }
 
+// Persistent ?cid handoff pill — surfaces the paired .webm recording
+// after the welcome card is dismissed, so a returning visitor still
+// sees that the *frozen* recording is one click away. The studio plays
+// the live regenerator; the pill plays the cached capture. Different
+// listening experiences under the same CID — the pill makes the
+// duality visible instead of hiding it behind the Share modal.
+//
+// Survives welcome-card dismissal. Per-CID dismiss via sessionStorage
+// (so reload re-shows it but a manual × hides it for the session).
+export function attachCidHandoffPill(el) {
+    const cid = (new URLSearchParams(location.search).get('cid') || '')
+        .replace(/[^a-zA-Z0-9]/g, '');
+    if (!cid) return;
+    const dismissKey = `pn-handoff-dismissed-${cid}`;
+    try { if (sessionStorage.getItem(dismissKey)) return; } catch {}
+    if (document.querySelector('.pn-cid-handoff')) return; // idempotent
+    const audioUrl = `${location.origin}/audio/${cid}.webm`;
+    fetch(audioUrl, { method: 'HEAD' }).then(r => {
+        if (!r.ok) return;
+        const pill = document.createElement('div');
+        pill.className = 'pn-cid-handoff';
+        pill.style.cssText = [
+            'position:fixed', 'top:14px', 'right:14px', 'z-index:9000',
+            'background:#0d0d0d', 'border:1px solid #2a2a2a',
+            'border-radius:24px', 'padding:6px 10px 6px 14px',
+            'display:flex', 'align-items:center', 'gap:8px',
+            'font:12px system-ui,-apple-system,"Segoe UI",sans-serif',
+            'color:#ddd', 'box-shadow:0 4px 14px rgba(0,0,0,0.45)',
+            'max-width:calc(100vw - 28px)',
+        ].join(';');
+        pill.innerHTML = `
+            <span style="color:#fbbf24;font-size:13px">♫</span>
+            <span class="pn-cid-handoff-label" style="color:#ccc">Original recording</span>
+            <button class="pn-cid-handoff-play" title="Play the frozen recording (pauses live)"
+                    style="background:#1a1a2e;border:1px solid #0f3460;color:#9ad;border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer">▶</button>
+            <a class="pn-cid-handoff-feed" href="/feed" title="Open the public feed"
+                    style="color:#9ad;text-decoration:none;font-size:12px;padding:3px 8px">feed →</a>
+            <button class="pn-cid-handoff-dismiss" title="Dismiss for this session"
+                    style="background:transparent;border:none;color:#666;cursor:pointer;font-size:14px;padding:0 4px;line-height:1">×</button>
+        `;
+        document.body.appendChild(pill);
+
+        const playBtn = pill.querySelector('.pn-cid-handoff-play');
+        const label = pill.querySelector('.pn-cid-handoff-label');
+        let audio = null;
+
+        playBtn.addEventListener('click', () => {
+            if (!audio) {
+                // First click: pause live engine, mount inline player,
+                // start playback. Same audio element used for pause /
+                // resume on subsequent clicks.
+                if (el._playing) el._togglePlay?.();
+                audio = document.createElement('audio');
+                audio.src = audioUrl;
+                audio.preload = 'auto';
+                audio.controls = false;
+                document.body.appendChild(audio);
+                audio.addEventListener('ended', () => {
+                    playBtn.textContent = '▶';
+                    label.textContent = 'Original recording';
+                });
+                audio.addEventListener('pause', () => {
+                    if (!audio.ended) playBtn.textContent = '▶';
+                });
+                audio.addEventListener('play', () => {
+                    playBtn.textContent = '❚❚';
+                    label.textContent = 'Playing recording';
+                    if (el._playing) el._togglePlay?.();
+                });
+            }
+            if (audio.paused) audio.play().catch(() => {});
+            else audio.pause();
+        });
+
+        pill.querySelector('.pn-cid-handoff-dismiss').addEventListener('click', () => {
+            try { sessionStorage.setItem(dismissKey, '1'); } catch {}
+            if (audio) { audio.pause(); audio.remove(); }
+            pill.remove();
+        });
+
+        // If the user starts the live engine while the recording is
+        // playing, stop the recording (avoid double-playback). The
+        // welcome-card audio block has the same coupling; this mirrors it.
+        const liveStartHook = () => {
+            if (audio && !audio.paused) audio.pause();
+        };
+        el.addEventListener?.('pn-play', liveStartHook);
+    }).catch(() => {});
+}
+
 // "Restored from snapshot X" — informational. The auto-restore path
 // has already re-sealed the envelope into the live store, so the rest
 // of the boot is identical to a normal share. Surface enough detail

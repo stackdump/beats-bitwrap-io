@@ -458,6 +458,21 @@
        background dark so it sits on the chassis cleanly. */
     filter: hue-rotate(180deg) brightness(0.85);
   }
+  /* Flame visualizer — radial-feeling EQ bars driven by the playing
+     <audio>'s AnalyserNode. Sits between the LCD and the transport
+     so it reads as an extension of the now-playing readout. Idle
+     state shows a flat line; active state shows live bars. */
+  .pl-now-flame {
+    width: calc(100% - 16px);
+    height: 38px;
+    margin: 4px 8px 2px;
+    display: block;
+    background: #050a14;
+    border: 1px solid #000;
+    box-shadow: inset 0 0 0 1px #1a2a3a, inset 0 4px 8px rgba(0,0,0,0.6);
+    border-radius: 2px;
+    image-rendering: pixelated; /* keeps bars crisp on hidpi */
+  }
   .pl-controls {
     display: flex;
     gap: 2px;
@@ -846,7 +861,6 @@
 </head>
 <body>
 <div id="snapshot-banner" hidden style="background:#1a140a;border-bottom:1px solid #4a3a1a;padding:10px 24px;color:#ddd;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-  <span style="font-size:11px;color:#fbbf24;letter-spacing:0.06em;text-transform:uppercase">Browsing snapshot</span>
   <code id="snapshot-name" style="background:#0a0a0a;padding:2px 8px;border-radius:3px;font-size:12px"></code>
   <span style="flex:1"></span>
   <a href="/archive" style="font-size:12px;color:#9ad;text-decoration:none">← back to archive</a>
@@ -877,7 +891,8 @@
         <div class="pl-now-title" id="pl-now-title">No track loaded</div>
         <div class="pl-now-sub" id="pl-now-sub">Add tracks from the grid →</div>
       </div>
-      <audio id="pl-audio" controls preload="none"></audio>
+      <canvas id="pl-flame" class="pl-now-flame" width="600" height="76" aria-hidden="true"></canvas>
+      <audio id="pl-audio" controls preload="none" crossorigin="anonymous"></audio>
       <div class="pl-controls">
         <button id="pl-prev" title="Previous track" aria-label="Previous track">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
@@ -1041,6 +1056,108 @@ const toggleBtn = document.getElementById('toggle-pl');
 const layout = document.getElementById('layout');
 const audioEl = document.getElementById('pl-audio');
 const playBtn = document.getElementById('pl-play');
+const flameCanvas = document.getElementById('pl-flame');
+
+// ---- Flame visualizer (audio-driven AnalyserNode) -------------------
+//
+// One AnalyserNode per page, fed from #pl-audio via a single
+// MediaElementAudioSourceNode. Updates only while audio is playing —
+// when paused, the RAF loop draws an idle line and stops scheduling.
+// Why one analyser, not one per card: a card-per-card setup would build
+// 50+ MediaElementAudioSourceNodes on a long feed and burn CPU; only
+// the now-playing card has interesting audio anyway. Lazy-init on the
+// first 'play' event so we don't construct an AudioContext until a
+// user gesture (Chrome autoplay policy).
+let flameCtx = null, flameAnalyser = null, flameSource = null;
+let flameBuf = null, flameRaf = 0;
+const flameG = flameCanvas.getContext('2d');
+
+function ensureFlame() {
+  if (flameAnalyser) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    flameCtx = new Ctx();
+    flameSource = flameCtx.createMediaElementSource(audioEl);
+    flameAnalyser = flameCtx.createAnalyser();
+    flameAnalyser.fftSize = 256;        // 128 frequency bins → 64 visible bars
+    flameAnalyser.smoothingTimeConstant = 0.78;
+    flameSource.connect(flameAnalyser);
+    flameAnalyser.connect(flameCtx.destination);
+    flameBuf = new Uint8Array(flameAnalyser.frequencyBinCount);
+  } catch (err) {
+    // CORS-tainted media or no Web Audio support — fail silent.
+    // The audio still plays through the native <audio>.
+    console.warn('[flame] analyser unavailable:', err);
+  }
+}
+
+function drawFlame() {
+  flameRaf = 0;
+  if (!flameAnalyser) return;
+  const W = flameCanvas.width, H = flameCanvas.height;
+  flameAnalyser.getByteFrequencyData(flameBuf);
+  flameG.clearRect(0, 0, W, H);
+  // Skip the lowest 2 bins (DC + sub-bass rumble) — they dominate
+  // and crowd the visualization. Keep up through ~half the spectrum
+  // so the visible band matches musical frequencies.
+  const start = 2;
+  const end = Math.min(flameBuf.length, 96);
+  const N = end - start;
+  const barW = W / N;
+  for (let i = 0; i < N; i++) {
+    const v = flameBuf[start + i] / 255;        // 0..1
+    const h = Math.max(2, v * H);
+    const x = i * barW;
+    // Color ramp: cyan (low energy) → amber (mid) → magenta (peak).
+    // Matches the studio's flame visual language without sharing code.
+    const hue = 200 - v * 160;                  // 200° → 40°
+    const sat = 70 + v * 30;
+    const light = 35 + v * 25;
+    flameG.fillStyle = `hsl(${hue},${sat}%,${light}%)`;
+    flameG.fillRect(x + 0.5, H - h, barW - 1, h);
+  }
+  if (!audioEl.paused) flameRaf = requestAnimationFrame(drawFlame);
+}
+
+function flameStart() {
+  ensureFlame();
+  if (!flameAnalyser) return;
+  // Some browsers leave the context suspended until the first gesture
+  // even after createMediaElementSource — kick it explicitly.
+  if (flameCtx.state === 'suspended') flameCtx.resume().catch(() => {});
+  if (!flameRaf) flameRaf = requestAnimationFrame(drawFlame);
+}
+
+function flameIdle() {
+  if (flameRaf) { cancelAnimationFrame(flameRaf); flameRaf = 0; }
+  // Idle line — a faint horizontal at half-height so the canvas
+  // doesn't look broken between tracks.
+  const W = flameCanvas.width, H = flameCanvas.height;
+  flameG.clearRect(0, 0, W, H);
+  flameG.fillStyle = '#1a2a3a';
+  flameG.fillRect(0, H / 2 - 1, W, 2);
+}
+
+// Match the canvas backing-store size to its CSS size (devicePixelRatio
+// aware) so bars stay crisp on retina without stretching pixels.
+function resizeFlame() {
+  const r = flameCanvas.getBoundingClientRect();
+  if (r.width <= 0) return;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  flameCanvas.width = Math.round(r.width * dpr);
+  flameCanvas.height = Math.round(r.height * dpr);
+}
+window.addEventListener('resize', () => { resizeFlame(); flameIdle(); });
+// Initial paint after layout settles.
+requestAnimationFrame(() => { resizeFlame(); flameIdle(); });
+
+audioEl.addEventListener('play',    flameStart);
+audioEl.addEventListener('playing', flameStart);
+audioEl.addEventListener('pause',   flameIdle);
+audioEl.addEventListener('ended',   flameIdle);
+audioEl.addEventListener('emptied', flameIdle);
+// ---- /Flame visualizer ----------------------------------------------
 
 // Play / pause SVG icons swapped by setPlayIcon. Inline so the button
 // renders crisp on retina without an extra HTTP fetch. data-state

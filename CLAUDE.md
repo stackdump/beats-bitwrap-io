@@ -568,7 +568,7 @@ auto-restore on visit.
 
 | Date | Tracks | Workers | Flags | Wall time | Per-track avg | Notes |
 |---|---|---|---|---|---|---|
-| 2026-04-26 | 57 (19×3) | 4 | `--no-auto-dj-off` | _in progress_ | _tbd_ | Auto-DJ on, mute/tempo macros baked off |
+| 2026-04-26 | 57 (19×3) | 4 | `--no-auto-dj-off` | 33:32 | ~35 s wall · ~140 s per-worker | Auto-DJ on, mute/tempo macros baked off. Per-genre render times track track length: ambient 218 s, reggae 210 s, lofi 192 s, bossa 180 s, blues 167 s, funk 147 s, jazz 145 s, country 145 s, synthwave 147 s, house 129 s, techno 125 s, garage 123 s, edm 116 s, trance/trap 115 s, dubstep 115 s, dnb 93 s, metal 90 s, speedcore 75 s. |
 
 When recording a new row: include the flag set that was active, the local server config (`-audio-concurrent`), and any anomalies (worker crashes, polyphony-exceeded warnings, prod PUT throttle hits). The per-track average is the useful metric — chromedp render runs at 1× playback so a 3-min track ≈ 3 min wall time per worker; a healthy `--workers 4` batch should average ≈ `(track length) / workers`.
 

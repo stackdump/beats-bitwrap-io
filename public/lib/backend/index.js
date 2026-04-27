@@ -66,6 +66,9 @@ export function togglePlay(el) {
         el._ensureToneStarted();
         el._vizStartLoop();
         acquireWakeLock(el);
+        // Notify any sibling listeners (e.g. the CID handoff pill) so
+        // they can pause their own playback to avoid double-audio.
+        try { el.dispatchEvent(new CustomEvent('pn-play')); } catch {}
         setupMediaSession(el);
         installVisibilityRecovery(el);
     } else {

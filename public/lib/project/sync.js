@@ -248,6 +248,10 @@ export function applyProjectSync(el, project, seamless = false) {
             el._showWelcomeOnSync = false;
             el._showWelcomeCard?.();
         }
+        // Persistent handoff pill: surfaces the paired .webm recording
+        // even after the welcome card is dismissed. Independent of the
+        // welcome flow — fires whenever a ?cid is in the URL.
+        el._attachCidHandoffPill?.();
         return;
     }
     if (seamless) {
