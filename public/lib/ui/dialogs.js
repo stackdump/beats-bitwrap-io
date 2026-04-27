@@ -560,11 +560,22 @@ export function showHelpModal(el) {
                 <li><b>Arrange &#8635;</b> applies the selection. Runs overlay mode when the track already has a structure; otherwise does a full expansion</li>
             </ul>
 
-            <h3>MIDI Pad &amp; CC Learn</h3>
+            <h3>MIDI Tab</h3>
             <ul>
-                <li>Toggle <b>MIDI</b> (top right) to enable Web MIDI and per-track audio-output routing</li>
-                <li><b>CC</b>: hover a slider, move a MIDI CC knob &rarr; binds it. Use <b>CC Reset</b> to clear</li>
-                <li><b>Pads</b>: hover a Macro button, press a pad (Note On) &rarr; binds it. Subsequent presses fire the macro</li>
+                <li>Toggle <b>MIDI</b> (top right) to enable Web MIDI input + per-track audio-output routing. The <b>MIDI</b> tab in the panel row collects everything: device status, live transpose (Xpose), CC and Note bindings, plus a debug Monitor.</li>
+                <li><b>Hover-bind</b> &mdash; works for every binding type. Hover the target, then move the controller:
+                    <ul>
+                        <li>Hover an FX or mixer slider + move a CC knob &rarr; CC controls that slider</li>
+                        <li>Hover a mixer mute button + press a pad (or twist a CC-mode pad) &rarr; toggles that track's mute</li>
+                        <li>Hover a section divider (e.g. <i>Drums</i>) + press a pad &rarr; toggles the whole section</li>
+                        <li>Hover the <b>BPM</b> number + twist a CC knob &rarr; CC drives tempo (60&ndash;300 BPM range)</li>
+                        <li>Hover any macro tile + press a pad / keybed key &rarr; pad fires the macro</li>
+                    </ul>
+                </li>
+                <li><b>Xpose</b> pill: <code>[&minus;] +0 [+] [&#127929;]</code> &mdash; ±48 semitones live transpose for non-drum channels. The 🎹 toggle arms <i>listen</i> mode: the next MIDI Note On from your keybed snaps the transpose to that key (latched).</li>
+                <li><b>Joystick defaults</b>: pitch bend (X axis) drives Xpose continuously, ±12 semitones, snap-to-semitone, releases to +0. CC1 / modwheel (Y axis) drives BPM, 60&ndash;300 range, releases to whatever the tempo was before grab. Hover-bind any control over CC1 to override the BPM default.</li>
+                <li><b>Monitor</b>: opens a debug overlay logging every incoming MIDI message (type / channel / note name / value). Use it to identify what your pads / knobs actually send. Copy button dumps the log to clipboard.</li>
+                <li><b>Reset MIDI</b> wipes every binding (CC + pad + keybed) and resets transpose to +0.</li>
             </ul>
 
             <h3>Per-Track Controls</h3>
