@@ -1226,6 +1226,25 @@ input[type="range"][data-default] {
 }
 .pn-midi-monitor:hover { border-color: #67e8f9; background: #0a1a28; }
 
+.pn-midi-lock {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #888;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+}
+.pn-midi-lock:hover { border-color: #4a90d9; color: #cdf; }
+.pn-midi-lock[data-on="true"] {
+    background: linear-gradient(180deg, #f5a623 0%, #c87a00 100%);
+    color: #1a1000;
+    border-color: #8a5500;
+    box-shadow: inset 0 0 0 1px #ffd07a;
+}
+
 .pn-midi-monitor-last {
     background: #050a14;
     border: 1px solid #1a2a3a;

@@ -166,8 +166,13 @@ export function handleMidiCC(el, cc, value) {
     // overwrite any existing binding so re-binding is a one-touch
     // operation. Mute / section bindings are useful for pads in CC
     // mode (most controllers offer it) where the pad latches between
-    // 0 and >0 instead of sending Note On/Off.
-    if (el._hoveredMute) {
+    // 0 and >0 instead of sending Note On/Off. Suppressed entirely
+    // when the user has the MIDI panel's lock toggle on (live-set
+    // protection against a stray slider hover rebinding a knob).
+    if (el._midiBindingLock) {
+        // Skip every hover-bind path; fall through to the dispatch
+        // lookup so existing bindings still fire.
+    } else if (el._hoveredMute) {
         const target = el._hoveredMute.dataset.riffGroup || el._hoveredMute.dataset.netId;
         if (target) {
             el._ccBindings.set(cc, { type: 'mute', target });
@@ -223,6 +228,24 @@ export function handleMidiCC(el, cc, value) {
 }
 
 export function handleMidiNoteOn(el, note) {
+    // Hover-bind paths suppressed when the user has the MIDI lock
+    // engaged (live-set protection). Existing bindings still fire
+    // via the lookup further down.
+    if (el._midiBindingLock) {
+        const binding = el._padBindings?.get(note);
+        if (binding) {
+            if (typeof binding === 'string') el._fireMacro(binding);
+            else if (binding?.type === 'mute') {
+                toggleMuteGroup(el, binding.target);
+                el._renderMidiPanel?.();
+            }
+        }
+        if (el._transposeListen && typeof el._setLiveTranspose === 'function') {
+            const root = (el._project?.rootNote ?? 60) | 0;
+            el._setLiveTranspose(note - root);
+        }
+        return;
+    }
     // Hover-bind: hover intent always overwrites the existing binding
     // for that note (was previously silently no-op on a re-bind).
     if (el._hoveredMacro) {

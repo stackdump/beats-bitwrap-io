@@ -560,6 +560,7 @@ export function buildUI(el) {
         <div class="pn-midi-panel" style="display:${el._showMidi ? 'flex' : 'none'}">
             <div class="pn-midi-row">
                 <span class="pn-midi-label">Status</span>
+                <button type="button" class="pn-midi-lock" aria-pressed="false" title="Lock bindings — when ON, hover + CC / pad won't create new bindings. Existing bindings still fire normally. Use during a live performance to prevent accidental remaps from a stray slider hover.">&#128275; Unlocked</button>
                 <button type="button" class="pn-midi-reset-all" title="Clear every MIDI input binding (CC + pads + keyboard notes) and reset live transpose to +0">Reset MIDI</button>
                 <button type="button" class="pn-midi-monitor" title="Open the MIDI Monitor — logs every incoming message so you can identify pad / note / CC numbers your controller is sending">Monitor</button>
                 <span class="pn-midi-status">Enable MIDI in the top-right toolbar to start binding.</span>
@@ -915,6 +916,29 @@ export function buildUI(el) {
         // identify pad / note / CC numbers without binding anything.
         midiPanel.querySelector('.pn-midi-monitor').addEventListener('click', () => {
             el._showMidiMonitor?.();
+        });
+        // Lock — flip el._midiBindingLock so hover-bind paths in
+        // handleMidiCC / handleMidiNoteOn skip new-binding creation.
+        // Existing bindings still dispatch. Persists in sessionStorage
+        // so an accidental refresh during a set doesn't drop the
+        // lock state and start re-binding from a hover.
+        const lockBtn = midiPanel.querySelector('.pn-midi-lock');
+        const renderLock = () => {
+            const on = !!el._midiBindingLock;
+            lockBtn.dataset.on = on ? 'true' : 'false';
+            lockBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            lockBtn.innerHTML = on ? '&#128274; Locked' : '&#128275; Unlocked';
+        };
+        try {
+            el._midiBindingLock = sessionStorage.getItem('pn-midi-lock') === '1';
+        } catch {}
+        renderLock();
+        lockBtn.addEventListener('click', () => {
+            el._midiBindingLock = !el._midiBindingLock;
+            try {
+                sessionStorage.setItem('pn-midi-lock', el._midiBindingLock ? '1' : '0');
+            } catch {}
+            renderLock();
         });
         // Master "Reset MIDI" — wipes every input binding (CC + pad
         // + keybed-note) and resets live transpose to +0. Useful when
