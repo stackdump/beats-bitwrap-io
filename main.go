@@ -1051,6 +1051,31 @@ func buildShareEnvelope(project map[string]any) map[string]any {
 	if h, ok := project["humanize"].(float64); ok {
 		envelope["humanize"] = int(h)
 	}
+	// Musical key: rootNote (MIDI) + scaleName drive the share-card KEY
+	// label. Composer-generated projects always set both; hand-authored
+	// shares may omit them, in which case the card renderer falls back
+	// to "—". Bars feeds the BARS field next to KEY.
+	switch v := project["rootNote"].(type) {
+	case float64:
+		envelope["rootNote"] = int(v)
+	case int:
+		envelope["rootNote"] = v
+	case int64:
+		envelope["rootNote"] = int(v)
+	}
+	if s, ok := project["scaleName"].(string); ok && s != "" {
+		envelope["scaleName"] = s
+	}
+	switch v := project["bars"].(type) {
+	case float64:
+		if int(v) > 0 {
+			envelope["bars"] = int(v)
+		}
+	case int:
+		if v > 0 {
+			envelope["bars"] = v
+		}
+	}
 	if fx, ok := project["fx"].(map[string]any); ok {
 		envelope["fx"] = fx
 	}

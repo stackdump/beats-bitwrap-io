@@ -113,6 +113,16 @@ type Project struct {
 	Tempo        float64
 	Swing        float64 // 0-100 swing percentage
 	Humanize     float64 // 0-100 humanize amount
+	// RootNote is the MIDI number for the song's tonic (0-127). -1 means
+	// "not declared". Drives the share-card KEY label.
+	RootNote int
+	// ScaleName is the human-readable scale label paired with RootNote
+	// for the share-card KEY field (e.g. "Major", "Dorian", "Blues").
+	// Mirrors the JS composer's project.scaleName.
+	ScaleName string
+	// Bars is the song length in bars; 1 means a one-bar loop. Drives the
+	// share-card BARS field.
+	Bars         int
 	Nets         map[string]*NetBundle
 	Connections  []Connection
 	InitialMutes []string           // Net IDs that should start muted (for fade-in)
@@ -202,12 +212,15 @@ func (nb *NetBundle) GetInputArcs(transLabel string) []cachedArc {
 // ParseProject converts a raw JSON map (from WebSocket) into a Project.
 func ParseProject(data map[string]interface{}) *Project {
 	proj := &Project{
-		Name:     getString(data, "name", "Untitled"),
-		Seed:     int64(getFloat(data, "seed", 0)),
-		Tempo:    getFloat(data, "tempo", 120),
-		Swing:    getFloat(data, "swing", 0),
-		Humanize: getFloat(data, "humanize", 0),
-		Nets:     make(map[string]*NetBundle),
+		Name:      getString(data, "name", "Untitled"),
+		Seed:      int64(getFloat(data, "seed", 0)),
+		Tempo:     getFloat(data, "tempo", 120),
+		Swing:     getFloat(data, "swing", 0),
+		Humanize:  getFloat(data, "humanize", 0),
+		RootNote:  int(getFloat(data, "rootNote", -1)),
+		ScaleName: getString(data, "scaleName", ""),
+		Bars:      int(getFloat(data, "bars", 0)),
+		Nets:      make(map[string]*NetBundle),
 	}
 
 	nets, ok := data["nets"].(map[string]interface{})
@@ -593,6 +606,15 @@ func (p *Project) ToJSON() map[string]interface{} {
 
 	if p.Seed != 0 {
 		result["seed"] = p.Seed
+	}
+	if p.RootNote >= 0 {
+		result["rootNote"] = p.RootNote
+	}
+	if p.ScaleName != "" {
+		result["scaleName"] = p.ScaleName
+	}
+	if p.Bars > 0 {
+		result["bars"] = p.Bars
 	}
 
 	if p.Swing > 0 {

@@ -25,7 +25,13 @@ type Genre struct {
 	Name     string
 	BPM      float64
 	Scale    func(int) []int
-	RootNote int
+	// ScaleName is the human-readable label paired with Scale for the
+	// share-card key field (e.g. "Major", "Dorian", "MinPentatonic").
+	// Mirrors public/lib/generator/composer.js where the scale fn carries
+	// its name implicitly; here we set it explicitly because Go fn values
+	// don't expose a usable Name() at runtime.
+	ScaleName string
+	RootNote  int
 	// Drum patterns: (hits, steps, rotation, midiNote)
 	Kick  [4]int
 	Snare [4]int
@@ -82,7 +88,7 @@ func MinPentatonicScale(root int) []int {
 
 var Genres = map[string]Genre{
 	"techno": {
-		Name: "techno", BPM: 128, Scale: MajorScale, RootNote: 48,
+		Name: "techno", BPM: 128, Scale: MajorScale, ScaleName: "Major", RootNote: 48,
 		Kick: [4]int{4, 16, 0, 36}, Snare: [4]int{2, 16, 4, 38}, Hihat: [4]int{5, 8, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.4, MelodyDuration: 150,
 		BassChannel: 6, BassDensity: 0.5, BassDuration: 200,
@@ -91,7 +97,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.1, GhostNotes: 0.3,
 	},
 	"house": {
-		Name: "house", BPM: 124, Scale: MinorScale, RootNote: 48,
+		Name: "house", BPM: 124, Scale: MinorScale, ScaleName: "Minor", RootNote: 48,
 		Kick: [4]int{4, 16, 0, 36}, Snare: [4]int{3, 8, 0, 38}, Hihat: [4]int{6, 8, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.5, MelodyDuration: 120,
 		BassChannel: 6, BassDensity: 0.6, BassDuration: 180,
@@ -100,7 +106,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.2, GhostNotes: 0.4,
 	},
 	"jazz": {
-		Name: "jazz", BPM: 110, Scale: func(root int) []int { return scaleNotes(root, Dorian, 2) }, RootNote: 55,
+		Name: "jazz", BPM: 110, Scale: func(root int) []int { return scaleNotes(root, Dorian, 2) }, ScaleName: "Dorian", RootNote: 55,
 		Kick: [4]int{3, 12, 0, 36}, Snare: [4]int{2, 12, 3, 38}, Hihat: [4]int{5, 12, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.6, MelodyDuration: 100,
 		BassChannel: 6, BassDensity: 0.4, BassDuration: 250,
@@ -110,7 +116,7 @@ var Genres = map[string]Genre{
 		CallResponse: true, TensionCurve: true, ModalInterchange: 0.3, GhostNotes: 0.6,
 	},
 	"ambient": {
-		Name: "ambient", BPM: 72, Scale: PentatonicScale, RootNote: 60,
+		Name: "ambient", BPM: 72, Scale: PentatonicScale, ScaleName: "Pentatonic", RootNote: 60,
 		Kick: [4]int{2, 16, 0, 36}, Snare: [4]int{1, 16, 8, 38}, Hihat: [4]int{3, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.3, MelodyDuration: 400,
 		BassChannel: 6, BassDensity: 0.2, BassDuration: 500,
@@ -119,7 +125,7 @@ var Genres = map[string]Genre{
 		TensionCurve: true, ModalInterchange: 0.2,
 	},
 	"dnb": {
-		Name: "dnb", BPM: 174, Scale: MinorScale, RootNote: 43,
+		Name: "dnb", BPM: 174, Scale: MinorScale, ScaleName: "Minor", RootNote: 43,
 		Kick: [4]int{3, 16, 0, 36}, Snare: [4]int{2, 8, 2, 38}, Hihat: [4]int{7, 8, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.5, MelodyDuration: 80,
 		BassChannel: 6, BassDensity: 0.7, BassDuration: 120,
@@ -128,7 +134,7 @@ var Genres = map[string]Genre{
 		DrumFills: true, Polyrhythm: 6, Syncopation: 0.3, TensionCurve: true, GhostNotes: 0.5,
 	},
 	"edm": {
-		Name: "edm", BPM: 138, Scale: MinorScale, RootNote: 45, // A minor
+		Name: "edm", BPM: 138, Scale: MinorScale, ScaleName: "Minor", RootNote: 45, // A minor
 		Kick: [4]int{4, 16, 0, 36}, Snare: [4]int{2, 16, 4, 40}, Hihat: [4]int{8, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.6, MelodyDuration: 100,
 		BassChannel: 6, BassDensity: 0.5, BassDuration: 150,
@@ -137,7 +143,7 @@ var Genres = map[string]Genre{
 		DrumFills: true, Syncopation: 0.15, TensionCurve: true, ModalInterchange: 0.1, GhostNotes: 0.3,
 	},
 	"speedcore": {
-		Name: "speedcore", BPM: 220, Scale: MinorScale, RootNote: 40, // E minor, low and dark
+		Name: "speedcore", BPM: 220, Scale: MinorScale, ScaleName: "Minor", RootNote: 40, // E minor, low and dark
 		Kick: [4]int{8, 16, 0, 36}, Snare: [4]int{4, 16, 2, 40}, Hihat: [4]int{12, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.7, MelodyDuration: 50,
 		BassChannel: 6, BassDensity: 0.8, BassDuration: 60,
@@ -146,7 +152,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.05, GhostNotes: 0.2,
 	},
 	"dubstep": {
-		Name: "dubstep", BPM: 140, Scale: MinorScale, RootNote: 38, // D minor, half-time feel
+		Name: "dubstep", BPM: 140, Scale: MinorScale, ScaleName: "Minor", RootNote: 38, // D minor, half-time feel
 		Kick: [4]int{3, 16, 0, 36}, Snare: [4]int{2, 16, 4, 38}, Hihat: [4]int{5, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.4, MelodyDuration: 120,
 		BassChannel: 6, BassDensity: 0.6, BassDuration: 200,
@@ -155,7 +161,7 @@ var Genres = map[string]Genre{
 		DrumFills: true, Syncopation: 0.3, TensionCurve: true, ModalInterchange: 0.15, GhostNotes: 0.4,
 	},
 	"country": {
-		Name: "country", BPM: 110, Scale: MajorScale, RootNote: 48, // C3
+		Name: "country", BPM: 110, Scale: MajorScale, ScaleName: "Major", RootNote: 48, // C3
 		Kick: [4]int{4, 16, 0, 36}, Snare: [4]int{4, 16, 4, 38}, Hihat: [4]int{8, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.5, MelodyDuration: 140,
 		BassChannel: 6, BassDensity: 0.5, BassDuration: 200,
@@ -164,7 +170,7 @@ var Genres = map[string]Genre{
 		WalkingBass: true, Syncopation: 0.2, CallResponse: true, ModalInterchange: 0.1, GhostNotes: 0.3,
 	},
 	"blues": {
-		Name: "blues", BPM: 95, Scale: BluesScale, RootNote: 48, // C3
+		Name: "blues", BPM: 95, Scale: BluesScale, ScaleName: "Blues", RootNote: 48, // C3
 		Kick: [4]int{3, 16, 0, 36}, Snare: [4]int{2, 16, 4, 38}, Hihat: [4]int{6, 16, 0, 42},
 		MelodyChannel: 4, MelodyDensity: 0.5, MelodyDuration: 160,
 		BassChannel: 6, BassDensity: 0.4, BassDuration: 250,
@@ -174,7 +180,7 @@ var Genres = map[string]Genre{
 		CallResponse: true, TensionCurve: true, ModalInterchange: 0.2, GhostNotes: 0.5,
 	},
 	"synthwave": {
-		Name: "synthwave", BPM: 108, Scale: MinorScale, RootNote: 48, // C3
+		Name: "synthwave", BPM: 108, Scale: MinorScale, ScaleName: "Minor", RootNote: 48, // C3
 		Kick:          [4]int{4, 16, 0, 36}, // four-on-the-floor
 		Snare:         [4]int{2, 16, 4, 38}, // backbeat
 		Hihat:         [4]int{4, 8, 0, 42},  // sparse hihats
@@ -185,7 +191,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.05, GhostNotes: 0.15, TensionCurve: true, ModalInterchange: 0.1,
 	},
 	"trance": {
-		Name: "trance", BPM: 140, Scale: MinorScale, RootNote: 45, // A2
+		Name: "trance", BPM: 140, Scale: MinorScale, ScaleName: "Minor", RootNote: 45, // A2
 		Kick:          [4]int{4, 16, 0, 36}, // four-on-the-floor
 		Snare:         [4]int{2, 16, 4, 40}, // clap on backbeat
 		Hihat:         [4]int{8, 16, 0, 42}, // driving hihats
@@ -196,7 +202,7 @@ var Genres = map[string]Genre{
 		TensionCurve: true, Syncopation: 0.1, GhostNotes: 0.2, ModalInterchange: 0.15,
 	},
 	"lofi": {
-		Name: "lofi", BPM: 82, Scale: MinPentatonicScale, RootNote: 55, // G3
+		Name: "lofi", BPM: 82, Scale: MinPentatonicScale, ScaleName: "MinPentatonic", RootNote: 55, // G3
 		Kick:          [4]int{3, 16, 0, 36}, // lazy kick
 		Snare:         [4]int{2, 16, 4, 38}, // backbeat snare
 		Hihat:         [4]int{5, 8, 0, 42},  // swung hihats
@@ -207,7 +213,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.2, GhostNotes: 0.6, ModalInterchange: 0.15,
 	},
 	"reggae": {
-		Name: "reggae", BPM: 75, Scale: MajorScale, RootNote: 48, // C3
+		Name: "reggae", BPM: 75, Scale: MajorScale, ScaleName: "Major", RootNote: 48, // C3
 		Kick:          [4]int{3, 16, 0, 36}, // one-drop style
 		Snare:         [4]int{2, 16, 6, 37}, // rimshot on 3
 		Hihat:         [4]int{8, 16, 0, 42}, // steady offbeat
@@ -218,7 +224,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.4, GhostNotes: 0.3, WalkingBass: true,
 	},
 	"funk": {
-		Name: "funk", BPM: 108, Scale: func(root int) []int { return scaleNotes(root, Mixolydian, 2) }, RootNote: 48, // C3
+		Name: "funk", BPM: 108, Scale: func(root int) []int { return scaleNotes(root, Mixolydian, 2) }, ScaleName: "Mixolydian", RootNote: 48, // C3
 		Kick:          [4]int{5, 16, 0, 36}, // syncopated kick
 		Snare:         [4]int{4, 16, 4, 38}, // heavy backbeat
 		Hihat:         [4]int{8, 16, 0, 42}, // 16th-note hihats
@@ -230,7 +236,7 @@ var Genres = map[string]Genre{
 		CallResponse: true, DrumFills: true,
 	},
 	"bossa": {
-		Name: "bossa", BPM: 88, Scale: func(root int) []int { return scaleNotes(root, Dorian, 2) }, RootNote: 53, // F3
+		Name: "bossa", BPM: 88, Scale: func(root int) []int { return scaleNotes(root, Dorian, 2) }, ScaleName: "Dorian", RootNote: 53, // F3
 		Kick:          [4]int{3, 16, 0, 36}, // sparse kick
 		Snare:         [4]int{5, 16, 3, 37}, // rimshot clave pattern
 		Hihat:         [4]int{6, 8, 0, 42},  // soft hihats
@@ -242,7 +248,7 @@ var Genres = map[string]Genre{
 		CallResponse: true, ModalInterchange: 0.25,
 	},
 	"trap": {
-		Name: "trap", BPM: 140, Scale: MinorScale, RootNote: 38, // D2 — deep 808
+		Name: "trap", BPM: 140, Scale: MinorScale, ScaleName: "Minor", RootNote: 38, // D2 — deep 808
 		Kick:          [4]int{3, 16, 0, 36},  // sparse hard-hitting kick
 		Snare:         [4]int{2, 16, 4, 40},  // clap on backbeat
 		Hihat:         [4]int{10, 16, 0, 42}, // rolling hihats
@@ -253,7 +259,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.3, GhostNotes: 0.4, DrumFills: true, TensionCurve: true,
 	},
 	"garage": {
-		Name: "garage", BPM: 130, Scale: MinorScale, RootNote: 45, // A2
+		Name: "garage", BPM: 130, Scale: MinorScale, ScaleName: "Minor", RootNote: 45, // A2
 		Kick:          [4]int{3, 16, 0, 36}, // syncopated kick
 		Snare:         [4]int{3, 16, 2, 38}, // shuffled snare
 		Hihat:         [4]int{7, 8, 0, 42},  // swung hihats
@@ -264,7 +270,7 @@ var Genres = map[string]Genre{
 		Syncopation: 0.35, GhostNotes: 0.45, DrumFills: true,
 	},
 	"metal": {
-		Name: "metal", BPM: 180, Scale: func(root int) []int { return scaleNotes(root, Phrygian, 2) }, RootNote: 40, // E2
+		Name: "metal", BPM: 180, Scale: func(root int) []int { return scaleNotes(root, Phrygian, 2) }, ScaleName: "Phrygian", RootNote: 40, // E2
 		Kick:          [4]int{8, 16, 0, 36}, // double kick
 		Snare:         [4]int{4, 16, 4, 38}, // heavy backbeat
 		Hihat:         [4]int{8, 8, 0, 42},  // fast hihats
@@ -469,13 +475,23 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		ghostNotes = v
 	}
 
+	// Bars: default to the kick pattern length expressed in bars (loop
+	// mode). Song mode replaces this further down with the structure
+	// total. Mirrors public/lib/generator/composer.js.
+	defaultBars := genre.Kick[1] / 16
+	if defaultBars < 1 {
+		defaultBars = 1
+	}
 	proj := &pflow.Project{
-		Name:     generateTrackName(genre.Name, seed),
-		Seed:     seed,
-		Tempo:    bpm,
-		Swing:    genre.Swing,
-		Humanize: genre.Humanize,
-		Nets:     make(map[string]*pflow.NetBundle),
+		Name:      generateTrackName(genre.Name, seed),
+		Seed:      seed,
+		Tempo:     bpm,
+		Swing:     genre.Swing,
+		Humanize:  genre.Humanize,
+		RootNote:  genre.RootNote,
+		ScaleName: genre.ScaleName,
+		Bars:      defaultBars,
+		Nets:      make(map[string]*pflow.NetBundle),
 	}
 
 	// === Drums (deterministic seed from genre for consistent patterns) ===
