@@ -45,5 +45,31 @@
 
     <petri-note id="app">
     </petri-note>
+
+    <!-- Phone-only floating mini-player. Mirrors the /feed FAB so the
+         "go to the player" path is the same affordance on both pages.
+         Click forwards to the canonical .pn-player-link inside the
+         petri-note header, which handles current-cid + playlist append
+         + navigation in one place. -->
+    <button class="pn-fab" id="pn-fab" type="button" aria-label="Open player">
+      <span class="pn-fab-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="3,2 14,8 3,14"/></svg>
+      </span>
+      <span class="pn-fab-text">
+        <span class="pn-fab-title">Player</span>
+        <span class="pn-fab-meta">Tap to open feed</span>
+      </span>
+    </button>
+    <script>
+      (function () {
+        const fab = document.getElementById('pn-fab');
+        if (!fab) return;
+        fab.addEventListener('click', () => {
+          const link = document.querySelector('.pn-player-link');
+          if (link) link.click();
+          else location.href = '/feed';
+        });
+      })();
+    </script>
 </body>
 </html>
