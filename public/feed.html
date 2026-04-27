@@ -1032,6 +1032,11 @@ const loadCurrent = (autoplay = true) => {
   if (current < 0 || current >= playlist.length) { clearNow(); return; }
   const t = playlist[current];
   audioEl.src = `/audio/${encodeURIComponent(t.cid)}.webm`;
+  // Re-apply native loop after every src swap — setting src resets
+  // .loop to false. This is what makes repeat-one gapless: the
+  // browser wraps from end to start without firing 'ended' or
+  // re-decoding from byte 0.
+  audioEl.loop = (repeatMode === 'one');
   nowTitle.textContent = trackTitle(t);
   nowSub.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean).join(' · ');
   preloadNext();
@@ -1140,6 +1145,7 @@ repeatBtn.addEventListener('click', () => {
              : 'off';
   try { localStorage.setItem(REPEAT_KEY, repeatMode); } catch {}
   renderModeButtons();
+  applyLoopState?.();
 });
 
 // Pick the next index given current modes. Returns -1 if playback
@@ -1163,15 +1169,21 @@ const nextIndex = () => {
 audioEl.addEventListener('ended', () => {
   const nxt = nextIndex();
   if (nxt < 0) { setPlayIcon(false); releaseWake(); return; }
-  // repeat=one against the same index: rewind + play instead of
-  // re-loading the src (no decoder churn).
-  if (nxt === current) {
-    audioEl.currentTime = 0;
-    audioEl.play().catch(() => {});
-    return;
-  }
+  // repeat=one is handled by the native audioEl.loop flag below
+  // (gapless — browsers wrap internally without firing 'ended').
+  // This branch only kicks for repeat=all + shuffle, both of which
+  // intentionally jump to a different track.
   playIndex(nxt);
 });
+
+// Gapless repeat-one — set the native loop flag so the browser
+// continues from the start of the buffer the moment playback would
+// have ended, without the wait-for-'ended' → reset → re-decode
+// cycle that produces an audible cut. Called both when the user
+// flips the repeat mode and after every playIndex (each track
+// load resets audioEl.loop to false).
+const applyLoopState = () => { audioEl.loop = (repeatMode === 'one'); };
+applyLoopState();
 
 renderModeButtons();
 
