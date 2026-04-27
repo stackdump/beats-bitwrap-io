@@ -573,7 +573,7 @@ export function showHelpModal(el) {
                     </ul>
                 </li>
                 <li><b>Xpose</b> pill: <code>[&minus;] +0 [+] [&#127929;]</code> &mdash; ±48 semitones live transpose for non-drum channels. The 🎹 toggle arms <i>listen</i> mode: the next MIDI Note On from your keybed snaps the transpose to that key (latched).</li>
-                <li><b>Joystick defaults</b>: pitch bend (X axis) drives Xpose continuously, ±12 semitones, snap-to-semitone, releases to +0. CC1 / modwheel (Y axis) drives BPM, 60&ndash;300 range, releases to whatever the tempo was before grab. Hover-bind any control over CC1 to override the BPM default.</li>
+                <li><b>Pitch bend</b> (joystick X axis on most controllers) drives Xpose continuously, ±12 semitones, snap-to-semitone, releases to +0. <b>Modwheel / CC1</b> (joystick Y axis) is unbound by default — hover BPM (or any other slider) and twist the joystick Y to bind it your way.</li>
                 <li><b>Monitor</b>: opens a debug overlay logging every incoming MIDI message (type / channel / note name / value). Use it to identify what your pads / knobs actually send. Copy button dumps the log to clipboard.</li>
                 <li><b>Reset MIDI</b> wipes every binding (CC + pad + keybed) and resets transpose to +0.</li>
             </ul>

@@ -15,6 +15,7 @@ import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
 import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 import { sanitizeNote, liveScrubNote } from '../note/note.js';
+import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -877,7 +878,9 @@ export function buildUI(el) {
                 ? [...el._midiAccess.inputs.values()].map(i => i.name).filter(Boolean)
                 : [];
             if (!inputs.length) return 'MIDI ON — no input devices detected.';
-            return `MIDI ON — ${inputs.join(', ')}`;
+            const dev = el._currentMidiDevice;
+            const tail = dev ? `  ·  bindings stored as ${dev}` : '';
+            return `MIDI ON — ${inputs.join(', ')}${tail}`;
         };
         const renderMidi = () => {
             ccList.innerHTML = formatCC();
@@ -898,6 +901,7 @@ export function buildUI(el) {
                 el._padBindings?.delete(parseInt(key, 10));
                 el._savePadBindings?.();
             }
+            saveMidiBindings?.(el);
             renderMidi();
         });
         el._renderMidiPanel = renderMidi;
@@ -910,6 +914,7 @@ export function buildUI(el) {
         padResetBtn.addEventListener('click', () => {
             el._padBindings?.clear();
             el._savePadBindings?.();
+            saveMidiBindings(el);
             renderMidi();
         });
         // Monitor — pops the MIDI Monitor modal so the user can
@@ -948,6 +953,7 @@ export function buildUI(el) {
             el._ccBindings?.clear();
             el._padBindings?.clear();
             el._savePadBindings?.();
+            saveMidiBindings(el);
             el._transposeListen = false;
             el._setLiveTranspose?.(0);
             renderMidi();
@@ -1239,6 +1245,7 @@ export function buildUI(el) {
 
     fx.querySelector('.pn-cc-reset').addEventListener('click', () => {
         el._ccBindings.clear();
+        saveMidiBindings(el);
         el._renderMidiPanel?.();
     });
 

@@ -28,6 +28,7 @@ export async function connectMidiInputs(el) {
                 }
             }
             detectAndStorePreset(el);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         };
         wireInputs();
@@ -42,21 +43,76 @@ export async function connectMidiInputs(el) {
 // preset registry and remembers the first match on
 // el._detectedMidiPreset. Picks up newly-plugged devices on
 // statechange — the user can plug in mid-session and the MIDI panel
-// reflects the new device on next render.
+// reflects the new device on next render. Also tracks the first
+// non-virtual input name as el._currentMidiDevice so per-device
+// binding persistence (loadBindingsForDevice / save…) can key by
+// hardware identity.
 import { detectPreset as _detectPreset } from './midi-presets.js';
 export { applyPreset as applyMidiPreset } from './midi-presets.js';
+const VIRTUAL_INPUT_RE = /^(?:btw\s+bus|iac\s+driver|loopback|virtual)/i;
 function detectAndStorePreset(el) {
     if (!el._midiAccess) return;
+    let firstReal = null;
     for (const input of el._midiAccess.inputs.values()) {
+        if (input.name && !VIRTUAL_INPUT_RE.test(input.name) && !firstReal) {
+            firstReal = input.name;
+        }
         const preset = _detectPreset(input.name);
-        if (preset) {
+        if (preset && !el._detectedMidiPreset) {
             el._detectedMidiPreset = preset;
             el._detectedMidiInputName = input.name;
-            return;
         }
     }
-    el._detectedMidiPreset = null;
-    el._detectedMidiInputName = null;
+    const prev = el._currentMidiDevice;
+    el._currentMidiDevice = firstReal || null;
+    if (el._currentMidiDevice && el._currentMidiDevice !== prev) {
+        loadBindingsForDevice(el, el._currentMidiDevice);
+    }
+}
+
+// --- Per-device binding persistence ---
+//
+// Bindings are saved to localStorage keyed by the connected device's
+// name. Plug in the same controller on a different day → its CC +
+// pad layout is restored automatically. Schema:
+//   localStorage['pn-midi-device-bindings'] = {
+//     "MPK Mini Mk II": { cc: [[32, {...}], [74, {...}]], pad: [[44, {...}]] },
+//     "LaunchKey 49":   { cc: [...], pad: [...] }
+//   }
+
+const DEVICE_BINDINGS_KEY = 'pn-midi-device-bindings';
+
+function readAllDeviceBindings() {
+    try {
+        const raw = localStorage.getItem(DEVICE_BINDINGS_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+}
+
+function writeAllDeviceBindings(all) {
+    try { localStorage.setItem(DEVICE_BINDINGS_KEY, JSON.stringify(all)); } catch {}
+}
+
+export function saveBindingsForDevice(el) {
+    if (!el._currentMidiDevice) return;
+    const all = readAllDeviceBindings();
+    all[el._currentMidiDevice] = {
+        cc: [...(el._ccBindings || new Map())],
+        pad: [...(el._padBindings || new Map())],
+    };
+    writeAllDeviceBindings(all);
+}
+
+export function loadBindingsForDevice(el, deviceName) {
+    if (!deviceName) return;
+    const all = readAllDeviceBindings();
+    const entry = all[deviceName];
+    if (!entry) return;
+    el._ccBindings = new Map(entry.cc || []);
+    el._padBindings = new Map(entry.pad || []);
+    // Mirror onto sessionStorage for the legacy savePadBindings path.
+    el._savePadBindings?.();
+    el._renderMidiPanel?.();
 }
 
 // --- MIDI bindings ---
@@ -129,49 +185,8 @@ export function handleMidiPitchBend(el, value) {
     el._setLiveTranspose(semis);
 }
 
-// Drives the BPM input from a 0-127 CC value mapped to the practical
-// performance range 60-200 BPM. Used by the joystick Y-axis default
-// binding when CC1 isn't otherwise claimed. Spring-return semantics
-// match pitch bend → Xpose: push to drive BPM, release (value 0)
-// snaps back to whatever BPM was set before the user grabbed the
-// joystick. So the rest position never silently locks BPM to 60.
-function setBpmFromCC(el, value) {
-    const input = el.querySelector('.pn-tempo input[type="number"]');
-    if (!input) return;
-    if (value === 0) {
-        // Joystick released — restore the pre-grab tempo if we had
-        // saved one. No-op when nothing to restore (e.g. user never
-        // pushed the joystick this session).
-        if (el._bpmBeforeJoystick != null) {
-            input.value = el._bpmBeforeJoystick;
-            el._bpmBeforeJoystick = null;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        return;
-    }
-    if (el._bpmBeforeJoystick == null) {
-        el._bpmBeforeJoystick = parseInt(input.value, 10) || el._tempo || 120;
-    }
-    // 60..300 covers everything from chillhop to speedcore — release
-    // (value 0) snaps back to the track's configured tempo.
-    const min = 60, max = 300;
-    input.value = Math.round(min + (value / 127) * (max - min));
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-}
 
 export function handleMidiCC(el, cc, value) {
-    // Default joystick Y-axis (CC1 / modwheel) → BPM unless the user
-    // has explicitly bound CC1 to something else. Most controllers
-    // (including the MPK Mini) ship the joystick's vertical axis as
-    // CC1, so this gives "joystick X bends pitch, joystick Y drives
-    // tempo" out of the box. The hover-bind path below still wins
-    // if the user wants to remap CC1 — explicit beats default.
-    if (cc === 1 && !el._ccBindings?.has(1) && !el._hoveredSlider
-        && !el._hoveredMute && !el._hoveredSection) {
-        return setBpmFromCC(el, value);
-    }
     // Hover-bind paths — slider, mute button, section divider — all
     // overwrite any existing binding so re-binding is a one-touch
     // operation. Mute / section bindings are useful for pads in CC
@@ -187,6 +202,7 @@ export function handleMidiCC(el, cc, value) {
         if (target) {
             el._ccBindings.set(cc, { type: 'mute', target });
             flashBindOutline(el._hoveredMute);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         }
     } else if (el._hoveredSection) {
@@ -194,6 +210,7 @@ export function handleMidiCC(el, cc, value) {
         if (target) {
             el._ccBindings.set(cc, { type: 'mute', target });
             flashBindOutline(el._hoveredSection);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         }
     } else if (el._hoveredSlider && !el._ccBindings.has(cc)) {
@@ -201,6 +218,7 @@ export function handleMidiCC(el, cc, value) {
         if (b) {
             el._ccBindings.set(cc, b);
             flashBindOutline(el._hoveredSlider);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         }
     }
@@ -242,7 +260,8 @@ export function handleMidiNoteOn(el, note) {
             if (typeof binding === 'string') el._fireMacro(binding);
             else if (binding?.type === 'mute') {
                 toggleMuteGroup(el, binding.target);
-                el._renderMidiPanel?.();
+                saveBindingsForDevice(el);
+            el._renderMidiPanel?.();
             }
         }
         if (el._transposeListen && typeof el._setLiveTranspose === 'function') {
@@ -269,6 +288,7 @@ export function handleMidiNoteOn(el, note) {
             el._padBindings.set(note, { type: 'mute', target });
             el._savePadBindings();
             flashBindOutline(el._hoveredMute);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
             return;
         }
@@ -283,6 +303,7 @@ export function handleMidiNoteOn(el, note) {
             el._padBindings.set(note, { type: 'mute', target });
             el._savePadBindings();
             flashBindOutline(el._hoveredSection);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
             return;
         }
@@ -298,6 +319,7 @@ export function handleMidiNoteOn(el, note) {
             // Toggle mute on a riff group. Re-render the MIDI panel
             // so the binding-list reflects the new state.
             toggleMuteGroup(el, binding.target);
+            saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         }
         return;
