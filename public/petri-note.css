@@ -2863,6 +2863,60 @@ a.pn-stage-btn:hover { color: #fff; }
     animation: pulse 0.1s ease-out;
 }
 
+/* "View share card" button in the header — same icon family as the
+   per-card view button on /feed for visual consistency. Shown only
+   when the page loaded from a ?cid=… URL. */
+.pn-view-card-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid #2a3a4a;
+    border-radius: 4px;
+    background: transparent;
+    color: #9ad;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.pn-view-card-btn:hover { background: #16213e; color: #fff; border-color: #4a5a7a; }
+
+.pn-view-card-modal {
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    min-width: unset;
+    max-width: 92vw;
+    overflow: visible;
+    position: relative;
+}
+.pn-view-card-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 920px;
+    max-height: 86vh;
+    border-radius: 10px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+}
+.pn-view-card-close {
+    position: absolute;
+    top: -16px;
+    right: -16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid #333;
+    background: #0d0d0d;
+    color: #ddd;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+}
+.pn-view-card-close:hover { background: #1a2a3a; color: #fff; }
+
 /* Phone-only floating mini-player on the studio page. Mirrors the
    .pl-fab on /feed so the path "go to the player" feels like the same
    app affordance regardless of which page the user is on. */
