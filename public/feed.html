@@ -971,6 +971,17 @@
     <div class="card-modal-sub"></div>
     <div class="card-modal-actions">
       <button class="card-modal-play">▶ Play</button>
+      <button class="card-modal-share" title="Copy share link" aria-label="Copy share link"
+              style="background:#1a1a2e;border:1px solid #0f3460;color:#9ad;border-radius:4px;padding:0 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="4" cy="8" r="1.6"/>
+          <circle cx="12" cy="3.5" r="1.6"/>
+          <circle cx="12" cy="12.5" r="1.6"/>
+          <path d="M5.4 7.2 L10.6 4.3"/>
+          <path d="M5.4 8.8 L10.6 11.7"/>
+        </svg>
+        <span class="card-modal-share-label">Share</span>
+      </button>
       <a class="card-modal-open" href="#">Open in studio</a>
     </div>
   </div>
@@ -2427,21 +2438,30 @@ function showCardModal(arg) {
   const titleEl = cardModal.querySelector('.card-modal-title');
   const subEl = cardModal.querySelector('.card-modal-sub');
   let playBtn2 = cardModal.querySelector('.card-modal-play');
+  let shareBtn = cardModal.querySelector('.card-modal-share');
   let editorLink = cardModal.querySelector('.card-modal-open');
   let closeBtn = cardModal.querySelector('.card-modal-close');
   // Replace the action nodes with clones so a previous open's click
   // handlers don't pile up. Cheaper than tracking a removeEventListener
   // for every closure.
-  playBtn2 = playBtn2.cloneNode(true); playBtn2.replaceWith ? null : null;
+  playBtn2 = playBtn2.cloneNode(true);
   cardModal.querySelector('.card-modal-play').replaceWith(playBtn2);
+  shareBtn = shareBtn.cloneNode(true);
+  cardModal.querySelector('.card-modal-share').replaceWith(shareBtn);
   editorLink = editorLink.cloneNode(true);
   cardModal.querySelector('.card-modal-open').replaceWith(editorLink);
   closeBtn = closeBtn.cloneNode(true);
   cardModal.querySelector('.card-modal-close').replaceWith(closeBtn);
 
-  titleEl.textContent = trackTitle(t);
-  subEl.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : '']
-    .filter(Boolean).join(' · ') || 'Confirm and play';
+  // Title / subtitle: when arrival flow only has the CID, the track
+  // metadata isn't on the playlist yet. Show the share-card art and
+  // a clean "Track" label instead of a useless "track · undefined"
+  // line. Once metadata lands (e.g. via subsequent playlist sync),
+  // future card-modal opens for the same CID get the proper label.
+  const hasMeta = !!(t.name || t.genre || Number.isFinite(+t.seed));
+  titleEl.textContent = hasMeta ? trackTitle(t) : 'Track';
+  const subParts = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean);
+  subEl.textContent = subParts.join(' · ') || 'Confirm and play';
   art.src = `/share-card/${encodeURIComponent(cid)}.svg`;
   editorLink.href = `/?cid=${encodeURIComponent(cid)}`;
   cardModal.hidden = false;
@@ -2456,6 +2476,27 @@ function showCardModal(arg) {
     }
     close();
     playIndex(idx);
+  });
+  // Share / copy permalink. Falls back to text-select if Clipboard API
+  // isn't available (insecure context, old browsers).
+  shareBtn.addEventListener('click', async () => {
+    const url = `${location.origin}/?cid=${encodeURIComponent(cid)}`;
+    const label = shareBtn.querySelector('.card-modal-share-label');
+    try {
+      // Web Share API on mobile gets the native share sheet; desktop
+      // falls back to clipboard which is the expected UX there anyway.
+      if (navigator.share && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')) {
+        await navigator.share({ url, title: trackTitle(t), text: 'Listen on beats.bitwrap.io' });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      if (label) label.textContent = 'Copied!';
+    } catch {
+      // Last resort: open a tiny inline input so the user can ⌘C.
+      try { await navigator.clipboard.writeText(url); if (label) label.textContent = 'Copied!'; }
+      catch { if (label) label.textContent = 'Press ⌘C'; }
+    }
+    setTimeout(() => { if (label) label.textContent = 'Share'; }, 1500);
   });
 }
 // Single global Esc binding — the close-on-Esc path was previously
