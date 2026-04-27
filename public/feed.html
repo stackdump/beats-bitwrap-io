@@ -278,6 +278,37 @@
   .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
   .card-bm[data-bm="true"] { background: #3a2a08; border-color: #6a4a18; color: #fc6; }
   .card-play[data-state="playing"] { background: #1a2a3a; color: #67e8f9; border-color: #2a4a6a; }
+  /* View-card button: bottom-right corner overlay in card mode,
+     row-flow next to the other action buttons in list mode. */
+  .card-view {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    background: rgba(0,0,0,0.7);
+    color: #9ad;
+    border: 1px solid #2a3a4a;
+    border-radius: 4px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    backdrop-filter: blur(2px);
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+  }
+  .card-view:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  body[data-feed-view="list"] .card-view {
+    position: static;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border-color: transparent;
+    backdrop-filter: none;
+    margin-left: 0;
+  }
+  body[data-feed-view="list"] .card-view:hover { background: #1a2a3a; border-color: #2a3a4a; }
   .card-rebuild { display: none; }
   body[data-rebuild-queue="on"] .card-rebuild { display: inline-flex; align-items: center; justify-content: center; }
   .card-rebuild[data-marked="true"] {
@@ -1659,6 +1690,7 @@ const renderCard = (t) => {
       <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
       <button class="card-rebuild" data-cid="${t.cid}" title="Mark this track for re-render by an off-host worker">⟳</button>
     </div>
+    <button class="card-view" data-cid="${t.cid}" title="View card" aria-label="View card"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="7.5" r="1.4" fill="currentColor" stroke="none"/><path d="M3 12 L6.5 9 L9 11 L13 7"/></svg></button>
   `;
   // Phone tap-to-play binding (desktop falls through to <a href>).
   if (isPhone) {
@@ -1774,6 +1806,15 @@ const renderCard = (t) => {
   // Rebuild button — POSTs /api/rebuild-mark so an off-host worker
   // (scripts/process-rebuild-queue.py) can re-render. Hidden by CSS
   // unless the body data-rebuild-queue attribute is set during boot.
+  // View-card button: open the full share-card SVG in a modal so the
+  // user can inspect the design without navigating away. Same modal
+  // used on /feed?cid=… arrival.
+  const viewBtn = card.querySelector('.card-view');
+  viewBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showCardModal(t);
+  });
   const rebuildBtn = card.querySelector('.card-rebuild');
   rebuildBtn.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -2151,43 +2192,63 @@ fetchPage();
 // playlist (adding if needed); "Open in editor" routes back to
 // the synth view if they want the full controls. Closes on Esc /
 // backdrop / × button.
-(function showArrivalCardModal() {
-  const cid = new URLSearchParams(location.search).get('cid');
+// Shared card-modal opener. Used by both:
+//   - the on-arrival flow when /feed?cid=… points at a specific track
+//   - per-card "view card" buttons (📇) so any card can be inspected
+//     without navigating away from the feed.
+// Listeners are attached once per modal lifecycle by clearing the
+// node clones each open — keeps repeated opens from stacking handlers.
+const cardModal = document.getElementById('card-modal');
+function showCardModal(arg) {
+  const cid = typeof arg === 'string' ? arg : arg?.cid;
   if (!cid) return;
-  const modal = document.getElementById('card-modal');
-  const art = modal.querySelector('.card-modal-art');
-  const titleEl = modal.querySelector('.card-modal-title');
-  const subEl = modal.querySelector('.card-modal-sub');
-  const playBtn2 = modal.querySelector('.card-modal-play');
-  const editorLink = modal.querySelector('.card-modal-open');
-  // Resolve metadata from the local playlist first (the redirect
-  // path always pre-populates this entry); fall back to a quick
-  // /api/audio-status hit for ad-hoc bookmark visits.
-  const fromList = playlist.find(p => p.cid === cid);
-  const setMeta = (t) => {
-    titleEl.textContent = trackTitle(t || { cid });
-    subEl.textContent = [t?.genre, t?.tempo ? `${t.tempo} BPM` : '']
-      .filter(Boolean).join(' · ') || 'Confirm and play';
-  };
-  setMeta(fromList);
+  const t = typeof arg === 'object' ? arg : (playlist.find(p => p.cid === cid) || { cid });
+  const art = cardModal.querySelector('.card-modal-art');
+  const titleEl = cardModal.querySelector('.card-modal-title');
+  const subEl = cardModal.querySelector('.card-modal-sub');
+  let playBtn2 = cardModal.querySelector('.card-modal-play');
+  let editorLink = cardModal.querySelector('.card-modal-open');
+  let closeBtn = cardModal.querySelector('.card-modal-close');
+  // Replace the action nodes with clones so a previous open's click
+  // handlers don't pile up. Cheaper than tracking a removeEventListener
+  // for every closure.
+  playBtn2 = playBtn2.cloneNode(true); playBtn2.replaceWith ? null : null;
+  cardModal.querySelector('.card-modal-play').replaceWith(playBtn2);
+  editorLink = editorLink.cloneNode(true);
+  cardModal.querySelector('.card-modal-open').replaceWith(editorLink);
+  closeBtn = closeBtn.cloneNode(true);
+  cardModal.querySelector('.card-modal-close').replaceWith(closeBtn);
+
+  titleEl.textContent = trackTitle(t);
+  subEl.textContent = [t.genre, t.tempo ? `${t.tempo} BPM` : '']
+    .filter(Boolean).join(' · ') || 'Confirm and play';
   art.src = `/share-card/${encodeURIComponent(cid)}.svg`;
   editorLink.href = `/?cid=${encodeURIComponent(cid)}`;
-  modal.hidden = false;
-  const close = () => { modal.hidden = true; };
-  modal.querySelector('.card-modal-close').addEventListener('click', close);
-  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-  document.addEventListener('keydown', (e) => {
-    if (!modal.hidden && e.key === 'Escape') close();
-  });
+  cardModal.hidden = false;
+  const close = () => { cardModal.hidden = true; };
+  closeBtn.addEventListener('click', close);
+  cardModal.onclick = (e) => { if (e.target === cardModal) close(); };
   playBtn2.addEventListener('click', () => {
     let idx = playlist.findIndex(p => p.cid === cid);
     if (idx < 0) {
-      addToPlaylist(fromList || { cid, name: '', genre: '', tempo: 0, seed: 0 });
+      addToPlaylist(t.genre ? t : { cid, name: '', genre: '', tempo: 0, seed: 0 });
       idx = playlist.length - 1;
     }
     close();
     playIndex(idx);
   });
+}
+// Single global Esc binding — the close-on-Esc path was previously
+// re-attached on every arrival, which kept piling listeners across
+// per-card opens.
+document.addEventListener('keydown', (e) => {
+  if (!cardModal.hidden && e.key === 'Escape') cardModal.hidden = true;
+});
+
+(function showArrivalCardModal() {
+  const cid = new URLSearchParams(location.search).get('cid');
+  if (!cid) return;
+  showCardModal(cid);
 })();
 
 // Restore last-played position from a previous session. Browsers
