@@ -560,9 +560,9 @@ export function buildUI(el) {
         <div class="pn-midi-panel" style="display:${el._showMidi ? 'flex' : 'none'}">
             <div class="pn-midi-row">
                 <span class="pn-midi-label">Status</span>
-                <span class="pn-midi-status">Enable MIDI in the top-right toolbar to start binding.</span>
-                <button type="button" class="pn-midi-monitor" title="Open the MIDI Monitor — logs every incoming message so you can identify pad / note / CC numbers your controller is sending">Monitor</button>
                 <button type="button" class="pn-midi-reset-all" title="Clear every MIDI input binding (CC + pads + keyboard notes) and reset live transpose to +0">Reset MIDI</button>
+                <button type="button" class="pn-midi-monitor" title="Open the MIDI Monitor — logs every incoming message so you can identify pad / note / CC numbers your controller is sending">Monitor</button>
+                <span class="pn-midi-status">Enable MIDI in the top-right toolbar to start binding.</span>
             </div>
             <div class="pn-midi-row" title="Live transpose — applied to all non-drum channels at fire time. The 🎹 toggle arms 'listen' mode: the next MIDI Note On from your keybed snaps the transpose to that key (relative to the project root or C4 fallback). Latched.">
                 <span class="pn-midi-label">Xpose</span>
@@ -578,13 +578,13 @@ export function buildUI(el) {
             </div>
             <div class="pn-midi-row pn-midi-bindings-row">
                 <span class="pn-midi-label" title="Hover an FX or mixer slider, then move a MIDI CC knob — binds them. List clears on Reset.">CC</span>
-                <span class="pn-midi-bindings pn-midi-cc-list">none — hover a slider then move a CC knob</span>
                 <button type="button" class="pn-cc-reset" title="Clear all MIDI CC bindings">Reset</button>
+                <span class="pn-midi-bindings pn-midi-cc-list">none — hover a slider then move a CC knob</span>
             </div>
             <div class="pn-midi-row pn-midi-bindings-row">
                 <span class="pn-midi-label" title="Hover a macro tile, then press a pad or keyboard key — binds them. Covers both MPK pads and keybed notes (anything that sends Note On). List clears on Reset.">Notes</span>
-                <span class="pn-midi-bindings pn-midi-pad-list">none — hover a macro then press a pad / key</span>
                 <button type="button" class="pn-pad-reset" title="Clear all MIDI note bindings (pads + keybed keys)">Reset</button>
+                <span class="pn-midi-bindings pn-midi-pad-list">none — hover a macro then press a pad / key</span>
             </div>
         </div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">

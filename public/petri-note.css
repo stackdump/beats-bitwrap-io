@@ -1201,7 +1201,6 @@ input[type="range"][data-default] {
 }
 .pn-midi-bindings-row button:hover { border-color: #e94560; color: #e94560; }
 .pn-midi-reset-all {
-    margin-left: auto;
     background: #2a0d18;
     border: 1px solid #6a2828;
     color: #f88;
