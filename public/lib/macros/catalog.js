@@ -112,8 +112,14 @@ export const MACROS = [
     // target over the duration, then snap back to the pre-fire position.
     // Build Up = ramp to Euphoric (energy lift); Wind Down = ramp to Chill
     // (energy fall). Classic build / breakdown gestures.
-    { id: 'feel-build',     group: 'Feel', kind: 'feel-sweep', label: 'Build Up', defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [1, 1] },
-    { id: 'feel-wind-down', group: 'Feel', kind: 'feel-sweep', label: 'Wind Down',defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [0, 0] },
+    // Targets sit a notch in from the corners — the Feel pad's
+    // X = LP filter (left = LP 50, right = LP 100) and
+    // Y = BPM × 0.6..1.4 mean (1, 1) is bright + 40% faster (loud
+    // + frantic) and (0, 0) is muffled + 40% slower (perceptually
+    // dead). The 0.15 inset keeps both gestures musical without
+    // bottoming out either axis.
+    { id: 'feel-build',     group: 'Feel', kind: 'feel-sweep', label: 'Build Up', defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [0.85, 0.85] },
+    { id: 'feel-wind-down', group: 'Feel', kind: 'feel-sweep', label: 'Wind Down',defaultDuration: 4, durationOpts: [2, 4, 8],    durationLabel: 'bar', durationUnit: 'bar', target: [0.25, 0.30] },
     // Gradual reset — same effect as a tab-level "reset to defaults" but
     // ramps over N bars instead of cutting over. Eases puck + tempo back
     // to the current genre's defaults.

@@ -448,16 +448,24 @@ function feelGenreReset(el, durationMs) {
     const startBpm = el._tempo || 120;
     const genre = el.querySelector('.pn-genre-select')?.value;
     const targetBpm = el._genreData?.[genre]?.bpm || 120;
+    // Tempo updates re-anchor the audio-grid scheduler in
+    // onRemoteTransitionFired (changes to tickIntervalMs trigger a
+    // re-anchor). At 10 Hz that's 40 re-anchors per 4-bar sweep —
+    // enough to cause audible scheduler jitter and perceived
+    // dropouts. Drop the BPM lerp entirely when there's no actual
+    // change, and pace the FX/BPM lerp at 200ms otherwise.
+    const bpmChanges = Math.abs(startBpm - targetBpm) > 1;
     const t0 = performance.now();
     const token = { cancelled: false };
     el._feelAnim = token;
     pulseFeelButton(el, durationMs, 'genre-reset');
-    const STEP_MS = 100;
+    const STEP_MS = 200;
     let last = -Infinity;
     const lerpFx = (e) => {
         for (const [k, def] of Object.entries(FX_HARD_DEFAULTS)) {
             const start = startFx[k];
             if (!Number.isFinite(start)) continue;
+            if (start === def) continue; // no-op
             el._setFxByKey(k, Math.round(start + (def - start) * e));
         }
     };
@@ -467,7 +475,7 @@ function feelGenreReset(el, durationMs) {
         const t = (now - t0) / durationMs;
         if (t >= 1) {
             lerpFx(1);
-            el._setTempo(Math.round(targetBpm));
+            if (bpmChanges) el._setTempo(Math.round(targetBpm));
             // Disengage Feel so subsequent puck moves don't override
             // the user's mix — matches FX Reset's final action.
             el._disengageFeel?.();
@@ -476,11 +484,11 @@ function feelGenreReset(el, durationMs) {
         }
         if (now - last >= STEP_MS) {
             last = now;
-            // Sine ease-out so the bulk of the change happens early
-            // and the last bars feel like a smooth landing.
             const e = Math.sin(t * Math.PI / 2);
             lerpFx(e);
-            el._setTempo(Math.round(startBpm + (targetBpm - startBpm) * e));
+            if (bpmChanges) {
+                el._setTempo(Math.round(startBpm + (targetBpm - startBpm) * e));
+            }
         }
         requestAnimationFrame(tick);
     };
@@ -497,10 +505,12 @@ function feelSweep(el, target, durationMs) {
     const token = { cancelled: false };
     el._feelAnim = token;
     pulseFeelButton(el, durationMs, 'feel-sweep');
-    // applyFeelGrid touches tempo + 8 FX sliders + Auto-DJ pools every
-    // call — running it at 60 Hz floods the worker with tempo changes
-    // (and is what made Build Up sound silent). Throttle to ~10 Hz.
-    const STEP_MS = 100;
+    // applyFeelGrid touches tempo + lp-freq every call. Tempo updates
+    // re-anchor the audio-grid scheduler in onRemoteTransitionFired,
+    // so a high update rate causes audible scheduler jitter ("audio
+    // dropouts"). Throttle to 5 Hz — still smooth visually, far
+    // gentler on playback timing.
+    const STEP_MS = 200;
     let last = -Infinity;
     const tick = () => {
         if (!el.isConnected || token.cancelled) return;
