@@ -215,6 +215,9 @@
     border-color: #3a3a4a;
     transform: translateY(-2px);
   }
+  .card[data-dragging="true"] { opacity: 0.5; }
+  .card[draggable="true"] { cursor: grab; }
+  .card[draggable="true"]:active { cursor: grabbing; }
   .card-link { color: inherit; text-decoration: none; display: block; cursor: pointer; }
   .card-art {
     aspect-ratio: 1200 / 630;
@@ -577,19 +580,37 @@
     color: #555;
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 2px;
   }
-  .pl-clear, .pl-export {
-    background: transparent;
-    border: none;
-    cursor: pointer;
+  /* Stylized pill buttons for the playlist actions row (Import /
+     Export / Clear). Icon + label for clarity on mobile, with the
+     danger variant tinted for the destructive action. */
+  .pl-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    background: rgba(20, 30, 50, 0.6);
+    border: 1px solid #2a3a4a;
+    border-radius: 999px;
+    color: #9ad;
     font-size: 11px;
-    padding: 0;
-    text-decoration: underline;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
-  .pl-clear { color: #a55; }
-  .pl-export { color: #9ad; }
-  .pl-export:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+  .pl-pill:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  .pl-pill:active { background: #0d1b2a; }
+  .pl-pill svg { display: block; flex: 0 0 auto; }
+  .pl-pill:disabled { opacity: 0.35; cursor: default; }
+  .pl-pill:disabled:hover { background: rgba(20,30,50,0.6); color: #9ad; border-color: #2a3a4a; }
+  .pl-pill-danger { color: #f88; border-color: #5a2a2a; }
+  .pl-pill-danger:hover { background: #2a1414; color: #fbb; border-color: #8a3a3a; }
   .pl-empty {
     text-align: center;
     color: #555;
@@ -851,24 +872,24 @@
       </div>
       <audio id="pl-audio" controls preload="none"></audio>
       <div class="pl-controls">
-        <button id="pl-prev" title="Previous (skip back)" aria-label="Previous">
+        <button id="pl-prev" title="Previous track" aria-label="Previous track">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
             <rect x="2" y="3" width="2" height="10"/>
             <polygon points="14,3 14,13 5,8"/>
           </svg>
         </button>
-        <button id="pl-play" title="Play / pause" aria-label="Play / pause">
+        <button id="pl-play" title="Play / pause (Space)" aria-label="Play / pause">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
             <polygon points="3,2 14,8 3,14"/>
           </svg>
         </button>
-        <button id="pl-next" title="Next (skip forward)" aria-label="Next">
+        <button id="pl-next" title="Next track" aria-label="Next track">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
             <polygon points="2,3 11,8 2,13"/>
             <rect x="12" y="3" width="2" height="10"/>
           </svg>
         </button>
-        <button id="pl-shuffle" title="Shuffle off" aria-label="Shuffle">
+        <button id="pl-shuffle" title="Shuffle — click to enable random track order" aria-label="Shuffle">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="11,2 14,2 14,5"/>
             <line x1="14" y1="2" x2="9.5" y2="6.5"/>
@@ -877,7 +898,7 @@
             <line x1="2" y1="14" x2="6.5" y2="9.5"/>
           </svg>
         </button>
-        <button id="pl-repeat" title="Repeat off" aria-label="Repeat">
+        <button id="pl-repeat" title="Repeat — click to cycle: off → all → one" aria-label="Repeat">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="3,5 13,5 11,3"/>
             <polyline points="13,5 13,8"/>
@@ -890,9 +911,18 @@
     <div class="pl-meta">
       <span id="pl-count">0 tracks</span>
       <span style="display:flex;gap:10px">
-        <button class="pl-export" id="pl-import" title="Load a JSON-LD MusicPlaylist file">import</button>
-        <button class="pl-export" id="pl-export" title="Download as JSON-LD MusicPlaylist">export</button>
-        <button class="pl-clear" id="pl-clear">clear</button>
+        <button class="pl-pill" id="pl-import" title="Load a JSON-LD MusicPlaylist file" aria-label="Import playlist">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2"/><path d="M4.5 6.5 L8 10 L11.5 6.5"/><path d="M3 13h10"/></svg>
+          <span>Import</span>
+        </button>
+        <button class="pl-pill" id="pl-export" title="Download playlist as JSON-LD MusicPlaylist" aria-label="Export playlist">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8"/><path d="M4.5 5.5 L8 2 L11.5 5.5"/><path d="M3 13h10"/></svg>
+          <span>Export</span>
+        </button>
+        <button class="pl-pill pl-pill-danger" id="pl-clear" title="Remove every track from the playlist" aria-label="Clear playlist">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h10"/><path d="M5 5V3.5h6V5"/><path d="M5 5l.5 9h5L11 5"/></svg>
+          <span>Clear</span>
+        </button>
       </span>
       <input type="file" id="pl-import-file" accept=".jsonld,application/ld+json,application/json" hidden>
     </div>
@@ -1313,13 +1343,24 @@ importInput.addEventListener('change', () => {
   }
 });
 
-// Drop a .jsonld onto the playlist sidebar to import. dragover must
-// be cancelled or the drop event won't fire.
+// Playlist drop targets:
+//   1. .jsonld file → bulk import via importPlaylistJsonld
+//   2. card drag (application/x-beats-track) → addToPlaylist
+// Both share the dashed-outline visual cue. dragover must be cancelled
+// or the drop event won't fire.
 const playlistAside = document.querySelector('aside.playlist');
+const isCardDrag = (e) => {
+  const types = e.dataTransfer?.types;
+  if (!types) return false;
+  return types.includes ? types.includes('application/x-beats-track')
+                        : Array.from(types).includes('application/x-beats-track');
+};
 ['dragenter', 'dragover'].forEach(ev => {
   playlistAside.addEventListener(ev, (e) => {
-    if (e.dataTransfer?.types?.includes('Files')) {
+    const wantsFile = e.dataTransfer?.types?.includes('Files');
+    if (wantsFile || isCardDrag(e)) {
       e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
       playlistAside.style.outline = '2px dashed #4a5a7a';
     }
   });
@@ -1328,6 +1369,19 @@ const playlistAside = document.querySelector('aside.playlist');
   playlistAside.addEventListener(ev, () => { playlistAside.style.outline = ''; });
 });
 playlistAside.addEventListener('drop', (e) => {
+  // Card drag — single-track add. Beats the .jsonld file branch since
+  // a card drag has no .files entries.
+  const cardJson = e.dataTransfer?.getData('application/x-beats-track');
+  if (cardJson) {
+    e.preventDefault();
+    try {
+      const t = JSON.parse(cardJson);
+      if (t && t.cid) {
+        if (!isInPlaylist(t.cid)) addToPlaylist(t);
+      }
+    } catch {}
+    return;
+  }
   if (!e.dataTransfer?.files?.length) return;
   e.preventDefault();
   importPlaylistJsonld(e.dataTransfer.files[0]);
@@ -1470,11 +1524,17 @@ let repeatMode = (() => {
     return v === 'all' || v === 'one' ? v : 'off';
   } catch { return 'off'; }
 })();
-const REPEAT_LABEL = { off: 'Repeat off', all: 'Repeat all', one: 'Repeat one' };
+const REPEAT_LABEL = {
+  off: 'Repeat off — click to repeat the whole playlist',
+  all: 'Repeat all — click to loop the current track',
+  one: 'Repeat one — click to stop repeating',
+};
 
 const renderModeButtons = () => {
   shuffleBtn.dataset.on = shuffleOn ? 'true' : 'false';
-  shuffleBtn.title = shuffleOn ? 'Shuffle on' : 'Shuffle off';
+  shuffleBtn.title = shuffleOn
+    ? 'Shuffle on — click to play in playlist order'
+    : 'Shuffle off — click to play in random order';
   repeatBtn.dataset.mode = repeatMode;
   repeatBtn.dataset.on = repeatMode !== 'off' ? 'true' : 'false';
   repeatBtn.title = REPEAT_LABEL[repeatMode];
@@ -1666,6 +1726,25 @@ const renderCard = (t) => {
   const bodyAttrs = isPhone
     ? `class="card-link" data-action="play"`
     : `class="card-link" href="/?cid=${encodeURIComponent(t.cid)}"`;
+  // Desktop: cards are draggable onto the playlist sidebar to add
+  // them. Skip on phone where there's no playlist visible side-by-side
+  // and tap-to-play is the canonical add path.
+  if (!isPhone) {
+    card.draggable = true;
+    card.addEventListener('dragstart', (e) => {
+      try {
+        e.dataTransfer.setData('application/x-beats-track', JSON.stringify({
+          cid: t.cid, name: t.name || '', genre: t.genre || '',
+          tempo: t.tempo || 0, seed: t.seed || 0,
+        }));
+        e.dataTransfer.setData('text/plain',
+          `${location.origin}/feed?cid=${encodeURIComponent(t.cid)}`);
+        e.dataTransfer.effectAllowed = 'copy';
+      } catch {}
+      card.dataset.dragging = 'true';
+    });
+    card.addEventListener('dragend', () => { delete card.dataset.dragging; });
+  }
   // Two thumbnail variants per row:
   //  - .card-art: full server-rendered share-card SVG (with QR), used
   //    in card mode where the large 1200×630 graphic reads as the hero
