@@ -10,42 +10,62 @@
 // constraint, so you never get the "MediaRecorder dropped samples" failure
 // mode that haunts the chromedp realtime path.
 //
-// MVP STATUS — proof-of-concept fidelity only:
+// STATUS — actively refining; realtime is still canonical for prod renders.
 //
-// This module currently builds a SIMPLIFIED synth graph inside Tone.Offline:
-// one Tone.PolySynth per channel (no per-instrument tone shaping, no master
-// FX chain, no per-channel filters / decay / pan). It walks the project's
-// nets via lib/pflow.js to collect note events, then schedules them via
-// triggerAttackRelease at audio time. Result: the rhythmic + melodic
-// content matches live, but the timbre and mix do NOT match the live
-// chromedp render.
+// This module builds the offline synth graph by instantiating a fresh
+// ToneEngine (`_offline = true`) inside `Tone.Offline`. Tone.context is
+// the OfflineAudioContext for the duration of the callback, so all the
+// engine's internal Tone.X() constructors land on the offline graph
+// automatically. Same instrument configs, same master FX topology, same
+// setters as live. The simulator (`simulateProjectNotes`) walks the
+// project's nets via lib/pflow.js, collects note events + macro fires
+// + control-action state changes, then Tone.Offline schedules notes
+// via engine.playNote(midi, playAt) and macros via Tone.Transport.
 //
-// Production-quality fidelity needs the full synth graph rebuilt against
-// the offline context. Concretely, that means calling toneEngine's
-// instrument-loading code inside the Tone.Offline callback so each
-// channel's Sampler / FMSynth / MetalSynth / etc. lands on the offline
-// context, then connecting the master FX chain (Reverb, Delay, Phaser,
-// Compressor, master volume) the same way it's wired in real-time. This
-// requires a refactor of tone-engine.js to make graph construction
-// idempotent against an externally-supplied context. Tracked separately;
-// the macro / sweep refactor (see lib/macros/sched.js) is the prerequisite
-// that's already landed.
+// What works:
+//   - Per-instrument timbre (Sampler / FMSynth / MetalSynth / etc.)
+//   - Master FX chain (reverb, delay, phaser, lp, hp, distortion,
+//     bitcrusher, pitch-shift, compressor, master volume)
+//   - Project envelope FX overrides (applyFxToEngine)
+//   - Mute / unmute / toggle / activate-slot / stop-transport
+//   - Mute-note / unmute-note / toggle-note
+//   - Velocity drift + ghost suppression (byte-identical Mulberry32)
+//   - Swing + humanize
+//   - Auto-DJ scheduler (envelope autoDj.run / rate / stack / pools)
+//   - fire-macro control action
+//   - FX-sweep / FX-hold (master FX param ramps)
+//   - Pan-move / decay-move (per-channel CC10 / setChannelDecay,
+//     hold + pingpong + sweep patterns)
+//   - Feel-snap / feel-sweep (puck X → lp-freq blend)
+//   - Set-feel control action
+//   - Phase drift on loop wrap (when envelope.loop is set)
 //
-// Caveats / gaps to close before this replaces the realtime path:
-//   - Per-instrument timbre (use loadInstrument inside the offline cb)
-//   - Master FX chain (reverb / delay / phaser / compressor / master vol)
-//   - Per-channel FX (filters, decay, pan)
-//   - Macros + Auto-DJ (the audio scheduler is offline-safe now, but the
-//     macro fire dispatcher still goes through el._fireMacro on the
-//     element, which doesn't currently know to write into the offline
-//     graph)
-//   - Drift / swing / humanize — driven by the worker; PoC's tick
-//     simulator skips these.
-//   - Per-genre instrument override / shuffle state.
+// What is being refined / why offline is NOT yet drop-in for realtime:
+//   - **Subtle mix differences** — per-channel pulse / accent / decay
+//     envelope handling under offline rendering doesn't match live
+//     exactly. The mix sounds slightly drier / less alive on A/B.
+//   - **Sample-load latency** — fresh ToneEngine per render means
+//     samplers re-fetch SoundFonts from /soundfonts/. First render of
+//     any given instrument set is sample-load-bound.
+//   - **Macro curve approximation** — scheduleMacroEffect uses 3-point
+//     schedules (peak / mid / restore) instead of the live runtime's
+//     throttled rAF dispatching every 80–120 ms. Audible as a
+//     less-smooth ramp on extended sweeps.
+//   - **WS-dispatched mute macros are no-ops** — Drop / Cut /
+//     Beat-Repeat / etc. require a worker round-trip in the live
+//     runtime. In offline they silently skip. Usually fine because
+//     macrosDisabled covers them in seed contexts; flagged for
+//     hand-authored projects that depend on Auto-DJ-fired mutes.
+//
+// Production guidance: until the mix / sample-load gaps close, prefer
+// `-audio-render-mode realtime`. Offline is the right path for
+// headless / no-audio-device hosts (future Node + node-web-audio-api
+// server-side rendering), and for fast smoke renders during composer
+// development.
 //
 // Encoding: outputs uncompressed 16-bit stereo WAV (~10 MB per minute at
-// 48 kHz). Production should transcode to Opus on the server, or wire an
-// Opus encoder library client-side. WAV keeps the MVP dependency-free.
+// 48 kHz). The server transcodes WAV → Opus/WebM via ffmpeg before the
+// cached file lands, so on-disk shape matches realtime renders.
 
 import { parseProject } from '../pflow.js';
 import { ToneEngine } from '../../audio/tone-engine.js';

@@ -558,6 +558,21 @@ auto-restore on visit.
 
 `scripts/seed-feed.py` is the parallel seeder (see "Running locally for hand-authored tracks" + the script docstring). Local server runs `-authoring -audio-render -audio-concurrent N`, script runs `--workers N`. Generate+seal stages serialize on a lock; chromedp realtime renders run N-wide.
 
+### Render path: realtime vs offline (status: realtime is canonical)
+
+Two `-audio-render-mode` values exist:
+
+- **`realtime`** (default): chromedp tab plays the project at 1× wall time, MediaRecorder captures Tone.js destination. **This is the canonical, drop-in path** — what production has used since launch. Audio is exactly what the live studio plays, including all instrument timbre, master FX, Auto-DJ macro flavor, swing/humanize/drift, and macro-driven performance variation. Bound by 1× wall time and (rarely) MediaRecorder dropouts under CPU pressure.
+- **`offline`** (experimental): page renders via Tone.Offline against an OfflineAudioContext, then ffmpeg transcodes WAV → Opus/WebM. The on-disk shape is identical to realtime renders, but **the audio is currently being refined and is not yet drop-in equivalent**. Specifically:
+    - **Sample-load lag**: the offline ToneEngine is a fresh instance inside `Tone.Offline`; sampler instruments re-fetch + re-decode SoundFonts per render. First render of a track is sample-load-bound.
+    - **Subtly different mix**: per-channel pulse / accent / decay envelope handling and master pitch-shift behavior under offline rendering don't match live exactly. A trained ear hears a slightly drier / less alive mix.
+    - **Macro effect timing**: `scheduleMacroEffect` in `public/lib/share/offline-render.js` approximates live `fxSweep` / `fxHold` curves with 3-point schedules instead of the live throttled rAF. Most listeners can't tell, but A/B comparison reveals a less-smooth ramp.
+    - **WS-dispatched mute macros are no-ops** in offline (Drop / Cut / Beat-Repeat / etc.). These are typically baked off via `macrosDisabled` in seed contexts anyway, but if you're rendering a hand-authored project that depends on Auto-DJ-fired mutes, offline will silently skip them.
+    - **Speed**: on a CPU-bound dev Mac, full-fidelity offline (with Auto-DJ + all macro types) renders at roughly 1× realtime — same wall time as the canonical path. Speedup grows with hardware headroom; the bare-minimum "no Auto-DJ + simple FX chain" variant hit 1.5× on the same Mac, but that's a degraded artifact.
+    - The offline path remains a viable fallback when the realtime path can't run (no audio device, headless server without GUI, MediaRecorder unavailable). Once fidelity gaps close it will likely become the default.
+
+**For seeding production tracks today, use `-audio-render-mode realtime`.** The offline mode is in iterative refinement; track its progress in `public/lib/share/offline-render.js` (header comment lists remaining gaps).
+
 **Quality stipulations baked into envelopes for feed seeding** — these knobs control whether the cached `.webm` is a clean listen or has macro artifacts smeared across it. Use them when the rendered audio is the listening experience (feed cards play the cached render, first-write-wins):
 
 - **Default mode**: `macrosDisabled` covers the disruptive groups (Mute: `drop`, `breakdown`, `solo-drums`, `cut`, `beat-repeat`, `double-drop` · Tempo: `half-time`, `tape-stop`, `tempo-anchor`) AND `autoDj.run=false`. Yields a stable, predictable render per CID.
