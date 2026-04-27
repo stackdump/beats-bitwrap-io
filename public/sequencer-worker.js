@@ -5,7 +5,7 @@
  */
 
 import { parseProject, parseNetBundle, projectToJSON } from './lib/pflow.js';
-import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js?v=5';
+import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js?v=6';
 import { regenerateTrack } from './lib/generator/regenerate.js';
 import { buildMacroRestoreNet, MACRO_NET_PREFIX, pruneMacroNets } from './lib/generator/macros.js';
 

@@ -278,7 +278,7 @@ export function connectBackend(el) {
 }
 
 export function connectWorker(el) {
-    el._worker = new Worker('./sequencer-worker.js?v=11', { type: 'module' });
+    el._worker = new Worker('./sequencer-worker.js?v=12', { type: 'module' });
     el._workerReady = false;
 
     // The very first worker spawned during connectedCallback fails

@@ -311,31 +311,19 @@ export function buildUI(el) {
     }
 
     // View-card button: shown only when the studio loaded from a
-    // shared CID URL. Opens a lightweight overlay rendering the
-    // server share-card SVG — same visual the feed pops on arrival,
-    // so the user can preview "what would I get if I shared this
-    // link" without navigating off the editor.
+    // shared CID URL. Same affordance as the footer "card" link —
+    // pops the welcome modal (full art + CC BY footer + intro copy
+    // + paired audio block when a render exists). Two entry points
+    // for the same modal so users get a consistent "show me the
+    // card" experience whether they reach for the header eye or
+    // the footer link.
     const viewCardBtn = header.querySelector('.pn-view-card-btn');
     if (viewCardBtn) {
         const cidParam = new URLSearchParams(location.search).get('cid');
         if (cidParam) {
             viewCardBtn.style.display = '';
             viewCardBtn.addEventListener('click', () => {
-                const overlay = document.createElement('div');
-                overlay.className = 'pn-modal-overlay pn-view-card-overlay';
-                overlay.innerHTML = `
-                    <div class="pn-modal pn-view-card-modal">
-                        <button class="pn-view-card-close" title="Close" aria-label="Close">×</button>
-                        <img class="pn-view-card-img" src="/share-card/${encodeURIComponent(cidParam)}.svg" alt="Share card">
-                    </div>
-                `;
-                document.body.appendChild(overlay);
-                const close = () => overlay.remove();
-                overlay.querySelector('.pn-view-card-close').addEventListener('click', close);
-                overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-                document.addEventListener('keydown', function onKey(e) {
-                    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
-                });
+                import('./dialogs.js').then(m => m.showWelcomeCard(el, true));
             });
         }
     }
