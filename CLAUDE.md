@@ -302,9 +302,9 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 | Path | Purpose |
 |---|---|
 | `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
-| `data/audio/` | Cached audio renders (wav/mp3) served to the feed. Safe to delete — server re-creates them on demand when audio-render is enabled. |
+| `data/audio/` | Cached audio renders (`.webm`) served to the feed. Bucketed by `YYYY/MM/{cid}.webm`. Production runs without `-audio-render`, so deletion is **only** safe-to-delete when you have an off-host worker (`scripts/process-rebuild-queue.py`) ready to re-render — otherwise listeners get 404s for affected CIDs. |
 | `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
-| `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Worker uploads carrying this in `X-Rebuild-Secret` bypass first-write-wins on PUT `/audio/{cid}.webm`. Treat as a credential — don't commit, don't paste in chat. |
+| `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Required by `X-Rebuild-Secret` on `PUT /audio/{cid}.webm` (bypasses first-write-wins), `GET /api/snapshot`, and `POST /api/archive-delete`. Treat as a credential — don't commit, don't paste in chat. |
 
 ### Purge the feed without nuking shares
 
@@ -368,6 +368,90 @@ first-write-wins. That last one is what lets it replace stuck audio
 without SSH-deleting the bad file. Without the secret, a worker can
 still queue and render but its uploads fall back to the public path —
 fine for fresh CIDs, useless for stuck ones.
+
+### Archival & restore
+
+Production runs **without** `-audio-render` — the server stores
+client-uploaded renders but never spawns chromedp itself. Combined
+with the `X-Rebuild-Secret`-gated routes below, this gives the
+operator a complete backup/purge/rebuild kit.
+
+Authenticated endpoints (all require `X-Rebuild-Secret`, value lives
+at `data/.rebuild-secret` on the server, mode `0600`):
+
+- `GET /api/snapshot[?audio=1][&db=1]` — streams a `.tar.gz` of the
+  catalogue. Layout:
+  - `o/{cid}.json` — every share envelope (always)
+  - `audio/{cid}.webm` — cached renders (when `audio=1`)
+  - `index.db` — sqlite track index (when `db=1`)
+
+  The envelopes are the canonical state; audio + db are derived
+  (audio re-renders from envelopes; db rebuilds via `backfillIndex`).
+  Including them just skips reconstruction work on restore.
+- `POST /api/archive-delete {cid}` — cascade-removes a CID across
+  every persistence layer (envelope + audio + index row + queue
+  row). Idempotent. Use to prune unrenderable shares so they stop
+  showing up in archive sweeps.
+
+Open-read endpoint (no auth — read-only, cheap):
+
+- `GET /api/archive-missing?limit=N` — list of share-store CIDs that
+  have no audio render yet. The catalogue archive sweep target.
+
+Worker (`scripts/process-rebuild-queue.py`) modes:
+
+```bash
+export S=$(ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret")
+
+# Backup — envelopes only (smallest, ~hundreds of KB)
+./scripts/process-rebuild-queue.py --snapshot snap.tgz
+
+# Backup — everything (envelopes + audio + db; ~hundreds of MB)
+./scripts/process-rebuild-queue.py --snapshot snap.tgz \
+    --include-audio --include-db
+
+# Or with curl (bypassing the script)
+curl -fSL -o snap.tgz -H "X-Rebuild-Secret: $S" \
+     "https://beats.bitwrap.io/api/snapshot?audio=1&db=1"
+
+# Restore from a snapshot — replays o/* via PUT /o/{cid} (CID
+# re-verified server-side; tampered envelopes rejected per-entry)
+# and audio/* via PUT /audio/{cid}.webm (needs the secret).
+# index.db is skipped over the wire — drop it directly into
+# data/index.db on the box for a faster cold start.
+./scripts/process-rebuild-queue.py --restore snap.tgz
+
+# Sweep the catalogue: render anything without audio yet.
+# Combine with --watch for a continuous keep-up loop.
+BEATS_REBUILD_SECRET=$S ./scripts/process-rebuild-queue.py --archive --watch
+
+# Prune unrenderable shares
+./scripts/process-rebuild-queue.py --delete CID1 --delete CID2
+```
+
+Full **purge + rebuild** sequence:
+
+```bash
+# 1. Snapshot everything
+curl -fSL -o snap-$(date +%Y%m%d).tgz -H "X-Rebuild-Secret: $S" \
+     "https://beats.bitwrap.io/api/snapshot?audio=1&db=1"
+
+# 2. Purge prod
+ssh pflow.dev "~/services stop"
+ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -rf data/o data/audio data/index.db"
+ssh pflow.dev "~/services start"
+
+# 3. Restore envelopes (+ audio if you bundled them)
+./scripts/process-rebuild-queue.py --restore snap-20260427.tgz
+
+# 4. (Optional) Re-render anything that didn't ship with audio
+./scripts/process-rebuild-queue.py --archive --watch
+```
+
+`PUT /o/{cid}` re-computes the CID (`base58btc(CIDv1(dag-json,
+sha256(canonical-JSON(payload))))`) on the way in, so a tampered
+snapshot can't poison the canonical store — bad entries are
+rejected per-entry without aborting the rest of the restore.
 
 ## Conventions
 
