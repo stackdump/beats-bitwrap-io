@@ -45,6 +45,27 @@ export function loadUploadedProject(el, proj) {
     el._project = proj;
     el._normalizeProject();
     el._activeNetId = Object.keys(el._project.nets)[0] || null;
+
+    // Sync the genre dropdown to whatever the uploaded project advertises.
+    // Composer-named projects encode the genre in `name` as
+    // "${genre} · ${trackName}" (see composer.js generateTrackName); a
+    // direct `proj.genre` field wins when present. Falling back to whatever
+    // matches a select option means hand-authored uploads with novel names
+    // ("My Cool Track") leave the dropdown at its current setting rather
+    // than silently picking the wrong genre.
+    const genreSelect = el.querySelector('.pn-genre-select');
+    if (genreSelect) {
+        const fromName = typeof proj.name === 'string' && proj.name.includes(' · ')
+            ? proj.name.split(' · ', 1)[0].trim().toLowerCase()
+            : '';
+        const candidate = (proj.genre && String(proj.genre).toLowerCase())
+            || fromName;
+        if (candidate && [...genreSelect.options].some(o => o.value === candidate)) {
+            genreSelect.value = candidate;
+            genreSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
     el._renderNet();
     el._renderMixer();
     el._reapplyChannelRoutings();
