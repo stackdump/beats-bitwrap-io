@@ -57,6 +57,29 @@ def fetch_queue(remote: str) -> list[str]:
         return []
 
 
+def fetch_archive_missing(remote: str, limit: int = 200) -> tuple[list[str], dict]:
+    """Return (cids, stats) for share-store CIDs that have no audio yet."""
+    code, body = http("GET", f"{remote}/api/archive-missing?limit={limit}", timeout=30)
+    if code != 200:
+        print(f"  ! archive-missing HTTP {code}", file=sys.stderr)
+        return [], {}
+    try:
+        payload = json.loads(body)
+        return payload.get("missing", []), {
+            "totalShares": payload.get("totalShares", 0),
+            "totalAudio":  payload.get("totalAudio", 0),
+            "truncated":   payload.get("truncated", False),
+        }
+    except json.JSONDecodeError:
+        return [], {}
+
+
+def post_rebuild_clear(remote: str, cid: str) -> None:
+    """Best-effort clear; archive mode skips this since archive CIDs
+    were never enqueued, so there's no row to drop."""
+    pass
+
+
 def process_one(cid: str, local: str, remote: str, min_bytes: int,
                 rebuild_secret: str = "") -> bool:
     print(f"--- {cid}")
@@ -116,6 +139,12 @@ def main():
     ap.add_argument("--secret",
                     help="X-Rebuild-Secret header value (overrides BEATS_REBUILD_SECRET env). "
                          "Reads from data/.rebuild-secret on the server.")
+    ap.add_argument("--archive", action="store_true",
+                    help="Archive mode: drive renders for every share-store CID that "
+                         "has no audio yet (sweeps /api/archive-missing). Use with "
+                         "--watch to keep the catalogue caught up as new shares arrive.")
+    ap.add_argument("--archive-limit", type=int, default=200,
+                    help="Page size for /api/archive-missing in --archive mode (default 200)")
     args = ap.parse_args()
 
     rebuild_secret = (args.secret or os.environ.get("BEATS_REBUILD_SECRET", "")).strip()
@@ -125,13 +154,23 @@ def main():
         print("auth: no secret — uploads will fall under first-write-wins (won't replace stuck audio)")
 
     while True:
-        queue = fetch_queue(args.remote)
-        if not queue:
-            print(f"queue empty ({args.remote})")
-        else:
-            print(f"queue: {len(queue)} CIDs")
-            for cid in queue:
+        if args.archive:
+            cids, stats = fetch_archive_missing(args.remote, args.archive_limit)
+            if stats:
+                print(f"archive: {stats['totalAudio']}/{stats['totalShares']} audio/shares; "
+                      f"{len(cids)} missing this page" + (" (truncated)" if stats.get("truncated") else ""))
+            if not cids:
+                print(f"collection fully archived ({args.remote})")
+            for cid in cids:
                 process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
+        else:
+            queue = fetch_queue(args.remote)
+            if not queue:
+                print(f"queue empty ({args.remote})")
+            else:
+                print(f"queue: {len(queue)} CIDs")
+                for cid in queue:
+                    process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
         if not args.watch:
             return
         time.sleep(args.interval)

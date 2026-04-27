@@ -106,6 +106,21 @@ func (s *Store) OnSeal(cb func(cid string)) {
 	s.mu.Unlock()
 }
 
+// AllCIDs returns a snapshot of every CID currently in the store, in
+// arbitrary order. Used by the archive endpoint to enumerate the
+// catalogue for offline rendering — small enough to return inline
+// (CID strings are ~62 bytes; even 100k CIDs is ~6 MB which the worker
+// can paginate through).
+func (s *Store) AllCIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.index))
+	for cid := range s.index {
+		out = append(out, cid)
+	}
+	return out
+}
+
 // fireOnSeal invokes registered callbacks. Caller must NOT hold s.mu.
 func (s *Store) fireOnSeal(cid string) {
 	s.mu.Lock()

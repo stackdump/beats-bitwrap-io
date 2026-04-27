@@ -123,6 +123,27 @@ type Track struct {
 	RenderedAt int64  `json:"renderedAt"`
 }
 
+// HasCIDs returns a set of every rendered-track CID currently in the
+// index. Used by the archive endpoint to compute the share-store
+// minus rendered-audio diff. The index is small (~one row per render,
+// tens of MB even at 100k tracks) so an in-memory map is fine.
+func (d *DB) HasCIDs() (map[string]struct{}, error) {
+	rows, err := d.sql.Query(`SELECT cid FROM tracks`)
+	if err != nil {
+		return nil, fmt.Errorf("index: hascids query: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, fmt.Errorf("index: hascids scan: %w", err)
+		}
+		out[cid] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
 // Feed returns a page of tracks sorted by rendered_at DESC, optionally
 // filtered by genre and bounded above by the Before cursor (exclusive).
 func (d *DB) Feed(q FeedQuery) ([]Track, error) {

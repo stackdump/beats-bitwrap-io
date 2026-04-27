@@ -298,6 +298,11 @@ func main() {
 			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx, shareStore))
 			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear})")
 		}
+		// /api/archive-missing — every CID that's in the share store but
+		// not in the rendered-audio index. Lets an offline worker drive
+		// a full-collection archive pass without the listener having to
+		// tap ⟳ on each card.
+		mux.HandleFunc("/api/archive-missing", archiveMissingHandler(idx, shareStore))
 		// /feed serves the gallery page; /feed.html resolves the same
 		// file via the static handler. Explicit route here avoids the
 		// catch-all routing /feed → DecoratedIndex (which would 404
@@ -1083,6 +1088,56 @@ func featuresHandler(rebuildQueue bool) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"rebuildQueue": rebuildQueue,
 			"genreColors":  share.GenreColors(),
+		})
+	}
+}
+
+// archiveMissingHandler answers GET /api/archive-missing?limit=N
+// with the list of share-store CIDs that have no corresponding row in
+// the rendered-audio index. Used by an offline worker
+// (scripts/process-rebuild-queue.py --archive) to drive a
+// full-collection backfill — the worker reads this list, renders
+// each via its local -audio-render server, and PUTs the .webm back
+// to /audio/{cid}.webm with X-Rebuild-Secret.
+//
+// Returns at most `limit` CIDs (default 200, max 2000) to bound the
+// response. The order is unspecified; the worker just drains until
+// the endpoint reports zero.
+func archiveMissingHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 200
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > 2000 {
+			limit = 2000
+		}
+		rendered, err := idx.HasCIDs()
+		if err != nil {
+			http.Error(w, "index error", http.StatusInternalServerError)
+			return
+		}
+		all := store.AllCIDs()
+		missing := make([]string, 0, limit)
+		for _, cid := range all {
+			if _, ok := rendered[cid]; ok {
+				continue
+			}
+			missing = append(missing, cid)
+			if len(missing) >= limit {
+				break
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"missing":      missing,
+			"totalShares":  len(all),
+			"totalAudio":   len(rendered),
+			"limit":        limit,
+			"truncated":    len(missing) >= limit,
 		})
 	}
 }
