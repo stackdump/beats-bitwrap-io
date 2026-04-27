@@ -82,6 +82,14 @@ type Config struct {
 	// PATH. Set by main.go from -ffmpeg flag if needed; the prod host
 	// has /usr/bin/ffmpeg installed.
 	FFmpegPath string
+	// RenderMode picks the in-page render path. "" or "realtime" uses
+	// the chromedp + MediaRecorder pipeline (1× wall time, full live
+	// fidelity). "offline" uses Tone.Offline inside the page, which
+	// renders 5–15× faster than realtime but currently has fidelity
+	// gaps (see public/lib/share/offline-render.js header). Offline
+	// renders return WAV; the renderer transcodes to WebM/Opus via
+	// ffmpeg before caching, so the on-disk shape is unchanged.
+	RenderMode string
 	// OnRenderComplete fires after a render lands on disk (post
 	// rename, before LRU eviction). Wired in main.go to upsert the
 	// SQLite index row that backs /api/feed and /api/audio-latest.
@@ -442,9 +450,25 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	if err != nil {
 		return "", err
 	}
+	// In offline mode the page returns WAV (uncompressed PCM); transcode
+	// to WebM/Opus before the cached file lands so the on-disk shape and
+	// served MIME stay {cid}.webm regardless of the render path. ffmpeg
+	// is required for offline mode — load-bearing, not nice-to-have.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return "", fmt.Errorf("audiorender: write tmp: %w", err)
+	if r.cfg.RenderMode == "offline" {
+		wavTmp := path + ".wav.tmp"
+		if err := os.WriteFile(wavTmp, data, 0o644); err != nil {
+			return "", fmt.Errorf("audiorender: write wav tmp: %w", err)
+		}
+		if err := transcodeWavToWebm(renderCtx, r.cfg.FFmpegPath, wavTmp, tmp); err != nil {
+			_ = os.Remove(wavTmp)
+			return "", fmt.Errorf("audiorender: transcode: %w", err)
+		}
+		_ = os.Remove(wavTmp)
+	} else {
+		if err := os.WriteFile(tmp, data, 0o644); err != nil {
+			return "", fmt.Errorf("audiorender: write tmp: %w", err)
+		}
 	}
 	// Stamp Matroska tags via ffmpeg stream-copy. If LookupMetadata
 	// is unset, ffmpeg isn't on PATH, or the call fails, log and
@@ -511,6 +535,37 @@ func writeTags(ctx context.Context, ffmpegPath, src, dst string, md Metadata) er
 	return nil
 }
 
+// transcodeWavToWebm encodes a WAV input as Opus inside a WebM
+// container, producing the same on-disk shape as the realtime path.
+// Used by the offline render mode: the page returns uncompressed PCM
+// and we encode here so the cache, feed RSS enclosures, and
+// share-card tooling all see the same {cid}.webm/Opus contract
+// regardless of which render path produced the audio.
+//
+// Bitrate 96 kbps stereo VBR mirrors what Chrome's MediaRecorder
+// produces from the realtime path (typically 96–128 kbps). Quality
+// indistinguishable from the realtime renders for music content.
+func transcodeWavToWebm(ctx context.Context, ffmpegPath, src, dst string) error {
+	bin := ffmpegPath
+	if bin == "" {
+		bin = "ffmpeg"
+	}
+	args := []string{
+		"-y", "-loglevel", "error",
+		"-i", src,
+		"-c:a", "libopus",
+		"-b:a", "96k",
+		"-vbr", "on",
+		"-f", "webm",
+		dst,
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg transcode: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", "new"),
@@ -558,7 +613,11 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) 
 		}
 	})
 
-	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=1"
+	renderFlag := "1"
+	if r.cfg.RenderMode == "offline" {
+		renderFlag = "offline"
+	}
+	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=" + renderFlag
 	if r.cfg.MaxDuration > 0 {
 		target += fmt.Sprintf("&maxMs=%d", r.cfg.MaxDuration.Milliseconds())
 	}

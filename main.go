@@ -77,6 +77,7 @@ func main() {
 	audioChromePath := flag.String("audio-chrome", "", "Path to chromium/chrome binary. Empty = chromedp autodetect.")
 	audioMaxDuration := flag.Duration("audio-max-duration", 3*time.Minute, "Cap on audio length per render. 0 = unbounded (still subject to -audio-render-timeout).")
 	audioRenderTimeout := flag.Duration("audio-render-timeout", 10*time.Minute, "Hard kill timer per render (covers stuck browsers / hung devices). Should comfortably exceed -audio-max-duration.")
+	audioRenderMode := flag.String("audio-render-mode", "realtime", "Render path: 'realtime' (chromedp + MediaRecorder, 1× wall time, full live fidelity) or 'offline' (Tone.Offline, ~10× faster, fidelity gaps — see public/lib/share/offline-render.js header).")
 	audioAutoEnqueue := flag.Bool("audio-auto-enqueue", true, "Pre-render newly sealed CIDs in the background so listeners hit a warm cache.")
 	rebuildQueueEnabled := flag.Bool("rebuild-queue", false, "Expose /api/rebuild-{mark,queue,clear} so listeners can flag broken renders for an off-host worker to re-render. Adds a ⟳ button on each feed card.")
 
@@ -255,6 +256,10 @@ func main() {
 				log.Printf("index: record %s: %v", cid, err)
 			}
 		}
+		mode := strings.ToLower(strings.TrimSpace(*audioRenderMode))
+		if mode != "" && mode != "realtime" && mode != "offline" {
+			log.Fatalf("audio renderer: invalid -audio-render-mode %q (want 'realtime' or 'offline')", *audioRenderMode)
+		}
 		ar, err := audiorender.New(audiorender.Config{
 			CacheDir:         filepath.Join(*dataDir, "audio"),
 			BaseURL:          base,
@@ -265,14 +270,15 @@ func main() {
 			ChromePath:       *audioChromePath,
 			LookupMetadata:   lookupMD,
 			OnRenderComplete: onRenderComplete,
+			RenderMode:       mode,
 		})
 		if err != nil {
 			log.Fatalf("audio renderer: %v", err)
 		}
 		if *audioEnabled {
-			log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s)",
+			log.Printf("Audio render: ON (cache %s, base %s, cap %d bytes, %d concurrent, max %s/render, kill at %s, mode=%s)",
 				filepath.Join(*dataDir, "audio"), base, *audioMaxBytes, *audioConcurrent,
-				*audioMaxDuration, *audioRenderTimeout)
+				*audioMaxDuration, *audioRenderTimeout, mode)
 		} else {
 			log.Printf("Audio render: OFF (uploads + cached serving still active at /audio/{cid}.webm)")
 		}
