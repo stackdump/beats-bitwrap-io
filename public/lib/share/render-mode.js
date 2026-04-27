@@ -13,6 +13,7 @@
 //   window.__renderError = string  (set if anything blew up)
 
 import { renderToBlob } from './client-render.js';
+import { renderToBlobOffline, isOfflineRenderMode } from './offline-render.js';
 
 const PPQ = 4;                // mirrors sequencer-worker.js
 const POLL_INTERVAL_MS = 100; // how often we check for project readiness
@@ -20,7 +21,8 @@ const READY_TIMEOUT_MS = 30_000;
 
 export function isRenderMode() {
     try {
-        return new URLSearchParams(location.search).get('render') === '1';
+        const v = new URLSearchParams(location.search).get('render');
+        return v === '1' || v === 'offline';
     } catch {
         return false;
     }
@@ -62,14 +64,35 @@ async function runRender(el) {
         loopFallback: !(el._totalSteps > 0),
     };
 
-    console.log('[render-mode] recording, durationMs=', window.__renderInfo.durationMs,
+    const offline = isOfflineRenderMode();
+    window.__renderInfo.mode = offline ? 'offline' : 'realtime';
+    console.log('[render-mode] recording, mode=', window.__renderInfo.mode,
+                'durationMs=', window.__renderInfo.durationMs,
                 'totalSteps=', totalSteps, 'tempo=', tempo,
                 'loopFallback=', window.__renderInfo.loopFallback,
                 'cappedByMax=', window.__renderInfo.cappedByMax);
 
-    const { blob, mimeType } = await renderToBlob(el, { maxMs });
+    let blob, mimeType, extras = {};
+    if (offline) {
+        const out = await renderToBlobOffline(el, { maxMs });
+        blob = out.blob;
+        mimeType = out.mimeType;
+        extras = {
+            offlineWallMs: out.offlineWallMs,
+            speedupX: out.speedupX,
+            eventCount: out.eventCount,
+        };
+        console.log('[render-mode] offline render done',
+                    'wallMs=', out.offlineWallMs, 'speedup=', out.speedupX + 'x',
+                    'events=', out.eventCount);
+    } else {
+        const out = await renderToBlob(el, { maxMs });
+        blob = out.blob;
+        mimeType = out.mimeType;
+    }
     window.__renderInfo.mimeType = mimeType;
     window.__renderInfo.byteLength = blob.size;
+    Object.assign(window.__renderInfo, extras);
     window.__renderBlob = await blobToBase64(blob);
     window.__renderDone = true;
 }
