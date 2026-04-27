@@ -88,6 +88,16 @@ export function resolveBinding(el, binding) {
     return el.querySelector(binding.selector);
 }
 
+// Flash a green bind-confirm outline on the captured target for
+// 300ms. Capturing the element in a closure (vs. checking
+// el._hoveredX 300ms later) prevents the outline from sticking
+// when the user moves the cursor off before the timer fires.
+function flashBindOutline(target) {
+    if (!target) return;
+    target.style.outline = '2px solid #64ffda';
+    setTimeout(() => { target.style.outline = ''; }, 300);
+}
+
 export function handleMidiMessage(el, event) {
     // Optional debug tap — when the MIDI Monitor modal is open, every
     // raw message is mirrored to it before normal dispatch so the user
@@ -176,26 +186,21 @@ export function handleMidiCC(el, cc, value) {
         const target = el._hoveredMute.dataset.riffGroup || el._hoveredMute.dataset.netId;
         if (target) {
             el._ccBindings.set(cc, { type: 'mute', target });
-            const btn = el._hoveredMute;
-            btn.style.outline = '2px solid #64ffda';
-            setTimeout(() => { btn.style.outline = ''; }, 300);
+            flashBindOutline(el._hoveredMute);
             el._renderMidiPanel?.();
         }
     } else if (el._hoveredSection) {
         const target = el._hoveredSection.dataset.section;
         if (target) {
             el._ccBindings.set(cc, { type: 'mute', target });
-            const div = el._hoveredSection;
-            div.style.outline = '2px solid #64ffda';
-            setTimeout(() => { div.style.outline = ''; }, 300);
+            flashBindOutline(el._hoveredSection);
             el._renderMidiPanel?.();
         }
     } else if (el._hoveredSlider && !el._ccBindings.has(cc)) {
         const b = sliderBindingKey(el._hoveredSlider);
         if (b) {
             el._ccBindings.set(cc, b);
-            el._hoveredSlider.style.outline = '2px solid #64ffda';
-            setTimeout(() => { if (el._hoveredSlider) el._hoveredSlider.style.outline = ''; }, 300);
+            flashBindOutline(el._hoveredSlider);
             el._renderMidiPanel?.();
         }
     }
@@ -252,9 +257,7 @@ export function handleMidiNoteOn(el, note) {
         const macroId = el._hoveredMacro.dataset.macro;
         el._padBindings.set(note, macroId);
         el._savePadBindings();
-        const btn = el._hoveredMacro;
-        btn.style.outline = '2px solid #64ffda';
-        setTimeout(() => { btn.style.outline = ''; }, 300);
+        flashBindOutline(el._hoveredMacro);
         el._renderMidiPanel?.();
         return;
     }
@@ -265,9 +268,7 @@ export function handleMidiNoteOn(el, note) {
         if (target) {
             el._padBindings.set(note, { type: 'mute', target });
             el._savePadBindings();
-            const btn = el._hoveredMute;
-            btn.style.outline = '2px solid #64ffda';
-            setTimeout(() => { btn.style.outline = ''; }, 300);
+            flashBindOutline(el._hoveredMute);
             el._renderMidiPanel?.();
             return;
         }
@@ -281,9 +282,7 @@ export function handleMidiNoteOn(el, note) {
         if (target) {
             el._padBindings.set(note, { type: 'mute', target });
             el._savePadBindings();
-            const div = el._hoveredSection;
-            div.style.outline = '2px solid #64ffda';
-            setTimeout(() => { div.style.outline = ''; }, 300);
+            flashBindOutline(el._hoveredSection);
             el._renderMidiPanel?.();
             return;
         }
