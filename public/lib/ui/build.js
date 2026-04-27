@@ -256,7 +256,7 @@ export function buildUI(el) {
             <button class="pn-generate-btn" title="Generate new track" data-midi-action="generate" data-midi-label="Generate">Generate</button>
             <button class="pn-shuffle-btn" title="Shuffle instruments" data-midi-action="shuffle" data-midi-label="Shuffle">Shuffle</button>
             <button class="pn-stage-btn" title="Stage — full-page visualizer (M)" aria-label="Open Stage"><svg class="pn-stage-icon" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="12" height="12"/><rect x="6" y="6" width="4" height="4" fill="currentColor" stroke="none"/></svg> Stage</button>
-            <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the feed player" aria-label="Open feed player"><svg class="pn-stage-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><polygon points="4,2 14,8 4,14"/></svg> Player</a>
+            <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the player" aria-label="Open the player"><svg class="pn-stage-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><polygon points="4,2 14,8 4,14"/></svg> Player</a>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
             <button class="pn-leaderboard-btn" title="Leaderboard" style="display:none">&#x1F3C6;</button>
             <button class="pn-download-btn" title="Download track as JSON-LD" aria-label="Download"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v9"/><path d="M4.5 7.5L8 11l3.5-3.5"/><path d="M3 13.5h10"/></svg></button>
@@ -284,7 +284,7 @@ export function buildUI(el) {
     const playerLink = header.querySelector('.pn-player-link');
     if (playerLink) {
         const cidParam = new URLSearchParams(location.search).get('cid');
-        playerLink.title = cidParam ? 'Open this track in player' : 'Go to player';
+        playerLink.title = cidParam ? 'Open this track in the player' : 'Open the player';
         playerLink.addEventListener('click', (e) => {
             if (!cidParam) return; // default href="/feed" navigation
             e.preventDefault();

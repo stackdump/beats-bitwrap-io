@@ -837,12 +837,12 @@
     <button class="pn-toggle-pl" id="toggle-view" title="Toggle between card grid and compact list view">list</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-help" title="Help (?)">?</button>
-    <a href="/" class="rss" title="Open the synth editor — generate a new track">studio →</a>
+    <a href="/" class="rss" title="Open the studio — generate a new track">studio →</a>
   </div>
 </header>
 <div class="layout" id="layout">
   <aside class="playlist">
-    <button class="pl-close" id="pl-close" title="Close playlist (back to grid)" aria-label="Back to feed"><svg class="pl-close-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="10,3 4,8 10,13"/></svg><span class="pl-close-label">Feed</span><span class="pl-close-x" aria-hidden="true">×</span></button>
+    <button class="pl-close" id="pl-close" title="Back to feed" aria-label="Back to feed"><svg class="pl-close-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="10,3 4,8 10,13"/></svg><span class="pl-close-label">Feed</span><span class="pl-close-x" aria-hidden="true">×</span></button>
     <div class="pl-now" id="pl-now">
       <div class="pl-now-bar"><span>BEATS · BITWRAP</span></div>
       <div class="pl-now-lcd">
@@ -925,7 +925,7 @@
     <div class="card-modal-sub"></div>
     <div class="card-modal-actions">
       <button class="card-modal-play">▶ Play</button>
-      <a class="card-modal-open" href="#">Open in editor</a>
+      <a class="card-modal-open" href="#">Open in studio</a>
     </div>
   </div>
 </div>
@@ -943,7 +943,7 @@
         <dt>+</dt><dd>Add to your playlist queue.</dd>
         <dt>⟳</dt><dd>Flag broken or stuck audio for an off-host worker to re-render. Hidden when the rebuild queue isn't enabled on this server.</dd>
         <dt>genre chip</dt><dd>Click to filter the feed to that genre. Click again to clear.</dd>
-        <dt>card body</dt><dd>Tap (mobile) plays inline. Click (desktop) opens the synth editor with that track loaded.</dd>
+        <dt>card body</dt><dd>Tap (mobile) plays inline. Click (desktop) opens the studio with that track loaded.</dd>
       </dl>
 
       <h3>Filter bar</h3>
@@ -953,7 +953,7 @@
         <dt>★ favorites</dt><dd>Show only locally-bookmarked tracks.</dd>
         <dt>playlist</dt><dd>Toggle the queue sidebar (overlay on mobile).</dd>
         <dt>RSS</dt><dd>Podcast-shaped feed of recent renders.</dd>
-        <dt>studio →</dt><dd>Jump to the synth editor to generate a new track.</dd>
+        <dt>studio →</dt><dd>Jump to the studio to generate a new track.</dd>
       </dl>
 
       <h3>Keyboard</h3>
