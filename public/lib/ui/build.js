@@ -567,9 +567,11 @@ export function buildUI(el) {
             <div class="pn-midi-row" title="Live transpose — applied to all non-drum channels at fire time. The 🎹 toggle arms 'listen' mode: the next MIDI Note On from your keybed snaps the transpose to that key (relative to the project root or C4 fallback). Latched.">
                 <span class="pn-midi-label">Xpose</span>
                 <span class="pn-transpose">
+                    <button type="button" class="pn-transpose-octdown" title="Transpose down 1 octave (12 semitones)">&laquo;</button>
                     <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
                     <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click or press 0 to reset.">+0</span>
                     <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                    <button type="button" class="pn-transpose-octup" title="Transpose up 1 octave (12 semitones)">&raquo;</button>
                     <button type="button" class="pn-transpose-reset" title="Reset transpose to +0">&#8634;</button>
                     <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
                 </span>
@@ -761,6 +763,8 @@ export function buildUI(el) {
         };
         tDown.addEventListener('click',   () => el._setLiveTranspose(el._liveTranspose - 1));
         tUp.addEventListener('click',     () => el._setLiveTranspose(el._liveTranspose + 1));
+        fx.querySelector('.pn-transpose-octdown')?.addEventListener('click', () => el._setLiveTranspose(el._liveTranspose - 12));
+        fx.querySelector('.pn-transpose-octup')?.addEventListener('click',   () => el._setLiveTranspose(el._liveTranspose + 12));
         tVal.addEventListener('dblclick', () => el._setLiveTranspose(0));
         tListen.addEventListener('click', () => {
             el._transposeListen = !el._transposeListen;
