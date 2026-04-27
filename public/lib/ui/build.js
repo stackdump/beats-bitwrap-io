@@ -568,8 +568,9 @@ export function buildUI(el) {
                 <span class="pn-midi-label">Xpose</span>
                 <span class="pn-transpose">
                     <button type="button" class="pn-transpose-down" title="Transpose down 1 semitone">&minus;</button>
-                    <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click to reset.">+0</span>
+                    <span class="pn-transpose-val" title="Current transpose (semitones from project root). Double-click or press 0 to reset.">+0</span>
                     <button type="button" class="pn-transpose-up" title="Transpose up 1 semitone">+</button>
+                    <button type="button" class="pn-transpose-reset" title="Reset transpose to +0">&#8634;</button>
                     <button type="button" class="pn-transpose-listen" title="When ON, the next MIDI note from your keybed sets the transpose. Latched — press another key to change again." aria-pressed="false">&#127929;</button>
                 </span>
             </div>
@@ -735,6 +736,7 @@ export function buildUI(el) {
     const tDown   = fx.querySelector('.pn-transpose-down');
     const tUp     = fx.querySelector('.pn-transpose-up');
     const tListen = fx.querySelector('.pn-transpose-listen');
+    const tReset  = fx.querySelector('.pn-transpose-reset');
     if (tVal && tDown && tUp && tListen) {
         const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
         const renderTranspose = () => {
@@ -764,6 +766,7 @@ export function buildUI(el) {
             el._transposeListen = !el._transposeListen;
             renderTranspose();
         });
+        tReset?.addEventListener('click', () => el._setLiveTranspose(0));
         // Hover-scroll + arrow-key nudge — mirrors the universal
         // slider behaviour. Wheel down / ArrowDown / ArrowLeft go
         // negative; wheel up / ArrowUp / ArrowRight go positive.
