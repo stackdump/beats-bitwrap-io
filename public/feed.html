@@ -84,20 +84,23 @@
     gap: 16px;
   }
   /* List view: same .card markup, just collapsed into a single
-     horizontal row per track. The card-art and card-actions stay;
-     the meta block goes inline with them. Actions live on the right
-     edge so the row reads left→right: art · title/sub · buttons. */
+     horizontal row per track. The card-art keeps the design graphic
+     (the QR is a small fraction of the SVG so the design dominates
+     even at row height). Meta breaks out into named columns so genre,
+     tempo, duration, and date all line up vertically across rows. */
   body[data-feed-view="list"] .grid {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
   body[data-feed-view="list"] .card {
     flex-direction: row;
     align-items: center;
-    padding: 6px 10px 6px 6px;
-    gap: 12px;
+    padding: 4px 8px 4px 4px;
+    gap: 10px;
+    border-radius: 4px;
   }
+  body[data-feed-view="list"] .card:hover { transform: none; }
   body[data-feed-view="list"] .card-link {
     flex-direction: row;
     align-items: center;
@@ -107,22 +110,76 @@
     padding: 0;
   }
   body[data-feed-view="list"] .card-art {
-    width: 80px;
-    height: auto;
-    aspect-ratio: 1200 / 630;
-    flex: 0 0 80px;
-    border-radius: 4px;
+    width: 96px;
+    height: 50px;
+    aspect-ratio: auto;
+    flex: 0 0 96px;
+    border-radius: 3px;
+    object-fit: cover;
+    object-position: left center;
+    /* The QR occupies only ~16px on the right of the rendered thumbnail
+       at this size — reads as a corner texture, not as a scannable code. */
   }
-  body[data-feed-view="list"] .card-meta { flex: 1; min-width: 0; padding: 0; }
+  body[data-feed-view="list"] .card-meta {
+    flex: 1; min-width: 0; padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    align-items: center;
+    gap: 14px;
+  }
   body[data-feed-view="list"] .card-title {
     font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 0;
   }
-  body[data-feed-view="list"] .card-sub { font-size: 11px; }
+  body[data-feed-view="list"] .card-sub {
+    display: contents;
+  }
+  body[data-feed-view="list"] .card-sub > * {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  body[data-feed-view="list"] .card-tempo,
+  body[data-feed-view="list"] .card-dur,
+  body[data-feed-view="list"] .card-date { color: #888; }
+  /* Card mode separators: " · " injected before every non-first
+     visible child of .card-sub. Hidden siblings carry no ::before
+     (display:none on the parent hides ::before too) so the list-only
+     fields don't leave stranded separators in card mode. */
+  body:not([data-feed-view="list"]) .card-sub > *:not(:first-child)::before {
+    content: " · ";
+    color: #666;
+  }
+  body[data-feed-view="list"] .card-genre-chip { justify-self: start; }
+  body[data-feed-view="list"] .card-tempo { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+  body[data-feed-view="list"] .card-dur   { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  body[data-feed-view="list"] .card-date  { min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
   body[data-feed-view="list"] .card-actions {
     flex: 0 0 auto;
-    margin-left: auto;
+    margin-left: 0;
     padding: 0;
     border-top: none;
+    position: static;
+  }
+  body[data-feed-view="list"] .card-actions button {
+    background: transparent;
+    width: 28px; height: 28px;
+    font-size: 14px;
+    border-color: transparent;
+  }
+  body[data-feed-view="list"] .card-actions button:hover {
+    background: #1a2a3a; border-color: #2a3a4a;
+  }
+  /* Hide list-only fields in card mode. */
+  body:not([data-feed-view="list"]) .card-dur,
+  body:not([data-feed-view="list"]) .card-date-abs { display: none; }
+  body[data-feed-view="list"] .card-date-rel { display: none; }
+  @media (max-width: 720px) {
+    body[data-feed-view="list"] .card-meta {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+    }
+    body[data-feed-view="list"] .card-tempo,
+    body[data-feed-view="list"] .card-date { display: none; }
   }
   .card {
     background: #0d0d0d;
@@ -855,6 +912,65 @@ const fmtTime = (ms) => {
   return new Date(ms).toLocaleDateString();
 };
 
+// Absolute create date for the list view — short ISO-ish day so
+// columns align even at narrow widths. Time-of-day in title attr.
+const fmtDate = (ms) => {
+  const d = new Date(ms);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const opts = sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { year: '2-digit', month: 'short', day: 'numeric' };
+  return d.toLocaleDateString(undefined, opts);
+};
+
+const fmtDur = (sec) => {
+  if (!Number.isFinite(sec) || sec <= 0) return '–:––';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec - m * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+// Lazy duration probe. Creates a hidden <audio preload="metadata">
+// the first time a row scrolls into view; updates the .card-dur
+// text on loadedmetadata. Browsers cache the range response so
+// scroll-back is free, and we only probe the rows the user actually
+// sees.
+const _durObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    const card = e.target;
+    _durObserver.unobserve(card);
+    const cid = card.dataset.durCid;
+    const el = card.querySelector('.card-dur');
+    if (!cid || !el || el.dataset.loaded === '1') continue;
+    el.dataset.loaded = '1';
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.addEventListener('loadedmetadata', () => {
+      el.textContent = fmtDur(probe.duration);
+      probe.src = '';
+    }, { once: true });
+    probe.addEventListener('error', () => { probe.src = ''; }, { once: true });
+    probe.src = `/audio/${encodeURIComponent(cid)}.webm`;
+  }
+}, { rootMargin: '200px' }) : null;
+
+const scheduleDurationProbe = (card, cid, el) => {
+  card.dataset.durCid = cid;
+  if (_durObserver) {
+    _durObserver.observe(card);
+  } else {
+    // Fallback: probe immediately.
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.addEventListener('loadedmetadata', () => {
+      el.textContent = fmtDur(probe.duration);
+    }, { once: true });
+    probe.src = `/audio/${encodeURIComponent(cid)}.webm`;
+  }
+};
+
 const isInPlaylist = (cid) => playlist.some(p => p.cid === cid);
 
 const addToPlaylist = (track) => {
@@ -1352,11 +1468,6 @@ const renderCard = (t) => {
   const card = document.createElement('div');
   card.className = 'card';
   const title = trackTitle(t);
-  // Genre is rendered as a separate clickable chip so tapping it
-  // pivots the feed filter to that genre. Tempo + relative time
-  // stay as plain text in the same line.
-  const subRest = [t.tempo ? `${t.tempo} BPM` : '', fmtTime(t.renderedAt)]
-    .filter(Boolean).join(' · ');
   // On a narrow / touch viewport, the card body is a tap-to-play
   // affordance instead of a link to the synth editor (which would
   // just redirect back to /feed on phones — a loop). Desktop keeps
@@ -1394,9 +1505,13 @@ const renderCard = (t) => {
     });
   }
   card.querySelector('.card-title').textContent = title;
-  // .card-sub: clickable genre chip + plain text rest. The chip is
-  // a <button> so it gets keyboard focus + correct ARIA without
-  // overriding the parent <a class="card-link"> navigation.
+  // .card-sub: clickable genre chip + tempo + duration + date. Each
+  // value gets its own span so the list view can lay them out as
+  // aligned columns (display:contents on .card-sub lifts these into
+  // the .card-meta grid). Card view re-joins them with " · " separators
+  // injected via CSS ::before pseudo-elements on each non-first visible
+  // sibling — so hiding a sibling in one view doesn't leave a stranded
+  // separator behind.
   const subEl = card.querySelector('.card-sub');
   subEl.innerHTML = '';
   if (t.genre) {
@@ -1414,17 +1529,39 @@ const renderCard = (t) => {
     chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // Same-chip click toggles back to "all" — useful when the user
-      // pivots into a genre via the chip and wants out without
-      // hunting for the dropdown.
       genreSel.value = (genreSel.value === t.genre) ? '' : t.genre;
       genreSel.dispatchEvent(new Event('change'));
     });
     subEl.appendChild(chip);
-    if (subRest) subEl.appendChild(document.createTextNode(' · ' + subRest));
-  } else {
-    subEl.textContent = subRest;
   }
+  if (t.tempo) {
+    const tempoEl = document.createElement('span');
+    tempoEl.className = 'card-tempo';
+    tempoEl.textContent = `${t.tempo} BPM`;
+    subEl.appendChild(tempoEl);
+  }
+  // Duration: lazy-fetched once the row is visible. Webm metadata is
+  // a small range request — browser caches it, so revisits are free.
+  const durEl = document.createElement('span');
+  durEl.className = 'card-dur';
+  durEl.textContent = '–:––';
+  durEl.title = 'Track duration';
+  subEl.appendChild(durEl);
+  // Date: relative for card view, absolute for list view. Both rendered;
+  // CSS hides whichever doesn't match the active mode.
+  const dateRel = document.createElement('span');
+  dateRel.className = 'card-date card-date-rel';
+  dateRel.textContent = fmtTime(t.renderedAt);
+  dateRel.title = new Date(t.renderedAt).toLocaleString();
+  subEl.appendChild(dateRel);
+  const dateAbs = document.createElement('span');
+  dateAbs.className = 'card-date card-date-abs';
+  dateAbs.textContent = fmtDate(t.renderedAt);
+  dateAbs.title = new Date(t.renderedAt).toLocaleString();
+  subEl.appendChild(dateAbs);
+  // Lazy duration probe via IntersectionObserver so off-screen rows
+  // don't fire range requests until they scroll into view.
+  scheduleDurationProbe(card, t.cid, durEl);
   const addBtn = card.querySelector('.card-add');
   addBtn.addEventListener('click', (e) => {
     e.preventDefault();
