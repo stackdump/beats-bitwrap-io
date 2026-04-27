@@ -80,14 +80,19 @@ def post_rebuild_clear(remote: str, cid: str) -> None:
     pass
 
 
-def download_snapshot(remote: str, out_path: str, rebuild_secret: str) -> None:
+def download_snapshot(remote: str, out_path: str, rebuild_secret: str,
+                       include_audio: bool = False, include_db: bool = False) -> None:
     """Stream /api/snapshot to out_path. Lets the OS shovel — no
     in-memory buffer for the whole catalogue."""
+    qp = []
+    if include_audio: qp.append("audio=1")
+    if include_db:    qp.append("db=1")
+    qs = ("?" + "&".join(qp)) if qp else ""
     req = urllib.request.Request(
-        f"{remote}/api/snapshot",
+        f"{remote}/api/snapshot{qs}",
         headers={"X-Rebuild-Secret": rebuild_secret},
     )
-    print(f"snapshot: streaming {remote}/api/snapshot → {out_path}")
+    print(f"snapshot: streaming {remote}/api/snapshot{qs} → {out_path}")
     try:
         with urllib.request.urlopen(req, timeout=600) as resp, open(out_path, "wb") as f:
             total = 0
@@ -104,34 +109,61 @@ def download_snapshot(remote: str, out_path: str, rebuild_secret: str) -> None:
         sys.exit(2)
 
 
-def restore_snapshot(remote: str, in_path: str) -> None:
-    """Replay every *.json entry in a snapshot tarball as PUT /o/{cid}.
-    The server re-verifies each CID against canonical-JSON(payload), so
-    tampered entries are rejected and a clean restore can't be poisoned
-    by a malformed tar."""
-    import tarfile
-    n_ok, n_skip, n_fail = 0, 0, 0
+def restore_snapshot(remote: str, in_path: str, rebuild_secret: str = "") -> None:
+    """Replay snapshot entries:
+       o/{cid}.json     → PUT /o/{cid}                 (CID re-verified server-side)
+       audio/{cid}.webm → PUT /audio/{cid}.webm        (X-Rebuild-Secret to overwrite)
+       index.db         → skipped (server rebuilds via backfillIndex)"""
+    import tarfile, posixpath
+    env_ok, env_fail = 0, 0
+    aud_ok, aud_fail, aud_skip_no_secret = 0, 0, 0
     with tarfile.open(in_path, "r:gz") as tf:
         for member in tf:
-            if not member.isfile() or not member.name.endswith(".json"):
+            if not member.isfile():
                 continue
-            cid = member.name[:-5]
+            name = member.name
             buf = tf.extractfile(member)
             if buf is None:
-                n_skip += 1
                 continue
             body = buf.read()
-            code, resp = http(
-                "PUT", f"{remote}/o/{cid}", body,
-                {"Content-Type": "application/ld+json"}, timeout=30,
-            )
-            if code in (200, 201):
-                n_ok += 1
-            else:
-                n_fail += 1
-                print(f"  ! {cid}: HTTP {code}: {resp[:120].decode('utf-8','replace')}",
-                      file=sys.stderr)
-    print(f"restore: {n_ok} ok, {n_fail} failed, {n_skip} skipped")
+            base = posixpath.basename(name)
+            if name.startswith("o/") and base.endswith(".json"):
+                cid = base[:-5]
+                code, resp = http(
+                    "PUT", f"{remote}/o/{cid}", body,
+                    {"Content-Type": "application/ld+json"}, timeout=30,
+                )
+                if code in (200, 201):
+                    env_ok += 1
+                else:
+                    env_fail += 1
+                    print(f"  ! envelope {cid}: HTTP {code}: {resp[:120].decode('utf-8','replace')}",
+                          file=sys.stderr)
+            elif name.startswith("audio/") and base.endswith(".webm"):
+                cid = base[:-5]
+                if not rebuild_secret:
+                    aud_skip_no_secret += 1
+                    continue
+                code, resp = http(
+                    "PUT", f"{remote}/audio/{cid}.webm", body,
+                    {"Content-Type": "audio/webm",
+                     "X-Rebuild-Secret": rebuild_secret}, timeout=120,
+                )
+                if code in (200, 201):
+                    aud_ok += 1
+                else:
+                    aud_fail += 1
+                    print(f"  ! audio {cid}: HTTP {code}: {resp[:120].decode('utf-8','replace')}",
+                          file=sys.stderr)
+            elif name == "index.db":
+                # The server rebuilds the index from envelopes + audio
+                # on startup via backfillIndex, so the snapshotted db is
+                # decorative for over-the-wire restore. (You'd manually
+                # drop it into data/index.db on the box for a faster
+                # cold start.)
+                pass
+    print(f"restore: envelopes {env_ok} ok / {env_fail} failed; "
+          f"audio {aud_ok} ok / {aud_fail} failed / {aud_skip_no_secret} skipped (no secret)")
 
 
 def archive_delete(remote: str, cid: str, rebuild_secret: str) -> bool:
@@ -225,11 +257,20 @@ def main():
                          "Repeatable: --delete CID1 --delete CID2.")
     ap.add_argument("--snapshot", metavar="OUT.tgz",
                     help="Download a full snapshot of the share store to OUT.tgz. "
-                         "Requires --secret or BEATS_REBUILD_SECRET.")
+                         "Requires --secret or BEATS_REBUILD_SECRET. Use "
+                         "--include-audio / --include-db to also bundle "
+                         "rendered .webms and the sqlite index.")
+    ap.add_argument("--include-audio", action="store_true",
+                    help="With --snapshot: include cached .webm renders.")
+    ap.add_argument("--include-db", action="store_true",
+                    help="With --snapshot: include the sqlite index.db. "
+                         "Derived state — server rebuilds it from envelopes + "
+                         "audio on startup, so this just speeds restore.")
     ap.add_argument("--restore", metavar="IN.tgz",
-                    help="Restore envelopes from a snapshot tarball. "
-                         "PUTs each *.json entry to /o/{cid} on --remote. "
-                         "CID re-verification on the server rejects tampered entries.")
+                    help="Restore from a snapshot tarball: envelopes via "
+                         "PUT /o/{cid}, audio via PUT /audio/{cid}.webm "
+                         "(needs --secret). CID re-verification on the server "
+                         "rejects tampered envelopes.")
     args = ap.parse_args()
 
     rebuild_secret = (args.secret or os.environ.get("BEATS_REBUILD_SECRET", "")).strip()
@@ -250,11 +291,13 @@ def main():
         if not rebuild_secret:
             print("! --snapshot requires --secret or BEATS_REBUILD_SECRET", file=sys.stderr)
             sys.exit(2)
-        download_snapshot(args.remote, args.snapshot, rebuild_secret)
+        download_snapshot(args.remote, args.snapshot, rebuild_secret,
+                          include_audio=args.include_audio,
+                          include_db=args.include_db)
         return
 
     if args.restore:
-        restore_snapshot(args.remote, args.restore)
+        restore_snapshot(args.remote, args.restore, rebuild_secret)
         return
 
     while True:

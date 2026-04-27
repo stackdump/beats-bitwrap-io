@@ -122,11 +122,10 @@ func (s *Store) AllCIDs() []string {
 	return out
 }
 
-// Snapshot streams a tar archive of every envelope in the store to w.
-// Each entry is named "{cid}.json". Suitable to be wrapped in gzip on
-// the way out. Read-locks the index for the duration of the walk —
-// concurrent PUTs queue (but reads remain wait-free since they don't
-// take the index lock for the file read itself).
+// Snapshot streams a tar archive of every envelope in the store to
+// the writer. Each entry is named "o/{cid}.json" so a snapshot can be
+// extended with sibling trees (e.g. audio/) without ambiguity.
+// Suitable to be wrapped in gzip on the way out.
 //
 // Returns (count, totalBytes, error). Partial-write errors abort
 // mid-stream — the client sees a truncated tar and should retry.
@@ -153,7 +152,7 @@ func (s *Store) Snapshot(tw *tar.Writer) (int, int64, error) {
 			return count, total, fmt.Errorf("snapshot read %s: %w", cid, err)
 		}
 		hdr := &tar.Header{
-			Name:    cid + ".json",
+			Name:    "o/" + cid + ".json",
 			Mode:    0o644,
 			Size:    int64(len(body)),
 			ModTime: time.Now(),

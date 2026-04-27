@@ -10,10 +10,12 @@
 package audiorender
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -173,6 +175,55 @@ func New(cfg Config) (*Renderer, error) {
 		queued:   map[string]int64{},
 		running:  map[string]renderRun{},
 	}, nil
+}
+
+// Snapshot streams every cached .webm into the given tar.Writer under
+// "audio/{cid}.webm". Caller is responsible for the gzip wrapping.
+// Returns (count, totalBytes, error). Files that vanish mid-walk are
+// skipped silently — partial parity beats aborting the snapshot.
+func (r *Renderer) Snapshot(tw *tar.Writer) (int, int64, error) {
+	var (
+		count int
+		total int64
+	)
+	err := filepath.Walk(r.cfg.CacheDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".webm") {
+			return nil
+		}
+		cid := strings.TrimSuffix(info.Name(), ".webm")
+		if !ValidCID(cid) {
+			return nil
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("snapshot open %s: %w", cid, err)
+		}
+		hdr := &tar.Header{
+			Name:    "audio/" + cid + ".webm",
+			Mode:    0o644,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			f.Close()
+			return fmt.Errorf("snapshot tar header %s: %w", cid, err)
+		}
+		written, err := io.Copy(tw, f)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("snapshot tar body %s: %w", cid, err)
+		}
+		count++
+		total += written
+		return nil
+	})
+	return count, total, err
 }
 
 // Delete removes the cached .webm for cid (in any year/month bucket).
