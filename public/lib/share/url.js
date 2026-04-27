@@ -370,60 +370,22 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
 
     const showMissing = () => {
         stop();
-        audioBlock.dataset.state = 'missing';
-        const localBtn = isClientRenderSupported()
-            ? `<button class="pn-share-local-btn" title="Render in this tab (no server queue, but tab must stay foreground)" style="padding:6px 12px;background:#0a0a0a;border:1px solid #333;color:#9ad;border-radius:4px;cursor:pointer;font-size:12px">In this tab</button>`
-            : '';
-        audioBlock.innerHTML = `
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span class="pn-share-audio-msg" style="flex:1;min-width:180px;color:#aaa">Audio not rendered yet. <span style="color:#666;font-size:11px">(~${fmtSec(expectedMs)} render)</span></span>
-                <button class="pn-share-render-btn" style="padding:6px 12px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:12px">Server queue</button>
-                ${localBtn}
-            </div>
-        `;
-        audioBlock.querySelector('.pn-share-render-btn').addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            btn.textContent = 'Queuing…';
-            try {
-                const r = await fetch(audioUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ expectedMs: Math.round(expectedMs) }),
-                });
-                if (r.status === 503) {
-                    // Queue saturated (>30 min projected wait). Distinct
-                    // from a transient failure — give the user honest
-                    // feedback instead of a generic retry prompt. Local
-                    // render is still available; the button stays.
-                    btn.disabled = false;
-                    btn.textContent = 'Server queue';
-                    audioBlock.querySelector('.pn-share-audio-msg').textContent =
-                        'Server queue is full — try "In this tab" instead.';
-                    return;
-                }
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                // Hit the status endpoint immediately for the real
-                // state — skipping the optimistic guess avoids a
-                // brief "queued ~0s" flash when the sem is free and
-                // the render starts within milliseconds.
-                await poll();
-                startPolling();
-            } catch (err) {
-                btn.disabled = false;
-                btn.textContent = 'Server queue';
-                audioBlock.querySelector('.pn-share-audio-msg').textContent = `Queue failed: ${err.message}. Try again?`;
-            }
-        });
-        const localBtnEl = audioBlock.querySelector('.pn-share-local-btn');
-        if (localBtnEl) {
-            localBtnEl.addEventListener('click', (e) => {
-                e.stopPropagation();
-                stop(); // we own the block now; stop server polling
-                runLocalRender();
-            });
+        // Production runs without server-side rendering — opening the
+        // Share modal is the trigger to render in-tab and PUT the .webm
+        // back. Until that upload lands, the track does NOT appear on
+        // the feed (the index is populated by the audio ingest hook).
+        // So: if MediaRecorder is available, auto-start the local render
+        // immediately. If not, fall back to a static notice — the user
+        // will need a desktop browser to publish.
+        if (isClientRenderSupported()) {
+            runLocalRender();
+            return;
         }
+        audioBlock.dataset.state = 'missing-unsupported';
+        audioBlock.innerHTML = `
+            <div style="color:#aaa;font-size:13px">Audio rendering isn't supported in this browser.</div>
+            <div style="font-size:11px;color:#777;margin-top:4px">Open the share link in a desktop Chrome/Firefox tab and the track will render + publish to the feed automatically.</div>
+        `;
     };
 
     // Inline "or render in this tab" affordance for the queued / rendering
@@ -469,6 +431,7 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                 <div class="pn-share-local-bar" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#0f3460,#9ad);transition:width 0.3s linear"></div>
             </div>
             <div style="font-size:11px;color:#666;margin-top:6px">Keep this tab visible until it finishes — backgrounded tabs throttle.</div>
+            <div style="font-size:11px;color:#fbbf24;margin-top:6px">This track will only appear on the feed after the audio upload succeeds.</div>
         `;
         const bar = audioBlock.querySelector('.pn-share-local-bar');
         const eta = audioBlock.querySelector('.pn-share-local-eta');
@@ -481,7 +444,7 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                     ? `~${fmtSec(remaining)} remaining`
                     : 'finishing up…';
             },
-        }).then(({ blob }) => {
+        }).then(async ({ blob }) => {
             bar.style.width = '100%';
             audioBlock.dataset.state = 'local-ready';
             audioBlock.innerHTML = `
@@ -490,7 +453,7 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                 <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
                     <a class="pn-share-local-dl" href="#" style="font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
                     <span style="color:#555;font-size:11px">·</span>
-                    <span style="font-size:11px;color:#666">Rendered in your browser</span>
+                    <span class="pn-share-upload-status" style="font-size:11px;color:#aaa">uploading to feed…</span>
                 </div>
             `;
             const url = URL.createObjectURL(blob);
@@ -503,12 +466,31 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
                 e.preventDefault();
                 downloadBlob(blob, fname);
             });
-            // Trigger the first download immediately — the user clicked
-            // "render", they want the file.
-            downloadBlob(blob, fname);
-            // Background upload to /audio/{cid}.webm so the next listener /
-            // RSS feed picks it up without a server re-render. Fire-and-forget.
-            uploadBlob(cid, blob);
+            // Upload to /audio/{cid}.webm so the server's audio ingest
+            // hook projects the share envelope into the index — the
+            // track appears on the feed only after this PUT succeeds.
+            const statusEl = audioBlock.querySelector('.pn-share-upload-status');
+            try {
+                const r = await uploadBlob(cid, blob);
+                if (r.uploaded) {
+                    statusEl.style.color = '#4ade80';
+                    statusEl.textContent = '✓ Published to feed';
+                    recordRendered(cid, buildSharePayload(el));
+                } else if (r.status === 200) {
+                    statusEl.style.color = '#9ad';
+                    statusEl.textContent = '✓ Already on feed';
+                    recordRendered(cid, buildSharePayload(el));
+                } else if (r.status) {
+                    statusEl.style.color = '#e94560';
+                    statusEl.textContent = `Upload failed (HTTP ${r.status}) — track won't appear on feed`;
+                } else {
+                    statusEl.style.color = '#e94560';
+                    statusEl.textContent = `Upload failed — track won't appear on feed`;
+                }
+            } catch (err) {
+                statusEl.style.color = '#e94560';
+                statusEl.textContent = `Upload failed — track won't appear on feed`;
+            }
         }).catch((err) => {
             audioBlock.dataset.state = 'local-error';
             audioBlock.innerHTML = `
