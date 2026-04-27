@@ -156,43 +156,184 @@ export async function renderToBlobOffline(el, opts = {}) {
 
 // --- Project simulation ---------------------------------------------------
 //
-// Walk every music net forward `totalSteps` ticks, firing enabled
-// transitions and recording any MIDI events. This is a stripped-down
-// subset of sequencer-worker.js — only enough to populate the offline
-// render's event list. Misses: drift, swing, humanize, conflict
-// resolution beyond first-enabled, control-net actions (mute/unmute),
-// macros, fire-macro injection. Sufficient for a vibes-check render.
+// Walk every net forward `totalSteps` ticks, firing enabled transitions
+// and recording any MIDI events plus the running mute / slot state.
+// Control nets (`role: 'control'`) drive section structure, fade-ins,
+// drum breaks, and riff-variant switches via control bindings on their
+// transitions: mute-track / unmute-track / toggle-track / activate-slot.
+// We process those as state changes during simulation so the resulting
+// note list reflects the actual *arranged* track, not just every net
+// firing in isolation.
+//
+// Still missing vs. the worker:
+//   - drift / swing / humanize timing
+//   - probabilistic conflict resolution beyond first-enabled
+//   - fire-macro events (Auto-DJ + Beats panel — both run against the
+//     live element, not the project envelope)
+//   - mute-note / unmute-note (subset of mute-track scoped to one
+//     transition; rare in composer output)
+// The first two affect timing flavor; the rest affect macro-driven
+// performance variation. Sufficient for fully-arranged offline renders
+// that match the live track's *structure* without its live performance.
+
+// Drift / humanize constants — mirrors sequencer-worker.js. Kept in
+// sync by hand; the worker file documents the rationale for each value.
+const GHOST_VEL_THRESHOLD = 55;
+const DRIFT_GHOST_SUPPRESS = 0.15;
+const DRIFT_VEL_RANGE = 12;
+
+// Mulberry32 PRNG, byte-identical to sequencer-worker.js::deterministicRand
+// so the offline render produces the same drift the live worker would
+// for a given (loopIteration, tick, salt) tuple.
+function detRand(tick, salt) {
+    let s = (tick + salt) | 0;
+    s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function strHash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+    return h;
+}
 
 function simulateProjectNotes(projectMap, totalSteps) {
     const proj = parseProject(projectMap);
     const events = [];
+    const allNets = [];
     const musicNets = [];
+    const controlNets = [];
+    // Project-level swing / humanize amounts. Same scaling as the live
+    // path: swing 0-100 → odd-8th delay = (swing/100) * tickMs * 0.5;
+    // humanize 0-100 → velocity jitter ±(humanize/100 * 15).
+    const swing = projectMap?.swing || 0;
+    const humanize = projectMap?.humanize || 0;
+    // Mute state tracking. Initial mutes (project.initialMutes) win on
+    // tick 0; control transitions firing mute-track / unmute-track /
+    // toggle-track flip the bits during the walk.
+    const muted = new Set();
+    for (const id of (projectMap?.initialMutes || [])) muted.add(id);
+    // riffGroup → currently-active variant id. activate-slot updates
+    // this; emit notes only from the currently-active variant per group.
+    const activeVariant = new Map();
     for (const [id, nb] of Object.entries(proj.nets)) {
-        if (nb.role === 'control') continue;
         nb.resetState();
-        musicNets.push([id, nb]);
+        allNets.push([id, nb]);
+        if (nb.role === 'control') {
+            controlNets.push([id, nb]);
+        } else {
+            musicNets.push([id, nb]);
+            // First-seen net per riff group is the default active slot.
+            // activate-slot can switch later.
+            if (nb.riffGroup && !activeVariant.has(nb.riffGroup)) {
+                activeVariant.set(nb.riffGroup, id);
+            }
+        }
     }
+    // A net is muted if it's in the mute set OR (it has a riffGroup and
+    // it's not the currently active variant for that group).
+    const isAudible = (id, nb) => {
+        if (muted.has(id)) return false;
+        if (nb.riffGroup) {
+            const active = activeVariant.get(nb.riffGroup);
+            if (active && active !== id) return false;
+        }
+        return true;
+    };
     for (let tick = 0; tick < totalSteps; tick++) {
+        // 1. Fire control nets first so any mute / activate-slot effects
+        //    apply before this tick's music notes get emitted.
+        for (const [, nb] of controlNets) {
+            const enabled = [];
+            for (const tLabel of Object.keys(nb.transitions || {})) {
+                if (nb.isEnabled(tLabel)) enabled.push(tLabel);
+            }
+            if (enabled.length === 0) continue;
+            const tLabel = enabled[0];
+            const result = nb.fire(tLabel);
+            const ctrl = result?.control;
+            if (!ctrl || !ctrl.action) continue;
+            const target = ctrl.targetNet;
+            switch (ctrl.action) {
+                case 'mute-track':
+                    if (target) muted.add(target);
+                    break;
+                case 'unmute-track':
+                    if (target) muted.delete(target);
+                    break;
+                case 'toggle-track':
+                    if (target) {
+                        if (muted.has(target)) muted.delete(target);
+                        else muted.add(target);
+                    }
+                    break;
+                case 'activate-slot': {
+                    // Find the targeted net's riff group, then mark it
+                    // active for that group.
+                    if (!target) break;
+                    const targetNb = proj.nets[target];
+                    if (targetNb?.riffGroup) {
+                        activeVariant.set(targetNb.riffGroup, target);
+                    }
+                    break;
+                }
+                case 'stop-transport':
+                    // Truncate the simulation here. No more notes after
+                    // a stop-transport — same as the live worker.
+                    return events;
+                // mute-note / unmute-note / toggle-note / fire-macro /
+                // set-feel / set-visualizer: not yet handled.
+            }
+        }
+        // 2. Fire music nets, emit MIDI for audible (unmuted, active
+        //    variant) ones only.
         for (const [id, nb] of musicNets) {
             const enabled = [];
             for (const tLabel of Object.keys(nb.transitions || {})) {
                 if (nb.isEnabled(tLabel)) enabled.push(tLabel);
             }
             if (enabled.length === 0) continue;
-            // Naive: fire the first enabled. Worker does deterministic
-            // pseudo-random selection seeded by tick — close enough for PoC.
             const tLabel = enabled[0];
             const result = nb.fire(tLabel);
+            if (!isAudible(id, nb)) continue;
             const binding = result?.midi;
-            if (binding && typeof binding.note === 'number') {
-                events.push({
-                    tick,
-                    channel: binding.channel ?? nb.track?.channel ?? 0,
-                    midi: binding.note,
-                    velocity: binding.velocity ?? nb.track?.defaultVelocity ?? 90,
-                    durationMs: binding.duration ?? 100,   // binding.duration is ms
-                });
+            if (!binding || typeof binding.note !== 'number') continue;
+            let velocity = binding.velocity ?? nb.track?.defaultVelocity ?? 90;
+            // --- Velocity drift (mirrors sequencer-worker.js::driftMidi)
+            //     loopIteration is 0 for the first/only walk through the
+            //     simulator. Suppression of ghost notes happens here too.
+            const salt = strHash(id + ':' + tLabel);
+            const r = detRand(0, salt);
+            if (velocity <= GHOST_VEL_THRESHOLD && r < DRIFT_GHOST_SUPPRESS) {
+                continue; // ghost suppressed for this loop iteration
             }
+            const r2 = detRand(tick, salt);
+            const velJitter = Math.round((r2 * 2 - 1) * DRIFT_VEL_RANGE);
+            velocity = Math.max(1, Math.min(127, velocity + velJitter));
+            // --- Humanize: extra velocity jitter ±humanize/100 * 15
+            if (humanize > 0) {
+                const hJitter = (Math.random() * 2 - 1) * (humanize / 100) * 15;
+                velocity = Math.max(1, Math.min(127, Math.round(velocity + hJitter)));
+            }
+            // --- Swing: delay odd 8th-note ticks by swing/100 * tickMs * 0.5
+            //     PPQ=4, so ticks 1 and 3 within a beat are odd 8ths.
+            //     swingShiftTicks here is fractional — we add a fractional
+            //     time offset rather than mutating the integer tick index.
+            let tickFloat = tick;
+            if (swing > 0) {
+                const tickInBeat = tick % 4;
+                if (tickInBeat === 1 || tickInBeat === 3) {
+                    tickFloat = tick + (swing / 100) * 0.5;
+                }
+            }
+            events.push({
+                tick: tickFloat,
+                channel: binding.channel ?? nb.track?.channel ?? 0,
+                midi: binding.note,
+                velocity,
+                durationMs: binding.duration ?? 100,
+            });
         }
     }
     return events;
