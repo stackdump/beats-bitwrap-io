@@ -323,6 +323,25 @@ func main() {
 		// /api/snapshot-manifest: the JSON-LD manifest (no tarball) so
 		// the /archive page can render catalogue state inline.
 		mux.HandleFunc("/api/snapshot-manifest", snapshotManifestHandler(shareStore))
+		// Persisted snapshots — operator triggers POST /api/snapshot-persist
+		// (X-Rebuild-Secret) to capture a moment, optionally with a label
+		// to group related captures (?label=experiment-A). Files land in
+		// data/snapshots/. The list + RSS endpoints are public so anyone
+		// can browse/subscribe to historical backups.
+		snapshotDir := filepath.Join(*dataDir, "snapshots")
+		mux.HandleFunc("/api/snapshot-persist",
+			persistedSnapshotHandler(snapshotDir, shareStore, ar,
+				filepath.Join(*dataDir, "index.db"), rebuildSecret))
+		mux.HandleFunc("/api/snapshots", snapshotsListHandler(snapshotDir))
+		mux.HandleFunc("/api/archive-lookup", archiveLookupHandler(snapshotDir, shareStore))
+		mux.HandleFunc("/api/archive-restore", archiveRestoreHandler(snapshotDir, shareStore))
+		mux.HandleFunc("/api/snapshot-contents", snapshotContentsHandler(snapshotDir))
+		mux.HandleFunc("/archive.rss", archiveRSSHandler(snapshotDir, publicURL))
+		// /snapshots/{filename}: static download of a persisted tarball.
+		// Long cache — content-addressed by filename (timestamp embedded),
+		// so a given URL never changes.
+		mux.Handle("/snapshots/", http.StripPrefix("/snapshots/",
+			snapshotFileHandler(snapshotDir)))
 		// /archive: download page for users who want a recoverable
 		// backup. Resolves to public/archive.html via the static handler.
 		mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
@@ -1200,63 +1219,73 @@ func snapshotHandler(store *share.Store, ar *audiorender.Renderer, indexPath str
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf(`attachment; filename="beats-snapshot-%s.tgz"`, ts))
-		gz := gzip.NewWriter(w)
-		tw := tar.NewWriter(gz)
-		// Snapshot the share-store CID list up-front so the manifest
-		// records what *should* be in the tar (the snapshot streamer
-		// may skip vanished entries). Cheap — in-memory map iteration.
-		cids := store.AllCIDs()
-		sort.Strings(cids)
-		envCount, envBytes, err := store.Snapshot(tw)
+		_, _ = writeSnapshot(w, store, ar, indexPath, r.Host, createdAt, includeAudio, includeDB)
+	}
+}
+
+// writeSnapshot streams the .tar.gz body to w and returns the manifest
+// describing what was written. Used by both the streaming HTTP handler
+// and the persisted-snapshot manager (which writes to a file).
+func writeSnapshot(w io.Writer, store *share.Store, ar *audiorender.Renderer,
+	indexPath string, host string, createdAt time.Time, includeAudio, includeDB bool,
+) (map[string]any, error) {
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	// Snapshot the share-store CID list up-front so the manifest
+	// records what *should* be in the tar (the snapshot streamer
+	// may skip vanished entries). Cheap — in-memory map iteration.
+	cids := store.AllCIDs()
+	sort.Strings(cids)
+	envCount, envBytes, err := store.Snapshot(tw)
+	if err != nil {
+		log.Printf("snapshot envelopes: %v (after %d / %d bytes)", err, envCount, envBytes)
+	}
+	var audioCount int
+	var audioBytes int64
+	if includeAudio && ar != nil {
+		audioCount, audioBytes, err = ar.Snapshot(tw)
 		if err != nil {
-			log.Printf("snapshot envelopes: %v (after %d / %d bytes)", err, envCount, envBytes)
+			log.Printf("snapshot audio: %v (after %d / %d bytes)", err, audioCount, audioBytes)
 		}
-		var audioCount int
-		var audioBytes int64
-		if includeAudio {
-			audioCount, audioBytes, err = ar.Snapshot(tw)
-			if err != nil {
-				log.Printf("snapshot audio: %v (after %d / %d bytes)", err, audioCount, audioBytes)
-			}
-		}
-		dbBytes := int64(0)
-		if includeDB && indexPath != "" {
-			if info, err := os.Stat(indexPath); err == nil {
-				if data, err := os.ReadFile(indexPath); err == nil {
-					hdr := &tar.Header{
-						Name:    "index.db",
-						Mode:    0o644,
-						Size:    int64(len(data)),
-						ModTime: info.ModTime(),
-					}
-					if err := tw.WriteHeader(hdr); err == nil {
-						if n, err := tw.Write(data); err == nil {
-							dbBytes = int64(n)
-						}
+	}
+	dbBytes := int64(0)
+	if includeDB && indexPath != "" {
+		if info, err := os.Stat(indexPath); err == nil {
+			if data, err := os.ReadFile(indexPath); err == nil {
+				hdr := &tar.Header{
+					Name:    "index.db",
+					Mode:    0o644,
+					Size:    int64(len(data)),
+					ModTime: info.ModTime(),
+				}
+				if err := tw.WriteHeader(hdr); err == nil {
+					if n, err := tw.Write(data); err == nil {
+						dbBytes = int64(n)
 					}
 				}
 			}
 		}
-		// Manifest is appended last — its sizes/counts are only known
-		// after streaming. Tar readers can still extract by name in any
-		// position (`tar -xzOf snap.tgz manifest.json`).
-		manifest := buildSnapshotManifest(r.Host, createdAt, includeAudio, includeDB,
-			cids, envCount, envBytes, audioCount, audioBytes, dbBytes)
-		manifestBody, _ := json.MarshalIndent(manifest, "", "  ")
-		hdr := &tar.Header{
-			Name:    "manifest.json",
-			Mode:    0o644,
-			Size:    int64(len(manifestBody)),
-			ModTime: createdAt,
-		}
-		if err := tw.WriteHeader(hdr); err == nil {
-			_, _ = tw.Write(manifestBody)
-		}
-		_ = tw.Close()
-		_ = gz.Close()
-		log.Printf("snapshot: %d envelopes (%d B) + %d audio (%d B) + db %d B (%s)",
-			envCount, envBytes, audioCount, audioBytes, dbBytes, ts)
 	}
+	// Manifest is appended last — its sizes/counts are only known
+	// after streaming. Tar readers can still extract by name in any
+	// position (`tar -xzOf snap.tgz manifest.json`).
+	manifest := buildSnapshotManifest(host, createdAt, includeAudio, includeDB,
+		cids, envCount, envBytes, audioCount, audioBytes, dbBytes)
+	manifestBody, _ := json.MarshalIndent(manifest, "", "  ")
+	hdr := &tar.Header{
+		Name:    "manifest.json",
+		Mode:    0o644,
+		Size:    int64(len(manifestBody)),
+		ModTime: createdAt,
+	}
+	if err := tw.WriteHeader(hdr); err == nil {
+		_, _ = tw.Write(manifestBody)
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+	log.Printf("snapshot: %d envelopes (%d B) + %d audio (%d B) + db %d B",
+		envCount, envBytes, audioCount, audioBytes, dbBytes)
+	return manifest, nil
 }
 
 // buildSnapshotManifest is the JSON-LD manifest embedded in every
@@ -1316,6 +1345,483 @@ func snapshotManifestHandler(store *share.Store) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/ld+json")
 		w.Header().Set("Cache-Control", "public, max-age=60")
 		_ = json.NewEncoder(w).Encode(manifest)
+	}
+}
+
+// persistedSnapshotHandler accepts POST /api/snapshot-persist?label=<tag>
+// with X-Rebuild-Secret. Writes a snapshot tarball + sidecar JSON
+// manifest into snapshotDir. The label rides along in the sidecar so
+// the /archive page can group related captures (e.g. "experiment-A"
+// before/after a series of edits). audio=1 and db=1 are honored
+// (operator already authenticated, so the heavier tiers are fair).
+func persistedSnapshotHandler(snapshotDir string, store *share.Store, ar *audiorender.Renderer,
+	indexPath string, rebuildSecret string,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+			http.Error(w, "X-Rebuild-Secret required", http.StatusUnauthorized)
+			return
+		}
+		if snapshotDir == "" {
+			http.Error(w, "snapshot dir not configured", http.StatusInternalServerError)
+			return
+		}
+		if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+			http.Error(w, "mkdir: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		label := strings.TrimSpace(r.URL.Query().Get("label"))
+		// Sanitize: keep filenames safe + URL-safe.
+		label = sanitizeSnapshotLabel(label)
+		includeAudio := r.URL.Query().Get("audio") == "1"
+		includeDB := r.URL.Query().Get("db") == "1"
+		createdAt := time.Now().UTC()
+		ts := createdAt.Format("20060102-150405")
+		base := "beats-snapshot-" + ts
+		if label != "" {
+			base += "-" + label
+		}
+		tgzPath := filepath.Join(snapshotDir, base+".tgz")
+		jsonPath := filepath.Join(snapshotDir, base+".json")
+		f, err := os.Create(tgzPath)
+		if err != nil {
+			http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		manifest, err := writeSnapshot(f, store, ar, indexPath, r.Host, createdAt, includeAudio, includeDB)
+		_ = f.Close()
+		if err != nil {
+			_ = os.Remove(tgzPath)
+			http.Error(w, "snapshot: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Sidecar manifest: enriched with label + on-disk size + filename
+		// so the listing endpoint stays a single-file read per entry.
+		info, _ := os.Stat(tgzPath)
+		manifest["label"] = label
+		manifest["filename"] = base + ".tgz"
+		manifest["sizeBytes"] = func() int64 { if info != nil { return info.Size() }; return 0 }()
+		body, _ := json.MarshalIndent(manifest, "", "  ")
+		if err := os.WriteFile(jsonPath, body, 0o644); err != nil {
+			log.Printf("snapshot sidecar %s: %v", jsonPath, err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(manifest)
+	}
+}
+
+// snapshotsListHandler answers GET /api/snapshots with the sidecar
+// manifests of every persisted snapshot. Cheap (reads only the tiny
+// sidecar JSON, never opens the tarball). Public — the same data is
+// already in the tarballs which are themselves public via /snapshots/.
+func snapshotsListHandler(snapshotDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		out := loadSnapshotSidecars(snapshotDir)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"snapshots": out,
+			"count":     len(out),
+		})
+	}
+}
+
+// archiveRSSHandler answers GET /archive.rss with one item per
+// persisted snapshot, newest first. Each <enclosure> points at the
+// .tgz so RSS clients can fetch the artifact directly.
+func archiveRSSHandler(snapshotDir, publicURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		entries := loadSnapshotSidecars(snapshotDir)
+		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n")
+		fmt.Fprint(w, `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">`+"\n")
+		fmt.Fprint(w, "<channel>\n")
+		fmt.Fprintf(w, "  <title>%s · archive snapshots</title>\n", xmlEscape(publicURL))
+		fmt.Fprintf(w, "  <link>%s/archive</link>\n", xmlEscape(publicURL))
+		fmt.Fprint(w, "  <description>Persisted backups of the beats.bitwrap.io share-store catalogue. Each item is a self-contained .tar.gz of every share envelope (and optionally audio + db) at a moment in time.</description>\n")
+		fmt.Fprintf(w, `  <atom:link href="%s/archive.rss" rel="self" type="application/rss+xml"/>`+"\n", xmlEscape(publicURL))
+		for _, e := range entries {
+			filename, _ := e["filename"].(string)
+			label, _ := e["label"].(string)
+			createdAt, _ := e["createdAt"].(string)
+			sizeBytes := int64(0)
+			if v, ok := e["sizeBytes"].(float64); ok {
+				sizeBytes = int64(v)
+			}
+			envCount := 0
+			if env, ok := e["envelopes"].(map[string]any); ok {
+				if c, ok := env["count"].(float64); ok {
+					envCount = int(c)
+				}
+			}
+			title := filename
+			if label != "" {
+				title = label + " · " + createdAt
+			}
+			pubDate := ""
+			if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+				pubDate = t.Format(time.RFC1123Z)
+			}
+			url := fmt.Sprintf("%s/snapshots/%s", publicURL, filename)
+			desc := fmt.Sprintf("%d envelopes · %s",
+				envCount, humanBytes(sizeBytes))
+			if label != "" {
+				desc = "[" + label + "] " + desc
+			}
+			fmt.Fprint(w, "  <item>\n")
+			fmt.Fprintf(w, "    <title>%s</title>\n", xmlEscape(title))
+			fmt.Fprintf(w, "    <link>%s</link>\n", xmlEscape(url))
+			fmt.Fprintf(w, "    <guid isPermaLink=\"true\">%s</guid>\n", xmlEscape(url))
+			fmt.Fprintf(w, "    <description>%s</description>\n", xmlEscape(desc))
+			if pubDate != "" {
+				fmt.Fprintf(w, "    <pubDate>%s</pubDate>\n", pubDate)
+			}
+			fmt.Fprintf(w, "    <enclosure url=\"%s\" length=\"%d\" type=\"application/gzip\"/>\n", xmlEscape(url), sizeBytes)
+			fmt.Fprint(w, "  </item>\n")
+		}
+		fmt.Fprint(w, "</channel>\n</rss>\n")
+	}
+}
+
+// archiveLookupHandler answers GET /api/archive-lookup?cid=X with the
+// list of persisted snapshots that contain CID X. Cheap — scans only
+// the small sidecar manifests, never opens a tarball. Returns the
+// snapshot filenames newest-first, plus a `liveStore` flag so the
+// caller can tell whether the live share store still has it.
+func archiveLookupHandler(snapshotDir string, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cid := r.URL.Query().Get("cid")
+		if cid == "" {
+			http.Error(w, "cid required", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidCID(cid) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		_, liveErr := store.Lookup(cid)
+		live := liveErr == nil
+		var hits []map[string]any
+		for _, m := range loadSnapshotSidecars(snapshotDir) {
+			env, _ := m["envelopes"].(map[string]any)
+			if env == nil {
+				continue
+			}
+			cids, _ := env["cids"].([]any)
+			for _, c := range cids {
+				if cs, _ := c.(string); cs == cid {
+					hits = append(hits, map[string]any{
+						"filename":  m["filename"],
+						"label":     m["label"],
+						"createdAt": m["createdAt"],
+					})
+					break
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cid":       cid,
+			"live":      live,
+			"snapshots": hits,
+			"found":     live || len(hits) > 0,
+		})
+	}
+}
+
+// archiveRestoreHandler accepts POST /api/archive-restore?cid=X. Walks
+// the persisted snapshots newest-first, opens the first tarball that
+// contains o/{cid}.json, and re-seals it into the live share store via
+// SealDirect (which re-verifies the CID). Idempotent — if the CID is
+// already live, returns 200 with `restored: false`. No auth: the
+// snapshots are themselves public, so anyone can already grab the
+// envelope and PUT it back through /o/{cid}; this endpoint just saves
+// them the round trip.
+func archiveRestoreHandler(snapshotDir string, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		cid := r.URL.Query().Get("cid")
+		if cid == "" {
+			var body struct {
+				CID string `json:"cid"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			cid = body.CID
+		}
+		if cid == "" {
+			http.Error(w, "cid required", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidCID(cid) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		if _, err := store.Lookup(cid); err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"cid": cid, "restored": false, "live": true,
+			})
+			return
+		}
+		body, source, err := extractEnvelopeFromSnapshots(snapshotDir, cid)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := store.SealDirect(cid, body); err != nil {
+			http.Error(w, "seal: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("archive-restore: %s ← %s", cid, source)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cid": cid, "restored": true, "live": true, "source": source,
+		})
+	}
+}
+
+// extractEnvelopeFromSnapshots walks persisted snapshots newest-first
+// and returns the raw envelope bytes for the first one containing
+// o/{cid}.json. Returns the source filename for logging.
+func extractEnvelopeFromSnapshots(snapshotDir, cid string) ([]byte, string, error) {
+	target := "o/" + cid + ".json"
+	for _, m := range loadSnapshotSidecars(snapshotDir) {
+		filename, _ := m["filename"].(string)
+		if filename == "" {
+			continue
+		}
+		// Only open the tarball if the sidecar's CID list actually
+		// includes our target — saves opening every archive when the
+		// CID isn't here.
+		env, _ := m["envelopes"].(map[string]any)
+		if env == nil {
+			continue
+		}
+		cids, _ := env["cids"].([]any)
+		hit := false
+		for _, c := range cids {
+			if cs, _ := c.(string); cs == cid {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			continue
+		}
+		full := filepath.Join(snapshotDir, filename)
+		f, err := os.Open(full)
+		if err != nil {
+			continue
+		}
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			_ = f.Close()
+			continue
+		}
+		tr := tar.NewReader(gz)
+		for {
+			hdr, err := tr.Next()
+			if err != nil {
+				break
+			}
+			if hdr.Name != target {
+				continue
+			}
+			body, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+			_ = gz.Close()
+			_ = f.Close()
+			if err != nil {
+				return nil, "", fmt.Errorf("read envelope: %w", err)
+			}
+			return body, filename, nil
+		}
+		_ = gz.Close()
+		_ = f.Close()
+	}
+	return nil, "", fmt.Errorf("cid %s not found in any snapshot", cid)
+}
+
+// snapshotContentsHandler answers GET /api/snapshot-contents?file=X
+// with a feed-shaped track list ([{cid, name, genre, seed, tempo}, …])
+// derived from the envelopes inside the snapshot tarball. Lets the
+// /feed page render any snapshot's contents using the same card +
+// player UI as the live feed. Public — the underlying tarball is
+// already public via /snapshots/{file}.
+func snapshotContentsHandler(snapshotDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		file := r.URL.Query().Get("file")
+		if file == "" || strings.ContainsAny(file, "/\\") || !strings.HasSuffix(file, ".tgz") {
+			http.Error(w, "valid file= required", http.StatusBadRequest)
+			return
+		}
+		full := filepath.Join(snapshotDir, file)
+		f, err := os.Open(full)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			http.Error(w, "gzip: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer gz.Close()
+		tr := tar.NewReader(gz)
+		type track struct {
+			CID   string `json:"cid"`
+			Name  string `json:"name,omitempty"`
+			Genre string `json:"genre,omitempty"`
+			Seed  int64  `json:"seed,omitempty"`
+			Tempo int    `json:"tempo,omitempty"`
+		}
+		var out []track
+		for {
+			hdr, err := tr.Next()
+			if err != nil {
+				break
+			}
+			if !strings.HasPrefix(hdr.Name, "o/") || !strings.HasSuffix(hdr.Name, ".json") {
+				continue
+			}
+			cid := strings.TrimSuffix(strings.TrimPrefix(hdr.Name, "o/"), ".json")
+			body, err := io.ReadAll(io.LimitReader(tr, 256*1024))
+			if err != nil {
+				continue
+			}
+			var p struct {
+				Name  string `json:"name"`
+				Genre string `json:"genre"`
+				Seed  int64  `json:"seed"`
+				Tempo int    `json:"tempo"`
+			}
+			_ = json.Unmarshal(body, &p)
+			out = append(out, track{
+				CID: cid, Name: p.Name, Genre: p.Genre, Seed: p.Seed, Tempo: p.Tempo,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		_ = json.NewEncoder(w).Encode(out)
+	}
+}
+
+// snapshotFileHandler serves files from snapshotDir. Restricted to
+// .tgz and .json (the artifact + sidecar manifest); everything else
+// 404s. No directory listing — clients hit /api/snapshots for that.
+// Path traversal is blocked by rejecting any name containing "/".
+func snapshotFileHandler(snapshotDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Path
+		if name == "" || strings.ContainsAny(name, "/\\") {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.HasSuffix(name, ".tgz") && !strings.HasSuffix(name, ".json") {
+			http.NotFound(w, r)
+			return
+		}
+		full := filepath.Join(snapshotDir, name)
+		info, err := os.Stat(full)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.HasSuffix(name, ".tgz") {
+			w.Header().Set("Content-Type", "application/gzip")
+			w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		} else {
+			w.Header().Set("Content-Type", "application/ld+json")
+		}
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeFile(w, r, full)
+	}
+}
+
+// loadSnapshotSidecars reads every *.json sidecar in snapshotDir,
+// parses it as a manifest, and returns them sorted newest-first.
+// Skips unreadable / malformed files quietly — operator-grade endpoint,
+// no need to surface filesystem dust.
+func loadSnapshotSidecars(snapshotDir string) []map[string]any {
+	if snapshotDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(snapshotDir)
+	if err != nil {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(entries))
+	for _, ent := range entries {
+		name := ent.Name()
+		if !strings.HasSuffix(name, ".json") || ent.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(snapshotDir, name))
+		if err != nil {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(body, &m); err != nil {
+			continue
+		}
+		// Defensive: ensure filename is set even if sidecar predates
+		// that field. Strip .json and append .tgz.
+		if _, ok := m["filename"]; !ok {
+			m["filename"] = strings.TrimSuffix(name, ".json") + ".tgz"
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ai, _ := out[i]["createdAt"].(string)
+		aj, _ := out[j]["createdAt"].(string)
+		return ai > aj
+	})
+	return out
+}
+
+// sanitizeSnapshotLabel keeps only [A-Za-z0-9_-], collapses runs of
+// other chars to "-", caps at 32. Result is filename- and URL-safe.
+func sanitizeSnapshotLabel(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	prevDash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+			prevDash = false
+		} else if !prevDash {
+			b.WriteRune('-')
+			prevDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > 32 {
+		out = out[:32]
+	}
+	return out
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/1024/1024)
 	}
 }
 

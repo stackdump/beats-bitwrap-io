@@ -455,6 +455,14 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request, cid string) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+// SealDirect is the exported in-process write path. Same validation
+// (CID + schema + size cap) as the HTTP PUT, no rate limit. Used by
+// the archive-restore endpoint to replay envelopes pulled out of a
+// persisted snapshot tarball.
+func (s *Store) SealDirect(cid string, body []byte) error {
+	return s.sealDirect(cid, body)
+}
+
 // sealDirect writes canonical bytes under cid, bypassing HTTP + rate
 // limits. Used by in-process callers (the /api/project-share route)
 // that already hold authenticated authoring context. Idempotent on

@@ -1550,6 +1550,8 @@ export function buildUI(el) {
         <a class="pn-footer-link pn-footer-rss" href="/feed.rss" hidden title="RSS / podcast feed">rss</a>
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="/archive" title="Download a backup of every shared track">archive</a>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link" href="/archive.rss" title="RSS feed of persisted snapshots">archive rss</a>
         <span class="pn-footer-sep pn-footer-history-sep" hidden>·</span>
         <a class="pn-footer-link pn-footer-history" href="#" hidden title="Tracks remembered in this browser">history</a>
         <span class="pn-footer-sep">·</span>

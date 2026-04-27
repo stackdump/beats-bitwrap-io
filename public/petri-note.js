@@ -260,6 +260,7 @@ class PetriNote extends HTMLElement {
             && !sessionStorage.getItem('pn-welcome-mobile-seen');
         this._showWelcomeOnSync = hasUrlTitle
             || mobileNeedsPrompt
+            || !!this._missingArchivedCid
             || (!localStorage.getItem('pn-welcome-seen')
                 && !localStorage.getItem('pn-quickstart-seen'));
         // ?render=1 — headless capture mode for the server-side audio

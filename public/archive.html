@@ -77,19 +77,38 @@
     reconstruct the catalogue if this server is ever purged.
   </p>
 
+  <div style="margin:18px 0;padding:12px 14px;background:#1a140a;border:1px solid #4a3a1a;border-radius:6px;font-size:13px;color:#ddd;line-height:1.6">
+    <div style="font-size:11px;color:#fbbf24;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px">Archive policy</div>
+    We may archive (purge from the live store) at any time and for any reason —
+    usually because we're rolling forward with changes that would need older
+    shares to be up-converted or re-rendered against newer versions of the
+    software. <strong>Archived shares are not lost</strong>: they stay
+    downloadable in the snapshot tarballs below, and visiting an archived
+    <code>?cid=…</code> URL surfaces a one-click recovery prompt that re-seals
+    it from the latest snapshot. If you want a permanent local copy, grab a
+    snapshot.
+  </div>
+
   <div class="stats" id="stats">
     <div class="stat"><div class="label">Shares</div><div class="value" id="stat-shares">…</div></div>
     <div class="stat"><div class="label">Created</div><div class="value" id="stat-created" style="font-size:13px;line-height:1.4">…</div></div>
     <div class="stat"><div class="label">Format</div><div class="value" style="font-size:13px;line-height:1.4">tar.gz<br><span style="font-size:11px;color:#888">+ JSON-LD manifest</span></div></div>
   </div>
 
-  <h2>Download backup</h2>
-  <p>Envelopes-only — the canonical state of every share. Audio renders
-     can be regenerated from envelopes deterministically.</p>
+  <h2>Live snapshot</h2>
+  <p>Envelopes-only — the canonical state of every share, right now.
+     Audio renders can be regenerated from envelopes deterministically.</p>
   <a class="download" href="/api/snapshot" download>
-    Download snapshot
+    Download live snapshot
     <span class="size" id="download-size">streaming on demand</span>
   </a>
+
+  <h2>Persisted snapshots
+    <a href="/archive.rss" title="RSS feed of persisted snapshots" style="font-size:11px;color:#9ad;text-decoration:none;font-weight:400;margin-left:8px">RSS</a>
+  </h2>
+  <p>Operator-captured backups, grouped by label. Each tarball is
+     immutable — same URL forever returns the same bytes.</p>
+  <div id="persisted">…</div>
 
   <h2>What's inside</h2>
   <pre id="tree">
@@ -154,6 +173,50 @@ o/{cid}.json          — every share envelope
   } catch (err) {
     document.getElementById('stat-shares').textContent = '—';
     document.getElementById('manifest-preview').textContent = `Failed to load manifest: ${err.message}`;
+  }
+
+  // Persisted snapshots — group by label.
+  try {
+    const r = await fetch('/api/snapshots');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const { snapshots } = await r.json();
+    const host = document.getElementById('persisted');
+    if (!snapshots || !snapshots.length) {
+      host.innerHTML = `<p class="meta">No persisted snapshots yet. Operator can capture one with
+        <code>curl -X POST -H "X-Rebuild-Secret: $S" "/api/snapshot-persist?label=experiment-A"</code>.</p>`;
+      return;
+    }
+    const groups = new Map();
+    for (const s of snapshots) {
+      const k = s.label || '(unlabeled)';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(s);
+    }
+    const fmtTime = (iso) => new Date(iso).toISOString().slice(0,16).replace('T',' ') + ' UTC';
+    const parts = [];
+    for (const [label, items] of groups) {
+      parts.push(`<h3 style="font-size:13px;color:#9ad;margin:18px 0 8px;letter-spacing:0.04em">${label} <span style="color:#666;font-size:11px;font-weight:400">· ${items.length} snapshot${items.length===1?'':'s'}</span></h3>`);
+      parts.push('<div style="display:flex;flex-direction:column;gap:6px">');
+      for (const s of items) {
+        const env = s.envelopes?.count || 0;
+        const inc = s.includes || {};
+        const tiers = ['envelopes', inc.audio && 'audio', inc.db && 'db'].filter(Boolean).join(' + ');
+        parts.push(`<div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:#ddd">${fmtTime(s.createdAt)}</div>
+            <div style="font-size:11px;color:#888;margin-top:2px">${env.toLocaleString()} envelopes · ${fmtBytes(s.sizeBytes||0)} · ${tiers}</div>
+          </div>
+          <a href="/feed?snapshot=${encodeURIComponent(s.filename)}" style="font-size:12px;color:#9ad;text-decoration:none;white-space:nowrap" title="Browse this snapshot's tracks in the player">▶ browse</a>
+          <a href="/snapshots/${encodeURIComponent(s.filename)}" download style="font-size:12px;color:#9ad;text-decoration:none;white-space:nowrap">⬇ download</a>
+          <a href="/snapshots/${encodeURIComponent(s.filename.replace(/\.tgz$/,'.json'))}" style="font-size:11px;color:#666;text-decoration:none;white-space:nowrap" title="Sidecar manifest">manifest</a>
+        </div>`);
+      }
+      parts.push('</div>');
+    }
+    host.innerHTML = parts.join('');
+  } catch (err) {
+    document.getElementById('persisted').innerHTML =
+      `<p class="meta">Failed to load snapshot list: ${err.message}</p>`;
   }
 </script>
 </body>

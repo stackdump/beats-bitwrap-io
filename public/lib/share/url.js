@@ -42,6 +42,47 @@ export async function parseShareFromUrl(el) {
                 } else {
                     return shareFromPayload(payload, cid);
                 }
+            } else if (!z) {
+                // Live store said 404. Auto-restore from a persisted
+                // snapshot if one still has this CID — the user clicked
+                // an archived link, they want it loaded, no prompt
+                // needed. Re-fetch + re-validate after the restore so
+                // the rest of this function returns a real share like
+                // any other path. If restore fails (no snapshot has it,
+                // or transient error), fall back to the recovery prompt.
+                try {
+                    const restore = await fetch(`/api/archive-restore?cid=${encodeURIComponent(cid)}`,
+                                                { method: 'POST' });
+                    if (restore.ok) {
+                        const j = await restore.json();
+                        if (j.live) {
+                            const refetch = await fetchShare(cid);
+                            if (refetch) {
+                                const payload = JSON.parse(refetch);
+                                const expectedCid = await computeCidForJsonLd(payload);
+                                if (expectedCid === cid) {
+                                    // Stash for the welcome card to show
+                                    // a brief "restored from snapshot X"
+                                    // banner — non-blocking, informational.
+                                    el._restoredFromSnapshot = j.source || null;
+                                    el._showWelcomeOnSync = true;
+                                    return shareFromPayload(payload, cid);
+                                }
+                            }
+                        }
+                    }
+                    // Restore didn't yield a live envelope. Surface the
+                    // prompt as a fallback so the user knows their link
+                    // is at least findable in an archive.
+                    const lookup = await fetch(`/api/archive-lookup?cid=${encodeURIComponent(cid)}`);
+                    if (lookup.ok) {
+                        const j = await lookup.json();
+                        if (j.snapshots?.length) {
+                            el._missingArchivedCid = { cid, snapshots: j.snapshots };
+                            el._showWelcomeOnSync = true;
+                        }
+                    }
+                } catch {}
             }
         } catch (err) {
             console.warn('share decode failed:', err);

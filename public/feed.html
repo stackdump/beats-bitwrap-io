@@ -845,6 +845,13 @@
 </style>
 </head>
 <body>
+<div id="snapshot-banner" hidden style="background:#1a140a;border-bottom:1px solid #4a3a1a;padding:10px 24px;color:#ddd;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <span style="font-size:11px;color:#fbbf24;letter-spacing:0.06em;text-transform:uppercase">Browsing snapshot</span>
+  <code id="snapshot-name" style="background:#0a0a0a;padding:2px 8px;border-radius:3px;font-size:12px"></code>
+  <span style="flex:1"></span>
+  <a href="/archive" style="font-size:12px;color:#9ad;text-decoration:none">← back to archive</a>
+  <a href="/feed" style="font-size:12px;color:#9ad;text-decoration:none">live feed →</a>
+</div>
 <header>
   <h1><a href="/">beats.bitwrap.io</a> · feed</h1>
   <div class="filters">
@@ -1005,6 +1012,8 @@
   <a href="/feed.rss" title="RSS / podcast feed">RSS</a>
   <span class="footer-sep">·</span>
   <a href="/archive" title="Download a backup of every shared track">archive</a>
+  <span class="footer-sep">·</span>
+  <a href="/archive.rss" title="RSS feed of persisted snapshots">archive rss</a>
   <span class="footer-sep">·</span>
   <a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" title="Report a bug">bug</a>
   <span class="footer-sep">·</span>
@@ -2074,6 +2083,16 @@ const initRebuildFeature = async () => {
 initRebuildFeature();
 genreSel.addEventListener('change', syncGenreSelectAccent);
 
+const SNAPSHOT_FILE = (new URLSearchParams(location.search).get('snapshot') || '').trim();
+if (SNAPSHOT_FILE) {
+  const banner = document.getElementById('snapshot-banner');
+  const nameEl = document.getElementById('snapshot-name');
+  if (banner && nameEl) {
+    banner.hidden = false;
+    nameEl.textContent = SNAPSHOT_FILE;
+  }
+  document.title = `beats.bitwrap.io · snapshot ${SNAPSHOT_FILE}`;
+}
 const fetchPage = async () => {
   if (loading || exhausted) return;
   loading = true;
@@ -2087,10 +2106,17 @@ const fetchPage = async () => {
   // filter against without forcing the user to click "load more"
   // until they find a match.
   params.set('limit', search.value ? '100' : '24');
+  // Snapshot mode: load the whole snapshot in one shot from the
+  // archive. Skips genre / cursor pagination — the snapshot is a
+  // closed set, not a stream.
+  const url = SNAPSHOT_FILE
+    ? `/api/snapshot-contents?file=${encodeURIComponent(SNAPSHOT_FILE)}`
+    : `/api/feed?${params}`;
   try {
-    const r = await fetch(`/api/feed?${params}`);
+    const r = await fetch(url);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const tracks = await r.json();
+    if (SNAPSHOT_FILE) exhausted = true;
     if (tracks.length === 0 && !grid.children.length) {
       stateEl.textContent = 'No tracks yet. Generate something on the main page and click Share.';
       stateEl.style.display = 'block';

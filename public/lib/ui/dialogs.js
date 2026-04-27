@@ -358,6 +358,21 @@ export function showWelcomeCard(el, force = false) {
         }
     });
     document.body.appendChild(overlay);
+    // Auto-restore notice: parseShareFromUrl already pulled this CID
+    // back from a snapshot. Inform the user — non-blocking, just so
+    // they know the link wasn't actually broken and where their copy
+    // came from.
+    if (el._restoredFromSnapshot) {
+        attachRestoredBlock(overlay, el._restoredFromSnapshot);
+        el._restoredFromSnapshot = null;
+    }
+    // Recovery prompt fallback: archive lookup said the CID is in a
+    // snapshot but auto-restore didn't land. Offer the manual one-click
+    // path so the user can retry / debug.
+    if (el._missingArchivedCid) {
+        attachRecoveryBlock(overlay, el._missingArchivedCid);
+        el._missingArchivedCid = null;
+    }
     // If the share has a CID and the server has a pre-rendered .webm
     // cached, surface Play + Download. HEAD probes the audio handler
     // cache-only (never triggers a render). Auto-enqueue on the seal
@@ -401,6 +416,75 @@ export function showWelcomeCard(el, force = false) {
             if (isClientRenderSupported()) attachClientRenderBlock(slot, el, fname, cid);
         });
     }
+}
+
+// "Restored from snapshot X" — informational. The auto-restore path
+// has already re-sealed the envelope into the live store, so the rest
+// of the boot is identical to a normal share. Surface enough detail
+// (snapshot filename) that the user knows where their copy came from.
+function attachRestoredBlock(overlay, source) {
+    const slot = overlay.querySelector('.pn-welcome-modal > div:last-child');
+    if (!slot) return;
+    const block = document.createElement('div');
+    block.style.cssText = 'margin-top:14px;padding:10px 12px;background:#0a1a0a;border:1px solid #1a4a1a;border-radius:6px;font-size:12px;color:#9ad';
+    block.innerHTML = `
+        <span style="color:#4ade80">✓</span>
+        Restored from archived snapshot
+        <code style="color:#bbb;background:#000;padding:1px 6px;border-radius:3px;font-size:11px">${source}</code>
+        — share is live again.
+    `;
+    slot.appendChild(block);
+}
+
+// Surface a "this share has been archived — recover it?" banner inside
+// the welcome card when the live share store no longer has the CID but
+// at least one persisted snapshot does. One-click restore PUTs the
+// envelope from the snapshot back into the live store and reloads.
+function attachRecoveryBlock(overlay, info) {
+    const slot = overlay.querySelector('.pn-welcome-modal > div:last-child');
+    if (!slot) return;
+    const { cid, snapshots } = info;
+    const newest = snapshots[0] || {};
+    const label = newest.label ? ` · <span style="color:#9ad">${newest.label}</span>` : '';
+    const created = newest.createdAt
+        ? new Date(newest.createdAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+        : '';
+    const block = document.createElement('div');
+    block.className = 'pn-welcome-recover';
+    block.style.cssText = 'margin-top:14px;padding:12px 14px;background:#2a1a0a;border:1px solid #5a3a1a;border-radius:6px';
+    block.innerHTML = `
+        <div style="font-size:11px;color:#fbbf24;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px">Archived share</div>
+        <div style="font-size:13px;color:#ddd;line-height:1.5">
+            This track is no longer in the live store, but it was preserved in
+            <strong>${snapshots.length}</strong> snapshot${snapshots.length === 1 ? '' : 's'}.
+            <span style="color:#888">${created}${label}</span>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="pn-recover-btn" style="padding:6px 14px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:4px;cursor:pointer;font-size:13px">Recover from snapshot</button>
+            <span class="pn-recover-status" style="font-size:11px;color:#888"></span>
+        </div>
+    `;
+    const btn = block.querySelector('.pn-recover-btn');
+    const status = block.querySelector('.pn-recover-status');
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        status.textContent = 'restoring…';
+        try {
+            const r = await fetch(`/api/archive-restore?cid=${encodeURIComponent(cid)}`, { method: 'POST' });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const j = await r.json();
+            if (!j.restored && !j.live) throw new Error('not restored');
+            status.textContent = '✓ restored — reloading';
+            setTimeout(() => location.reload(), 600);
+        } catch (err) {
+            status.style.color = '#e94560';
+            status.textContent = `failed: ${err.message || err}`;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    });
+    slot.appendChild(block);
 }
 
 // Builds the "Render in this tab" block surfaced by the welcome modal
@@ -635,6 +719,9 @@ export function showHelpModal(el) {
 
             <h3>Using with AI</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The share-v1 format is a deterministic IR &mdash; any producer, including an LLM, can emit valid JSON and get byte-identical playback. <button class="pn-help-ai pn-link-btn">Copy a ready-made prompt</button> and paste it into Claude, ChatGPT, or any chat model to compose tracks from text.</p>
+
+            <h3>Archive policy</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Tracks live in a content-addressed share store and are <b>preserved</b> via periodic snapshots at <a href="/archive" style="color:#0af">/archive</a>. We may archive (purge from the live store) at any time and for any reason &mdash; usually because we're rolling forward with changes that would need older shares to be up-converted or re-rendered against newer versions of the software. Archived shares stay downloadable from snapshot tarballs, and visiting an archived <code>?cid=…</code> URL surfaces a one-click recovery prompt that re-seals it from the latest snapshot.</p>
 
             <h3>Found a bug?</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Open Share, copy the <code>?cid=…</code> URL, and paste it in the report &mdash; the CID carries the exact track state so we can reproduce in one click.</p>
