@@ -253,8 +253,8 @@ export function buildUI(el) {
                 <option value="trap">Trap</option>
             </select>
             <button class="pn-feel-open" title="Feel — abstract performance sliders">&#9672;</button>
-            <button class="pn-generate-btn" title="Generate new track">Generate</button>
-            <button class="pn-shuffle-btn" title="Shuffle instruments">Shuffle</button>
+            <button class="pn-generate-btn" title="Generate new track" data-midi-action="generate" data-midi-label="Generate">Generate</button>
+            <button class="pn-shuffle-btn" title="Shuffle instruments" data-midi-action="shuffle" data-midi-label="Shuffle">Shuffle</button>
             <button class="pn-stage-btn" title="Stage — full-page visualizer (M)" aria-label="Open Stage">&#9635; Stage</button>
             <a class="pn-stage-btn pn-player-link" href="/feed" title="Open the feed player" aria-label="Open feed player">&#9658; Player</a>
             <button class="pn-save-btn" title="Save to server" style="display:none">&#x1F4BE;</button>
@@ -848,6 +848,9 @@ export function buildUI(el) {
                         const dot = isMuted(b.target) ? '○' : '●';
                         return renderChip(`CC${cc} ${dot} ${b.target} (mute)`, 'cc', cc);
                     }
+                    if (b?.type === 'click') {
+                        return renderChip(`CC${cc} ⏵ ${b.label || b.selector}`, 'cc', cc);
+                    }
                     return renderChip(`CC${cc} → ${b.key}`, 'cc', cc);
                 })
                 .join(' ');
@@ -865,6 +868,9 @@ export function buildUI(el) {
                     if (b?.type === 'mute') {
                         const dot = isMuted(b.target) ? '○' : '●';
                         return renderChip(`n${note} ${dot} ${b.target}`, 'pad', note);
+                    }
+                    if (b?.type === 'click') {
+                        return renderChip(`n${note} ⏵ ${b.label || b.selector}`, 'pad', note);
                     }
                     return renderChip(`n${note} → ?`, 'pad', note);
                 })
@@ -1341,6 +1347,12 @@ export function buildUI(el) {
             const input = bpm.querySelector('input[type="number"]');
             if (input) el._hoveredSlider = input;
         }
+        // Generic action-button hover — any button carrying
+        // data-midi-action becomes a hover-bind target. Pad press
+        // while hovering binds the pad to fire that button's click
+        // handler. Currently used by Generate + Shuffle.
+        const action = e.target.closest('[data-midi-action]');
+        if (action) el._hoveredAction = action;
     });
     el.addEventListener('mouseout', (e) => {
         const bpm = e.target.closest('.pn-tempo');
@@ -1348,6 +1360,8 @@ export function buildUI(el) {
             const input = bpm.querySelector('input[type="number"]');
             if (input && input === el._hoveredSlider) el._hoveredSlider = null;
         }
+        const action = e.target.closest('[data-midi-action]');
+        if (action && action === el._hoveredAction) el._hoveredAction = null;
     });
 
     // FX scroll wheel support (1% per tick)

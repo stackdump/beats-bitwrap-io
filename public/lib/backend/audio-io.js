@@ -238,6 +238,14 @@ export function handleMidiCC(el, cc, value) {
             saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         }
+    } else if (el._hoveredAction) {
+        const action = el._hoveredAction.dataset.midiAction;
+        const label = el._hoveredAction.dataset.midiLabel || action;
+        const selector = '[data-midi-action="' + action.replace(/"/g, '\\"') + '"]';
+        el._ccBindings.set(cc, { type: 'click', selector, label });
+        flashBindOutline(el._hoveredAction);
+        saveBindingsForDevice(el);
+        el._renderMidiPanel?.();
     } else if (el._hoveredSlider && !el._ccBindings.has(cc)) {
         const b = sliderBindingKey(el._hoveredSlider);
         if (b) {
@@ -257,6 +265,18 @@ export function handleMidiCC(el, cc, value) {
     if (binding.type === 'mute') {
         setMuteGroup(el, binding.target, value === 0);
         el._renderMidiPanel?.();
+        return;
+    }
+    // Click binding (Generate / Shuffle / any data-midi-action):
+    // fire on rising edge only (value 0 → >0). Skip the falling
+    // edge so a latching CC-mode pad doesn't fire twice per press.
+    if (binding.type === 'click') {
+        const prev = el._ccLastValues?.get(cc) ?? 0;
+        if (prev === 0 && value > 0) {
+            el.querySelector(binding.selector)?.click();
+        }
+        el._ccLastValues = el._ccLastValues || new Map();
+        el._ccLastValues.set(cc, value);
         return;
     }
 
@@ -333,19 +353,39 @@ export function handleMidiNoteOn(el, note) {
             return;
         }
     }
+    // Action-button hover (Generate / Shuffle / any header button
+    // tagged with data-midi-action) + pad press = bind the pad to
+    // synthesise a click on that button. Selector is the element's
+    // first class so the binding survives DOM rebuilds without
+    // having to remember a specific element reference.
+    if (el._hoveredAction) {
+        const action = el._hoveredAction.dataset.midiAction;
+        const label = el._hoveredAction.dataset.midiLabel || action;
+        const selector = '[data-midi-action="' + action.replace(/"/g, '\\"') + '"]';
+        el._padBindings.set(note, { type: 'click', selector, label });
+        el._savePadBindings();
+        flashBindOutline(el._hoveredAction);
+        saveBindingsForDevice(el);
+        el._renderMidiPanel?.();
+        return;
+    }
     const binding = el._padBindings.get(note);
     if (binding) {
-        // Two binding shapes:
-        //   string         → macroId, fire as a macro
-        //   { type, ... }  → action (currently only 'mute')
+        // Three binding shapes:
+        //   string                       → macroId, fire as a macro
+        //   { type:'mute',  target }     → toggle mute on a riff group
+        //   { type:'click', selector }   → synthesise a button click
+        //                                   (Generate / Shuffle / any
+        //                                   element tagged with
+        //                                   data-midi-action)
         if (typeof binding === 'string') {
             el._fireMacro(binding);
         } else if (binding && binding.type === 'mute') {
-            // Toggle mute on a riff group. Re-render the MIDI panel
-            // so the binding-list reflects the new state.
             toggleMuteGroup(el, binding.target);
             saveBindingsForDevice(el);
             el._renderMidiPanel?.();
+        } else if (binding && binding.type === 'click') {
+            el.querySelector(binding.selector)?.click();
         }
         return;
     }
