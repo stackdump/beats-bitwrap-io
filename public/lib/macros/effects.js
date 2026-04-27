@@ -10,7 +10,7 @@
 // `el._msPerBar`, `el._tempo`, `el._setTempo`).
 
 import { MACROS } from './catalog.js';
-import { schedAudio, clearAudioSched } from './sched.js';
+import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
 
 export function fxSweep(el, fxKey, toValue, durationMs) {
     const slider = el._fxSlider(fxKey);
@@ -28,36 +28,39 @@ export function fxSweep(el, fxKey, toValue, durationMs) {
     el._fxAnim = el._fxAnim || {};
     const token = { cancelled: false, fxKey, slider, start };
     el._fxAnim[fxKey] = token;
-    const t0 = performance.now();
     const rampDown = durationMs * 0.8;
     const DISPATCH_INTERVAL = 120;
     let lastDispatch = -DISPATCH_INTERVAL;
 
-    const step = (now) => {
-        if (token.cancelled) return;
-        const elapsed = now - t0;
-        let v;
-        let done = false;
+    // Compute target value at any elapsed time. Pure function of inputs
+    // so it's safe to call from rAF (live) and from pre-scheduled audio
+    // callbacks (offline).
+    const valueAt = (elapsed) => {
         if (elapsed < rampDown) {
-            v = start + (toValue - start) * (elapsed / rampDown);
+            return start + (toValue - start) * (elapsed / rampDown);
         } else if (elapsed < durationMs) {
-            v = toValue + (start - toValue) * ((elapsed - rampDown) / (durationMs - rampDown));
-        } else {
-            v = start;
-            done = true;
+            return toValue + (start - toValue) * ((elapsed - rampDown) / (durationMs - rampDown));
         }
-        const dispatch = done || (now - lastDispatch >= DISPATCH_INTERVAL);
+        return start;
+    };
+    const applyAt = (elapsed) => {
+        if (token.cancelled) return;
+        const done = elapsed >= durationMs;
+        const v = valueAt(elapsed);
+        // Live mode: throttle engine dispatches; do visual-only updates
+        // between dispatches. Offline mode: every applyAt call is already
+        // a dispatch interval, so dispatch every time.
+        const offline = isOfflineContext();
+        const dispatch = offline || done || (elapsed - lastDispatch >= DISPATCH_INTERVAL);
         if (dispatch) {
             el._setFxValue(slider, v);
-            lastDispatch = now;
+            lastDispatch = elapsed;
         } else {
-            // Visual-only update — no input event, no engine dispatch
             slider.value = Math.round(v);
         }
-        if (done) { el._fxAnim[fxKey] = null; return; }
-        requestAnimationFrame(step);
+        if (done) el._fxAnim[fxKey] = null;
     };
-    requestAnimationFrame(step);
+    audioAnimLoop(durationMs, DISPATCH_INTERVAL, applyAt);
 }
 
 // Beat Repeat: fire short Cut-like bursts every `stepTicks` for the full duration.
@@ -196,7 +199,6 @@ export function tempoAnchor(el, durationMs) {
 export function tempoSweep(el, finalBpm, durationMs) {
     const startBpm = el._tempo || 120;
     const target = Math.max(20, finalBpm);
-    const t0 = performance.now();
     const DISPATCH_INTERVAL = 80;
     let lastDispatch = -DISPATCH_INTERVAL;
     if (el._tempoAnim) {
@@ -205,24 +207,22 @@ export function tempoSweep(el, finalBpm, durationMs) {
     }
     const token = { cancelled: false, startBpm };
     el._tempoAnim = token;
-    const step = (now) => {
+    const applyAt = (elapsed) => {
         if (token.cancelled) return;
-        const elapsed = now - t0;
         if (elapsed >= durationMs) {
-            el._setTempo(startBpm);   // authoritative final set (also writes localStorage)
+            el._setTempo(startBpm);
             el._tempoAnim = null;
             return;
         }
-        if (now - lastDispatch >= DISPATCH_INTERVAL) {
+        if (elapsed - lastDispatch >= DISPATCH_INTERVAL || isOfflineContext()) {
             const t = Math.min(1, elapsed / durationMs);
             const eased = 1 - Math.pow(1 - t, 2);
             const bpm = startBpm + (target - startBpm) * eased;
             setTempoTransient(el, bpm);
-            lastDispatch = now;
+            lastDispatch = elapsed;
         }
-        requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    audioAnimLoop(durationMs, DISPATCH_INTERVAL, applyAt);
 }
 
 // fx-hold: jump to toValue, hold, then gradually fade back over the tail.
@@ -250,34 +250,27 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
 
     el._setFxValue(slider, toValue);
 
-    const t0 = performance.now();
-    const beginRelease = t0 + sustainMs;
-    const endRelease   = t0 + durationMs;
     const DISPATCH_INTERVAL = 120;
-    let lastDispatch = t0;   // the initial setFxValue counts as a dispatch
+    let lastDispatch = 0;   // the initial setFxValue counts as a dispatch at elapsed=0
 
-    const step = (now) => {
+    const applyAt = (elapsed) => {
         if (token.cancelled) return;
-        if (now < beginRelease) {
-            requestAnimationFrame(step);
-            return;
-        }
-        if (now >= endRelease) {
+        if (elapsed < sustainMs) return; // hold phase, no work
+        if (elapsed >= durationMs) {
             el._setFxValue(slider, start);
             el._fxAnim[fxKey] = null;
             return;
         }
-        const t = (now - beginRelease) / tailMs;
+        const t = (elapsed - sustainMs) / tailMs;
         const v = toValue + (start - toValue) * t;
-        if (now - lastDispatch >= DISPATCH_INTERVAL) {
+        if (elapsed - lastDispatch >= DISPATCH_INTERVAL || isOfflineContext()) {
             el._setFxValue(slider, v);
-            lastDispatch = now;
+            lastDispatch = elapsed;
         } else {
-            slider.value = Math.round(v);   // visual-only
+            slider.value = Math.round(v);
         }
-        requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    audioAnimLoop(durationMs, DISPATCH_INTERVAL, applyAt);
 }
 
 export function cancelAllMacros(el) {

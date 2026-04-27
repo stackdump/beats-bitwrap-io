@@ -63,3 +63,68 @@ export function clearAllAudioSched() {
         Tone.Transport.cancel(0);
     }
 }
+
+// True when Tone is rendering into an OfflineAudioContext (i.e. inside
+// a Tone.Offline() call). In offline mode requestAnimationFrame doesn't
+// fire, so any rAF-driven macro animation must instead pre-schedule its
+// dispatches against the audio clock via schedAudio.
+//
+// We sniff by name rather than instanceof so we don't need to import
+// the OfflineAudioContext constructor (it's a browser global — and the
+// goal is for this same code to also run under node-web-audio-api,
+// where the class name is the same but the constructor lives elsewhere).
+export function isOfflineContext() {
+    if (typeof Tone === 'undefined' || !Tone.context) return false;
+    const raw = Tone.context.rawContext || Tone.context;
+    const name = raw?.constructor?.name || '';
+    return name === 'OfflineAudioContext';
+}
+
+// Drive an animation by stepping `applyAt(elapsedMs)` repeatedly until
+// `durationMs` elapses. Picks the right clock for the current context:
+//
+//   - Live (real-time AudioContext): requestAnimationFrame at native
+//     frame rate. Visual sliders look smooth, engine dispatches happen
+//     whenever applyAt's own throttle says so.
+//   - Offline (OfflineAudioContext during Tone.Offline render):
+//     pre-schedules dispatches at `dispatchIntervalMs` via schedAudio,
+//     because rAF doesn't fire during offline rendering. The animation
+//     still happens — at audio-time intervals matching the live throttle.
+//
+// `applyAt` may be called many times per visual frame in live mode and
+// must be safe to call with the same `elapsedMs` more than once.
+// Returns a cancel function.
+export function audioAnimLoop(durationMs, dispatchIntervalMs, applyAt, onCancel) {
+    let cancelled = false;
+    if (isOfflineContext()) {
+        const tokens = [];
+        // Schedule applyAt at every dispatch interval AND once at the
+        // final durationMs so the "done" branch fires.
+        for (let elapsed = 0; elapsed < durationMs; elapsed += dispatchIntervalMs) {
+            const e = elapsed;
+            tokens.push(schedAudio(() => { if (!cancelled) applyAt(e); }, e));
+        }
+        tokens.push(schedAudio(() => {
+            if (!cancelled) applyAt(durationMs);
+        }, durationMs));
+        return () => {
+            cancelled = true;
+            for (const t of tokens) clearAudioSched(t);
+            if (onCancel) onCancel();
+        };
+    } else {
+        const t0 = performance.now();
+        const tick = (now) => {
+            if (cancelled) return;
+            const elapsed = now - t0;
+            if (elapsed >= durationMs) {
+                applyAt(durationMs);
+                return;
+            }
+            applyAt(elapsed);
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        return () => { cancelled = true; if (onCancel) onCancel(); };
+    }
+}

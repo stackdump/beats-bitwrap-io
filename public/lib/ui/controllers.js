@@ -8,6 +8,7 @@
 //   - _channelParamMove for per-channel pan/decay animation
 
 import { toneEngine } from '../../audio/tone-engine.js';
+import { audioAnimLoop, isOfflineContext } from '../macros/sched.js';
 import {
     CORNERS,
     CORNER_COLORS,
@@ -776,7 +777,6 @@ export function channelParamMove(el, macro, durationMs) {
         if (el._chanAnim[macro.id] === token) el._chanAnim[macro.id] = null;
     }, durationMs + 400);
 
-    const t0 = performance.now();
     const msPerBeat = el._msPerBar() / 4;
     const DISPATCH = 80;
     const BLINK_STEP = 120;
@@ -784,9 +784,8 @@ export function channelParamMove(el, macro, durationMs) {
     let lastBlink = -BLINK_STEP;
     let blinkIdx = 0;
 
-    const step = (now) => {
+    const applyAt = (elapsed) => {
         if (token.cancelled) { cleanupBlink(); return; }
-        const elapsed = now - t0;
         if (elapsed >= durationMs) {
             restore();
             cleanupBlink();
@@ -811,19 +810,18 @@ export function channelParamMove(el, macro, durationMs) {
         } else {
             v = macro.toValue ?? (kind === 'pan-move' ? 0 : 1.0);
         }
-        if (now - last >= DISPATCH) {
+        if (elapsed - last >= DISPATCH || isOfflineContext()) {
             for (const ch of chans) apply(ch, v);
-            last = now;
+            last = elapsed;
         }
-        if (sliders.length > 0 && (now - lastBlink >= BLINK_STEP)) {
+        if (sliders.length > 0 && (elapsed - lastBlink >= BLINK_STEP)) {
             for (let i = 0; i < sliders.length; i++) {
                 sliders[i].classList.add('pn-pulsing');
                 sliders[i].classList.toggle('pn-pulsing-hot', i === blinkIdx % sliders.length);
             }
             blinkIdx++;
-            lastBlink = now;
+            lastBlink = elapsed;
         }
-        requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    audioAnimLoop(durationMs, DISPATCH, applyAt);
 }

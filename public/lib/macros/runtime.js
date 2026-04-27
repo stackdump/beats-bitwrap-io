@@ -11,7 +11,7 @@
 import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS, TRANSITION_MACRO_IDS } from './catalog.js';
 import { oneShotSpec } from '../audio/oneshots.js';
-import { schedAudio, clearAudioSched } from './sched.js';
+import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
 
 // Slider keys tracked by the tone reset/nav/save machinery. Pitch/Hits/
 // Instrument stay outside — they're semantic params, not tone.
@@ -456,7 +456,6 @@ function feelGenreReset(el, durationMs) {
     // dropouts. Drop the BPM lerp entirely when there's no actual
     // change, and pace the FX/BPM lerp at 200ms otherwise.
     const bpmChanges = Math.abs(startBpm - targetBpm) > 1;
-    const t0 = performance.now();
     const token = { cancelled: false };
     el._feelAnim = token;
     pulseFeelButton(el, durationMs, 'genre-reset');
@@ -470,30 +469,26 @@ function feelGenreReset(el, durationMs) {
             el._setFxByKey(k, Math.round(start + (def - start) * e));
         }
     };
-    const tick = () => {
+    const applyAt = (elapsed) => {
         if (!el.isConnected || token.cancelled) return;
-        const now = performance.now();
-        const t = (now - t0) / durationMs;
+        const t = elapsed / durationMs;
         if (t >= 1) {
             lerpFx(1);
             if (bpmChanges) el._setTempo(Math.round(targetBpm));
-            // Disengage Feel so subsequent puck moves don't override
-            // the user's mix — matches FX Reset's final action.
             el._disengageFeel?.();
             if (el._feelAnim === token) el._feelAnim = null;
             return;
         }
-        if (now - last >= STEP_MS) {
-            last = now;
+        if (elapsed - last >= STEP_MS || isOfflineContext()) {
+            last = elapsed;
             const e = Math.sin(t * Math.PI / 2);
             lerpFx(e);
             if (bpmChanges) {
                 el._setTempo(Math.round(startBpm + (targetBpm - startBpm) * e));
             }
         }
-        requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    audioAnimLoop(durationMs, STEP_MS, applyAt);
 }
 
 function feelSweep(el, target, durationMs) {
@@ -502,7 +497,6 @@ function feelSweep(el, target, durationMs) {
     const snap = snapshotFeelState(el);
     const start = snap.puck;
     const end = clampPuck(target);
-    const t0 = performance.now();
     const token = { cancelled: false };
     el._feelAnim = token;
     pulseFeelButton(el, durationMs, 'feel-sweep');
@@ -513,18 +507,11 @@ function feelSweep(el, target, durationMs) {
     // gentler on playback timing.
     const STEP_MS = 200;
     let last = -Infinity;
-    const tick = () => {
+    const applyAt = (elapsed) => {
         if (!el.isConnected || token.cancelled) return;
-        const now = performance.now();
-        const t = (now - t0) / durationMs;
+        const t = elapsed / durationMs;
         if (t >= 1) {
             el._applyFeel(end);
-            // Brief settle at the target, then restore the captured
-            // pre-fire snapshot (puck + tempo + swing + humanize + the
-            // user's manual FX overrides). Without restoring FX
-            // explicitly, applyFeel(start) would re-blend the defaults
-            // for that puck position and stomp manual reverb / delay /
-            // distortion adjustments.
             token.timeout = schedAudio(() => {
                 if (token.cancelled) return;
                 restoreFeelState(el, snap);
@@ -532,16 +519,15 @@ function feelSweep(el, target, durationMs) {
             }, 60);
             return;
         }
-        if (now - last >= STEP_MS) {
-            last = now;
+        if (elapsed - last >= STEP_MS || isOfflineContext()) {
+            last = elapsed;
             const e = 0.5 - 0.5 * Math.cos(t * Math.PI);
             const x = start[0] + (end[0] - start[0]) * e;
             const y = start[1] + (end[1] - start[1]) * e;
             el._applyFeel([x, y]);
         }
-        requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    audioAnimLoop(durationMs, STEP_MS, applyAt);
 }
 
 // --- One-shot row: snapshot / apply / reset / nav / favorites ---
