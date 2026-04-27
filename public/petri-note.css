@@ -2490,6 +2490,9 @@ input[type="range"][data-default] {
 }
 
 .pn-stage-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 6px 12px;
     border: 1px solid #533483;
     border-radius: 4px;
@@ -2497,9 +2500,11 @@ input[type="range"][data-default] {
     color: #c3a6ff;
     font-size: 12px;
     font-weight: 600;
+    line-height: 16px;
     cursor: pointer;
     transition: background 0.2s, color 0.2s;
 }
+.pn-stage-icon { flex: 0 0 auto; display: block; }
 .pn-stage-btn:hover {
     background: #533483;
     color: #fff;
@@ -2507,7 +2512,7 @@ input[type="range"][data-default] {
 /* Player link wears the Stage button styles so the two read as a
    pair in the action row. Anchors get text-decoration + visited
    colours by default — override both. */
-a.pn-stage-btn { text-decoration: none; display: inline-block; }
+a.pn-stage-btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
 a.pn-stage-btn:visited { color: #c3a6ff; }
 a.pn-stage-btn:hover { color: #fff; }
 
@@ -2531,14 +2536,18 @@ a.pn-stage-btn:hover { color: #fff; }
     color: #64ffda;
 }
 
-.pn-share-btn {
+.pn-share-btn,
+.pn-download-btn,
+.pn-upload-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     line-height: 1;
 }
 
-.pn-share-btn svg {
+.pn-share-btn svg,
+.pn-download-btn svg,
+.pn-upload-btn svg {
     display: block;
 }
 

@@ -109,17 +109,19 @@
     min-width: 0;
     padding: 0;
   }
-  body[data-feed-view="list"] .card-art {
-    width: 96px;
-    height: 50px;
-    aspect-ratio: auto;
-    flex: 0 0 96px;
-    border-radius: 3px;
-    object-fit: cover;
-    object-position: left center;
-    /* The QR occupies only ~16px on the right of the rendered thumbnail
-       at this size — reads as a corner texture, not as a scannable code. */
+  /* List view uses the compact .card-glyph; full share-card hides. */
+  body[data-feed-view="list"] .card-art { display: none; }
+  body[data-feed-view="list"] .card-glyph {
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    background: #08080d;
+    border: 1px solid #1a1a1f;
+    display: block;
   }
+  /* Card view: the large server SVG is the hero — hide the small glyph. */
+  body:not([data-feed-view="list"]) .card-glyph { display: none; }
   body[data-feed-view="list"] .card-meta {
     flex: 1; min-width: 0; padding: 0;
     display: grid;
@@ -1478,9 +1480,19 @@ const renderCard = (t) => {
   const bodyAttrs = isPhone
     ? `class="card-link" data-action="play"`
     : `class="card-link" href="/?cid=${encodeURIComponent(t.cid)}"`;
+  // Two thumbnail variants per row:
+  //  - .card-art: full server-rendered share-card SVG (with QR), used
+  //    in card mode where the large 1200×630 graphic reads as the hero
+  //    visual on each tile.
+  //  - .card-glyph: compact seed-driven ring-dot fingerprint without
+  //    the QR or text, shown in list mode where row height is fixed
+  //    and the QR is too small to scan anyway. Same dot algorithm as
+  //    lib/share/card.js so the visual identity carries between modes.
+  const glyph = renderCardGlyph(t);
   card.innerHTML = `
     <${bodyTag} ${bodyAttrs}>
       <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">
+      ${glyph}
       <div class="card-meta">
         <div class="card-title"></div>
         <div class="card-sub"></div>
@@ -1673,6 +1685,54 @@ const refreshRebuildQueue = async () => {
     }
   } catch {}
 };
+// Per-genre fallback colors. Mirrors GENRE_COLORS in lib/share/card.js
+// so the list-view glyph reads as the same genre even before the
+// /api/features payload arrives.
+const FALLBACK_GENRE_COLORS = {
+  techno: '#e94560', house: '#f5a623', jazz: '#9b59b6', ambient: '#4a90d9',
+  dnb: '#2ecc71', edm: '#00d2ff', speedcore: '#ff2a2a', dubstep: '#8b00ff',
+  trance: '#ffaa00', lofi: '#d4a574', trap: '#ff6b6b', synthwave: '#ff00aa',
+  reggae: '#2ecc71', country: '#d4a574', metal: '#888888', garage: '#00aaff',
+  blues: '#4a90d9', bossa: '#f5a623', funk: '#e94560',
+};
+
+// Mulberry32 — same seed-driven PRNG the share-card uses, so the
+// list-view glyph picks the same dot pattern as the full card.
+function _glyphRand(seed) {
+  let a = ((seed | 0) + 0x9e3779b9) | 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 16-dot ring fingerprint, sized for a list-view thumbnail. Each
+// row's ring is unique to the (genre, seed) but reads as a coherent
+// family with the larger share-card.
+function renderCardGlyph(t) {
+  const color = (genreColors && genreColors[t.genre]) || FALLBACK_GENRE_COLORS[t.genre] || '#4a90d9';
+  const rand = _glyphRand(Number(t.seed) || 0);
+  const cx = 32, cy = 32, radius = 22;
+  const n = 16;
+  const dots = [];
+  for (let i = 0; i < n; i++) {
+    const theta = (2 * Math.PI * i) / n - Math.PI / 2;
+    const on = rand() < 0.45;
+    const x = cx + radius * Math.cos(theta);
+    const y = cy + radius * Math.sin(theta);
+    const r = on ? 2.4 : 1.6;
+    dots.push(on
+      ? `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}" fill="${color}"/>`
+      : `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}" fill="none" stroke="${color}" stroke-width="0.9" opacity="0.5"/>`);
+  }
+  return `<svg class="card-glyph" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="1.2" opacity="0.35"/>
+    ${dots.join('')}
+  </svg>`;
+}
+
 // genreColors lives outside initRebuildFeature so the chip-render path
 // (which can fire before /api/features resolves) safely no-ops with
 // `{}` until the colors are loaded.
