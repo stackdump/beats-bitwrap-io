@@ -50,6 +50,7 @@
 import { parseProject } from '../pflow.js';
 import { ToneEngine } from '../../audio/tone-engine.js';
 import { hpFreq, lpFreq } from '../ui/mixer-sliders.js';
+import { MACROS } from '../macros/catalog.js';
 
 const PPQ = 4;
 const SAMPLE_RATE = 48000;
@@ -88,7 +89,10 @@ export async function renderToBlobOffline(el, opts = {}) {
     // Pre-compute every note event the project will fire over `totalSteps`
     // ticks. Walks pflow.NetBundle forward deterministically — same engine
     // the worker uses, just driven by a for-loop instead of setInterval.
-    const events = simulateProjectNotes(el._project, totalSteps);
+    // Also collects fire-macro events from control nets and Auto-DJ ticks
+    // so the offline render gets the same performance flavor as live.
+    const { events, macroFires } = simulateProjectNotes(
+        el._project, totalSteps, tickIntervalMs);
 
     // Build the per-channel instrument map from the project's nets so
     // we know which Sampler / FMSynth / MetalSynth / etc. to load for
@@ -136,6 +140,18 @@ export async function renderToBlobOffline(el, opts = {}) {
                 velocity: ev.velocity,
                 duration: ev.durationMs,
             }, t);
+        }
+        // Schedule Auto-DJ + fire-macro effects via Tone.Transport. Each
+        // macro fires its FX op(s), holds for durationMs, then restores
+        // — same shape as the live fxSweep / fxHold runtime, but
+        // scheduled against the offline transport instead of rAF +
+        // setTimeout. Mute / tempo / pitch / pan / shape / feel macros
+        // are noops here for now (live macrosDisabled covers the
+        // audibly disruptive mute + tempo group; the rest are smaller
+        // performance touches that can be ported in a follow-up).
+        const fxState = collectInitialFxState(fx);
+        for (const fire of macroFires) {
+            scheduleMacroEffect(engine, fire.macroId, fire.audioTime, fire.durationMs, fxState);
         }
         transport.start();
     }, durationSec, 2, SAMPLE_RATE);
@@ -198,9 +214,10 @@ function strHash(str) {
     return h;
 }
 
-function simulateProjectNotes(projectMap, totalSteps) {
+function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs) {
     const proj = parseProject(projectMap);
     const events = [];
+    const macroFires = [];
     const allNets = [];
     const musicNets = [];
     const controlNets = [];
@@ -209,6 +226,26 @@ function simulateProjectNotes(projectMap, totalSteps) {
     // humanize 0-100 → velocity jitter ±(humanize/100 * 15).
     const swing = projectMap?.swing || 0;
     const humanize = projectMap?.humanize || 0;
+    // Auto-DJ settings from the envelope. autoDj.run gates the whole
+    // scheduler; rate is in bars (default 2); pools narrows the macro
+    // pool. macrosDisabled blocks individual macros even when their
+    // pool is enabled — this is how the seed batch keeps mute/tempo
+    // macros baked off without disabling Auto-DJ entirely.
+    const autoDj = projectMap?.autoDj || {};
+    const autoDjRun = autoDj.run !== false; // default on; explicit false disables
+    const autoDjRateBars = autoDj.rate || 2;
+    const autoDjStack = autoDj.stack || 1;
+    const autoDjPools = new Set(
+        Array.isArray(autoDj.pools)
+            ? autoDj.pools
+            // Default pools when envelope doesn't specify: same as the live
+            // panel's defaults (FX, Pitch, Pan, Shape are checked).
+            : ['FX', 'Pitch', 'Pan', 'Shape']
+    );
+    const macrosDisabled = new Set(projectMap?.macrosDisabled || []);
+    // Eligible macros for Auto-DJ to pick from this run.
+    const autoDjPickable = MACROS.filter(m =>
+        autoDjPools.has(m.group) && !macrosDisabled.has(m.id) && m.kind !== 'one-shot');
     // Mute state tracking. Initial mutes (project.initialMutes) win on
     // tick 0; control transitions firing mute-track / unmute-track /
     // toggle-track flip the bits during the walk.
@@ -281,9 +318,42 @@ function simulateProjectNotes(projectMap, totalSteps) {
                 case 'stop-transport':
                     // Truncate the simulation here. No more notes after
                     // a stop-transport — same as the live worker.
-                    return events;
-                // mute-note / unmute-note / toggle-note / fire-macro /
-                // set-feel / set-visualizer: not yet handled.
+                    return { events, macroFires };
+                case 'fire-macro': {
+                    const macroId = ctrl.macro || target;
+                    if (!macroId || macrosDisabled.has(macroId)) break;
+                    const macro = MACROS.find(m => m.id === macroId);
+                    if (!macro) break;
+                    const bars = ctrl.macroBars || macro.defaultDuration;
+                    const durationMs = macroDurationMs(macro, bars, tickIntervalMs);
+                    macroFires.push({
+                        audioTime: tick * (tickIntervalMs / 1000),
+                        macroId,
+                        durationMs,
+                    });
+                    break;
+                }
+                // mute-note / unmute-note / toggle-note / set-feel /
+                // set-visualizer: not yet handled.
+            }
+        }
+        // Auto-DJ tick: every autoDjRateBars * 16 ticks, pick a random
+        // macro from the eligible pool and schedule its effect. Stack
+        // controls how many concurrent macros fire per tick boundary.
+        if (autoDjRun && autoDjPickable.length > 0) {
+            const ticksPerBar = 16;
+            const boundary = autoDjRateBars * ticksPerBar;
+            if (tick > 0 && tick % boundary === 0) {
+                for (let s = 0; s < autoDjStack; s++) {
+                    const macro = autoDjPickable[Math.floor(Math.random() * autoDjPickable.length)];
+                    const bars = macro.defaultDuration;
+                    const durationMs = macroDurationMs(macro, bars, tickIntervalMs);
+                    macroFires.push({
+                        audioTime: tick * (tickIntervalMs / 1000),
+                        macroId: macro.id,
+                        durationMs,
+                    });
+                }
             }
         }
         // 2. Fire music nets, emit MIDI for audible (unmuted, active
@@ -336,7 +406,99 @@ function simulateProjectNotes(projectMap, totalSteps) {
             });
         }
     }
-    return events;
+    return { events, macroFires };
+}
+
+// Convert a macro's bar/tick duration to ms at the project tempo.
+function macroDurationMs(macro, durationOverride, tickIntervalMs) {
+    const dur = durationOverride || macro.defaultDuration || 1;
+    const ticksPerBar = 16;
+    const ticks = (macro.durationUnit === 'tick' ? dur : dur * ticksPerBar);
+    return ticks * tickIntervalMs;
+}
+
+// Snapshot the project's initial FX values (envelope-applied) so macro
+// effects know what to ramp BACK to on restore. Each fxKey defaults
+// match tone-engine.js init() defaults; envelope keys override.
+function collectInitialFxState(fx) {
+    const defaults = {
+        'reverb-size': 50, 'reverb-damp': 30, 'reverb-wet': 20,
+        'delay-time': 25, 'delay-feedback': 25, 'delay-wet': 15,
+        'master-vol': 80, 'distortion': 0, 'hp-freq': 0, 'lp-freq': 100,
+        'phaser-freq': 0, 'phaser-depth': 50, 'phaser-wet': 0,
+        'crush-bits': 0, 'master-pitch': 0,
+    };
+    const state = { ...defaults };
+    for (const k of Object.keys(state)) {
+        const v = Number(fx?.[k]);
+        if (Number.isFinite(v)) state[k] = v;
+    }
+    return state;
+}
+
+// Apply a single fxKey value through the engine. Mirrors the switch in
+// lib/ui/build.js applyFx() so live and offline behavior match.
+function setFxByKey(engine, key, val) {
+    switch (key) {
+        case 'reverb-size':    engine.setReverbSize(val / 100); break;
+        case 'reverb-damp':    engine.setReverbDampening(10000 - (val / 100) * 9800); break;
+        case 'reverb-wet':     engine.setReverbWet(val / 100); break;
+        case 'delay-time':     engine.setDelayTime(val / 100); break;
+        case 'delay-feedback': engine.setDelayFeedback(val / 100); break;
+        case 'delay-wet':      engine.setDelayWet(val / 100); break;
+        case 'master-vol':     engine.setMasterVolume(val === 0 ? -60 : -60 + (val / 100) * 60); break;
+        case 'distortion':     engine.setDistortion(val / 100); break;
+        case 'master-pitch':   engine.setMasterPitch(val); break;
+        case 'hp-freq':        engine.setHighpassFreq(hpFreq(val)); break;
+        case 'lp-freq':        engine.setLowpassFreq(lpFreq(val)); break;
+        case 'phaser-freq':    engine.setPhaserFreq(val === 0 ? 0 : 0.1 + (val / 100) * 9.9); break;
+        case 'phaser-depth':   engine.setPhaserDepth(val / 100); break;
+        case 'phaser-wet':     engine.setPhaserWet(val / 100); break;
+        case 'crush-bits':     engine.setCrush(val / 100); break;
+    }
+}
+
+// Schedule a macro's audio effect at audioTime via Tone.Transport. For
+// fx-sweep / fx-hold (with op list), schedules a peak-then-restore
+// curve. Other macro kinds noop for now — see module header.
+function scheduleMacroEffect(engine, macroId, audioTime, durationMs, fxState) {
+    const macro = MACROS.find(m => m.id === macroId);
+    if (!macro) return;
+    const ops = macro.ops || (macro.fxKey ? [{ fxKey: macro.fxKey, toValue: macro.toValue }] : null);
+    if (!ops || (macro.kind !== 'fx-sweep' && macro.kind !== 'fx-hold')) return;
+    const Tone = window.Tone;
+    if (!Tone?.Transport) return;
+    const durSec = durationMs / 1000;
+    const tailFrac = macro.tailFrac ?? 0.6;
+    for (const op of ops) {
+        const startVal = fxState[op.fxKey];
+        if (!Number.isFinite(startVal)) continue;
+        const peakVal = op.toValue;
+        // Jump to peak at audioTime. For fx-sweep, this is the apex of
+        // a there-and-back curve (rampDown 80% then back to start). For
+        // fx-hold, this is sustain-then-release with tailFrac.
+        Tone.Transport.scheduleOnce(() => setFxByKey(engine, op.fxKey, peakVal), audioTime);
+        if (macro.kind === 'fx-hold') {
+            const releaseStart = audioTime + (1 - tailFrac) * durSec;
+            Tone.Transport.scheduleOnce(() => setFxByKey(engine, op.fxKey, startVal), audioTime + durSec);
+            // Mid-point so the listener hears the curve, not just two steps.
+            Tone.Transport.scheduleOnce(
+                () => setFxByKey(engine, op.fxKey, peakVal + (startVal - peakVal) * 0.5),
+                releaseStart + (durSec * tailFrac) / 2);
+        } else { // fx-sweep
+            const rampDownEnd = audioTime + 0.8 * durSec;
+            // Sweep up to peak halfway, then back to start. Three points
+            // approximate the live linear-then-linear curve adequately.
+            Tone.Transport.scheduleOnce(
+                () => setFxByKey(engine, op.fxKey, peakVal),
+                audioTime + 0.4 * durSec);
+            Tone.Transport.scheduleOnce(() => setFxByKey(engine, op.fxKey, startVal), audioTime + durSec);
+            // Half-way restore so the second leg actually moves.
+            Tone.Transport.scheduleOnce(
+                () => setFxByKey(engine, op.fxKey, peakVal + (startVal - peakVal) * 0.5),
+                rampDownEnd);
+        }
+    }
 }
 
 // --- WAV encoding ---------------------------------------------------------
