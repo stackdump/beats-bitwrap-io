@@ -177,12 +177,28 @@
   body:not([data-feed-view="list"]) .card-date-abs { display: none; }
   body[data-feed-view="list"] .card-date-rel { display: none; }
   @media (max-width: 720px) {
+    /* Phone list rows: stack title above chip+duration. The desktop
+       single-row grid leaves only ~40px for the title once glyph,
+       chip, duration, and action buttons claim their columns —
+       rendering an unreadable "j…" ellipsis. */
     body[data-feed-view="list"] .card-meta {
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+    body[data-feed-view="list"] .card-sub {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
       gap: 8px;
+      min-width: 0;
     }
     body[data-feed-view="list"] .card-tempo,
     body[data-feed-view="list"] .card-date { display: none; }
+    body[data-feed-view="list"] .card-genre-chip,
+    body[data-feed-view="list"] .card-dur,
+    body[data-feed-view="list"] .card-tempo { min-width: 0; text-align: left; }
   }
   .card {
     background: #0d0d0d;
