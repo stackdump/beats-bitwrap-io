@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0a0a0a"/>
+  <title>beats.bitwrap.io · archive</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<style>
+  :root { color-scheme: dark; }
+  html, body { background: #0a0a0a; color: #ddd; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 0; line-height: 1.55; }
+  header { padding: 18px 24px; border-bottom: 1px solid #1a1a1a; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header h1 a { color: #ddd; text-decoration: none; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 24px 40px; }
+  h2 { font-size: 16px; margin: 28px 0 10px; color: #eee; font-weight: 600; }
+  p { color: #bbb; }
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px; margin: 18px 0;
+  }
+  .stat {
+    background: #111; border: 1px solid #1a1a1a; border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .stat .label { font-size: 11px; color: #888; letter-spacing: 0.06em; text-transform: uppercase; }
+  .stat .value { font-size: 22px; font-weight: 600; color: #eee; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .download {
+    display: inline-block; padding: 12px 22px;
+    background: #1a1a2e; border: 1px solid #0f3460; color: #eee;
+    border-radius: 6px; text-decoration: none; font-weight: 600;
+    margin: 8px 0;
+  }
+  .download:hover { background: #243763; }
+  .download .size { display: block; font-size: 11px; color: #9ad; font-weight: 400; margin-top: 4px; letter-spacing: 0.04em; }
+  pre {
+    background: #0d0d0d; border: 1px solid #1a1a1a; padding: 12px 14px;
+    border-radius: 6px; font-size: 12px; color: #b0c4de; overflow-x: auto;
+  }
+  code { background: #1a1a1a; padding: 2px 6px; border-radius: 3px; font-size: 12px; color: #ddd; }
+  details { margin: 12px 0; }
+  details summary { cursor: pointer; color: #9ad; font-size: 13px; user-select: none; }
+  details[open] summary { margin-bottom: 8px; }
+  .cid-list {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 6px;
+    padding: 10px 12px; max-height: 240px; overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", monospace; font-size: 11px;
+    color: #888; line-height: 1.6;
+  }
+  .cid-list a { color: #9ad; text-decoration: none; }
+  .cid-list a:hover { text-decoration: underline; }
+  .meta { font-size: 11px; color: #777; }
+  footer {
+    padding: 14px 24px 22px;
+    border-top: 1px solid #1a1a1a;
+    color: #666;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    margin-top: 24px;
+    text-align: center;
+  }
+  footer a { color: #9ad; text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  footer .footer-sep { margin: 0 6px; color: #444; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">beats.bitwrap.io</a> · archive</h1>
+</header>
+<main>
+  <p>
+    Every track ever sealed to <code>beats.bitwrap.io</code> lives in a content-addressed
+    share store. The archive below packages those envelopes into a single
+    <code>.tar.gz</code> backup — small, self-contained, and enough to fully
+    reconstruct the catalogue if this server is ever purged.
+  </p>
+
+  <div class="stats" id="stats">
+    <div class="stat"><div class="label">Shares</div><div class="value" id="stat-shares">…</div></div>
+    <div class="stat"><div class="label">Created</div><div class="value" id="stat-created" style="font-size:13px;line-height:1.4">…</div></div>
+    <div class="stat"><div class="label">Format</div><div class="value" style="font-size:13px;line-height:1.4">tar.gz<br><span style="font-size:11px;color:#888">+ JSON-LD manifest</span></div></div>
+  </div>
+
+  <h2>Download backup</h2>
+  <p>Envelopes-only — the canonical state of every share. Audio renders
+     can be regenerated from envelopes deterministically.</p>
+  <a class="download" href="/api/snapshot" download>
+    Download snapshot
+    <span class="size" id="download-size">streaming on demand</span>
+  </a>
+
+  <h2>What's inside</h2>
+  <pre id="tree">
+manifest.json         — JSON-LD metadata (this page embeds it)
+o/{cid}.json          — every share envelope
+  </pre>
+
+  <details>
+    <summary>Show all CIDs in the current archive</summary>
+    <div class="cid-list" id="cid-list">…</div>
+  </details>
+
+  <h2>Restore</h2>
+  <p>Replay the envelopes against any beats-bitwrap server (yours or this one):</p>
+  <pre>./scripts/process-rebuild-queue.py --restore beats-snapshot-YYYYMMDD-HHMMSS.tgz</pre>
+  <p>That's it — every track shows up at <code>?cid=…</code> again, and audio
+     re-renders the first time a listener opens it.</p>
+
+  <h2>Manifest</h2>
+  <p class="meta">Embedded as JSON-LD below so crawlers and offline copies
+     of this page carry the catalogue index. Live from
+     <a href="/api/snapshot-manifest"><code>/api/snapshot-manifest</code></a>.</p>
+  <pre id="manifest-preview" style="max-height:240px;overflow:auto">…</pre>
+</main>
+<footer>
+  <a href="https://creativecommons.org/licenses/by/4.0/" title="Tracks licensed CC BY 4.0 — reuse with attribution to beats.bitwrap.io">CC BY 4.0</a>
+  <span class="footer-sep">·</span>
+  <a href="/feed">feed</a>
+  <span class="footer-sep">·</span>
+  <a href="/feed.rss" title="RSS / podcast feed">RSS</a>
+  <span class="footer-sep">·</span>
+  <a href="/">studio</a>
+</footer>
+
+<script type="application/ld+json" id="manifest-ld">{}</script>
+<script type="module">
+  const fmtBytes = (n) => {
+    if (!n || n < 1024) return `${n||0} B`;
+    if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
+    return `${(n/1024/1024).toFixed(1)} MB`;
+  };
+  try {
+    const r = await fetch('/api/snapshot-manifest', { headers: { Accept: 'application/ld+json' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const m = await r.json();
+    document.getElementById('stat-shares').textContent = (m.envelopes?.count || 0).toLocaleString();
+    const created = new Date(m.createdAt);
+    document.getElementById('stat-created').textContent = created.toISOString().slice(0,16).replace('T',' ') + ' UTC';
+    // Embed manifest as JSON-LD for crawlers / offline copies.
+    document.getElementById('manifest-ld').textContent = JSON.stringify(m, null, 2);
+    document.getElementById('manifest-preview').textContent = JSON.stringify(m, null, 2);
+    // CID list — link each to its share URL.
+    const cids = m.envelopes?.cids || [];
+    const list = document.getElementById('cid-list');
+    if (!cids.length) {
+      list.textContent = '(empty)';
+    } else {
+      list.innerHTML = cids.map(c =>
+        `<a href="/?cid=${encodeURIComponent(c)}" title="Open this share">${c}</a>`
+      ).join('<br>');
+    }
+  } catch (err) {
+    document.getElementById('stat-shares').textContent = '—';
+    document.getElementById('manifest-preview').textContent = `Failed to load manifest: ${err.message}`;
+  }
+</script>
+</body>
+</html>

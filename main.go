@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -163,6 +164,7 @@ func main() {
 	})
 	mux.Handle("/o/", shareStore)
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
+	mux.HandleFunc("/schema/snapshot-manifest", share.HandleSnapshotManifestSchema)
 	svgCard := share.HandleShareCard(shareStore)
 	pngCard := share.HandleShareCardPNG(shareStore)
 	mux.Handle("/share-card/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +320,15 @@ func main() {
 		//   curl -H "X-Rebuild-Secret: $S" -o snapshot.tgz \
 		//        https://beats.bitwrap.io/api/snapshot
 		mux.HandleFunc("/api/snapshot", snapshotHandler(shareStore, ar, filepath.Join(*dataDir, "index.db"), rebuildSecret))
+		// /api/snapshot-manifest: the JSON-LD manifest (no tarball) so
+		// the /archive page can render catalogue state inline.
+		mux.HandleFunc("/api/snapshot-manifest", snapshotManifestHandler(shareStore))
+		// /archive: download page for users who want a recoverable
+		// backup. Resolves to public/archive.html via the static handler.
+		mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+			r.URL.Path = "/archive.html"
+			staticHandler.ServeHTTP(w, r)
+		})
 		// /feed serves the gallery page; /feed.html resolves the same
 		// file via the static handler. Explicit route here avoids the
 		// catch-all routing /feed → DecoratedIndex (which would 404
@@ -1171,19 +1182,31 @@ func snapshotHandler(store *share.Store, ar *audiorender.Renderer, indexPath str
 			http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
-			http.Error(w, "X-Rebuild-Secret required", http.StatusUnauthorized)
-			return
-		}
 		includeAudio := r.URL.Query().Get("audio") == "1"
 		includeDB := r.URL.Query().Get("db") == "1"
-		ts := time.Now().UTC().Format("20060102-150405")
+		// Envelopes-only is the canonical state and small (~hundreds of
+		// KB even with thousands of shares), so it's safe to expose
+		// publicly as a backup users can keep. Audio + db variants stay
+		// gated — multi-MB-to-GB and easily resaturated by repeat hits.
+		if includeAudio || includeDB {
+			if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+				http.Error(w, "X-Rebuild-Secret required for audio / db variants", http.StatusUnauthorized)
+				return
+			}
+		}
+		createdAt := time.Now().UTC()
+		ts := createdAt.Format("20060102-150405")
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf(`attachment; filename="beats-snapshot-%s.tgz"`, ts))
 		gz := gzip.NewWriter(w)
 		tw := tar.NewWriter(gz)
+		// Snapshot the share-store CID list up-front so the manifest
+		// records what *should* be in the tar (the snapshot streamer
+		// may skip vanished entries). Cheap — in-memory map iteration.
+		cids := store.AllCIDs()
+		sort.Strings(cids)
 		envCount, envBytes, err := store.Snapshot(tw)
 		if err != nil {
 			log.Printf("snapshot envelopes: %v (after %d / %d bytes)", err, envCount, envBytes)
@@ -1214,10 +1237,85 @@ func snapshotHandler(store *share.Store, ar *audiorender.Renderer, indexPath str
 				}
 			}
 		}
+		// Manifest is appended last — its sizes/counts are only known
+		// after streaming. Tar readers can still extract by name in any
+		// position (`tar -xzOf snap.tgz manifest.json`).
+		manifest := buildSnapshotManifest(r.Host, createdAt, includeAudio, includeDB,
+			cids, envCount, envBytes, audioCount, audioBytes, dbBytes)
+		manifestBody, _ := json.MarshalIndent(manifest, "", "  ")
+		hdr := &tar.Header{
+			Name:    "manifest.json",
+			Mode:    0o644,
+			Size:    int64(len(manifestBody)),
+			ModTime: createdAt,
+		}
+		if err := tw.WriteHeader(hdr); err == nil {
+			_, _ = tw.Write(manifestBody)
+		}
 		_ = tw.Close()
 		_ = gz.Close()
 		log.Printf("snapshot: %d envelopes (%d B) + %d audio (%d B) + db %d B (%s)",
 			envCount, envBytes, audioCount, audioBytes, dbBytes, ts)
+	}
+}
+
+// buildSnapshotManifest is the JSON-LD manifest embedded in every
+// snapshot tarball as `manifest.json` and also returned standalone
+// from `/api/snapshot-manifest` (so the /archive page can render the
+// same data without untarring an archive). The shape is intentionally
+// linked-data so consumers can join it with the existing share-v1
+// graph (each `cids[]` entry resolves at /o/{cid} as a `BeatsShare`).
+func buildSnapshotManifest(host string, createdAt time.Time, includeAudio, includeDB bool,
+	cids []string, envCount int, envBytes int64, audioCount int, audioBytes int64, dbBytes int64,
+) map[string]any {
+	scheme := "https"
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
+		scheme = "http"
+	}
+	base := scheme + "://" + host
+	return map[string]any{
+		"@context":  base + "/schema/snapshot-manifest",
+		"@type":     "BeatsSnapshotManifest",
+		"version":   1,
+		"createdAt": createdAt.Format(time.RFC3339),
+		"host":      host,
+		"includes": map[string]bool{
+			"envelopes": true,
+			"audio":     includeAudio,
+			"db":        includeDB,
+		},
+		"envelopes": map[string]any{
+			"count": envCount,
+			"bytes": envBytes,
+			"cids":  cids,
+		},
+		"audio": map[string]any{
+			"count": audioCount,
+			"bytes": audioBytes,
+		},
+		"indexDb": map[string]any{
+			"bytes": dbBytes,
+		},
+		"restore": "scripts/process-rebuild-queue.py --restore <this-file>",
+		"docs":    "https://github.com/stackdump/beats-bitwrap-io#archival--restore",
+	}
+}
+
+// snapshotManifestHandler returns the JSON-LD manifest of "what an
+// envelopes-only snapshot taken right now would contain". Cheap — no
+// disk I/O beyond what AllCIDs() already keeps in memory. The /archive
+// page embeds this inline as a <script type="application/ld+json"> so
+// crawlers (and offline backups of the page) get the catalogue's
+// canonical state without needing to download the full tarball.
+func snapshotManifestHandler(store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cids := store.AllCIDs()
+		sort.Strings(cids)
+		manifest := buildSnapshotManifest(r.Host, time.Now().UTC(), false, false,
+			cids, len(cids), 0, 0, 0, 0)
+		w.Header().Set("Content-Type", "application/ld+json")
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		_ = json.NewEncoder(w).Encode(manifest)
 	}
 }
 

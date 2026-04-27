@@ -1,0 +1,28 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "vocab": "https://beats.bitwrap.io/schema/vocab#",
+    "@vocab": "https://beats.bitwrap.io/schema/vocab#",
+
+    "BeatsSnapshotManifest": "vocab:BeatsSnapshotManifest",
+
+    "version":   { "@id": "vocab:version",   "@type": "xsd:integer" },
+    "createdAt": { "@id": "vocab:createdAt", "@type": "xsd:dateTime" },
+    "host":      { "@id": "vocab:host",      "@type": "xsd:string" },
+
+    "includes": { "@id": "vocab:includes" },
+    "envelopes": { "@id": "vocab:envelopes" },
+    "audio":     { "@id": "vocab:audio" },
+    "indexDb":   { "@id": "vocab:indexDb" },
+
+    "count": { "@id": "vocab:count", "@type": "xsd:integer" },
+    "bytes": { "@id": "vocab:bytes", "@type": "xsd:long" },
+    "cids":  { "@id": "vocab:cids",  "@container": "@list" },
+
+    "db": { "@id": "vocab:db", "@type": "xsd:boolean" },
+
+    "restore": { "@id": "vocab:restore", "@type": "xsd:string" },
+    "docs":    { "@id": "vocab:docs",    "@type": "@id" }
+  }
+}

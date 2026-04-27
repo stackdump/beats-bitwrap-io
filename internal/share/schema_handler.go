@@ -17,6 +17,9 @@ import (
 //go:embed beats-share.context.jsonld
 var beatsShareContextBytes []byte
 
+//go:embed snapshot-manifest.context.jsonld
+var snapshotManifestContextBytes []byte
+
 // shareSchemaBytes is defined in seal.go (embedded for validator compilation).
 
 type schemaTerm struct {
@@ -81,6 +84,29 @@ func HandleBeatsShareSchema(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=300")
 		w.Write(beatsShareContextBytes)
 	}
+}
+
+// HandleSnapshotManifestSchema serves /schema/snapshot-manifest. Same
+// content-negotiation rules as HandleBeatsShareSchema but no JSON-Schema
+// tier — the manifest is a small linked-data envelope, not a validated
+// payload format. text/html → term glossary; everything else → JSON-LD.
+func HandleSnapshotManifestSchema(w http.ResponseWriter, r *http.Request) {
+	accept := r.Header.Get("Accept")
+	if acceptMentions(accept, "text/html") && !acceptMentions(accept, "application/ld+json") {
+		terms, err := parseContextTerms(snapshotManifestContextBytes)
+		if err != nil {
+			http.Error(w, "schema render error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := schemaGlossaryTmpl.Execute(w, terms); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/ld+json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(snapshotManifestContextBytes)
 }
 
 // acceptMentions reports whether the Accept header explicitly names `mime`

@@ -1537,11 +1537,7 @@ export function buildUI(el) {
     const footer = document.createElement('div');
     footer.className = 'pn-footer';
     footer.innerHTML = `
-        <span class="pn-footer-license">
-            Tracks
-            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" title="Creative Commons Attribution 4.0">CC BY 4.0</a>
-            — reuse with attribution to beats.bitwrap.io
-        </span>
+        <a class="pn-footer-link" href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" title="Tracks licensed CC BY 4.0 — reuse with attribution to beats.bitwrap.io">CC BY 4.0</a>
         <span class="pn-footer-sep">·</span>
         <a class="pn-footer-link" href="https://github.com/stackdump/beats-bitwrap-io" target="_blank" rel="noopener">source</a>
         <span class="pn-footer-sep">·</span>
@@ -1552,6 +1548,8 @@ export function buildUI(el) {
         <a class="pn-footer-link pn-footer-feed" href="/feed" hidden title="Browse all rendered tracks">feed</a>
         <span class="pn-footer-sep pn-footer-rss-sep" hidden>·</span>
         <a class="pn-footer-link pn-footer-rss" href="/feed.rss" hidden title="RSS / podcast feed">rss</a>
+        <span class="pn-footer-sep">·</span>
+        <a class="pn-footer-link" href="/archive" title="Download a backup of every shared track">archive</a>
         <span class="pn-footer-sep pn-footer-history-sep" hidden>·</span>
         <a class="pn-footer-link pn-footer-history" href="#" hidden title="Tracks remembered in this browser">history</a>
         <span class="pn-footer-sep">·</span>
