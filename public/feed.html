@@ -83,6 +83,47 @@
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
   }
+  /* List view: same .card markup, just collapsed into a single
+     horizontal row per track. The card-art and card-actions stay;
+     the meta block goes inline with them. Actions live on the right
+     edge so the row reads left→right: art · title/sub · buttons. */
+  body[data-feed-view="list"] .grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  body[data-feed-view="list"] .card {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 10px 6px 6px;
+    gap: 12px;
+  }
+  body[data-feed-view="list"] .card-link {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+  }
+  body[data-feed-view="list"] .card-art {
+    width: 80px;
+    height: auto;
+    aspect-ratio: 1200 / 630;
+    flex: 0 0 80px;
+    border-radius: 4px;
+  }
+  body[data-feed-view="list"] .card-meta { flex: 1; min-width: 0; padding: 0; }
+  body[data-feed-view="list"] .card-title {
+    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  body[data-feed-view="list"] .card-sub { font-size: 11px; }
+  body[data-feed-view="list"] .card-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 0;
+    border-top: none;
+  }
   .card {
     background: #0d0d0d;
     border: 1px solid #1a1a1a;
@@ -582,6 +623,7 @@
       </select>
     </label>
     <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
+    <button class="pn-toggle-pl" id="toggle-view" title="Toggle between card grid and compact list view">list</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-help" title="Help (?)">?</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
@@ -1699,6 +1741,31 @@ if (favOnly) {
   // before we start counting children.
   setTimeout(refillIfFavorThin, 50);
 }
+
+// Cards / list view toggle. Same .card markup either way; CSS in
+// the body[data-feed-view="list"] block restyles them as a column
+// of compact rows. Persists in localStorage so the choice survives
+// reloads.
+const VIEW_KEY = 'pn-feed-view';
+let feedView = (() => {
+  try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'cards'; }
+  catch { return 'cards'; }
+})();
+const viewBtn = document.getElementById('toggle-view');
+const renderViewBtn = () => {
+  document.body.dataset.feedView = feedView;
+  viewBtn.dataset.on = feedView === 'list' ? 'true' : 'false';
+  viewBtn.textContent = feedView === 'list' ? 'cards' : 'list';
+  viewBtn.title = feedView === 'list'
+    ? 'Switch to card grid'
+    : 'Switch to compact list view';
+};
+renderViewBtn();
+viewBtn.addEventListener('click', () => {
+  feedView = feedView === 'list' ? 'cards' : 'list';
+  try { localStorage.setItem(VIEW_KEY, feedView); } catch {}
+  renderViewBtn();
+});
 
 // Help modal — opened by the ? button in the filter bar or the ?
 // keyboard shortcut. Esc / backdrop click / × all close. Mirrors
