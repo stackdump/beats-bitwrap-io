@@ -42,7 +42,11 @@ Sizes: `minimal` / `standard` / `extended`.
 Archetypes: intro · verse · pre-chorus · chorus · drop · buildup · breakdown · bridge · solo · outro.
 
 ### F · Perform — operator surface
-Mixer panel · Auto-DJ (bars / stack / regen / animate-only) · Feel XY (Chill / Drive / Ambient / Euphoric + 19-genre constellation) · Beats pads (hit1–hit4) · FX master chain · Stage mode (`M`) · keyboard shortcuts (Space · G · S · F · M · J · A · P · B · R · T · , · . · 1–4 · [ · ] · arrows · ? · Esc).
+Header action row: Generate · Shuffle · ▣ Stage · ▶ Player (jump to /feed) · Save / Download / Upload · Share. Panel toggles (stack independently): FX · Macros · Beats · Auto-DJ · Arrange · Note · MIDI · Bypass · Reset · Panic. Mixer panel · Auto-DJ (bars / stack / regen / animate-only) · Feel XY (orthogonal **tone × BPM** axes — X = master Hi-Cut filter, Y = ±40% BPM, spring-return on release; 19-genre constellation overlay) · Beats pads (hit1–hit4) · FX master chain · Stage mode (`M`) · keyboard shortcuts (Space · G · S · F · M · J · A · P · B · R · T · , · . · 1–4 · [ · ] · arrows · ? · Esc).
+
+**MIDI tab** consolidates input bindings: Status (devices + Reset MIDI + Monitor + 🔓/🔒 binding lock) · Xpose (live transpose pill, ±48 semis, hover-scroll, MIDI keybed listen mode, ±12 octave shifters) · CC bindings list · Notes bindings list (pads + keybed). Hover-bind on five target types (slider · mute · section divider · BPM input · macro tile). MIDI Monitor modal logs every incoming message (Note On/Off, CC, Aftertouch, Pitch Bend, Program Change, Channel Pressure) with copy-to-clipboard. Pitch bend defaults to driving Xpose ±12 semis with spring-return; CC1 / modwheel is unbound by default. Bindings persist per-device in `localStorage['pn-midi-device-bindings']` keyed by the connected controller's name. While the Feel modal is open, the joystick (pitch bend X + CC1 Y) drives the puck instead.
+
+**Note tab** — short plain-text annotation sealed into the share envelope (≤280 chars, sanitiser strips HTML tags, URLs, control chars, zero-width / RTL-override Unicode; runs identically Go-side and JS-side).
 
 **Stage mode** has two orthogonal axes:
 - **Visualizers** (4): `Constellation` (default — ring of per-track sub-Petri-nets, also called *mandala* in source) · `Corona` · `Sonar` · `Petal`
@@ -50,7 +54,9 @@ Mixer panel · Auto-DJ (bars / stack / regen / animate-only) · Feel XY (Chill /
 - **Expand `⇆`** — toggles "show variants": collapsed shows the active A/B/C subnet per slot, expanded interleaves all variants into a denser mandala.
 
 ### G · Share — the IR
-`public/schema/beats-share.schema.json` envelope fields: `genre` · `seed` · `tempo` · `swing` · `humanize` · `structure` · `traits` · `tracks` · `fx` · `feel` · `autoDj` · `macrosDisabled` · `initialMutes` · `hits` · `ui` · `loop` · `nets?`. Plus the arrange DSL fields (`arrangeSeed` · `velocityDeltas` · `maxVariants` · `fadeIn` · `drumBreak` · `sections` · `feelCurve` · `macroCurve`) when structure is set. Everything in branches A–F collapses through this schema into a CID-addressed URL.
+`public/schema/beats-share.schema.json` envelope fields: `genre` · `seed` · `tempo` · `swing` · `humanize` · `structure` · `traits` · `tracks` · `fx` · `feel` · `autoDj` · `macrosDisabled` · `initialMutes` · `hits` · `ui` · `loop` · `note?` · `parents?` · `nets?`. Plus the arrange DSL fields (`arrangeSeed` · `velocityDeltas` · `maxVariants` · `fadeIn` · `drumBreak` · `sections` · `feelCurve` · `macroCurve`) when structure is set. Everything in branches A–F collapses through this schema into a CID-addressed URL.
+
+`note` is the plain-text annotation set via the Note tab; `parents` is a provenance chain — when a user opens a `?cid=…` and re-shares (with or without edits), the new envelope carries the source CID forward (newest-first, capped at 8) so derived tracks can be traced back to their origins. Both are sealed into the canonical bytes and influence the CID.
 
 ## Join points
 
