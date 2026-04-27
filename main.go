@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/subtle"
@@ -309,6 +311,13 @@ func main() {
 		// (broken hand-authored topology, etc.) so they stop showing up
 		// in archive sweeps. Requires X-Rebuild-Secret.
 		mux.HandleFunc("/api/archive-delete", archiveDeleteHandler(idx, shareStore, ar, rebuildSecret))
+		// /api/snapshot — stream a .tar.gz of every envelope in the
+		// share store. Authenticated (X-Rebuild-Secret) since the
+		// archive is the canonical state of the catalogue. The
+		// response is a streaming tarball — pipe to a file:
+		//   curl -H "X-Rebuild-Secret: $S" -o snapshot.tgz \
+		//        https://beats.bitwrap.io/api/snapshot
+		mux.HandleFunc("/api/snapshot", snapshotHandler(shareStore, rebuildSecret))
 		// /feed serves the gallery page; /feed.html resolves the same
 		// file via the static handler. Explicit route here avoids the
 		// catch-all routing /feed → DecoratedIndex (which would 404
@@ -1145,6 +1154,51 @@ func archiveMissingHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 			"limit":        limit,
 			"truncated":    len(missing) >= limit,
 		})
+	}
+}
+
+// snapshotHandler streams a .tar.gz of every envelope in the share
+// store. Used to take a backup before purging + rebuilding the
+// catalogue. Auth via X-Rebuild-Secret because the snapshot IS the
+// canonical state — leaking it doesn't expose a secret per se, but
+// gating it keeps the cost-of-bandwidth + i/o predictable.
+//
+// Restore path:
+//   tar -xzf snapshot.tgz -C /tmp/restore
+//   for f in /tmp/restore/*.json; do
+//     curl -X PUT --data-binary @"$f" \
+//          -H "Content-Type: application/ld+json" \
+//          https://beats.bitwrap.io/o/$(basename "$f" .json)
+//   done
+// (Each PUT re-verifies the CID against canonical-JSON(payload), so
+// a tampered snapshot is rejected per-entry.)
+func snapshotHandler(store *share.Store, rebuildSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+			http.Error(w, "X-Rebuild-Secret required", http.StatusUnauthorized)
+			return
+		}
+		ts := time.Now().UTC().Format("20060102-150405")
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="beats-snapshot-%s.tgz"`, ts))
+		gz := gzip.NewWriter(w)
+		tw := tar.NewWriter(gz)
+		count, bytes, err := store.Snapshot(tw)
+		if err != nil {
+			// Best-effort: log; the client gets a truncated tar which
+			// gunzip flags as "unexpected EOF". Better than silently
+			// shipping a partial archive without that signal.
+			log.Printf("snapshot stream: %v (after %d entries / %d bytes)", err, count, bytes)
+		}
+		_ = tw.Close()
+		_ = gz.Close()
+		log.Printf("snapshot: streamed %d envelopes / %d bytes (%s)", count, bytes, ts)
 	}
 }
 

@@ -80,6 +80,60 @@ def post_rebuild_clear(remote: str, cid: str) -> None:
     pass
 
 
+def download_snapshot(remote: str, out_path: str, rebuild_secret: str) -> None:
+    """Stream /api/snapshot to out_path. Lets the OS shovel — no
+    in-memory buffer for the whole catalogue."""
+    req = urllib.request.Request(
+        f"{remote}/api/snapshot",
+        headers={"X-Rebuild-Secret": rebuild_secret},
+    )
+    print(f"snapshot: streaming {remote}/api/snapshot → {out_path}")
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp, open(out_path, "wb") as f:
+            total = 0
+            while True:
+                chunk = resp.read(64 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                total += len(chunk)
+        print(f"snapshot: wrote {total:,} bytes to {out_path}")
+    except urllib.error.HTTPError as e:
+        print(f"! snapshot HTTP {e.code}: {e.read()[:200].decode('utf-8','replace')}",
+              file=sys.stderr)
+        sys.exit(2)
+
+
+def restore_snapshot(remote: str, in_path: str) -> None:
+    """Replay every *.json entry in a snapshot tarball as PUT /o/{cid}.
+    The server re-verifies each CID against canonical-JSON(payload), so
+    tampered entries are rejected and a clean restore can't be poisoned
+    by a malformed tar."""
+    import tarfile
+    n_ok, n_skip, n_fail = 0, 0, 0
+    with tarfile.open(in_path, "r:gz") as tf:
+        for member in tf:
+            if not member.isfile() or not member.name.endswith(".json"):
+                continue
+            cid = member.name[:-5]
+            buf = tf.extractfile(member)
+            if buf is None:
+                n_skip += 1
+                continue
+            body = buf.read()
+            code, resp = http(
+                "PUT", f"{remote}/o/{cid}", body,
+                {"Content-Type": "application/ld+json"}, timeout=30,
+            )
+            if code in (200, 201):
+                n_ok += 1
+            else:
+                n_fail += 1
+                print(f"  ! {cid}: HTTP {code}: {resp[:120].decode('utf-8','replace')}",
+                      file=sys.stderr)
+    print(f"restore: {n_ok} ok, {n_fail} failed, {n_skip} skipped")
+
+
 def archive_delete(remote: str, cid: str, rebuild_secret: str) -> bool:
     """Cascade-delete cid (envelope + audio + index + queue). Requires
     X-Rebuild-Secret. Returns True on success."""
@@ -169,6 +223,13 @@ def main():
                     help="Cascade-delete this CID (envelope + audio + index + queue) "
                          "via /api/archive-delete. Requires --secret or BEATS_REBUILD_SECRET. "
                          "Repeatable: --delete CID1 --delete CID2.")
+    ap.add_argument("--snapshot", metavar="OUT.tgz",
+                    help="Download a full snapshot of the share store to OUT.tgz. "
+                         "Requires --secret or BEATS_REBUILD_SECRET.")
+    ap.add_argument("--restore", metavar="IN.tgz",
+                    help="Restore envelopes from a snapshot tarball. "
+                         "PUTs each *.json entry to /o/{cid} on --remote. "
+                         "CID re-verification on the server rejects tampered entries.")
     args = ap.parse_args()
 
     rebuild_secret = (args.secret or os.environ.get("BEATS_REBUILD_SECRET", "")).strip()
@@ -183,6 +244,17 @@ def main():
             if archive_delete(args.remote, cid, rebuild_secret):
                 ok += 1
         print(f"deleted {ok}/{len(args.delete)} CIDs")
+        return
+
+    if args.snapshot:
+        if not rebuild_secret:
+            print("! --snapshot requires --secret or BEATS_REBUILD_SECRET", file=sys.stderr)
+            sys.exit(2)
+        download_snapshot(args.remote, args.snapshot, rebuild_secret)
+        return
+
+    if args.restore:
+        restore_snapshot(args.remote, args.restore)
         return
 
     while True:

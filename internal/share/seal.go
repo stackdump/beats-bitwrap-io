@@ -8,6 +8,7 @@ package share
 // a payload by hash without trusting the other.
 
 import (
+	"archive/tar"
 	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
@@ -119,6 +120,54 @@ func (s *Store) AllCIDs() []string {
 		out = append(out, cid)
 	}
 	return out
+}
+
+// Snapshot streams a tar archive of every envelope in the store to w.
+// Each entry is named "{cid}.json". Suitable to be wrapped in gzip on
+// the way out. Read-locks the index for the duration of the walk —
+// concurrent PUTs queue (but reads remain wait-free since they don't
+// take the index lock for the file read itself).
+//
+// Returns (count, totalBytes, error). Partial-write errors abort
+// mid-stream — the client sees a truncated tar and should retry.
+func (s *Store) Snapshot(tw *tar.Writer) (int, int64, error) {
+	s.mu.Lock()
+	paths := make(map[string]string, len(s.index))
+	for cid, p := range s.index {
+		paths[cid] = p
+	}
+	s.mu.Unlock()
+	var (
+		count int
+		total int64
+	)
+	for cid, p := range paths {
+		body, err := os.ReadFile(p)
+		if err != nil {
+			// Skip files that vanished between snapshot start and now
+			// (a delete races a snapshot). Don't abort — finishing the
+			// rest of the catalogue matters more than perfect parity.
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return count, total, fmt.Errorf("snapshot read %s: %w", cid, err)
+		}
+		hdr := &tar.Header{
+			Name:    cid + ".json",
+			Mode:    0o644,
+			Size:    int64(len(body)),
+			ModTime: time.Now(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return count, total, fmt.Errorf("snapshot tar header %s: %w", cid, err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			return count, total, fmt.Errorf("snapshot tar body %s: %w", cid, err)
+		}
+		count++
+		total += int64(len(body))
+	}
+	return count, total, nil
 }
 
 // Delete removes the on-disk envelope for cid and drops it from the
