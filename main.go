@@ -629,6 +629,12 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			Sections       []any          `json:"sections"`
 			FeelCurve      []any          `json:"feelCurve"`
 			MacroCurve     []any          `json:"macroCurve"`
+			// Optional bake-in preferences. macrosDisabled is applied
+			// by the frontend when Auto-DJ runs (skips the listed macro
+			// ids). autoDj is the engagement override — pass {"run":
+			// false} to ensure the listener / renderer never engages.
+			MacrosDisabled []string       `json:"macrosDisabled"`
+			AutoDj         map[string]any `json:"autoDj"`
 		}
 		if r.ContentLength > 0 {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -645,6 +651,12 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			}
 		}
 		envelope := buildShareEnvelope(project)
+		if len(req.MacrosDisabled) > 0 {
+			envelope["macrosDisabled"] = req.MacrosDisabled
+		}
+		if len(req.AutoDj) > 0 {
+			envelope["autoDj"] = req.AutoDj
+		}
 		// Optional arrangement directive — carried in the envelope so the
 		// client can re-expand the track deterministically on load.
 		if req.Structure != "" && req.Structure != "loop" {
