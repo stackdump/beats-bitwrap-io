@@ -2870,8 +2870,8 @@ a.pn-stage-btn:hover { color: #fff; }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     border: 1px solid #2a3a4a;
     border-radius: 4px;
@@ -2881,6 +2881,7 @@ a.pn-stage-btn:hover { color: #fff; }
     transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .pn-view-card-btn:hover { background: #16213e; color: #fff; border-color: #4a5a7a; }
+.pn-view-card-btn svg { width: 18px; height: 18px; display: block; }
 
 .pn-view-card-modal {
     background: transparent;
