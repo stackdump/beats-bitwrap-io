@@ -74,14 +74,6 @@
   .layout[data-pl="open"] {
     grid-template-columns: 360px 1fr;
   }
-  /* When Webamp owns playback, the sidebar's transport + queue
-     would just compete with it (and double up as a second visible
-     player). Collapse the sidebar back to one column for the
-     duration of the Webamp session. */
-  .layout[data-webamp="open"] {
-    grid-template-columns: 1fr;
-  }
-  .layout[data-webamp="open"] aside.playlist { display: none; }
   main {
     padding: 20px 24px;
     min-width: 0;
@@ -235,8 +227,7 @@
   .layout[data-pl="open"] aside.playlist { display: flex; }
   /* Built-in player — Winamp-flavoured chrome.
      Titlebar gradient + LCD-style track readout + beveled transport
-     buttons. The vibe is "skinned media player from 2002", not the
-     full Webamp experience (which is a click away via the toolbar).
+     buttons. The vibe is "skinned media player from 2002".
      Real Winamp icons via inline SVG so they scale crisp on retina. */
   .pl-now {
     border: 1px solid #000;
@@ -592,7 +583,6 @@
     </label>
     <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
-    <button class="pn-toggle-pl" id="toggle-wa" title="Open in Winamp-style player">webamp</button>
     <button class="pn-toggle-pl" id="toggle-help" title="Help (?)">?</button>
     <a href="/feed.rss" class="rss" title="RSS / podcast feed">RSS</a>
     <a href="/" class="rss" title="Open the synth editor — generate a new track">studio →</a>
@@ -662,7 +652,6 @@
     <button id="more" class="more-btn" hidden>Load more</button>
   </main>
 </div>
-<div id="webamp-mount"></div>
 <div id="card-modal" class="card-modal" hidden>
   <div class="card-modal-inner">
     <button class="card-modal-close" title="Close (Esc)">&times;</button>
@@ -698,7 +687,6 @@
         <dt>genre</dt><dd>Server-side filter to one genre. Drives the URL <code>?genre=…</code>.</dd>
         <dt>★ favorites</dt><dd>Show only locally-bookmarked tracks.</dd>
         <dt>playlist</dt><dd>Toggle the queue sidebar (overlay on mobile).</dd>
-        <dt>webamp</dt><dd>Open your queue in a Winamp 2.9-style player.</dd>
         <dt>RSS</dt><dd>Podcast-shaped feed of recent renders.</dd>
         <dt>studio →</dt><dd>Jump to the synth editor to generate a new track.</dd>
       </dl>
@@ -1720,114 +1708,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '?') { openHelp(); }
 });
 
-// ----- Webamp (vendored Winamp 2.9 clone) -----
-//
-// Loaded on demand the first time the user clicks "webamp" so the
-// ~920 KB bundle doesn't hit every feed-page visitor. Webamp's UMD
-// build exposes a global Webamp constructor; we hand it the current
-// playlist as `initialTracks`. The site's plain <audio> playlist
-// keeps running in parallel — this is an alternative chrome, not a
-// replacement.
-let webampInstance = null;
-let webampLoading = null;
-const loadWebamp = () => {
-  if (window.Webamp) return Promise.resolve(window.Webamp);
-  if (webampLoading) return webampLoading;
-  webampLoading = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = '/vendor/webamp/webamp.bundle.min.js'; // see public/vendor/NOTICE.md
-    s.onload = () => resolve(window.Webamp);
-    s.onerror = () => reject(new Error('webamp bundle failed to load'));
-    document.head.appendChild(s);
-  });
-  return webampLoading;
-};
-
-const openWebamp = async () => {
-  try {
-    const Webamp = await loadWebamp();
-    if (!Webamp) throw new Error('Webamp constructor missing');
-    if (webampInstance) {
-      // Already open — just refresh the queue from the live playlist.
-      const tracks = playlist.map(toWebampTrack);
-      // Webamp lacks a "replace queue" API; closest is appendTracks.
-      // For UX consistency we close + reopen so the user gets a
-      // clean state matching what they currently see in the sidebar.
-      try { webampInstance.dispose(); } catch {}
-      webampInstance = null;
-    }
-    if (playlist.length === 0) {
-      alert('Playlist is empty — add some tracks first.');
-      return;
-    }
-    // Dock the Webamp window stack to the left edge, just below the
-    // header — same gravity as the sidebar player it's replacing.
-    // Each Webamp window is 275 px wide; positioning all three from
-    // x:0 stacks them vertically against the left rail. Users can
-    // drag them around afterward (it's still Webamp), but the open
-    // state lands somewhere predictable.
-    const headerH = document.querySelector('header')?.offsetHeight ?? 64;
-    webampInstance = new Webamp({
-      initialTracks: playlist.map(toWebampTrack),
-      // Default skin (Winamp 2.9 stock). Custom .wsz support is one
-      // option flag away if we ship a skin chooser later.
-      initialState: {
-        windowLayout: {
-          main:      { position: { x: 0, y: headerH + 8 } },
-          equalizer: { position: { x: 0, y: headerH + 8 + 116 } },
-          playlist:  { position: { x: 0, y: headerH + 8 + 232 }, size: [0, 4] },
-        },
-      },
-    });
-    // Pause the site's <audio> when Webamp opens — same reason the
-    // welcome card auto-pauses Tone.js when its embedded audio
-    // plays. Two streams of the same track is jarring.
-    audioEl.pause();
-    // Hide the built-in sidebar player while Webamp owns the room.
-    // The user explicitly switched chrome — running both would
-    // double up the transport and confuse "which one am I controlling".
-    layout.dataset.webamp = 'open';
-    toggleBtn.dataset.active = 'false';  // un-glow the playlist toggle
-    await webampInstance.renderWhenReady(document.getElementById('webamp-mount'));
-    webampInstance.onClose(() => {
-      try { webampInstance?.dispose(); } catch {}
-      webampInstance = null;
-      // Restore whatever sidebar state was active before Webamp
-      // opened — read from localStorage rather than caching at open
-      // time so a clear-during-Webamp doesn't ghost the sidebar back
-      // into existence with stale tracks.
-      delete layout.dataset.webamp;
-      const wasOpen = localStorage.getItem(PL_OPEN_KEY) === '1' || playlist.length > 0;
-      setPaneOpen(wasOpen);
-    });
-  } catch (err) {
-    alert(`Couldn't open Webamp: ${err.message}`);
-  }
-};
-
-const toWebampTrack = (t) => ({
-  metaData: {
-    artist: 'beats.bitwrap.io',
-    title:  trackTitle(t),
-    album:  t.genre || 'beats.bitwrap.io',
-  },
-  url: `${location.origin}/audio/${encodeURIComponent(t.cid)}.webm`,
-});
-
-// Webamp is built around 275px draggable windows with mouse-sized
-// hit targets — usable on a tablet, hostile on a phone. Hide the
-// button entirely on narrow touch viewports rather than ship a
-// frustrated user. Detection mirrors the synth view's mobile gate.
-const isTouchDevice = ('ontouchstart' in window)
-    || (navigator.maxTouchPoints > 0)
-    || !!navigator.userAgentData?.mobile;
-const isNarrowViewport = window.innerWidth < 720;
-const webampBtn = document.getElementById('toggle-wa');
-if (isTouchDevice && isNarrowViewport) {
-    webampBtn.hidden = true;
-} else {
-    webampBtn.addEventListener('click', openWebamp);
-}
 
 renderPlaylist();
 fetchPage();

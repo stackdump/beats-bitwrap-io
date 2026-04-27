@@ -560,7 +560,34 @@ export function openFeelModal(el) {
     }
     svg.addEventListener('pointercancel', onUp);
 
-    const close = () => { el._feelPreviewMode = false; overlay.remove(); };
+    // MIDI joystick → Feel puck. Pitch bend (X axis) drives puck X,
+    // CC1 / modwheel (Y axis) drives puck Y. Each axis snaps back
+    // to the pre-modal puck position when its CC returns to rest.
+    // Active only while this modal is open — el._feelMidiUpdate is
+    // cleared on close, restoring the global pitch bend → Xpose
+    // default.
+    const defaultPuck = [...puck];
+    el._feelMidiUpdate = (axis, normalized) => {
+        const v = Math.max(0, Math.min(1, normalized));
+        if (axis === 'x') puck = [v, puck[1]];
+        else if (axis === 'y') puck = [puck[0], v];
+        redraw();
+        pushLive();
+    };
+    el._feelMidiRelease = (axis) => {
+        if (axis === 'x') puck = [defaultPuck[0], puck[1]];
+        else if (axis === 'y') puck = [puck[0], defaultPuck[1]];
+        else puck = [...defaultPuck];
+        redraw();
+        pushLive();
+    };
+
+    const close = () => {
+        el._feelPreviewMode = false;
+        el._feelMidiUpdate = null;
+        el._feelMidiRelease = null;
+        overlay.remove();
+    };
     const revert = () => {
         puck = [...snapshotPuck];
         el._feelState = el._feelState || {};

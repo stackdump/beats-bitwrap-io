@@ -177,6 +177,19 @@ export function handleMidiMessage(el, event) {
 }
 
 export function handleMidiPitchBend(el, value) {
+    // While the Feel modal is open, pitch bend (X axis on the
+    // joystick) drives the puck X coordinate (tone). At rest
+    // (value 0) the X axis snaps back to the modal's pre-open
+    // default so dragging is a temporary modulation.
+    if (typeof el._feelMidiUpdate === 'function') {
+        if (value === 0 && typeof el._feelMidiRelease === 'function') {
+            el._feelMidiRelease('x');
+        } else {
+            // -8192..+8191 → 0..1
+            el._feelMidiUpdate('x', (value + 8192) / 16383);
+        }
+        return;
+    }
     if (typeof el._setLiveTranspose !== 'function') return;
     // Map full-range pitch bend (-8192..+8191) to ±12 semitones.
     // Round to nearest semitone for crisp snap; sub-semitone
@@ -187,6 +200,18 @@ export function handleMidiPitchBend(el, value) {
 
 
 export function handleMidiCC(el, cc, value) {
+    // Feel modal joystick: while open, CC1 / modwheel (joystick Y)
+    // drives the puck Y coordinate (BPM). At rest (value 0) the Y
+    // axis snaps back to the modal's pre-open default. Suppresses
+    // hover-bind on CC1 for the duration of the modal.
+    if (cc === 1 && typeof el._feelMidiUpdate === 'function') {
+        if (value === 0 && typeof el._feelMidiRelease === 'function') {
+            el._feelMidiRelease('y');
+        } else {
+            el._feelMidiUpdate('y', value / 127);
+        }
+        return;
+    }
     // Hover-bind paths — slider, mute button, section divider — all
     // overwrite any existing binding so re-binding is a one-touch
     // operation. Mute / section bindings are useful for pads in CC
