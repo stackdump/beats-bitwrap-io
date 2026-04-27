@@ -682,6 +682,9 @@
       z-index: 50;
       box-shadow: 0 0 40px rgba(0,0,0,0.6);
       border-right: none;
+      /* Make room for the fixed top app bar (back chevron) so it
+         doesn't crop the player chassis underneath. */
+      padding-top: calc(56px + env(safe-area-inset-top, 0px));
     }
     .layout[data-pl="open"]::before {
       content: "";
