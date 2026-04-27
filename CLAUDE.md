@@ -554,6 +554,24 @@ auto-restore on visit.
   ```
 - Manual: click Share → copy URL → open in a fresh tab → confirm genre/seed/tempo/tracks match.
 
+## Bulk feed seeding — generation times
+
+`scripts/seed-feed.py` is the parallel seeder (see "Running locally for hand-authored tracks" + the script docstring). Local server runs `-authoring -audio-render -audio-concurrent N`, script runs `--workers N`. Generate+seal stages serialize on a lock; chromedp realtime renders run N-wide.
+
+**Quality stipulations baked into envelopes for feed seeding** — these knobs control whether the cached `.webm` is a clean listen or has macro artifacts smeared across it. Use them when the rendered audio is the listening experience (feed cards play the cached render, first-write-wins):
+
+- **Default mode**: `macrosDisabled` covers the disruptive groups (Mute: `drop`, `breakdown`, `solo-drums`, `cut`, `beat-repeat`, `double-drop` · Tempo: `half-time`, `tape-stop`, `tempo-anchor`) AND `autoDj.run=false`. Yields a stable, predictable render per CID.
+- **Auto-DJ enabled** (`--no-auto-dj-off`): keeps the disruptive macros disabled but lets Auto-DJ engage during render — only the safe macros (FX, pitch, pan, shape) fire. Adds performance flavor without silences/pitch artifacts. Trade-off: render is no longer reproducible (re-rendering yields a different `.webm`) but the envelope CID stays deterministic.
+- **`--no-disable`**: skip macrosDisabled entirely. Only use when intentionally seeding chaotic listening experiences.
+
+**Run log** — record wall-clock + per-track averages so we know how long a 19-genre × N-per-genre batch takes and can spot regressions:
+
+| Date | Tracks | Workers | Flags | Wall time | Per-track avg | Notes |
+|---|---|---|---|---|---|---|
+| 2026-04-26 | 57 (19×3) | 4 | `--no-auto-dj-off` | _in progress_ | _tbd_ | Auto-DJ on, mute/tempo macros baked off |
+
+When recording a new row: include the flag set that was active, the local server config (`-audio-concurrent`), and any anomalies (worker crashes, polyphony-exceeded warnings, prod PUT throttle hits). The per-track average is the useful metric — chromedp render runs at 1× playback so a 3-min track ≈ 3 min wall time per worker; a healthy `--workers 4` batch should average ≈ `(track length) / workers`.
+
 ## Roadmap — Remote Conductor (WS backend)
 
 Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and speaks the same JSON message types as the in-page worker. Authoritative dispatch in `internal/ws/hub.go`; client-side handlers in `lib/backend/index.js::handleWsMessage`. Production `beats.bitwrap.io` does NOT run `/ws` (deployed without `-authoring` to keep attack surface minimal); run locally via `-authoring` to enable it. Motivation: let a remote sequencer or agent conduct the browser, or render headless via CoreMIDI/ALSA.

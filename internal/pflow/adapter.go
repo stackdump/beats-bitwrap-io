@@ -109,6 +109,7 @@ type StructureSection struct {
 
 type Project struct {
 	Name         string
+	Seed         int64 // Composer seed (0 = unknown / hand-authored)
 	Tempo        float64
 	Swing        float64 // 0-100 swing percentage
 	Humanize     float64 // 0-100 humanize amount
@@ -202,6 +203,7 @@ func (nb *NetBundle) GetInputArcs(transLabel string) []cachedArc {
 func ParseProject(data map[string]interface{}) *Project {
 	proj := &Project{
 		Name:     getString(data, "name", "Untitled"),
+		Seed:     int64(getFloat(data, "seed", 0)),
 		Tempo:    getFloat(data, "tempo", 120),
 		Swing:    getFloat(data, "swing", 0),
 		Humanize: getFloat(data, "humanize", 0),
@@ -587,6 +589,10 @@ func (p *Project) ToJSON() map[string]interface{} {
 		"name":  p.Name,
 		"tempo": p.Tempo,
 		"nets":  make(map[string]interface{}),
+	}
+
+	if p.Seed != 0 {
+		result["seed"] = p.Seed
 	}
 
 	if p.Swing > 0 {

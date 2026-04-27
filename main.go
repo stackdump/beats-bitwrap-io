@@ -1016,12 +1016,21 @@ func buildShareEnvelope(project map[string]any) map[string]any {
 	if idx := strings.Index(name, " · "); idx > 0 {
 		genre = name[:idx]
 	}
+	seed := int64(0)
+	switch v := project["seed"].(type) {
+	case float64:
+		seed = int64(v)
+	case int64:
+		seed = v
+	case int:
+		seed = int64(v)
+	}
 	envelope := map[string]any{
 		"@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
 		"@type":    "BeatsShare",
 		"v":        1,
 		"genre":    genre,
-		"seed":     0,
+		"seed":     seed,
 		"nets":     project["nets"],
 	}
 	if name != "" && name != "Untitled" {

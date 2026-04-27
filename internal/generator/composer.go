@@ -471,6 +471,7 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 
 	proj := &pflow.Project{
 		Name:     generateTrackName(genre.Name, seed),
+		Seed:     seed,
 		Tempo:    bpm,
 		Swing:    genre.Swing,
 		Humanize: genre.Humanize,
