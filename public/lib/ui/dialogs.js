@@ -272,6 +272,33 @@ export function showWelcomeCard(el, force = false) {
               The full studio is built for desktop.
            </p>`
         : '';
+    // Permalink row — only meaningful when the user is viewing a
+    // shared CID. Shows the canonical share URL with a one-click
+    // copy button so the card view doubles as the "grab the link
+    // for this track" surface (no need to round-trip through the
+    // Share modal just to get a URL out).
+    const cidParam = (new URLSearchParams(location.search).get('cid') || '').replace(/[^a-zA-Z0-9]/g, '');
+    const permalink = cidParam ? `${location.origin}/?cid=${cidParam}` : '';
+    const permalinkRow = cidParam ? `
+        <div class="pn-welcome-permalink" style="margin:0 0 12px;display:flex;align-items:center;gap:8px;background:#0a0a0a;border:1px solid #1f1f1f;border-radius:6px;padding:8px 10px">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#9ad" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6.5 9.5 L9.5 6.5"/>
+                <path d="M7 4 L8.5 2.5 a3 3 0 0 1 4.2 4.2 L11.2 8.2"/>
+                <path d="M9 12 L7.5 13.5 a3 3 0 0 1 -4.2 -4.2 L4.8 7.8"/>
+            </svg>
+            <input type="text" class="pn-welcome-permalink-url" readonly value="${permalink}"
+                   style="flex:1;background:transparent;border:none;color:#9ad;font-size:12px;font-family:ui-monospace,'Courier New',monospace;outline:none;text-overflow:ellipsis"/>
+            <button class="pn-welcome-permalink-copy" title="Copy link" aria-label="Copy permalink"
+                    style="background:#1a1a2e;border:1px solid #0f3460;color:#9ad;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="5" y="5" width="9" height="9" rx="1.5"/>
+                    <path d="M11 5 V3.5 a1.5 1.5 0 0 0 -1.5 -1.5 H3.5 a1.5 1.5 0 0 0 -1.5 1.5 V9.5 a1.5 1.5 0 0 0 1.5 1.5 H5"/>
+                </svg>
+                <span class="pn-welcome-permalink-label">copy</span>
+            </button>
+        </div>
+    ` : '';
+
     const overlay = document.createElement('div');
     overlay.className = 'pn-help-overlay pn-welcome-overlay';
     overlay.innerHTML = `
@@ -283,6 +310,7 @@ export function showWelcomeCard(el, force = false) {
                     Deterministic beat generator. Each card is a fingerprint: genre + seed + tempo reproduce the exact track.
                     Share any mix and the card you see here travels with the link.
                 </p>
+                ${permalinkRow}
                 <div style="display:flex;gap:10px">
                     <button class="pn-welcome-start" style="flex:1;padding:10px;background:#e94560;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">${primaryLabel}</button>
                     <button class="pn-welcome-guide" style="flex:1;padding:10px;background:#1a1a2e;border:1px solid #0f3460;color:#eee;border-radius:6px;cursor:pointer;font-size:14px">${secondaryLabel}</button>
@@ -337,8 +365,9 @@ export function showWelcomeCard(el, force = false) {
         location.href = cid ? `/feed?cid=${encodeURIComponent(cid)}` : '/feed';
     };
     overlay.addEventListener('click', (e) => {
-        // Audio block interactions don't dismiss.
+        // Audio block + permalink interactions don't dismiss.
         if (e.target.closest('.pn-welcome-audio')) return;
+        if (e.target.closest('.pn-welcome-permalink')) return;
         if (e.target.closest('.pn-welcome-guide')) {
             dismiss();
             if (!isMobile) showHelpModal(el);
@@ -357,6 +386,29 @@ export function showWelcomeCard(el, force = false) {
             else dismiss();
         }
     });
+    // Permalink copy — clipboard write, brief "copied!" feedback,
+    // restore label after 1.5 s. Web Share API on mobile would be
+    // a nice extension but the copy flow is the surface users
+    // recognise from every other share UI on the web.
+    const copyBtn = overlay.querySelector('.pn-welcome-permalink-copy');
+    const urlInput = overlay.querySelector('.pn-welcome-permalink-url');
+    if (copyBtn && urlInput) {
+        copyBtn.addEventListener('click', async () => {
+            const label = copyBtn.querySelector('.pn-welcome-permalink-label');
+            try {
+                await navigator.clipboard.writeText(urlInput.value);
+                if (label) label.textContent = 'copied!';
+            } catch {
+                // Fallback: select the text so the user can ⌘C / Ctrl+C.
+                urlInput.select();
+                if (label) label.textContent = 'select + ⌘C';
+            }
+            setTimeout(() => { if (label) label.textContent = 'copy'; }, 1500);
+        });
+        // Click in the URL field: select all so the user can copy
+        // manually. Common pattern across share-link UIs.
+        urlInput.addEventListener('click', () => urlInput.select());
+    }
     document.body.appendChild(overlay);
     // Auto-restore notice: parseShareFromUrl already pulled this CID
     // back from a snapshot. Inform the user — non-blocking, just so
