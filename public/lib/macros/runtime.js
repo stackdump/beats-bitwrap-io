@@ -11,6 +11,7 @@
 import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS, TRANSITION_MACRO_IDS } from './catalog.js';
 import { oneShotSpec } from '../audio/oneshots.js';
+import { schedAudio, clearAudioSched } from './sched.js';
 
 // Slider keys tracked by the tone reset/nav/save machinery. Pitch/Hits/
 // Instrument stay outside — they're semantic params, not tone.
@@ -41,24 +42,24 @@ export function panicMacros(el) {
     // 1. Drop queued macros; they never fire.
     el._macroQueue = [];
     el._runningMacro = null;
-    if (el._runningTimer) { clearTimeout(el._runningTimer); el._runningTimer = null; }
+    if (el._runningTimer) { clearAudioSched(el._runningTimer); el._runningTimer = null; }
 
     // 2. Break any beat-repeat loop — the token guard exits on next tick.
     el._beatRepeatRuns = (el._beatRepeatRuns || 0) + 1;
 
     // 2b. Clear any compound-macro delayed sub-fires still pending.
     if (el._compoundTimers) {
-        for (const t of el._compoundTimers) clearTimeout(t);
+        for (const t of el._compoundTimers) clearAudioSched(t);
         el._compoundTimers = [];
     }
 
     // 2c. Tempo: if a tempo-hold / tempo-sweep is running, cancel + snap
     //     back to its captured start BPM instead of waiting for the
-    //     setTimeout / sweep to finish.
+    //     scheduled restore / sweep to finish.
     if (el._tempoAnim) {
         const tok = el._tempoAnim;
         tok.cancelled = true;
-        if (tok.timeout) clearTimeout(tok.timeout);
+        if (tok.timeout) clearAudioSched(tok.timeout);
         if (typeof tok.startBpm === 'number') el._setTempo(tok.startBpm);
         el._tempoAnim = null;
     }
@@ -279,8 +280,8 @@ export function executeMacro(el, id, opts) {
             el._toggleMute(id);
         }
         el._stingerMuteTimers ||= {};
-        clearTimeout(el._stingerMuteTimers[id]);
-        el._stingerMuteTimers[id] = setTimeout(() => {
+        clearAudioSched(el._stingerMuteTimers[id]);
+        el._stingerMuteTimers[id] = schedAudio(() => {
             const stillUnmuted = !(el._mutedNets?.has(id) || el._manualMutedNets?.has(id));
             if (currentInst !== 'unbound' && wasMutedBefore && stillUnmuted) {
                 el._toggleMute(id);
@@ -352,7 +353,7 @@ function pulseFeelButton(el, durationMs, key) {
 function cancelFeelAnim(el) {
     if (el._feelAnim) {
         el._feelAnim.cancelled = true;
-        if (el._feelAnim.timeout) clearTimeout(el._feelAnim.timeout);
+        if (el._feelAnim.timeout) clearAudioSched(el._feelAnim.timeout);
         el._feelAnim = null;
     }
 }
@@ -398,7 +399,7 @@ function restoreFeelState(el, snap) {
         const targetWet = snap.fx['reverb-wet'];
         if (Number.isFinite(targetWet)) {
             el._setFxByKey('reverb-wet', 0);
-            setTimeout(() => el._setFxByKey('reverb-wet', targetWet), 180);
+            schedAudio(() => el._setFxByKey('reverb-wet', targetWet), 180);
         }
         for (const [k, v] of Object.entries(snap.fx)) {
             if (k === 'reverb-wet') continue; // handled by the flush above
@@ -415,7 +416,7 @@ function feelSnap(el, target, durationMs) {
     el._feelAnim = token;
     el._applyFeel(clampPuck(target));
     pulseFeelButton(el, durationMs, 'feel-snap');
-    token.timeout = setTimeout(() => {
+    token.timeout = schedAudio(() => {
         if (token.cancelled) return;
         restoreFeelState(el, snap);
         if (el._feelAnim === token) el._feelAnim = null;
@@ -524,7 +525,7 @@ function feelSweep(el, target, durationMs) {
             // explicitly, applyFeel(start) would re-blend the defaults
             // for that puck position and stomp manual reverb / delay /
             // distortion adjustments.
-            token.timeout = setTimeout(() => {
+            token.timeout = schedAudio(() => {
                 if (token.cancelled) return;
                 restoreFeelState(el, snap);
                 if (el._feelAnim === token) el._feelAnim = null;
@@ -989,7 +990,7 @@ export function markMacroRunning(el, id, durationMs) {
     const btn = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
     if (btn) btn.classList.add('running');
     updateQueuedBadges(el);
-    el._runningTimer = setTimeout(() => {
+    el._runningTimer = schedAudio(() => {
         const b = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
         if (b) b.classList.remove('running');
         el._runningMacro = null;

@@ -10,6 +10,7 @@
 // `el._msPerBar`, `el._tempo`, `el._setTempo`).
 
 import { MACROS } from './catalog.js';
+import { schedAudio, clearAudioSched } from './sched.js';
 
 export function fxSweep(el, fxKey, toValue, durationMs) {
     const slider = el._fxSlider(fxKey);
@@ -88,7 +89,7 @@ export function runBeatRepeat(el, macro, durationMs) {
             });
         }
         elapsed += stepMs;
-        if (elapsed < durationMs) setTimeout(fire, stepMs);
+        if (elapsed < durationMs) schedAudio(fire, stepMs);
     };
     fire();
 }
@@ -100,7 +101,7 @@ export function runCompound(el, macro, duration, durationUnit, msPerTick) {
     el._compoundTimers = el._compoundTimers || [];
     for (const step of macro.steps || []) {
         const delay = step.offsetMs || 0;
-        const t = setTimeout(() => {
+        const t = schedAudio(() => {
             const sub = MACROS.find(m => m.id === step.macroId);
             if (!sub) return;
             // Push the sub-macro directly (ignore queue, don't mark as running)
@@ -152,12 +153,12 @@ export function tempoHold(el, factor, durationMs) {
     // single token to reset. _tempoAnim is also used by tempoSweep.
     if (el._tempoAnim) {
         el._tempoAnim.cancelled = true;
-        if (el._tempoAnim.timeout) clearTimeout(el._tempoAnim.timeout);
+        if (el._tempoAnim.timeout) clearAudioSched(el._tempoAnim.timeout);
     }
     const token = { cancelled: false, startBpm };
     el._tempoAnim = token;
     el._setTempo(targetBpm);
-    token.timeout = setTimeout(() => {
+    token.timeout = schedAudio(() => {
         if (token.cancelled) return;
         el._setTempo(startBpm);
         if (el._tempoAnim === token) el._tempoAnim = null;
@@ -174,12 +175,12 @@ export function tempoAnchor(el, durationMs) {
     const targetBpm = el._genreData?.[genre]?.bpm || 120;
     if (el._tempoAnim) {
         el._tempoAnim.cancelled = true;
-        if (el._tempoAnim.timeout) clearTimeout(el._tempoAnim.timeout);
+        if (el._tempoAnim.timeout) clearAudioSched(el._tempoAnim.timeout);
     }
     const token = { cancelled: false, startBpm };
     el._tempoAnim = token;
     el._setTempo(targetBpm);
-    token.timeout = setTimeout(() => {
+    token.timeout = schedAudio(() => {
         if (token.cancelled) return;
         el._setTempo(startBpm);
         if (el._tempoAnim === token) el._tempoAnim = null;
@@ -200,7 +201,7 @@ export function tempoSweep(el, finalBpm, durationMs) {
     let lastDispatch = -DISPATCH_INTERVAL;
     if (el._tempoAnim) {
         el._tempoAnim.cancelled = true;
-        if (el._tempoAnim.timeout) clearTimeout(el._tempoAnim.timeout);
+        if (el._tempoAnim.timeout) clearAudioSched(el._tempoAnim.timeout);
     }
     const token = { cancelled: false, startBpm };
     el._tempoAnim = token;
@@ -282,7 +283,7 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
 export function cancelAllMacros(el) {
     el._sendWs({ type: 'cancel-macros' });
     if (el._runningTimer) {
-        clearTimeout(el._runningTimer);
+        clearAudioSched(el._runningTimer);
         el._runningTimer = null;
     }
     el._runningMacro = null;

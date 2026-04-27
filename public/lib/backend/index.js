@@ -66,6 +66,16 @@ export function togglePlay(el) {
         el._ensureToneStarted();
         el._vizStartLoop();
         acquireWakeLock(el);
+        // Tone.Transport runs alongside the worker tick loop as a
+        // pure clock — it doesn't drive synthesis (the worker does
+        // that), but macros use Tone.Transport.scheduleOnce for
+        // audio-time-correct restore timers. Without starting the
+        // Transport here, those scheduled callbacks never fire.
+        try {
+            if (typeof Tone !== 'undefined' && Tone.Transport) {
+                if (Tone.Transport.state !== 'started') Tone.Transport.start();
+            }
+        } catch {}
         // Notify any sibling listeners (e.g. the CID handoff pill) so
         // they can pause their own playback to avoid double-audio.
         try { el.dispatchEvent(new CustomEvent('pn-play')); } catch {}
@@ -75,6 +85,15 @@ export function togglePlay(el) {
         el._vizStopLoop();
         // Cancel any pending macro restores — worker will reset mute state anyway.
         el._cancelAllMacros();
+        // Stop Tone.Transport so any leftover scheduled events freeze
+        // (they'll resume if the user starts again — which is what
+        // _cancelAllMacros already cleared, so the queue is empty).
+        try {
+            if (typeof Tone !== 'undefined' && Tone.Transport) {
+                Tone.Transport.cancel(0);
+                if (Tone.Transport.state === 'started') Tone.Transport.stop();
+            }
+        } catch {}
         // Reset playhead to loop start (or beginning if no loop).
         el._tick = el._loopStart > 0 ? el._loopStart : 0;
         el._lastPlayheadPct = null;
