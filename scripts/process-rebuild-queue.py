@@ -80,6 +80,26 @@ def post_rebuild_clear(remote: str, cid: str) -> None:
     pass
 
 
+def archive_delete(remote: str, cid: str, rebuild_secret: str) -> bool:
+    """Cascade-delete cid (envelope + audio + index + queue). Requires
+    X-Rebuild-Secret. Returns True on success."""
+    if not rebuild_secret:
+        print(f"  ! delete {cid}: BEATS_REBUILD_SECRET not set", file=sys.stderr)
+        return False
+    code, body = http(
+        "POST", f"{remote}/api/archive-delete",
+        json.dumps({"cid": cid}).encode(),
+        {"Content-Type": "application/json", "X-Rebuild-Secret": rebuild_secret},
+        timeout=15,
+    )
+    if code != 200:
+        print(f"  ! delete {cid}: HTTP {code}: {body[:200].decode('utf-8','replace')}",
+              file=sys.stderr)
+        return False
+    print(f"  ✓ deleted {cid}")
+    return True
+
+
 def process_one(cid: str, local: str, remote: str, min_bytes: int,
                 rebuild_secret: str = "") -> bool:
     print(f"--- {cid}")
@@ -145,6 +165,10 @@ def main():
                          "--watch to keep the catalogue caught up as new shares arrive.")
     ap.add_argument("--archive-limit", type=int, default=200,
                     help="Page size for /api/archive-missing in --archive mode (default 200)")
+    ap.add_argument("--delete", metavar="CID", action="append", default=[],
+                    help="Cascade-delete this CID (envelope + audio + index + queue) "
+                         "via /api/archive-delete. Requires --secret or BEATS_REBUILD_SECRET. "
+                         "Repeatable: --delete CID1 --delete CID2.")
     args = ap.parse_args()
 
     rebuild_secret = (args.secret or os.environ.get("BEATS_REBUILD_SECRET", "")).strip()
@@ -152,6 +176,14 @@ def main():
         print(f"auth: X-Rebuild-Secret set ({len(rebuild_secret)} chars) — overwrites enabled")
     else:
         print("auth: no secret — uploads will fall under first-write-wins (won't replace stuck audio)")
+
+    if args.delete:
+        ok = 0
+        for cid in args.delete:
+            if archive_delete(args.remote, cid, rebuild_secret):
+                ok += 1
+        print(f"deleted {ok}/{len(args.delete)} CIDs")
+        return
 
     while True:
         if args.archive:

@@ -303,6 +303,12 @@ func main() {
 		// a full-collection archive pass without the listener having to
 		// tap ⟳ on each card.
 		mux.HandleFunc("/api/archive-missing", archiveMissingHandler(idx, shareStore))
+		// /api/archive-delete — authenticated cascade-delete of a CID.
+		// Removes the share envelope, cached .webm, index row, and any
+		// rebuild_queue entry. Useful for pruning unrenderable shares
+		// (broken hand-authored topology, etc.) so they stop showing up
+		// in archive sweeps. Requires X-Rebuild-Secret.
+		mux.HandleFunc("/api/archive-delete", archiveDeleteHandler(idx, shareStore, ar, rebuildSecret))
 		// /feed serves the gallery page; /feed.html resolves the same
 		// file via the static handler. Explicit route here avoids the
 		// catch-all routing /feed → DecoratedIndex (which would 404
@@ -1140,6 +1146,66 @@ func archiveMissingHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 			"truncated":    len(missing) >= limit,
 		})
 	}
+}
+
+// archiveDeleteHandler accepts POST /api/archive-delete {cid} with
+// X-Rebuild-Secret. Cascade-removes the CID across every persistence
+// layer — share store, audio cache, track index, rebuild queue —
+// so it's truly gone (not just hidden). Idempotent: deleting an
+// absent CID is a no-op 200.
+func archiveDeleteHandler(idx *index.DB, store *share.Store, ar *audiorender.Renderer, rebuildSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+			http.Error(w, "POST or DELETE only", http.StatusMethodNotAllowed)
+			return
+		}
+		if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+			http.Error(w, "X-Rebuild-Secret required", http.StatusUnauthorized)
+			return
+		}
+		var req struct {
+			CID string `json:"cid"`
+		}
+		if r.URL.Query().Get("cid") != "" {
+			req.CID = r.URL.Query().Get("cid")
+		} else {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+		}
+		if !audiorender.ValidCID(req.CID) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		// Order: audio cache → track index → rebuild queue → share store.
+		// Share store goes last so a partial failure leaves the canonical
+		// envelope intact (recoverable) rather than the audio (which can
+		// always be re-rendered).
+		audioErr := ar.Delete(req.CID)
+		idxErr := idx.DeleteTrack(req.CID)
+		shareErr := store.Delete(req.CID)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cid":        req.CID,
+			"audioError": errStr(audioErr),
+			"indexError": errStr(idxErr),
+			"shareError": errStr(shareErr),
+			"deleted":    audioErr == nil && idxErr == nil && shareErr == nil,
+		})
+		if audioErr != nil || idxErr != nil || shareErr != nil {
+			log.Printf("archive-delete %s: audio=%v idx=%v share=%v",
+				req.CID, audioErr, idxErr, shareErr)
+		}
+	}
+}
+
+func errStr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // rebuildMarkHandler accepts POST /api/rebuild-mark {cid}. Validates

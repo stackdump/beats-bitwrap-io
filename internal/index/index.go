@@ -123,6 +123,19 @@ type Track struct {
 	RenderedAt int64  `json:"renderedAt"`
 }
 
+// DeleteTrack removes the row for cid from the rendered-track index
+// and any pending rebuild_queue row. Idempotent. Caller handles auth
+// and the on-disk cleanup of the .webm cache.
+func (d *DB) DeleteTrack(cid string) error {
+	if _, err := d.sql.Exec(`DELETE FROM tracks WHERE cid = ?`, cid); err != nil {
+		return fmt.Errorf("index: delete track: %w", err)
+	}
+	if _, err := d.sql.Exec(`DELETE FROM rebuild_queue WHERE cid = ?`, cid); err != nil {
+		return fmt.Errorf("index: delete rebuild_queue row: %w", err)
+	}
+	return nil
+}
+
 // HasCIDs returns a set of every rendered-track CID currently in the
 // index. Used by the archive endpoint to compute the share-store
 // minus rendered-audio diff. The index is small (~one row per render,

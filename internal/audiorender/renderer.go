@@ -175,6 +175,23 @@ func New(cfg Config) (*Renderer, error) {
 	}, nil
 }
 
+// Delete removes the cached .webm for cid (in any year/month bucket).
+// Idempotent — returns nil if no cached file exists. Caller handles
+// auth + cascading index cleanup.
+func (r *Renderer) Delete(cid string) error {
+	if !ValidCID(cid) {
+		return fmt.Errorf("audiorender: invalid cid")
+	}
+	p := r.findExisting(cid)
+	if p == "" {
+		return nil
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("audiorender: delete %s: %w", cid, err)
+	}
+	return nil
+}
+
 // CachePath returns the on-disk path where {cid}.webm lives (or would
 // live). The file may not exist yet — call Stat or Render to check/produce.
 func (r *Renderer) CachePath(cid string) string {

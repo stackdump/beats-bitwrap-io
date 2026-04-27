@@ -121,6 +121,39 @@ func (s *Store) AllCIDs() []string {
 	return out
 }
 
+// Delete removes the on-disk envelope for cid and drops it from the
+// in-memory index. Idempotent — returns nil if the CID was already
+// absent. Caller is responsible for cascading cleanup (audio cache,
+// rendered-track index row, rebuild_queue rows). Auth is the caller's
+// problem too: this method has no built-in gate.
+func (s *Store) Delete(cid string) error {
+	s.mu.Lock()
+	path, ok := s.index[cid]
+	if !ok {
+		s.mu.Unlock()
+		return nil
+	}
+	delete(s.index, cid)
+	s.mu.Unlock()
+	if info, err := os.Stat(path); err == nil {
+		s.mu.Lock()
+		s.curBytes -= info.Size()
+		if s.curBytes < 0 {
+			s.curBytes = 0
+		}
+		s.mu.Unlock()
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// Path was indexed but file is gone or permissions broken —
+		// reinstate the index entry so a subsequent retry can resolve.
+		s.mu.Lock()
+		s.index[cid] = path
+		s.mu.Unlock()
+		return fmt.Errorf("share: delete %s: %w", cid, err)
+	}
+	return nil
+}
+
 // fireOnSeal invokes registered callbacks. Caller must NOT hold s.mu.
 func (s *Store) fireOnSeal(cid string) {
 	s.mu.Lock()
