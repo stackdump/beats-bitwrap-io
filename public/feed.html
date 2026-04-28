@@ -1075,6 +1075,16 @@ const flameCanvas = document.getElementById('pl-flame');
 // user gesture (Chrome autoplay policy).
 let flameCtx = null, flameAnalyser = null, flameSource = null;
 let flameBuf = null, flameRaf = 0;
+// iOS Safari frequently produces a "silent" AnalyserNode when fed
+// from a MediaElementAudioSourceNode — getByteFrequencyData returns
+// all-zero buffers even though playback is audible. After several
+// frames of all-zero readings while audio is playing we flip to a
+// synthesized animation so iPad listeners aren't staring at a flat
+// line under a working player. Counter resets on every successful
+// non-zero frame so a momentarily-silent passage doesn't trip it.
+let flameSilentFrames = 0;
+let flameSynthMode = false;
+const FLAME_SILENT_TRIP = 30;       // ~0.5 s at 60fps
 const flameG = flameCanvas.getContext('2d');
 
 function ensureFlame() {
@@ -1099,38 +1109,75 @@ function ensureFlame() {
 
 function drawFlame() {
   flameRaf = 0;
-  if (!flameAnalyser) return;
   const W = flameCanvas.width, H = flameCanvas.height;
-  flameAnalyser.getByteFrequencyData(flameBuf);
   flameG.clearRect(0, 0, W, H);
-  // Skip the lowest 2 bins (DC + sub-bass rumble) — they dominate
-  // and crowd the visualization. Keep up through ~half the spectrum
-  // so the visible band matches musical frequencies.
   const start = 2;
-  const end = Math.min(flameBuf.length, 96);
-  const N = end - start;
+  const N = 64;
   const barW = W / N;
-  for (let i = 0; i < N; i++) {
-    const v = flameBuf[start + i] / 255;        // 0..1
-    const h = Math.max(2, v * H);
-    const x = i * barW;
-    // Color ramp: cyan (low energy) → amber (mid) → magenta (peak).
-    // Matches the studio's flame visual language without sharing code.
-    const hue = 200 - v * 160;                  // 200° → 40°
-    const sat = 70 + v * 30;
-    const light = 35 + v * 25;
-    flameG.fillStyle = `hsl(${hue},${sat}%,${light}%)`;
-    flameG.fillRect(x + 0.5, H - h, barW - 1, h);
+
+  let useSynth = flameSynthMode || !flameAnalyser;
+  if (!useSynth) {
+    flameAnalyser.getByteFrequencyData(flameBuf);
+    let sum = 0;
+    for (let i = start; i < start + N; i++) sum += flameBuf[i];
+    if (sum === 0) {
+      flameSilentFrames++;
+      if (flameSilentFrames >= FLAME_SILENT_TRIP && !audioEl.paused) {
+        flameSynthMode = true;
+        useSynth = true;
+      }
+    } else {
+      flameSilentFrames = 0;
+    }
+  }
+
+  if (useSynth) {
+    // Time-driven synthesized bars — overlapping sines create a
+    // believable spectrum shape that pulses with the track's
+    // currentTime. Not audio-accurate, but reads as "audio is
+    // playing" on iOS Safari where the AnalyserNode is silent.
+    const t = audioEl.currentTime;
+    for (let i = 0; i < N; i++) {
+      const f = i / N;
+      const env = Math.exp(-f * 1.6) * (0.55 + 0.45 * Math.sin(t * 1.7 + f * 9));
+      const wob = 0.35 * Math.sin(t * 5.3 + f * 17) * Math.sin(t * 0.8);
+      const v = Math.max(0, Math.min(1, env + wob * 0.35));
+      const h = Math.max(2, v * H);
+      const x = i * barW;
+      const hue = 200 - v * 160;
+      const sat = 70 + v * 30;
+      const light = 35 + v * 25;
+      flameG.fillStyle = `hsl(${hue},${sat}%,${light}%)`;
+      flameG.fillRect(x + 0.5, H - h, barW - 1, h);
+    }
+  } else {
+    // Skip the lowest 2 bins (DC + sub-bass rumble) — they dominate
+    // and crowd the visualization. Keep up through ~half the spectrum
+    // so the visible band matches musical frequencies.
+    const end = Math.min(flameBuf.length, 96);
+    const realN = end - start;
+    const realBarW = W / realN;
+    for (let i = 0; i < realN; i++) {
+      const v = flameBuf[start + i] / 255;
+      const h = Math.max(2, v * H);
+      const x = i * realBarW;
+      const hue = 200 - v * 160;
+      const sat = 70 + v * 30;
+      const light = 35 + v * 25;
+      flameG.fillStyle = `hsl(${hue},${sat}%,${light}%)`;
+      flameG.fillRect(x + 0.5, H - h, realBarW - 1, h);
+    }
   }
   if (!audioEl.paused) flameRaf = requestAnimationFrame(drawFlame);
 }
 
 function flameStart() {
   ensureFlame();
-  if (!flameAnalyser) return;
-  // Some browsers leave the context suspended until the first gesture
-  // even after createMediaElementSource — kick it explicitly.
-  if (flameCtx.state === 'suspended') flameCtx.resume().catch(() => {});
+  if (flameCtx?.state === 'suspended') flameCtx.resume().catch(() => {});
+  // Always start the rAF loop, even if the analyser failed to build —
+  // the draw path falls back to a synthesized animation in that case
+  // (matters on iOS Safari where Web Audio sometimes refuses).
+  if (!flameAnalyser) flameSynthMode = true;
   if (!flameRaf) flameRaf = requestAnimationFrame(drawFlame);
 }
 
