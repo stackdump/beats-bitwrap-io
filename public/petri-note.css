@@ -3240,6 +3240,14 @@ a.pn-stage-btn:hover { color: #fff; }
      * fought with those writes and made layoutRing's stash-and-
      * measure trick read a stale rect, so the ring drifted below the
      * viewport after successive track changes. */
+}
+/* preserve-3d only when tilt mode is active. Setting it
+ * unconditionally caused iOS Safari to drop the descendant
+ * 2D flame canvas (a long-standing WebKit bug — 2D canvases
+ * inside a preserve-3d ancestor render blank). Tilt is opt-in,
+ * so default mode no longer triggers the bug; users who turn
+ * tilt on accept the iPad limitation. */
+.pn-stage-overlay.tilt-active .pn-stage-grid {
     transform-style: preserve-3d;
 }
 .pn-stage-close,
@@ -3337,13 +3345,6 @@ a.pn-stage-btn:hover { color: #fff; }
     height: 100%;
     pointer-events: none;
     z-index: 0;
-    /* iOS Safari renders descendant 2D canvases blank when their
-     * ancestor has `transform-style: preserve-3d` (which .pn-stage-grid
-     * needs for Tilt viz mode). Forcing our own compositing layer with
-     * translateZ(0) sidesteps the WebKit bug — the flame canvas still
-     * inherits the parent's 3D rotation but no longer collapses into
-     * an unrendered flat layer. */
-    transform: translateZ(0);
 }
 .pn-stage-panel .pn-stage-canvas {
     position: absolute; inset: 0; width: 100%; height: 100%;

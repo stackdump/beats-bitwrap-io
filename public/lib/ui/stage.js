@@ -324,10 +324,16 @@ export function openStage(el) {
         // transforms don't linger. Pulse particles are *not* cleared
         // here — we stop spawning new ones, but existing particles
         // finish their fade so the mode "trails off" gracefully.
-        if (mode === 'tilt' && on) {
-            const grid = overlay.querySelector('.pn-stage-grid');
-            grid.style.transform = '';
-            session.tiltAngle = 0;
+        if (mode === 'tilt') {
+            // Toggle the preserve-3d guard on the overlay so it's only
+            // engaged while Tilt is on — keeps iOS Safari from blanking
+            // the flame canvas in default (non-tilt) mode.
+            overlay.classList.toggle('tilt-active', !on);
+            if (on) {
+                const grid = overlay.querySelector('.pn-stage-grid');
+                grid.style.transform = '';
+                session.tiltAngle = 0;
+            }
         }
         if (mode === 'flame' && on) {
             session.flameEnergy.clear();
