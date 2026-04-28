@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>beats-bitwrap-io · beat as endomorphism hub</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Macros visualised as endomorphisms on a single object: Beat. Each macro loops back to the track state it modifies.">
+<meta property="og:title" content="beats-bitwrap-io · beat-hub">
+<meta property="og:description" content="The dual view of the macro category: collapse the wires and look at the object the macros all loop back to.">
+<style>
+  :root {
+    --bg: #020617;
+    --panel: #0b1020;
+    --ink: #e2e8f0;
+    --dim: #94a3b8;
+    --accent: #ec4899;
+    --line: #334155;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 28px 10px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
+  header p { margin: 4px 0 0; color: var(--dim); font-size: 13px; line-height: 1.5; max-width: 920px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  main { padding: 20px 28px 40px; }
+  .frame {
+    background: #0a0f1e;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .frame h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #f8fafc; }
+  .frame p { margin: 0 0 10px; font-size: 12px; color: var(--dim); line-height: 1.55; }
+  .frame img { width: 100%; height: auto; display: block; border-radius: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
+  footer { padding: 10px 28px 30px; color: var(--dim); font-size: 12px; line-height: 1.55; }
+  footer code { background: var(--panel); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>beat as endomorphism hub · beats-bitwrap-io</h1>
+  <p>
+    Companion to the <a href="/docs/macro-category">macro category</a>:
+    that page renders macros as boxes in a free monoidal category, with
+    typed wires picking out parallel-composability. This one collapses the
+    picture to a single object — <code>Beat</code> — with every macro drawn as a
+    loop <code>Beat → Beat</code>. The wires don't disappear; they're now the
+    colors of the loops, so visual clusters match runtime conflict classes.
+    All macros are endomorphisms; this view makes that obvious.
+  </p>
+</header>
+<main>
+  <div class="frame">
+    <h2>The full hub — 42 macros, one object</h2>
+    <p>
+      Beat sits in the middle. Each colored loop is one entry in
+      <code>public/lib/macros/catalog.js</code>. Color = wire family.
+      Wedge width is proportional to family size — FX has 13 macros so it
+      gets the widest arc; Tempo has 3 so it's narrower. The takeaway:
+      the runtime's macro pool isn't a tree of cases, it's a single
+      monoid acting on one state object.
+    </p>
+    <img src="/docs/beat-hub.png" alt="Endomorphism hub of the macro catalog">
+  </div>
+
+  <div class="grid">
+    <div class="frame">
+      <h2>FX</h2>
+      <p>13 distinct fxKey wires. The runtime's biggest family.</p>
+      <img src="/docs/beat-hub-fx.png" alt="FX family hub">
+    </div>
+    <div class="frame">
+      <h2>Mute</h2>
+      <p>One shared <code>mute</code> wire — sequential within family, freely parallel with everything else.</p>
+      <img src="/docs/beat-hub-mute.png" alt="Mute family hub">
+    </div>
+    <div class="frame">
+      <h2>Feel</h2>
+      <p>Two-wire dom (<code>fx:lp-freq ⊗ tempo</code>) — conflicts with both FX and Tempo macros.</p>
+      <img src="/docs/beat-hub-feel.png" alt="Feel family hub">
+    </div>
+    <div class="frame">
+      <h2>Tempo</h2>
+      <p>Three macros, all on the <code>tempo</code> wire. Disruptors — usually <code>macrosDisabled</code> in seed contexts.</p>
+      <img src="/docs/beat-hub-tempo.png" alt="Tempo family hub">
+    </div>
+    <div class="frame">
+      <h2>Pitch</h2>
+      <p>Routes through <code>master-pitch</code> fxKey, so technically an FX wire — but isolated so it parallel-composes with everything else.</p>
+      <img src="/docs/beat-hub-pitch.png" alt="Pitch family hub">
+    </div>
+    <div class="frame">
+      <h2>Pan · Shape · One-Shot</h2>
+      <p>Each on its own dedicated wire. The <code>oneshot:hitN</code> family is fully orthogonal — all four pads can fire simultaneously.</p>
+      <img src="/docs/beat-hub-pan.png" alt="Pan family hub">
+      <img src="/docs/beat-hub-shape.png" alt="Shape family hub" style="margin-top: 10px;">
+      <img src="/docs/beat-hub-one-shot.png" alt="One-Shot family hub" style="margin-top: 10px;">
+    </div>
+  </div>
+</main>
+<footer>
+  Generated by <code>scripts/draw_beat_hub.py</code>. Source catalog:
+  <code>public/lib/macros/catalog.js</code>. Refresh after edits with
+  <code>node scripts/dump_macros.mjs | python3 scripts/draw_beat_hub.py</code>.
+  Pure matplotlib — no DisCoPy dependency.
+</footer>
+</body>
+</html>
