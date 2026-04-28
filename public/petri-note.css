@@ -3337,6 +3337,13 @@ a.pn-stage-btn:hover { color: #fff; }
     height: 100%;
     pointer-events: none;
     z-index: 0;
+    /* iOS Safari renders descendant 2D canvases blank when their
+     * ancestor has `transform-style: preserve-3d` (which .pn-stage-grid
+     * needs for Tilt viz mode). Forcing our own compositing layer with
+     * translateZ(0) sidesteps the WebKit bug — the flame canvas still
+     * inherits the parent's 3D rotation but no longer collapses into
+     * an unrendered flat layer. */
+    transform: translateZ(0);
 }
 .pn-stage-panel .pn-stage-canvas {
     position: absolute; inset: 0; width: 100%; height: 100%;
