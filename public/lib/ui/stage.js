@@ -78,8 +78,8 @@ export function openStage(el) {
         <button class="pn-stage-close" title="Close (Esc)">&times;</button>
         <canvas class="pn-stage-bg" aria-hidden="true"></canvas>
         <canvas class="pn-stage-scope" aria-hidden="true"></canvas>
+        <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
         <div class="pn-stage-grid">
-            <canvas class="pn-stage-flame" aria-hidden="true"></canvas>
             <svg class="pn-stage-meta" aria-hidden="true"></svg>
         </div>
     `;
@@ -1063,6 +1063,15 @@ function startLoop() {
             } else if (Math.abs(rotZ) > 0.01 || session._hadTransform) {
                 grid.style.transform = rotZ ? `rotateZ(${rotZ}deg)` : '';
                 session._hadTransform = !!rotZ;
+            }
+            // Flame canvas lives outside the grid (iPad WebKit blanks
+            // 2D canvases under preserve-3d), so it doesn't auto-inherit
+            // the grid's rotation. Mirror rotateZ here so beams stay
+            // aimed at panels after metaRotation accumulates. Tilt's
+            // rotateX/Y is dropped — flame stays viewport-flat.
+            if (session.flameCanvas) {
+                session.flameCanvas.style.transform =
+                    rotZ ? `rotateZ(${rotZ}deg)` : '';
             }
         }
         // Pulse: update the pulse-particle SVG layer. Keep rendering
