@@ -30,3 +30,38 @@ CREATE TABLE IF NOT EXISTS rebuild_queue (
     claimed_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS rebuild_queue_marked ON rebuild_queue(marked_at);
+
+-- track_analysis: per-CID audio quality measurements. One row per
+-- CID, last-write-wins. Two producers write here:
+--   1. The audio renderer, on every successful render — populates
+--      `lufs`/`true_peak_db` from the ffmpeg loudnorm pass and sets
+--      `source='loudnorm'`. Cheap, in-band, no extra workload.
+--   2. scripts/analyze-audio.py, run off-host against a slice of the
+--      catalogue — populates the spectral fields and either
+--      sets `source='analyzer'` (overwriting the loudnorm row) or,
+--      when keeping the loudnorm LUFS, sets `source='merged'`.
+-- Schema mirrors public/schema/beats-audio-analysis.schema.json —
+-- keep them in sync if you add a column.
+CREATE TABLE IF NOT EXISTS track_analysis (
+    cid              TEXT PRIMARY KEY,
+    analyzer_version TEXT NOT NULL DEFAULT '',
+    analyzed_at      INTEGER NOT NULL,
+    source           TEXT NOT NULL DEFAULT '',
+    duration_s       REAL,
+    lufs             REAL,
+    true_peak_db     REAL,
+    peak             REAL,
+    rms              REAL,
+    crest_db         REAL,
+    centroid_hz      REAL,
+    rolloff85_hz     REAL,
+    onset_rate       REAL,
+    bpm              REAL,
+    band_sub         REAL,
+    band_low         REAL,
+    band_lomid       REAL,
+    band_himid       REAL,
+    band_high        REAL,
+    hpf_hz           REAL
+);
+CREATE INDEX IF NOT EXISTS track_analysis_lufs ON track_analysis(lufs);

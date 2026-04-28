@@ -82,6 +82,29 @@ type Config struct {
 	// PATH. Set by main.go from -ffmpeg flag if needed; the prod host
 	// has /usr/bin/ffmpeg installed.
 	FFmpegPath string
+	// LoudnormTargetLUFS is the integrated-loudness target for the
+	// post-capture ffmpeg loudnorm pass. <=0 disables loudnorm (the
+	// raw recorder/transcoder bytes ship as-is). Standard streaming
+	// targets: −16 (Spotify/YouTube tier), −14 (loudness-war), −23
+	// (EBU broadcast). The 04-28 audio-analysis baseline put the
+	// fleet at −30 to −34 LUFS — at that level a listener bumps
+	// system volume and gets blasted by the next browser tab. A −16
+	// default lifts the whole fleet uniformly without per-genre
+	// tuning. Future renders only — existing CIDs are pinned.
+	LoudnormTargetLUFS float64
+	// LoudnormTruePeakDB is the true-peak ceiling for the loudnorm
+	// pass. ≤0 → −1.0. Streaming-safe value; below −1 dBTP avoids
+	// inter-sample peaks introduced by Opus's lossy encode.
+	LoudnormTruePeakDB float64
+	// LoudnormLRA caps the loudness range. ≤0 → 11 (pop default).
+	// Used as the fallback when a per-genre override doesn't apply.
+	LoudnormLRA float64
+	// LookupGenre returns the genre tag for a CID (typically read
+	// from the share envelope). Used to look up MasterTarget per
+	// render so club tracks land louder + tighter and ambient
+	// tracks keep their dynamics. Nil = use the global LUFS/LRA
+	// for every render.
+	LookupGenre func(cid string) string
 	// RenderMode picks the in-page render path. "" or "realtime" uses
 	// the chromedp + MediaRecorder pipeline (1× wall time, full live
 	// fidelity). "offline" uses Tone.Offline inside the page, which
@@ -96,6 +119,12 @@ type Config struct {
 	// Errors are observational — the audio file is already cached
 	// even if the index hiccups.
 	OnRenderComplete func(cid string)
+	// OnLoudnorm fires immediately after a successful loudnorm pass
+	// with the parsed integrated-LUFS measurement. Wired in main.go
+	// to upsert a partial row in the analysis index (the python
+	// analyzer fills in the spectral/band metrics later via PUT
+	// /api/analysis/{cid}). Nil = drop the metric on the floor.
+	OnLoudnorm func(cid string, m LoudnormResult)
 }
 
 // Metadata is the set of tags written into the Matroska container
@@ -469,6 +498,42 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 		if err := os.WriteFile(tmp, data, 0o644); err != nil {
 			return "", fmt.Errorf("audiorender: write tmp: %w", err)
 		}
+	}
+	// Loudnorm pass — re-encodes Opus, so it's a fidelity tradeoff,
+	// but lifts a −33 LUFS fleet to a streaming-tier target. Skipped
+	// when LoudnormTargetLUFS<=0 or ffmpeg fails (logged, raw bytes
+	// proceed). Metrics from the pass are stashed for the
+	// OnRenderComplete hook to forward to the analysis index.
+	var lnMetrics *LoudnormResult
+	if r.cfg.LoudnormTargetLUFS < 0 {
+		// explicit opt-out via negative value, stay quiet
+	} else if r.cfg.LoudnormTargetLUFS > 0 {
+		// Per-genre override: spacious genres get −18/LRA=15, club
+		// genres get −14/LRA=7, etc. (see mastering.go). Falls back
+		// to the global LoudnormTargetLUFS / LoudnormLRA when the
+		// share envelope's genre isn't in the table.
+		targetI := r.cfg.LoudnormTargetLUFS
+		targetLRA := r.cfg.LoudnormLRA
+		if r.cfg.LookupGenre != nil {
+			if mt := MasteringFor(r.cfg.LookupGenre(cid)); mt.LUFS != 0 {
+				targetI = mt.LUFS
+				targetLRA = mt.LRA
+			}
+		}
+		normalized := path + ".norm"
+		res, err := loudnorm(renderCtx, r.cfg.FFmpegPath, tmp, normalized,
+			targetI, r.cfg.LoudnormTruePeakDB, targetLRA)
+		if err == nil {
+			_ = os.Remove(tmp)
+			tmp = normalized
+			lnMetrics = res
+		} else {
+			log.Printf("audiorender: loudnorm %s: %v (shipping un-normalized)", cid, err)
+			_ = os.Remove(normalized)
+		}
+	}
+	if lnMetrics != nil && r.cfg.OnLoudnorm != nil {
+		r.cfg.OnLoudnorm(cid, *lnMetrics)
 	}
 	// Stamp Matroska tags via ffmpeg stream-copy. If LookupMetadata
 	// is unset, ffmpeg isn't on PATH, or the call fails, log and

@@ -20,6 +20,12 @@ var beatsShareContextBytes []byte
 //go:embed snapshot-manifest.context.jsonld
 var snapshotManifestContextBytes []byte
 
+//go:embed beats-audio-analysis.context.jsonld
+var beatsAudioAnalysisContextBytes []byte
+
+//go:embed beats-audio-analysis.schema.json
+var beatsAudioAnalysisSchemaBytes []byte
+
 // shareSchemaBytes is defined in seal.go (embedded for validator compilation).
 
 type schemaTerm struct {
@@ -107,6 +113,35 @@ func HandleSnapshotManifestSchema(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/ld+json")
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Write(snapshotManifestContextBytes)
+}
+
+// HandleBeatsAudioAnalysisSchema serves /schema/beats-audio-analysis with
+// the same three-tier content negotiation as HandleBeatsShareSchema:
+// schema+json → JSON-Schema, html → term glossary, anything else → JSON-LD.
+func HandleBeatsAudioAnalysisSchema(w http.ResponseWriter, r *http.Request) {
+	accept := r.Header.Get("Accept")
+	switch {
+	case acceptMentions(accept, "application/schema+json"):
+		w.Header().Set("Content-Type", "application/schema+json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(beatsAudioAnalysisSchemaBytes)
+	case acceptMentions(accept, "text/html") &&
+		!acceptMentions(accept, "application/ld+json") &&
+		!acceptMentions(accept, "application/schema+json"):
+		terms, err := parseContextTerms(beatsAudioAnalysisContextBytes)
+		if err != nil {
+			http.Error(w, "schema render error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := schemaGlossaryTmpl.Execute(w, terms); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
+		}
+	default:
+		w.Header().Set("Content-Type", "application/ld+json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(beatsAudioAnalysisContextBytes)
+	}
 }
 
 // acceptMentions reports whether the Accept header explicitly names `mime`

@@ -78,6 +78,9 @@ func main() {
 	audioMaxDuration := flag.Duration("audio-max-duration", 3*time.Minute, "Cap on audio length per render. 0 = unbounded (still subject to -audio-render-timeout).")
 	audioRenderTimeout := flag.Duration("audio-render-timeout", 10*time.Minute, "Hard kill timer per render (covers stuck browsers / hung devices). Should comfortably exceed -audio-max-duration.")
 	audioRenderMode := flag.String("audio-render-mode", "realtime", "Render path: 'realtime' (chromedp + MediaRecorder, 1× wall time, full live fidelity) or 'offline' (Tone.Offline, ~10× faster, fidelity gaps — see public/lib/share/offline-render.js header).")
+	audioLoudnormLUFS := flag.Float64("audio-loudnorm-lufs", -16.0, "Integrated-LUFS target for the post-render ffmpeg loudnorm pass. 0 = skip, negative = explicit opt-out. Default −16 matches Spotify/YouTube tier; lifts the un-normalized fleet (~−30 LUFS) to streaming-tier loudness.")
+	audioLoudnormTP := flag.Float64("audio-loudnorm-truepeak", -1.0, "True-peak ceiling (dBTP) for the loudnorm pass. Streaming-safe values are −1 to −2.")
+	audioLoudnormLRA := flag.Float64("audio-loudnorm-lra", 11.0, "Default loudness range (LU) for loudnorm; per-genre table overrides this. Lower = squashed, higher = preserves dynamics.")
 	audioAutoEnqueue := flag.Bool("audio-auto-enqueue", true, "Pre-render newly sealed CIDs in the background so listeners hit a warm cache.")
 	rebuildQueueEnabled := flag.Bool("rebuild-queue", false, "Expose /api/rebuild-{mark,queue,clear} so listeners can flag broken renders for an off-host worker to re-render. Adds a ⟳ button on each feed card.")
 
@@ -166,6 +169,7 @@ func main() {
 	mux.Handle("/o/", shareStore)
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
 	mux.HandleFunc("/schema/snapshot-manifest", share.HandleSnapshotManifestSchema)
+	mux.HandleFunc("/schema/beats-audio-analysis", share.HandleBeatsAudioAnalysisSchema)
 	svgCard := share.HandleShareCard(shareStore)
 	pngCard := share.HandleShareCardPNG(shareStore)
 	mux.Handle("/share-card/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -260,17 +264,58 @@ func main() {
 		if mode != "" && mode != "realtime" && mode != "offline" {
 			log.Fatalf("audio renderer: invalid -audio-render-mode %q (want 'realtime' or 'offline')", *audioRenderMode)
 		}
+		// OnLoudnorm projects the in-band integrated-LUFS measurement
+		// from the renderer's loudnorm pass into a partial analysis
+		// row. The off-host analyzer worker fills in spectral fields
+		// later via PUT /api/analysis/{cid}; the COALESCE-based upsert
+		// preserves whichever fields each producer wrote.
+		onLoudnorm := func(cid string, m audiorender.LoudnormResult) {
+			lufs := m.InputI
+			tp := m.InputTP
+			a := index.Analysis{
+				CID:             cid,
+				AnalyzerVersion: "ffmpeg-loudnorm",
+				AnalyzedAt:      time.Now().UnixMilli(),
+				Source:          "loudnorm",
+				LUFS:            &lufs,
+				TruePeakDb:      &tp,
+			}
+			if err := idx.UpsertAnalysis(a); err != nil {
+				log.Printf("analysis: upsert %s: %v", cid, err)
+			}
+		}
+		// LookupGenre reads just the genre tag from the share envelope
+		// so the renderer can apply per-genre loudnorm targets. Cheap;
+		// the same envelope is also fetched by lookupMD a moment later.
+		lookupGenre := func(cid string) string {
+			raw, err := shareStore.Lookup(cid)
+			if err != nil {
+				return ""
+			}
+			var p struct {
+				Genre string `json:"genre"`
+			}
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return ""
+			}
+			return p.Genre
+		}
 		ar, err := audiorender.New(audiorender.Config{
-			CacheDir:         filepath.Join(*dataDir, "audio"),
-			BaseURL:          base,
-			MaxBytes:         *audioMaxBytes,
-			MaxConcurrent:    *audioConcurrent,
-			RenderTimeout:    *audioRenderTimeout,
-			MaxDuration:      *audioMaxDuration,
-			ChromePath:       *audioChromePath,
-			LookupMetadata:   lookupMD,
-			OnRenderComplete: onRenderComplete,
-			RenderMode:       mode,
+			CacheDir:           filepath.Join(*dataDir, "audio"),
+			BaseURL:            base,
+			MaxBytes:           *audioMaxBytes,
+			MaxConcurrent:      *audioConcurrent,
+			RenderTimeout:      *audioRenderTimeout,
+			MaxDuration:        *audioMaxDuration,
+			ChromePath:         *audioChromePath,
+			LookupMetadata:     lookupMD,
+			LookupGenre:        lookupGenre,
+			OnRenderComplete:   onRenderComplete,
+			OnLoudnorm:         onLoudnorm,
+			RenderMode:         mode,
+			LoudnormTargetLUFS: *audioLoudnormLUFS,
+			LoudnormTruePeakDB: *audioLoudnormTP,
+			LoudnormLRA:        *audioLoudnormLRA,
 		})
 		if err != nil {
 			log.Fatalf("audio renderer: %v", err)
@@ -300,6 +345,14 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]string{"cid": cid})
 		})
 		mux.HandleFunc("/api/feed", feedHandler(idx))
+		// /api/analysis/{cid} — per-CID audio quality measurements.
+		// GET is public; PUT requires X-Rebuild-Secret. The renderer
+		// already populates lufs/truePeakDb in-band via the loudnorm
+		// pass — the analyzer worker (scripts/analyze-audio.py)
+		// PUTs the spectral/band fields after the fact. See
+		// public/schema/beats-audio-analysis.schema.json for the
+		// envelope shape.
+		mux.HandleFunc("/api/analysis/", analysisHandler(idx, rebuildSecret))
 		mux.HandleFunc("/feed.rss", rssFeedHandler(idx, publicURL))
 		mux.HandleFunc("/api/features", featuresHandler(*rebuildQueueEnabled))
 		if *rebuildQueueEnabled {
@@ -1175,6 +1228,135 @@ func feedHandler(idx *index.DB) http.HandlerFunc {
 	}
 }
 
+// analysisHandler answers /api/analysis/{cid}.
+//   GET: public; returns the BeatsAudioAnalysis JSON-LD envelope, or
+//        404 if no row exists. No-store on the response so refreshes
+//        always reflect the latest analyzer pass.
+//   PUT: gated by X-Rebuild-Secret. Body is a BeatsAudioAnalysis
+//        JSON-LD envelope (analyzer worker output). Upsert merges
+//        non-null fields with whatever the renderer's loudnorm pass
+//        already wrote — so an analyzer run that omits LUFS keeps
+//        the in-band loudnorm measurement.
+func analysisHandler(idx *index.DB, rebuildSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cid := strings.TrimPrefix(r.URL.Path, "/api/analysis/")
+		if !audiorender.ValidCID(cid) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			a, err := idx.GetAnalysis(cid)
+			if err != nil {
+				log.Printf("analysis get %s: %v", cid, err)
+				http.Error(w, "analysis query failed", http.StatusInternalServerError)
+				return
+			}
+			if a == nil {
+				http.Error(w, "no analysis", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/ld+json")
+			w.Header().Set("Cache-Control", "no-store")
+			env := map[string]any{
+				"@context":         "https://beats.bitwrap.io/schema/beats-audio-analysis.context.jsonld",
+				"@type":            "BeatsAudioAnalysis",
+				"cid":              a.CID,
+				"analyzerVersion":  a.AnalyzerVersion,
+				"analyzedAt":       a.AnalyzedAt,
+				"source":           a.Source,
+			}
+			addF := func(k string, p *float64) {
+				if p != nil {
+					env[k] = *p
+				}
+			}
+			addF("durationS", a.DurationS)
+			addF("lufs", a.LUFS)
+			addF("truePeakDb", a.TruePeakDb)
+			addF("peak", a.Peak)
+			addF("rms", a.RMS)
+			addF("crestDb", a.CrestDb)
+			addF("centroidHz", a.CentroidHz)
+			addF("rolloff85Hz", a.Rolloff85Hz)
+			addF("onsetRate", a.OnsetRate)
+			addF("bpm", a.BPM)
+			addF("bandSub", a.BandSub)
+			addF("bandLow", a.BandLow)
+			addF("bandLomid", a.BandLomid)
+			addF("bandHimid", a.BandHimid)
+			addF("bandHigh", a.BandHigh)
+			addF("hpfHz", a.HpfHz)
+			_ = json.NewEncoder(w).Encode(env)
+		case http.MethodPut:
+			if rebuildSecret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+				http.Error(w, "X-Rebuild-Secret required", http.StatusUnauthorized)
+				return
+			}
+			body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+			if err != nil {
+				http.Error(w, "read body", http.StatusBadRequest)
+				return
+			}
+			var env struct {
+				CID             string   `json:"cid"`
+				AnalyzerVersion string   `json:"analyzerVersion"`
+				AnalyzedAt      int64    `json:"analyzedAt"`
+				Source          string   `json:"source"`
+				DurationS       *float64 `json:"durationS"`
+				LUFS            *float64 `json:"lufs"`
+				TruePeakDb      *float64 `json:"truePeakDb"`
+				Peak            *float64 `json:"peak"`
+				RMS             *float64 `json:"rms"`
+				CrestDb         *float64 `json:"crestDb"`
+				CentroidHz      *float64 `json:"centroidHz"`
+				Rolloff85Hz     *float64 `json:"rolloff85Hz"`
+				OnsetRate       *float64 `json:"onsetRate"`
+				BPM             *float64 `json:"bpm"`
+				BandSub         *float64 `json:"bandSub"`
+				BandLow         *float64 `json:"bandLow"`
+				BandLomid       *float64 `json:"bandLomid"`
+				BandHimid       *float64 `json:"bandHimid"`
+				BandHigh        *float64 `json:"bandHigh"`
+				HpfHz           *float64 `json:"hpfHz"`
+			}
+			if err := json.Unmarshal(body, &env); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			// Body cid (if set) must match URL cid. Defaults to URL cid.
+			if env.CID != "" && env.CID != cid {
+				http.Error(w, "cid mismatch", http.StatusBadRequest)
+				return
+			}
+			if env.Source == "" {
+				env.Source = "analyzer"
+			}
+			a := index.Analysis{
+				CID:             cid,
+				AnalyzerVersion: env.AnalyzerVersion,
+				AnalyzedAt:      env.AnalyzedAt,
+				Source:          env.Source,
+				DurationS:       env.DurationS, LUFS: env.LUFS,
+				TruePeakDb: env.TruePeakDb, Peak: env.Peak, RMS: env.RMS,
+				CrestDb: env.CrestDb, CentroidHz: env.CentroidHz,
+				Rolloff85Hz: env.Rolloff85Hz, OnsetRate: env.OnsetRate,
+				BPM: env.BPM, BandSub: env.BandSub, BandLow: env.BandLow,
+				BandLomid: env.BandLomid, BandHimid: env.BandHimid,
+				BandHigh: env.BandHigh, HpfHz: env.HpfHz,
+			}
+			if err := idx.UpsertAnalysis(a); err != nil {
+				log.Printf("analysis upsert %s: %v", cid, err)
+				http.Error(w, "upsert failed", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "GET or PUT only", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
 // featuresHandler exposes runtime feature flags so the gallery JS can
 // decide whether to render optional UI (currently just the rebuild
 // queue button). Cheap, no-cache, public.
@@ -1913,6 +2095,7 @@ func archiveDeleteHandler(idx *index.DB, store *share.Store, ar *audiorender.Ren
 		// always be re-rendered).
 		audioErr := ar.Delete(req.CID)
 		idxErr := idx.DeleteTrack(req.CID)
+		_ = idx.DeleteAnalysis(req.CID)
 		shareErr := store.Delete(req.CID)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")

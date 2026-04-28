@@ -273,3 +273,153 @@ func (d *DB) IsMarkedForRebuild(cid string) (bool, error) {
 	}
 	return err == nil, err
 }
+
+// Analysis is the JSON-LD-shaped audio analysis row for a CID.
+// Mirrors public/schema/beats-audio-analysis.schema.json — every
+// optional float is a *float64 so omitted measurements distinguish
+// from "measured as zero". Also mirrors the JS Tone.js default 44.1k
+// sample rate the analyzer assumes.
+type Analysis struct {
+	CID             string   `json:"cid"`
+	AnalyzerVersion string   `json:"analyzerVersion,omitempty"`
+	AnalyzedAt      int64    `json:"analyzedAt"`
+	Source          string   `json:"source,omitempty"`
+	DurationS       *float64 `json:"durationS,omitempty"`
+	LUFS            *float64 `json:"lufs,omitempty"`
+	TruePeakDb      *float64 `json:"truePeakDb,omitempty"`
+	Peak            *float64 `json:"peak,omitempty"`
+	RMS             *float64 `json:"rms,omitempty"`
+	CrestDb         *float64 `json:"crestDb,omitempty"`
+	CentroidHz      *float64 `json:"centroidHz,omitempty"`
+	Rolloff85Hz     *float64 `json:"rolloff85Hz,omitempty"`
+	OnsetRate       *float64 `json:"onsetRate,omitempty"`
+	BPM             *float64 `json:"bpm,omitempty"`
+	BandSub         *float64 `json:"bandSub,omitempty"`
+	BandLow         *float64 `json:"bandLow,omitempty"`
+	BandLomid       *float64 `json:"bandLomid,omitempty"`
+	BandHimid       *float64 `json:"bandHimid,omitempty"`
+	BandHigh        *float64 `json:"bandHigh,omitempty"`
+	HpfHz           *float64 `json:"hpfHz,omitempty"`
+}
+
+// UpsertAnalysis writes a row, overwriting any prior. The renderer
+// calls this with source='loudnorm' (lufs only); the off-host
+// analyzer worker calls it with source='analyzer' (full spectral)
+// or source='merged' (preserving the loudnorm LUFS while filling in
+// spectral fields). Caller controls merge semantics.
+func (d *DB) UpsertAnalysis(a Analysis) error {
+	if a.AnalyzedAt == 0 {
+		a.AnalyzedAt = time.Now().UnixMilli()
+	}
+	_, err := d.sql.Exec(
+		`INSERT INTO track_analysis
+		   (cid, analyzer_version, analyzed_at, source,
+		    duration_s, lufs, true_peak_db, peak, rms, crest_db,
+		    centroid_hz, rolloff85_hz, onset_rate, bpm,
+		    band_sub, band_low, band_lomid, band_himid, band_high, hpf_hz)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(cid) DO UPDATE SET
+		   analyzer_version = excluded.analyzer_version,
+		   analyzed_at      = excluded.analyzed_at,
+		   source           = excluded.source,
+		   duration_s       = COALESCE(excluded.duration_s,   track_analysis.duration_s),
+		   lufs             = COALESCE(excluded.lufs,         track_analysis.lufs),
+		   true_peak_db     = COALESCE(excluded.true_peak_db, track_analysis.true_peak_db),
+		   peak             = COALESCE(excluded.peak,         track_analysis.peak),
+		   rms              = COALESCE(excluded.rms,          track_analysis.rms),
+		   crest_db         = COALESCE(excluded.crest_db,     track_analysis.crest_db),
+		   centroid_hz      = COALESCE(excluded.centroid_hz,  track_analysis.centroid_hz),
+		   rolloff85_hz     = COALESCE(excluded.rolloff85_hz, track_analysis.rolloff85_hz),
+		   onset_rate       = COALESCE(excluded.onset_rate,   track_analysis.onset_rate),
+		   bpm              = COALESCE(excluded.bpm,          track_analysis.bpm),
+		   band_sub         = COALESCE(excluded.band_sub,     track_analysis.band_sub),
+		   band_low         = COALESCE(excluded.band_low,     track_analysis.band_low),
+		   band_lomid       = COALESCE(excluded.band_lomid,   track_analysis.band_lomid),
+		   band_himid       = COALESCE(excluded.band_himid,   track_analysis.band_himid),
+		   band_high        = COALESCE(excluded.band_high,    track_analysis.band_high),
+		   hpf_hz           = COALESCE(excluded.hpf_hz,       track_analysis.hpf_hz)`,
+		a.CID, a.AnalyzerVersion, a.AnalyzedAt, a.Source,
+		nullableFloat(a.DurationS), nullableFloat(a.LUFS),
+		nullableFloat(a.TruePeakDb), nullableFloat(a.Peak),
+		nullableFloat(a.RMS), nullableFloat(a.CrestDb),
+		nullableFloat(a.CentroidHz), nullableFloat(a.Rolloff85Hz),
+		nullableFloat(a.OnsetRate), nullableFloat(a.BPM),
+		nullableFloat(a.BandSub), nullableFloat(a.BandLow),
+		nullableFloat(a.BandLomid), nullableFloat(a.BandHimid),
+		nullableFloat(a.BandHigh), nullableFloat(a.HpfHz),
+	)
+	if err != nil {
+		return fmt.Errorf("index: upsert analysis: %w", err)
+	}
+	return nil
+}
+
+// GetAnalysis loads the row for cid, or returns (nil, nil) if absent.
+func (d *DB) GetAnalysis(cid string) (*Analysis, error) {
+	var a Analysis
+	a.CID = cid
+	var (
+		durS, lufs, tpDb, peak, rms, crest, cent, roll, onset, bpm sql.NullFloat64
+		bSub, bLow, bLomid, bHimid, bHigh, hpf                     sql.NullFloat64
+	)
+	err := d.sql.QueryRow(
+		`SELECT analyzer_version, analyzed_at, source,
+		        duration_s, lufs, true_peak_db, peak, rms, crest_db,
+		        centroid_hz, rolloff85_hz, onset_rate, bpm,
+		        band_sub, band_low, band_lomid, band_himid, band_high, hpf_hz
+		   FROM track_analysis WHERE cid = ?`, cid,
+	).Scan(
+		&a.AnalyzerVersion, &a.AnalyzedAt, &a.Source,
+		&durS, &lufs, &tpDb, &peak, &rms, &crest,
+		&cent, &roll, &onset, &bpm,
+		&bSub, &bLow, &bLomid, &bHimid, &bHigh, &hpf,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("index: get analysis: %w", err)
+	}
+	a.DurationS = nullToPtr(durS)
+	a.LUFS = nullToPtr(lufs)
+	a.TruePeakDb = nullToPtr(tpDb)
+	a.Peak = nullToPtr(peak)
+	a.RMS = nullToPtr(rms)
+	a.CrestDb = nullToPtr(crest)
+	a.CentroidHz = nullToPtr(cent)
+	a.Rolloff85Hz = nullToPtr(roll)
+	a.OnsetRate = nullToPtr(onset)
+	a.BPM = nullToPtr(bpm)
+	a.BandSub = nullToPtr(bSub)
+	a.BandLow = nullToPtr(bLow)
+	a.BandLomid = nullToPtr(bLomid)
+	a.BandHimid = nullToPtr(bHimid)
+	a.BandHigh = nullToPtr(bHigh)
+	a.HpfHz = nullToPtr(hpf)
+	return &a, nil
+}
+
+// DeleteAnalysis removes the analysis row for cid. Idempotent; called
+// from the cascade in /api/archive-delete.
+func (d *DB) DeleteAnalysis(cid string) error {
+	_, err := d.sql.Exec(`DELETE FROM track_analysis WHERE cid = ?`, cid)
+	if err != nil {
+		return fmt.Errorf("index: delete analysis: %w", err)
+	}
+	return nil
+}
+
+func nullableFloat(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func nullToPtr(n sql.NullFloat64) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Float64
+	return &v
+}

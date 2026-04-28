@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beats.bitwrap.io/schema/beats-audio-analysis.schema.json",
+  "title": "BeatsAudioAnalysis",
+  "description": "Per-CID audio quality measurements for a rendered .webm. Produced by scripts/analyze-audio.py (full spectral/loudness analysis) and partially populated at render time from ffmpeg loudnorm output (lufs only). Associated with a share-store CID; one row per CID, last-write-wins.",
+  "type": "object",
+  "required": ["@type", "cid", "analyzedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "@context": {
+      "type": "string",
+      "const": "https://beats.bitwrap.io/schema/beats-audio-analysis.context.jsonld"
+    },
+    "@type": { "type": "string", "const": "BeatsAudioAnalysis" },
+    "cid": {
+      "type": "string",
+      "pattern": "^z[1-9A-HJ-NP-Za-km-z]{40,80}$"
+    },
+    "analyzerVersion": {
+      "type": "string",
+      "description": "Free-form tag identifying the producer (e.g. 'analyze-audio.py@1' or 'ffmpeg-loudnorm')."
+    },
+    "analyzedAt": {
+      "type": "integer",
+      "description": "Unix milliseconds the analysis was produced."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["loudnorm", "analyzer", "merged"],
+      "description": "Which producer wrote this row. 'loudnorm' = lufs only (render-time). 'analyzer' = full spectral. 'merged' = lufs from loudnorm + spectral from analyzer."
+    },
+    "durationS": { "type": "number", "minimum": 0 },
+    "lufs": {
+      "type": "number",
+      "minimum": -70, "maximum": 0,
+      "description": "ITU BS.1770 integrated loudness. Streaming targets: −16 to −14."
+    },
+    "truePeakDb": { "type": "number", "maximum": 6 },
+    "peak": { "type": "number", "minimum": 0, "maximum": 1.5 },
+    "rms": { "type": "number", "minimum": 0, "maximum": 1.5 },
+    "crestDb": {
+      "type": "number", "minimum": 0, "maximum": 40,
+      "description": "20·log10(peak/rms). >18 dB = dynamic, <10 dB = brick-walled."
+    },
+    "centroidHz": { "type": "number", "minimum": 0, "maximum": 22050 },
+    "rolloff85Hz": { "type": "number", "minimum": 0, "maximum": 22050 },
+    "onsetRate": {
+      "type": "number", "minimum": 0,
+      "description": "librosa onset detections per second."
+    },
+    "bpm": { "type": "number", "minimum": 0, "maximum": 400 },
+    "bandSub":   { "type": "number", "minimum": 0, "maximum": 1 },
+    "bandLow":   { "type": "number", "minimum": 0, "maximum": 1 },
+    "bandLomid": { "type": "number", "minimum": 0, "maximum": 1 },
+    "bandHimid": { "type": "number", "minimum": 0, "maximum": 1 },
+    "bandHigh":  { "type": "number", "minimum": 0, "maximum": 1 },
+    "hpfHz": {
+      "type": "number", "minimum": 0,
+      "description": "HPF cutoff applied before band-ratio computation, if any. 0 = no HPF."
+    }
+  }
+}

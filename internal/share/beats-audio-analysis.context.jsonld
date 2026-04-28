@@ -1,0 +1,31 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "vocab": "https://beats.bitwrap.io/schema/vocab#",
+    "@vocab": "https://beats.bitwrap.io/schema/vocab#",
+
+    "BeatsAudioAnalysis": "vocab:BeatsAudioAnalysis",
+
+    "cid":              { "@id": "vocab:cid",              "@type": "xsd:string"  },
+    "analyzerVersion":  { "@id": "vocab:analyzerVersion",  "@type": "xsd:string"  },
+    "analyzedAt":       { "@id": "vocab:analyzedAt",       "@type": "xsd:integer" },
+    "source":           { "@id": "vocab:source",           "@type": "xsd:string"  },
+    "durationS":        { "@id": "vocab:durationS",        "@type": "xsd:double"  },
+    "lufs":             { "@id": "vocab:lufs",             "@type": "xsd:double"  },
+    "truePeakDb":       { "@id": "vocab:truePeakDb",       "@type": "xsd:double"  },
+    "peak":             { "@id": "vocab:peak",             "@type": "xsd:double"  },
+    "rms":              { "@id": "vocab:rms",              "@type": "xsd:double"  },
+    "crestDb":          { "@id": "vocab:crestDb",          "@type": "xsd:double"  },
+    "centroidHz":       { "@id": "vocab:centroidHz",       "@type": "xsd:double"  },
+    "rolloff85Hz":      { "@id": "vocab:rolloff85Hz",      "@type": "xsd:double"  },
+    "onsetRate":        { "@id": "vocab:onsetRate",        "@type": "xsd:double"  },
+    "bpm":              { "@id": "vocab:bpm",              "@type": "xsd:double"  },
+    "bandSub":          { "@id": "vocab:bandSub",          "@type": "xsd:double"  },
+    "bandLow":          { "@id": "vocab:bandLow",          "@type": "xsd:double"  },
+    "bandLomid":        { "@id": "vocab:bandLomid",        "@type": "xsd:double"  },
+    "bandHimid":        { "@id": "vocab:bandHimid",        "@type": "xsd:double"  },
+    "bandHigh":         { "@id": "vocab:bandHigh",         "@type": "xsd:double"  },
+    "hpfHz":            { "@id": "vocab:hpfHz",            "@type": "xsd:double"  }
+  }
+}
