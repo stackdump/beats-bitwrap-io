@@ -1066,12 +1066,13 @@ function startLoop() {
             }
             // Flame canvas lives outside the grid (iPad WebKit blanks
             // 2D canvases under preserve-3d), so it doesn't auto-inherit
-            // the grid's rotation. Mirror rotateZ here so beams stay
-            // aimed at panels after metaRotation accumulates. Tilt's
-            // rotateX/Y is dropped — flame stays viewport-flat.
+            // the grid's rotation. Mirror the grid transform verbatim so
+            // tilt + metaRotation tracks identically — applying
+            // perspective+rotateX/Y/Z to a single flat canvas projects
+            // it as a flat plane in 3D, which is exactly the visual we
+            // want (beams tilting forward with the panels).
             if (session.flameCanvas) {
-                session.flameCanvas.style.transform =
-                    rotZ ? `rotateZ(${rotZ}deg)` : '';
+                session.flameCanvas.style.transform = grid.style.transform;
             }
         }
         // Pulse: update the pulse-particle SVG layer. Keep rendering
