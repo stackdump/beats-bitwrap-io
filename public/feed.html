@@ -1457,6 +1457,72 @@ const savePlaylist = () => {
   try { localStorage.setItem(PL_KEY, JSON.stringify(playlist)); } catch {}
 };
 
+// Sweep playlist on /feed load: HEAD /o/{cid} for each entry; if the
+// envelope is gone (404), drop it. The share store is content-
+// addressed and immutable, so a 404 means the CID was operator- or
+// owner-deleted — we never want to keep stale entries pointing at
+// archived tracks.
+//
+// Concurrency capped at 4 to avoid hammering prod, with a 5s timeout
+// per probe so a slow request doesn't block the sweep. Network
+// errors (offline, CORS) leave the entry in place — we only drop on
+// confirmed 404. Runs once per session (one-shot guard) and only
+// when the playlist has entries.
+let playlistSwept = false;
+async function sweepArchivedFromPlaylist() {
+  if (playlistSwept) return;
+  playlistSwept = true;
+  if (!playlist.length) return;
+  const removed = [];
+  const limit = 4;
+  let i = 0;
+  const probe = async (cid) => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(`/o/${encodeURIComponent(cid)}`, {
+        method: 'HEAD',
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      return r.status === 404 ? 'gone' : 'live';
+    } catch {
+      return 'unknown';
+    }
+  };
+  const queue = [...playlist];
+  const work = async () => {
+    while (i < queue.length) {
+      const t = queue[i++];
+      const status = await probe(t.cid);
+      if (status === 'gone') removed.push(t.cid);
+    }
+  };
+  await Promise.all(Array.from({ length: limit }, () => work()));
+  if (!removed.length) return;
+  const removedSet = new Set(removed);
+  // Adjust `current` if the now-playing track survived but its index
+  // shifted (entries before it were removed). Drop playback entirely
+  // if the now-playing track itself is gone.
+  const currentCid = current >= 0 ? playlist[current]?.cid : null;
+  playlist = playlist.filter(t => !removedSet.has(t.cid));
+  if (currentCid && removedSet.has(currentCid)) {
+    current = -1;
+    audioEl.pause();
+    audioEl.removeAttribute('src');
+  } else if (currentCid) {
+    current = playlist.findIndex(t => t.cid === currentCid);
+  }
+  savePlaylist();
+  renderPlaylist();
+  // Light, transient notice in the playlist count — same affordance
+  // as the existing "× track removed" momentary text.
+  if (removed.length) {
+    plCount.textContent = `${removed.length} archived track${removed.length === 1 ? '' : 's'} removed`;
+    setTimeout(() => renderPlaylist(), 1600);
+  }
+}
+
 // Persist current track + position so a reload picks up where the
 // listener left off. Throttled by callers to avoid hammering
 // localStorage on every timeupdate (~ 4 Hz).
@@ -2858,6 +2924,10 @@ document.addEventListener('keydown', (e) => {
 
 renderPlaylist();
 fetchPage();
+// Sweep archived/deleted entries from the locally-stored playlist.
+// Runs in the background after first paint so it never blocks feed
+// load; just updates the playlist DOM if any entries are gone.
+sweepArchivedFromPlaylist();
 
 // Confirmation modal — when /feed?cid=… is the URL the user
 // arrived on (typically from the synth view's "open in player" /
