@@ -376,6 +376,14 @@ func main() {
 		// (broken hand-authored topology, etc.) so they stop showing up
 		// in archive sweeps. Requires X-Rebuild-Secret.
 		mux.HandleFunc("/api/archive-delete", archiveDeleteHandler(idx, shareStore, ar, rebuildSecret))
+		// /api/owner-delete — public, signature-gated. Lets the
+		// signer of an envelope cascade-delete it from the live
+		// catalog (audio + index + share envelope). Snapshots stay
+		// untouched — they're operator-only by policy. The signer
+		// proves possession of the original signing key by signing
+		// "delete:{cid}" — distinct from the share signature so the
+		// envelope's own signature can't be lifted as a delete proof.
+		mux.HandleFunc("/api/owner-delete", ownerDeleteHandler(idx, shareStore, ar))
 		// /api/snapshot — stream a .tar.gz of every envelope in the
 		// share store. Authenticated (X-Rebuild-Secret) since the
 		// archive is the canonical state of the catalogue. The
@@ -2126,6 +2134,83 @@ func archiveDeleteHandler(idx *index.DB, store *share.Store, ar *audiorender.Ren
 		})
 		if audioErr != nil || idxErr != nil || shareErr != nil {
 			log.Printf("archive-delete %s: audio=%v idx=%v share=%v",
+				req.CID, audioErr, idxErr, shareErr)
+		}
+	}
+}
+
+// ownerDeleteHandler accepts POST /api/owner-delete {cid, signature}.
+// No X-Rebuild-Secret. Authorization is signature-based: the request's
+// `signature` must verify under the envelope's stored `signer.address`
+// over the message "delete:{cid}". Cascade-removes the live artifacts
+// (audio cache + track index + share envelope). Snapshots are NOT
+// touched — those are immutable backups, operator-only.
+//
+// Failure modes (all return non-200 with a brief reason):
+//   - cid not found → 404
+//   - envelope has no `signer` (anonymous track) → 403, "anonymous"
+//   - signature doesn't verify → 403, "signature mismatch"
+//   - signature verifies but a downstream layer fails → 500 with
+//     per-layer error in the JSON body (idempotent on retry)
+func ownerDeleteHandler(idx *index.DB, store *share.Store, ar *audiorender.Renderer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			CID       string `json:"cid"`
+			Signature string `json:"signature"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidCID(req.CID) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		if req.Signature == "" {
+			http.Error(w, "signature required", http.StatusBadRequest)
+			return
+		}
+		envelope, err := store.LookupBytes(req.CID)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "cid not found", http.StatusNotFound)
+				return
+			}
+			log.Printf("owner-delete lookup %s: %v", req.CID, err)
+			http.Error(w, "lookup failed", http.StatusInternalServerError)
+			return
+		}
+		if err := store.VerifyOwnerDelete(envelope, req.CID, req.Signature); err != nil {
+			// Generic 403 — don't leak whether the envelope was
+			// anonymous vs. signature mismatched, to avoid letting
+			// random probes enumerate signer presence.
+			log.Printf("owner-delete reject %s: %v", req.CID, err)
+			http.Error(w, "not authorized", http.StatusForbidden)
+			return
+		}
+		// Same cascade order as archive-delete (live artifacts only).
+		// Snapshots are deliberately untouched — that's the immutable
+		// archive tier per the docs/CLAUDE.md "Archival & restore"
+		// contract, and the user-doc promise.
+		audioErr := ar.Delete(req.CID)
+		idxErr := idx.DeleteTrack(req.CID)
+		_ = idx.DeleteAnalysis(req.CID)
+		shareErr := store.Delete(req.CID)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cid":        req.CID,
+			"audioError": errStr(audioErr),
+			"indexError": errStr(idxErr),
+			"shareError": errStr(shareErr),
+			"deleted":    audioErr == nil && idxErr == nil && shareErr == nil,
+		})
+		if audioErr != nil || idxErr != nil || shareErr != nil {
+			log.Printf("owner-delete %s: audio=%v idx=%v share=%v",
 				req.CID, audioErr, idxErr, shareErr)
 		}
 	}

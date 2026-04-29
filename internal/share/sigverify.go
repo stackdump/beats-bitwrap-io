@@ -30,6 +30,42 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// VerifyOwnerDelete checks that the requester (proof = `signature`)
+// signed the delete-intent message for `cid` with the same key the
+// envelope was signed with at seal time. Anti-replay note: the
+// delete-intent message is "delete:{cid}" — distinct from the share
+// signature (which signs the bare CID), so the share's own signature
+// can NOT be lifted from /o/{cid} and re-used as a delete proof.
+//
+// Returns nil on success. Errors describe which check failed (used
+// for log lines, not surfaced to the client to avoid leaking signer
+// hints under random probes).
+//
+// Caller is responsible for fetching the envelope bytes and passing
+// them in. The signature can be hex with or without 0x prefix.
+func (s *Store) VerifyOwnerDelete(envelope []byte, cid, sigHex string) error {
+	var probe struct {
+		Signer *struct {
+			Type    string `json:"type"`
+			Address string `json:"address"`
+		} `json:"signer"`
+	}
+	if err := json.Unmarshal(envelope, &probe); err != nil {
+		return fmt.Errorf("envelope parse: %w", err)
+	}
+	if probe.Signer == nil {
+		return fmt.Errorf("envelope is anonymous — no owner to authorize delete")
+	}
+	intent := []byte("delete:" + cid)
+	return verifySignature(intent, probe.Signer.Type, probe.Signer.Address, sigHex)
+}
+
+// LookupBytes is the public read path for a stored envelope. Used by
+// the owner-delete handler before VerifyOwnerDelete.
+func (s *Store) LookupBytes(cid string) ([]byte, error) {
+	return s.lookup(cid)
+}
+
 // validateProvenance enforces two rules on incoming envelopes:
 //
 //  1. If `source` is set, only "official" is currently allowed; the

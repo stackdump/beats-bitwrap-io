@@ -11,7 +11,7 @@ import {
     gzipToB64Url, b64UrlToGunzip,
 } from './codec.js';
 import { buildSharePayload } from './collect.js';
-import { signEnvelope, localEd25519PublicKey } from './sign.js';
+import { signEnvelope, localEd25519PublicKey, ownerDelete } from './sign.js';
 import { recordShared, recordRendered } from './history.js';
 import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from './client-render.js';
 
@@ -290,8 +290,14 @@ export async function onShareClick(el) {
                         <option value="ed25519">Auto (Ed25519, browser-local)</option>
                     </select>
                     <button type="button" class="pn-share-sign-btn" style="background:#1a3038;color:#67e8f9;border:1px solid #2a5868;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Sign</button>
+                    <button type="button" class="pn-share-owner-delete-btn" hidden style="background:#3a1818;color:#fca5a5;border:1px solid #6a2828;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Delete from feed</button>
                     <span class="pn-share-sign-status" style="font-size:11px;color:#888;font-family:ui-monospace,monospace"></span>
                 </div>
+                <p class="pn-modal-hint pn-share-owner-delete-hint" hidden style="margin-top:6px;font-size:11px">
+                    You signed this track — you can pull it from the live feed.
+                    <strong>Snapshots stay archived</strong>; this only removes it from
+                    the searchable catalog and the cached audio.
+                </p>
             </details>
             <div class="pn-modal-actions">
                 <button class="cancel close">Close</button>
@@ -380,6 +386,10 @@ export async function onShareClick(el) {
     const signBtn = overlay.querySelector('.pn-share-sign-btn');
     const signMode = overlay.querySelector('.pn-share-sign-mode');
     const signStatus = overlay.querySelector('.pn-share-sign-status');
+    const deleteBtn = overlay.querySelector('.pn-share-owner-delete-btn');
+    const deleteHint = overlay.querySelector('.pn-share-owner-delete-hint');
+    let signedCid = '';
+    let signedMode = 'eth';
     // Pre-populate status with the local Ed25519 identity if it exists
     // — gives the user a hint that signing won't pop a dialog if they
     // pick the auto mode.
@@ -400,28 +410,63 @@ export async function onShareClick(el) {
             const fresh = buildSharePayload(el);
             const signed = await signEnvelope(fresh, signMode.value);
             const canonical = canonicalizeJSON(signed);
-            const signedCid = await computeCidForJsonLd(signed);
-            const stored = await uploadShare(signedCid, canonical);
+            const newCid = await computeCidForJsonLd(signed);
+            const stored = await uploadShare(newCid, canonical);
             if (!stored) throw new Error('server rejected signed envelope');
             // Mutate the closure state used by render(): point shortUrl
             // and fullUrl at the signed CID. fullUrl needs a fresh
             // gzip too.
             const newZ = await gzipToB64Url(canonical);
-            shortUrl = `${location.origin}${location.pathname}?cid=${signedCid}`;
+            shortUrl = `${location.origin}${location.pathname}?cid=${newCid}`;
             fullUrl = `${shortUrl}&z=${newZ}`;
             currentUrl = render();
+            // Track the signed identity so the Delete button can use
+            // the same key + mode without re-prompting the user.
+            signedCid = newCid;
+            signedMode = signMode.value;
             const sig = signed.signer;
             signStatus.textContent = sig.type === 'eth'
                 ? `signed (eth) · ${sig.address.slice(0, 6)}…${sig.address.slice(-4)}`
                 : `signed (ed25519) · ${sig.address.slice(0, 6)}…${sig.address.slice(-4)}`;
             signStatus.style.color = '#67e8f9';
             signBtn.textContent = 'Signed ✓';
+            // Reveal the owner-delete affordance now that we have a
+            // signed CID + a known mode.
+            if (deleteBtn) deleteBtn.hidden = false;
+            if (deleteHint) deleteHint.hidden = false;
         } catch (err) {
             console.warn('sign failed:', err);
             signStatus.textContent = `error: ${err.message || err}`;
             signStatus.style.color = '#c66';
             signBtn.disabled = false;
             signBtn.textContent = prevText;
+        }
+    });
+
+    // Owner-delete: confirm + sign "delete:{cid}" with the same key
+    // used to sign the share, POST to /api/owner-delete. On success,
+    // close the modal — the link the user just had is now dead.
+    deleteBtn?.addEventListener('click', async () => {
+        if (!signedCid) return;
+        if (!confirm(`Remove ${signedCid.slice(0, 14)}… from the live feed?\n\nThe envelope, cached audio, and feed entry will be deleted.\nSnapshots stay archived (operator-only).\n\nThis can't be undone from the UI.`)) {
+            return;
+        }
+        deleteBtn.disabled = true;
+        const prev = deleteBtn.textContent;
+        deleteBtn.textContent = 'Deleting…';
+        try {
+            await ownerDelete(signedCid, signedMode);
+            signStatus.textContent = `deleted ${signedCid.slice(0, 14)}…`;
+            signStatus.style.color = '#fca5a5';
+            deleteBtn.textContent = 'Deleted ✓';
+            // Modal stays open so the user reads the confirmation;
+            // they can close manually.
+        } catch (err) {
+            console.warn('owner-delete failed:', err);
+            signStatus.textContent = `delete error: ${err.message || err}`;
+            signStatus.style.color = '#c66';
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = prev;
         }
     });
 }

@@ -135,3 +135,51 @@ export function localEd25519PublicKey() {
 export function resetEd25519Identity() {
     try { localStorage.removeItem(ED25519_KEY_LSKEY); } catch {}
 }
+
+// signOwnerDelete produces a hex signature over the delete-intent
+// message ("delete:{cid}") for the requested mode. The server's
+// /api/owner-delete endpoint verifies this against the envelope's
+// stored signer.address — so the user must use the SAME mode + key
+// they used to sign the share originally. The delete message is
+// distinct from the share message (which signs the bare CID), so the
+// share signature cannot be lifted as a delete proof.
+export async function signOwnerDelete(cid, mode = 'eth') {
+    const intent = 'delete:' + cid;
+    if (mode === 'ed25519') {
+        const { publicKeyHex, privateKey } = await loadOrCreateEd25519();
+        const bytes = new TextEncoder().encode(intent);
+        const sigBuf = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, bytes);
+        const sig = Array.from(new Uint8Array(sigBuf))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        return { signature: sig, signerAddress: publicKeyHex, signerType: 'ed25519' };
+    }
+    const eth = window.ethereum;
+    if (!eth?.request) {
+        throw new Error('No eth wallet available — sign mode must match the original.');
+    }
+    const accounts = await eth.request({ method: 'eth_requestAccounts' });
+    const address = (accounts?.[0] || '').toLowerCase();
+    if (!address) throw new Error('No account selected.');
+    const sig = await eth.request({
+        method: 'personal_sign',
+        params: [intent, address],
+    });
+    return { signature: sig, signerAddress: address, signerType: 'eth' };
+}
+
+// ownerDelete asks /api/owner-delete to remove cid from the live
+// catalog. Caller must have signed the original share with the same
+// mode + key. Returns the response JSON or throws on a non-2xx.
+export async function ownerDelete(cid, mode = 'eth') {
+    const { signature } = await signOwnerDelete(cid, mode);
+    const res = await fetch('/api/owner-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cid, signature }),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`owner-delete ${res.status}: ${text || res.statusText}`);
+    }
+    return res.json();
+}

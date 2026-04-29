@@ -99,6 +99,60 @@ func TestProvenanceSourceGate(t *testing.T) {
 	}
 }
 
+// Owner-delete authorization: the signer of an envelope can prove
+// ownership by signing "delete:{cid}". Anonymous envelopes can't be
+// owner-deleted; signatures from a different key are rejected; the
+// share signature itself can't be lifted as a delete proof (different
+// message).
+func TestOwnerDeleteAuth(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pubHex := hex.EncodeToString(pub)
+	signedEnvelope := func() []byte {
+		m := map[string]any{
+			"@context": "x", "@type": "BeatsShare", "v": 1,
+			"genre": "techno", "seed": int64(1),
+			"signer": map[string]any{"type": "ed25519", "address": pubHex},
+		}
+		b, _ := json.Marshal(m)
+		return b
+	}
+	anonEnvelope := func() []byte {
+		m := map[string]any{
+			"@context": "x", "@type": "BeatsShare", "v": 1,
+			"genre": "techno", "seed": int64(1),
+		}
+		b, _ := json.Marshal(m)
+		return b
+	}
+	cid := "z4EBG9jOWNERDELETETEST00000000000000000000"
+	s := &Store{}
+
+	// Anonymous → reject, no key to verify against.
+	if err := s.VerifyOwnerDelete(anonEnvelope(), cid, "00"); err == nil {
+		t.Fatal("expected anonymous rejection")
+	}
+
+	// Correct signature over "delete:{cid}" → accept.
+	deleteSig := ed25519.Sign(priv, []byte("delete:"+cid))
+	if err := s.VerifyOwnerDelete(signedEnvelope(), cid, hex.EncodeToString(deleteSig)); err != nil {
+		t.Fatalf("expected accept: %v", err)
+	}
+
+	// Replay attempt: the share signature signs the BARE CID (no
+	// "delete:" prefix). Lifting that signature must fail.
+	shareSig := ed25519.Sign(priv, []byte(cid))
+	if err := s.VerifyOwnerDelete(signedEnvelope(), cid, hex.EncodeToString(shareSig)); err == nil {
+		t.Fatal("expected rejection — share signature must not work as delete proof")
+	}
+
+	// Different key signs delete-intent → reject.
+	_, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
+	otherSig := ed25519.Sign(otherPriv, []byte("delete:"+cid))
+	if err := s.VerifyOwnerDelete(signedEnvelope(), cid, hex.EncodeToString(otherSig)); err == nil {
+		t.Fatal("expected rejection — wrong key")
+	}
+}
+
 // signer + signature must both be present together; one without the
 // other is malformed.
 func TestProvenanceSignerSignaturePaired(t *testing.T) {
