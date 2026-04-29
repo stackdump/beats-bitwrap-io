@@ -126,7 +126,10 @@
   body[data-feed-view="list"] .card-meta {
     flex: 1; min-width: 0; padding: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    /* title + (genre, tempo, dur, date from .card-sub display:contents)
+       + provenance container = 6 columns. Provenance can be empty,
+       then it just doesn't take any visual space. */
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
     align-items: center;
     gap: 14px;
   }
@@ -260,7 +263,17 @@
     color: #67e8f9;
     border: 1px solid #1a4858;
   }
-  body[data-feed-view="list"] .card-prov { margin-top: 0; }
+  /* Provenance container = a flex row of badges; in list mode it
+     occupies the last grid cell. Smaller font + tighter padding so
+     two stacked chips (official + signer) don't blow out row height. */
+  .card-prov-group { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  body[data-feed-view="list"] .card-prov-group { margin-top: 0; }
+  body[data-feed-view="list"] .card-prov {
+    margin-top: 0;
+    font-size: 9px;
+    padding: 1px 4px;
+    line-height: 1.25;
+  }
   .card-genre-chip {
     background: transparent;
     /* Per-genre accent — hue from --genre-color (set inline at render
@@ -2324,10 +2337,16 @@ function _glyphRand(seed) {
 // Trust boundary is the server: every value here was already validated
 // before the row was written to the index. The client just renders.
 function renderProvenanceBadge(t) {
+  // Output is a wrapping flex container so multiple chips can stack
+  // in card view and sit side-by-side in the last list-mode column.
+  // Two-chip case: officials get both an ◆ Official chip (filters by
+  // source=official) and a signer chip (filters by that specific
+  // address — useful when there are multiple official producers in
+  // the future). Anonymous renders nothing; community-signed gets
+  // just the signer chip.
+  const chips = [];
   if (t.source === 'official') {
-    // data-prov-filter wires the click handler in the grid delegate
-    // below — clicking pins the signer-filter dropdown to "official".
-    return `<button type="button" class="card-prov card-prov-official" data-prov-filter="official" title="Official — produced by beats.bitwrap.io's seed batch and validated server-side. Click to filter feed.">◆ Official</button>`;
+    chips.push(`<button type="button" class="card-prov card-prov-official" data-prov-filter="official" title="Official — produced by beats.bitwrap.io's seed batch and validated server-side. Click to filter feed.">◆ Official</button>`);
   }
   if (t.signerType && t.signerAddress) {
     const addr = t.signerAddress;
@@ -2336,9 +2355,10 @@ function renderProvenanceBadge(t) {
       : addr;
     const label = t.signerType === 'eth' ? 'eth' : 'ed25519';
     const title = `Signed (${label}) — server-verified ${addr}. Click to show only tracks by this signer.`;
-    return `<button type="button" class="card-prov card-prov-signed" data-prov-filter="${addr}" title="${title}">● ${short}</button>`;
+    chips.push(`<button type="button" class="card-prov card-prov-signed" data-prov-filter="${addr}" title="${title}">● ${short}</button>`);
   }
-  return '';
+  if (!chips.length) return '';
+  return `<div class="card-prov-group">${chips.join('')}</div>`;
 }
 
 // 16-dot ring fingerprint, sized for a list-view thumbnail. Each
