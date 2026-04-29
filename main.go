@@ -1774,11 +1774,39 @@ func snapshotsListHandler(snapshotDir string) http.HandlerFunc {
 	}
 }
 
+// publicURLFromRequest derives an https://host (or http://) URL from
+// the inbound request headers, with a flag-set fallback. Used in
+// places where a hardcoded -audio-public-url is impractical (RSS
+// feeds, share links). nginx in front of prod sets X-Forwarded-Proto
+// so the scheme is right behind a reverse proxy too.
+func publicURLFromRequest(r *http.Request, fallback string) string {
+	if r != nil && r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		host := r.Host
+		if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+			host = h
+		}
+		// Don't return a loopback URL when the request came over a
+		// real public host — but also don't fabricate https for a
+		// localhost dev server. Loopback gets the flag fallback if
+		// any, otherwise we honor the request URL as-is (helpful for
+		// local testing).
+		if !strings.HasPrefix(host, "127.0.0.1") && !strings.HasPrefix(host, "localhost") {
+			return scheme + "://" + host
+		}
+	}
+	return fallback
+}
+
 // archiveRSSHandler answers GET /archive.rss with one item per
 // persisted snapshot, newest first. Each <enclosure> points at the
 // .tgz so RSS clients can fetch the artifact directly.
 func archiveRSSHandler(snapshotDir, publicURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		publicURL := publicURLFromRequest(r, publicURL)
 		entries := loadSnapshotSidecars(snapshotDir)
 		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -2531,6 +2559,7 @@ func clientIP(r *http.Request) string {
 // already passed to the renderer for tag comments.
 func rssFeedHandler(idx *index.DB, publicURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		publicURL := publicURLFromRequest(r, publicURL)
 		tracks, err := idx.Feed(index.FeedQuery{Limit: 50})
 		if err != nil {
 			log.Printf("rss: %v", err)
