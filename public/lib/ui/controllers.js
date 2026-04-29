@@ -479,20 +479,16 @@ export function openFeelModal(el) {
     redraw();
 
     let dragging = false;
-    let puckBeforeGrab = null;
-    let tempoBeforeGrab = null;
-    let lpFreqBeforeGrab = null;
     const onDown = (e) => {
         // Clicking anywhere inside the pad jumps the puck there and
-        // starts a drag — matches Alchemy / Massive X feel. Snapshot
-        // the pre-grab position AND the live tempo + lp-freq values
-        // so release can restore them by hand (going through
-        // applyFeelGrid would recompute from genre × bpmMult and
-        // could re-anchor against the dragged-down tempo).
-        puckBeforeGrab = [...puck];
-        tempoBeforeGrab = el._tempo;
-        const lpSlider = el.querySelector('.pn-fx-slider[data-fx="lp-freq"]');
-        lpFreqBeforeGrab = lpSlider ? parseFloat(lpSlider.value) : null;
+        // starts a drag — matches Alchemy / Massive X feel. Mouse
+        // drag is sticky: the puck stays where the user releases it.
+        // Apply / Cancel buttons handle commit vs. full revert (revert
+        // restores puck = snapshotPuck which re-applies the grid).
+        // Spring-return only applies to the MIDI joystick path
+        // (el._feelMidiRelease) — physical joysticks have a hardware
+        // spring, so the puck should snap back when the stick is
+        // released; mice don't, so dragging is a sticky setter.
         dragging = true;
         puck = svgToPuck(svg, e.clientX, e.clientY);
         puckEl.classList.add('dragging');
@@ -513,25 +509,10 @@ export function openFeelModal(el) {
         dragging = false;
         puckEl.classList.remove('dragging');
         svg.releasePointerCapture?.(e.pointerId);
-        // Spring-return: restore tempo + tone to their pre-grab
-        // values directly. Mirror the puck visually back to its
-        // pre-grab spot but DON'T pushLive — pushLive's BPM
-        // calculation would re-anchor against the modified tempo.
-        if (tempoBeforeGrab != null) {
-            el._setTempo(tempoBeforeGrab);
-        }
-        if (lpFreqBeforeGrab != null) {
-            el._setFxByKey('lp-freq', Math.round(lpFreqBeforeGrab));
-        }
-        if (puckBeforeGrab) {
-            puck = puckBeforeGrab;
-            redraw();
-            el._feelState = el._feelState || {};
-            el._feelState.puck = [...puck];
-        }
-        puckBeforeGrab = null;
-        tempoBeforeGrab = null;
-        lpFreqBeforeGrab = null;
+        // No spring-return for mouse — leave the puck (and the live
+        // tempo + lp-freq pushLive applied) right where the user
+        // released. Cancel reverts via revert(); Apply commits via
+        // commit().
     };
     svg.addEventListener('pointerdown', onDown);
     svg.addEventListener('pointermove', onMove);
