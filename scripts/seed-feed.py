@@ -219,9 +219,13 @@ def main():
     # gives each its own tab; the server semaphore caps concurrency).
     generate_lock = threading.Lock()
     # Two prod budgets: envelope mirror PUTs and audio PUTs. Both
-    # 10/min/IP — leave 20% headroom.
-    seal_throttle  = Throttle(n=8, period_s=60)
-    audio_throttle = Throttle(n=8, period_s=60)
+    # share the same 10 PUT/min/IP cap on prod, so the budgets must
+    # sum to ≤ 10/min — not 10/min each. 4/min × 2 = 8/min combined,
+    # 20% headroom under the cap. The 8-worker run on 04-28 hit 429s
+    # at the prior 8/min/budget setting because the budgets aren't
+    # coordinated and a burst could send 16 PUTs in under a minute.
+    seal_throttle  = Throttle(n=4, period_s=60)
+    audio_throttle = Throttle(n=4, period_s=60)
 
     print(f"== Seeding {len(plan)} tracks ({args.workers} workers) ==")
     results: list[dict] = []
