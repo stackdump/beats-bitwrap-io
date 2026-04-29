@@ -98,12 +98,14 @@ async function signEth(envelope) {
 }
 
 // Public API: signEnvelope(envelope, mode) → returns a new envelope
-// with signer + signature set. mode === 'eth' OR 'ed25519' (default).
-// The caller re-canonicalizes the result and uses its CID (the
+// with signer + signature set. mode === 'eth' (default — portable
+// across hosts, identity = your wallet address) or 'ed25519'
+// (browser-local, no popup, identity scoped to this browser). The
+// caller re-canonicalizes the result and uses its CID (the
 // signature changes the bytes, so the CID changes).
-export async function signEnvelope(envelope, mode = 'ed25519') {
-    if (mode === 'eth') return signEth(envelope);
-    return signEd25519(envelope);
+export async function signEnvelope(envelope, mode = 'eth') {
+    if (mode === 'ed25519') return signEd25519(envelope);
+    return signEth(envelope);
 }
 
 // Inspect the local Ed25519 identity without creating one. Returns

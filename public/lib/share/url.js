@@ -286,8 +286,8 @@ export async function onShareClick(el) {
                 </p>
                 <div class="pn-share-sign-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
                     <select class="pn-share-sign-mode" style="background:#111;color:#ddd;border:1px solid #2a2a2a;padding:4px 6px;border-radius:4px;font-size:12px">
+                        <option value="eth" selected>Eth wallet (MetaMask)</option>
                         <option value="ed25519">Auto (Ed25519, browser-local)</option>
-                        <option value="eth">Eth wallet (MetaMask)</option>
                     </select>
                     <button type="button" class="pn-share-sign-btn" style="background:#1a3038;color:#67e8f9;border:1px solid #2a5868;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Sign</button>
                     <span class="pn-share-sign-status" style="font-size:11px;color:#888;font-family:ui-monospace,monospace"></span>
