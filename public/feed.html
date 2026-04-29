@@ -1089,10 +1089,27 @@
   <span class="footer-sep">·</span>
   <a href="/archive.rss" title="RSS feed of persisted snapshots">archive rss</a>
   <span class="footer-sep">·</span>
+  <a id="footer-operator" href="/api/operator-pubkey" title="Operator's Ed25519 public key. Click to fetch the JSON; use it to verify any official track's signature." target="_blank" rel="noopener">◆ operator key</a>
+  <span class="footer-sep">·</span>
   <a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" title="Report a bug">bug</a>
   <span class="footer-sep">·</span>
   <a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=feature_request.yml" target="_blank" rel="noopener" title="Suggest a feature">feature</a>
 </footer>
+<script>
+  // Resolve the operator pubkey on first paint and rewrite the footer
+  // link to filter the feed for that signer + show the truncated key.
+  // The /api/operator-pubkey endpoint stays the link's title so curious
+  // users can still pull the raw JSON.
+  fetch('/api/operator-pubkey').then(r => r.ok ? r.json() : null).then(d => {
+    if (!d?.address) return;
+    const a = document.getElementById('footer-operator');
+    if (!a) return;
+    const short = d.address.slice(0, 6) + '…' + d.address.slice(-4);
+    a.textContent = `◆ operator ${short}`;
+    a.href = `/feed?signer=${encodeURIComponent(d.address)}`;
+    a.title = `Operator (${d.type}) ${d.address}\nClick to filter the feed to tracks signed by this key.`;
+  }).catch(() => {});
+</script>
 <script type="module">
 import { recordBookmarked, unrecordBookmarked, isBookmarked }
   from '/lib/share/history.js';
