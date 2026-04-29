@@ -78,7 +78,7 @@ func main() {
 	audioMaxDuration := flag.Duration("audio-max-duration", 3*time.Minute, "Cap on audio length per render. 0 = unbounded (still subject to -audio-render-timeout).")
 	audioRenderTimeout := flag.Duration("audio-render-timeout", 10*time.Minute, "Hard kill timer per render (covers stuck browsers / hung devices). Should comfortably exceed -audio-max-duration.")
 	audioRenderMode := flag.String("audio-render-mode", "realtime", "Render path: 'realtime' (chromedp + MediaRecorder, 1× wall time, full live fidelity) or 'offline' (Tone.Offline, ~10× faster, fidelity gaps — see public/lib/share/offline-render.js header).")
-	audioLoudnormLUFS := flag.Float64("audio-loudnorm-lufs", -16.0, "Integrated-LUFS target for the post-render ffmpeg loudnorm pass. 0 = skip, negative = explicit opt-out. Default −16 matches Spotify/YouTube tier; lifts the un-normalized fleet (~−30 LUFS) to streaming-tier loudness.")
+	audioLoudnormLUFS := flag.Float64("audio-loudnorm-lufs", -16.0, "Integrated-LUFS target for the post-render ffmpeg loudnorm pass. 0 = skip; non-zero values are real targets (LUFS is always negative). Default −16 matches Spotify/YouTube tier; lifts the un-normalized fleet (~−30 LUFS) to streaming-tier loudness.")
 	audioLoudnormTP := flag.Float64("audio-loudnorm-truepeak", -1.0, "True-peak ceiling (dBTP) for the loudnorm pass. Streaming-safe values are −1 to −2.")
 	audioLoudnormLRA := flag.Float64("audio-loudnorm-lra", 11.0, "Default loudness range (LU) for loudnorm; per-genre table overrides this. Lower = squashed, higher = preserves dynamics.")
 	audioAutoEnqueue := flag.Bool("audio-auto-enqueue", true, "Pre-render newly sealed CIDs in the background so listeners hit a warm cache.")

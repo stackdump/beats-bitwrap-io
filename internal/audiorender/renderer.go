@@ -83,14 +83,17 @@ type Config struct {
 	// has /usr/bin/ffmpeg installed.
 	FFmpegPath string
 	// LoudnormTargetLUFS is the integrated-loudness target for the
-	// post-capture ffmpeg loudnorm pass. <=0 disables loudnorm (the
-	// raw recorder/transcoder bytes ship as-is). Standard streaming
-	// targets: −16 (Spotify/YouTube tier), −14 (loudness-war), −23
-	// (EBU broadcast). The 04-28 audio-analysis baseline put the
-	// fleet at −30 to −34 LUFS — at that level a listener bumps
-	// system volume and gets blasted by the next browser tab. A −16
-	// default lifts the whole fleet uniformly without per-genre
-	// tuning. Future renders only — existing CIDs are pinned.
+	// post-capture ffmpeg loudnorm pass. 0 disables loudnorm (raw
+	// recorder/transcoder bytes ship as-is); any non-zero value is
+	// treated as a real target — LUFS measurements are inherently
+	// negative, so a sentinel of 0 is the only safe disabled value.
+	// Standard streaming targets: −16 (Spotify/YouTube tier), −14
+	// (loudness-war), −23 (EBU broadcast). The 04-28 audio-analysis
+	// baseline put the fleet at −30 to −34 LUFS — at that level a
+	// listener bumps system volume and gets blasted by the next
+	// browser tab. A −16 default lifts the whole fleet uniformly
+	// without per-genre tuning. Future renders only — existing CIDs
+	// are pinned to old bytes.
 	LoudnormTargetLUFS float64
 	// LoudnormTruePeakDB is the true-peak ceiling for the loudnorm
 	// pass. ≤0 → −1.0. Streaming-safe value; below −1 dBTP avoids
@@ -505,9 +508,7 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	// proceed). Metrics from the pass are stashed for the
 	// OnRenderComplete hook to forward to the analysis index.
 	var lnMetrics *LoudnormResult
-	if r.cfg.LoudnormTargetLUFS < 0 {
-		// explicit opt-out via negative value, stay quiet
-	} else if r.cfg.LoudnormTargetLUFS > 0 {
+	if r.cfg.LoudnormTargetLUFS != 0 {
 		// Per-genre override: spacious genres get −18/LRA=15, club
 		// genres get −14/LRA=7, etc. (see mastering.go). Falls back
 		// to the global LoudnormTargetLUFS / LoudnormLRA when the
@@ -527,6 +528,13 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 			_ = os.Remove(tmp)
 			tmp = normalized
 			lnMetrics = res
+			if res != nil {
+				log.Printf("audiorender: loudnorm %s I=%.1f→%.1f LUFS (target %.1f)",
+					cid, res.InputI, res.OutputI, targetI)
+			} else {
+				log.Printf("audiorender: loudnorm %s ok (no metrics, target %.1f)",
+					cid, targetI)
+			}
 		} else {
 			log.Printf("audiorender: loudnorm %s: %v (shipping un-normalized)", cid, err)
 			_ = os.Remove(normalized)
