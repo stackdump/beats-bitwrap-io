@@ -1012,6 +1012,19 @@
       </button>
       <a class="card-modal-open" href="#">Open in studio</a>
     </div>
+    <details class="card-modal-sig" hidden style="margin-top:10px;border:1px solid #1a1a1a;border-radius:6px;background:#080808;padding:8px 10px;font-size:11px;font-family:ui-monospace,monospace">
+      <summary style="cursor:pointer;color:#9ad">View signature</summary>
+      <div class="card-modal-sig-body" style="margin-top:8px;color:#aaa">
+        <div class="card-modal-sig-meta" style="margin-bottom:6px;color:#888"></div>
+        <div class="card-modal-sig-value" style="word-break:break-all;color:#67e8f9;background:#000;border:1px solid #1a1a1a;padding:6px 8px;border-radius:4px;line-height:1.4"></div>
+        <div style="margin-top:6px;color:#666;font-size:10px;line-height:1.4">
+          The server already verified this signature before sealing the envelope.
+          Verify independently: GET <code>/o/{cid}</code>, strip the <code>signature</code>
+          field, recompute the CID over the rest, and check that the signature is over
+          that CID string under the signer's public key.
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 <div id="help-modal" class="card-modal" hidden>
@@ -2590,6 +2603,30 @@ function showCardModal(arg) {
   subEl.textContent = subParts.join(' · ') || 'Confirm and play';
   art.src = `/share-card/${encodeURIComponent(cid)}.svg`;
   editorLink.href = `/?cid=${encodeURIComponent(cid)}`;
+  // View-signature panel: lazy-fetch /o/{cid} and populate the raw
+  // signer + signature so curious users can verify independently.
+  // Hidden when the envelope is anonymous. Fetched once per open;
+  // closing + reopening the modal re-fetches (cheap, share store is
+  // immutable + cached).
+  const sigPanel = cardModal.querySelector('.card-modal-sig');
+  const sigMeta = cardModal.querySelector('.card-modal-sig-meta');
+  const sigValue = cardModal.querySelector('.card-modal-sig-value');
+  if (sigPanel) {
+    sigPanel.hidden = true;
+    sigPanel.open = false;
+    sigMeta.textContent = '';
+    sigValue.textContent = '';
+    fetch(`/o/${encodeURIComponent(cid)}`, { headers: { Accept: 'application/ld+json' } })
+      .then(r => r.ok ? r.json() : null)
+      .then(env => {
+        if (!env || !env.signer || !env.signature) return;
+        const s = env.signer;
+        sigMeta.textContent = `${s.type} · ${s.address}`;
+        sigValue.textContent = env.signature;
+        sigPanel.hidden = false;
+      })
+      .catch(() => { /* network errors leave the panel hidden */ });
+  }
   cardModal.hidden = false;
   const close = () => { cardModal.hidden = true; };
   closeBtn.addEventListener('click', close);
