@@ -1561,6 +1561,22 @@ input[type="range"][data-default] {
     color: #aaa;
 }
 
+/* Shift-click to add to the Auto-DJ stack — outline+badge so it's
+   visible even when the tile also has .running / .queued / .firing. */
+.pn-macro-btn.pn-macro-stacked {
+    box-shadow: 0 0 0 2px #f0a020 inset;
+}
+.pn-macro-btn.pn-macro-stacked::after {
+    content: '★';
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 10px;
+    color: #f0a020;
+    pointer-events: none;
+}
+.pn-macro-item { position: relative; }
+
 .pn-macro-edit-group { min-width: 120px; }
 
 .pn-macros-edit {
@@ -1595,6 +1611,35 @@ input[type="range"][data-default] {
 .pn-macros-panel.pn-edit-mode .pn-macro-btn:hover {
     background: #2a2030;
     color: #f5a623;
+}
+
+/* Stack mode — tablet-friendly toggle for adding tiles to the Auto-DJ
+   stack. Reuses the .pn-macros-edit button styling so it sits next to
+   "Edit Excludes" but adopts an orange theme matching .pn-macro-stacked. */
+.pn-macros-stack-mode {
+    padding: 6px 10px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pn-macros-stack-mode:hover { border-color: #f0a020; color: #f0a020; }
+.pn-macros-stack-mode.active {
+    background: #f0a020;
+    color: #1a1a2e;
+    border-color: #f0a020;
+}
+.pn-macros-panel.pn-stack-mode .pn-macro-edit-hint { display: block; }
+.pn-macros-panel.pn-stack-mode .pn-macro-btn {
+    border-style: dashed;
+    border-color: #f0a020;
+}
+.pn-macros-panel.pn-stack-mode .pn-macro-btn:hover {
+    background: #2a2520;
+    color: #f0a020;
 }
 
 .pn-macro-btn.queued {

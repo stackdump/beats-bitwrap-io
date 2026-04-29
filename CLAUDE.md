@@ -378,6 +378,7 @@ The /help and /archive surfaces both state: **we may archive (purge from the liv
   # Playwright: navigate, wait for _project + _currentGen.params.seed, exercise _buildShareUrlForms + the specific feature you changed.
   ```
 - Manual: click Share → copy URL → open fresh tab → confirm genre/seed/tempo/tracks match.
+- `make test-audio TEST_AUDIO_WORKERS=8` — headless macro→audio verification. Boots a local server, parallel Playwright tabs, captures Tone.Recorder output via `?test=1` (loads `public/lib/test-hooks.js`), Python (`scripts/test-macro-audio.py`) windows the PCM into pre/during/post slices and asserts the right metric (centroid for sweep-lp/sweep-hp/riser, RMS for cut/breakdown). Confirms macros both *take effect* AND *recover*. ~13 s for 5 macros at 8 workers.
 
 ## Bulk feed seeding
 

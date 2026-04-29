@@ -88,7 +88,10 @@ import {
     snapshotOneShot, applyOneShotSnapshot, oneShotToneReset,
     oneShotToneStep, oneShotFavorite, bindLongPressToggle,
     toggleMacroDisabled, loadDisabledMacros, saveDisabledMacros,
-    refreshMacroDisabledMarks, saveAutoDjSettings, restoreAutoDjSettings,
+    refreshMacroDisabledMarks,
+    toggleMacroStacked, refreshMacroStackedMarks, fireStackedMacros,
+    clearStackedMacros, updateStackCountBadge,
+    saveAutoDjSettings, restoreAutoDjSettings,
     autoDjTick, pickTransitionMacroId, fireTransitionMacro,
     transitionNetJson, injectTransitionNet, autoDjFireMacros,
     autoDjSpin, autoDjSpinAnimate, fireRepeatingOneShots,
@@ -234,6 +237,14 @@ class PetriNote extends HTMLElement {
     }
 
     connectedCallback() {
+        // Test capture hook — loaded only when ?test=1 is present in
+        // the URL. Installs window.__pnTestCaptureStart/__pnTestCaptureStop
+        // for headless audio analysis (scripts/test-macro-audio.py).
+        try {
+            if (new URLSearchParams(location.search).get('test') === '1') {
+                import('./lib/test-hooks.js').catch(() => {});
+            }
+        } catch {}
         this._firstLoad = true;
         this._loadProject();
         this._buildUI();
@@ -568,6 +579,11 @@ class PetriNote extends HTMLElement {
     _loadDisabledMacros() { return loadDisabledMacros(this); }
     _saveDisabledMacros() { return saveDisabledMacros(this); }
     _refreshMacroDisabledMarks() { return refreshMacroDisabledMarks(this); }
+    _toggleMacroStacked(id) { return toggleMacroStacked(this, id); }
+    _refreshMacroStackedMarks() { return refreshMacroStackedMarks(this); }
+    _fireStackedMacros() { return fireStackedMacros(this); }
+    _clearStackedMacros() { return clearStackedMacros(this); }
+    _updateStackCountBadge() { return updateStackCountBadge(this); }
     _saveAutoDjSettings() { return saveAutoDjSettings(this); }
     _restoreAutoDjSettings(autoDjBtn, panel) { return restoreAutoDjSettings(this, autoDjBtn, panel); }
     _autoDjTick(prevTick, curTick) { return autoDjTick(this, prevTick, curTick); }

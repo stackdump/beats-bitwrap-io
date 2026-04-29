@@ -712,6 +712,74 @@ export function refreshMacroDisabledMarks(el) {
     }
 }
 
+// --- Stacked macros: shift-click a tile to add to the stack, then fire
+// the whole stack at once via the Auto-DJ panel buttons. Lets you
+// pre-arrange a multi-macro hit (e.g. drop + reverb-wash + sweep-lp)
+// without relying on Auto-DJ's random pick.
+
+export function loadStackedMacros() {
+    try {
+        const raw = localStorage.getItem('pn-macro-stacked');
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+}
+
+export function saveStackedMacros(el) {
+    try {
+        localStorage.setItem('pn-macro-stacked', JSON.stringify([...el._stackedMacros]));
+    } catch {}
+}
+
+export function toggleMacroStacked(el, id) {
+    el._stackedMacros = el._stackedMacros || loadStackedMacros();
+    if (el._stackedMacros.has(id)) el._stackedMacros.delete(id);
+    else                           el._stackedMacros.add(id);
+    saveStackedMacros(el);
+    refreshMacroStackedMarks(el);
+    updateStackCountBadge(el);
+}
+
+export function refreshMacroStackedMarks(el) {
+    if (!el._stackedMacros) el._stackedMacros = loadStackedMacros();
+    for (const btn of el.querySelectorAll('.pn-macro-btn[data-macro]')) {
+        btn.classList.toggle('pn-macro-stacked', el._stackedMacros.has(btn.dataset.macro));
+    }
+}
+
+export function updateStackCountBadge(el) {
+    const btn = el.querySelector('.pn-autodj-fire-stack');
+    if (!btn) return;
+    const n = (el._stackedMacros || loadStackedMacros()).size;
+    btn.textContent = n > 0 ? `Fire Stack (${n})` : 'Fire Stack';
+    btn.disabled = n === 0;
+    const clearBtn = el.querySelector('.pn-autodj-clear-stack');
+    if (clearBtn) clearBtn.disabled = n === 0;
+}
+
+// Fire every stacked macro at once. Uses executeMacro for all but the
+// first so the serial queue doesn't gate them — true simultaneous stack.
+export function fireStackedMacros(el) {
+    el._stackedMacros = el._stackedMacros || loadStackedMacros();
+    const ids = [...el._stackedMacros];
+    if (ids.length === 0) return;
+    const statusEl = el.querySelector('.pn-autodj-status');
+    fireMacro(el, ids[0]);
+    for (let i = 1; i < ids.length; i++) {
+        // Bypass the serial queue — the first fire owns the running slot.
+        const saved = el._runningMacro;
+        el._runningMacro = null;
+        try { executeMacro(el, ids[i]); } finally { el._runningMacro = saved; }
+    }
+    if (statusEl) statusEl.textContent = `→ stack: ${ids.join(' + ')}`;
+}
+
+export function clearStackedMacros(el) {
+    el._stackedMacros = new Set();
+    saveStackedMacros(el);
+    refreshMacroStackedMarks(el);
+    updateStackCountBadge(el);
+}
+
 // --- Auto-DJ settings persistence ---
 
 export function saveAutoDjSettings(el) {
@@ -976,7 +1044,15 @@ export function markMacroRunning(el, id, durationMs) {
     const btn = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
     if (btn) btn.classList.add('running');
     updateQueuedBadges(el);
-    el._runningTimer = schedAudio(() => {
+    // Wall-clock timer for the UI/queue bookkeeping. NOT schedAudio:
+    // schedAudio rides Tone.Transport, which doesn't tick while paused —
+    // so a macro fired before the user presses play (e.g. Auto-DJ
+    // transition injected on Generate) would leave the .running class
+    // and _runningMacro slot stuck forever, blocking every subsequent
+    // fireMacro behind a ghost. The macro's *audio* side still uses
+    // schedAudio for sample-accurate restores; this is just the UI tick.
+    const ms = Math.max(100, durationMs + 40);
+    const tid = setTimeout(() => {
         const b = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
         if (b) b.classList.remove('running');
         el._runningMacro = null;
@@ -990,7 +1066,8 @@ export function markMacroRunning(el, id, durationMs) {
             el.querySelectorAll('.pn-macro-btn.queued').forEach(b => b.classList.remove('queued'));
             el.querySelectorAll('.pn-macro-queue-badge').forEach(b => b.remove());
         }
-    }, Math.max(100, durationMs + 40));
+    }, ms);
+    el._runningTimer = { kind: 'wall', id: tid };
 }
 
 export function updateQueuedBadges(el) {

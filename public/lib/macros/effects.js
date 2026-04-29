@@ -273,21 +273,30 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
     audioAnimLoop(durationMs, DISPATCH_INTERVAL, applyAt);
 }
 
-export function cancelAllMacros(el) {
-    el._sendWs({ type: 'cancel-macros' });
+// Local-only clear of in-flight macro state. Does NOT notify the worker.
+// Used on project-sync (regen / seamless swap), where sending
+// `cancel-macros` would prune the just-injected Auto-DJ transition net
+// before it gets to fire.
+export function clearLocalMacroState(el) {
     if (el._runningTimer) {
         clearAudioSched(el._runningTimer);
         el._runningTimer = null;
     }
     el._runningMacro = null;
     el._macroQueue = [];
-    el.querySelectorAll?.('.pn-macro-btn.running, .pn-macro-btn.queued').forEach(b => {
+    el.querySelectorAll?.('.pn-macro-btn.running, .pn-macro-btn.queued, .pn-macro-btn.firing').forEach(b => {
         b.classList.remove('running');
         b.classList.remove('queued');
+        b.classList.remove('firing');
     });
     el.querySelectorAll?.('.pn-macro-queue-badge').forEach(b => b.remove());
     if (el._fxAnim) {
         for (const token of Object.values(el._fxAnim)) if (token) token.cancelled = true;
         el._fxAnim = {};
     }
+}
+
+export function cancelAllMacros(el) {
+    el._sendWs({ type: 'cancel-macros' });
+    clearLocalMacroState(el);
 }

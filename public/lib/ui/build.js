@@ -521,6 +521,8 @@ export function buildUI(el) {
                 </select>
             </label>
             <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now. Ignores Auto-DJ arm state.">Transition ⟳</button>
+            <button class="pn-autodj-fire-stack" title="Fire every macro you've stacked (shift-click a macro tile to add it). Stacked macros fire simultaneously." disabled>Fire Stack</button>
+            <button class="pn-autodj-clear-stack" title="Clear the stacked-macro list" disabled>Clear</button>
             <span class="pn-autodj-status">idle</span>
         </div>
         <div class="pn-arrange-panel" style="display:${el._showArrange ? 'flex' : 'none'}">
@@ -611,6 +613,7 @@ export function buildUI(el) {
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
                 <button class="pn-macros-edit" title="Toggle edit mode — tap tiles to exclude them from Auto-DJ (right-click / long-press also works)">Edit Excludes</button>
+                <button class="pn-macros-stack-mode" title="Toggle stack mode — tap tiles to add them to the Auto-DJ stack. Fire / Clear from the Auto-DJ panel.">Edit Stack</button>
                 <div class="pn-macro-edit-hint">Tap tiles to toggle</div>
             </div>
             ${(() => {
@@ -1042,6 +1045,12 @@ export function buildUI(el) {
         const statusEl = el.querySelector('.pn-autodj-status');
         if (statusEl) statusEl.textContent = `⟳ ${macro?.label || id}`;
     });
+    autoDjPanel.querySelector('.pn-autodj-fire-stack')?.addEventListener('click', () => {
+        el._fireStackedMacros();
+    });
+    autoDjPanel.querySelector('.pn-autodj-clear-stack')?.addEventListener('click', () => {
+        el._clearStackedMacros();
+    });
     // Hydrate the panel from the last-saved settings (if any)
     el._restoreAutoDjSettings(autoDjBtn, autoDjPanel);
 
@@ -1131,6 +1140,8 @@ export function buildUI(el) {
     // Restore persisted "macro disabled" marks after the panels are built
     el._disabledMacros = el._loadDisabledMacros();
     el._refreshMacroDisabledMarks();
+    el._refreshMacroStackedMarks();
+    el._updateStackCountBadge();
     // One-shot panel forwards clicks and keeps Fire button labels synced
     osPanel.addEventListener('click', (e) => {
         const save = e.target.closest('.pn-os-save');
@@ -1167,9 +1178,25 @@ export function buildUI(el) {
     // from Auto-DJ without relying on long-press, which is flaky under iOS
     // Safari's native callout gesture.
     const macrosEditBtn = mxPanel.querySelector('.pn-macros-edit');
+    const macrosStackModeBtn = mxPanel.querySelector('.pn-macros-stack-mode');
     macrosEditBtn?.addEventListener('click', () => {
         const active = mxPanel.classList.toggle('pn-edit-mode');
         macrosEditBtn.classList.toggle('active', active);
+        if (active) {
+            mxPanel.classList.remove('pn-stack-mode');
+            macrosStackModeBtn?.classList.remove('active');
+        }
+    });
+    // Stack mode — tablet-friendly equivalent of shift-click. Tapping
+    // a tile while in stack mode adds/removes it from the Auto-DJ
+    // stack, no firing. Mutually exclusive with Edit Excludes.
+    macrosStackModeBtn?.addEventListener('click', () => {
+        const active = mxPanel.classList.toggle('pn-stack-mode');
+        macrosStackModeBtn.classList.toggle('active', active);
+        if (active) {
+            mxPanel.classList.remove('pn-edit-mode');
+            macrosEditBtn?.classList.remove('active');
+        }
     });
     // Macro button clicks → fire the macro, unless we're in edit mode.
     mxPanel.addEventListener('click', (e) => {
@@ -1177,6 +1204,13 @@ export function buildUI(el) {
         if (!btn) return;
         if (mxPanel.classList.contains('pn-edit-mode')) {
             el._toggleMacroDisabled(btn.dataset.macro);
+            return;
+        }
+        // Stack mode (tablet-friendly) OR shift-click (desktop) adds
+        // the macro to the Auto-DJ stack instead of firing it. Fire
+        // the stack via the panel's "Fire Stack" button.
+        if (mxPanel.classList.contains('pn-stack-mode') || e.shiftKey) {
+            el._toggleMacroStacked(btn.dataset.macro);
             return;
         }
         el._fireMacro(btn.dataset.macro);

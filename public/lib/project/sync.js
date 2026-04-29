@@ -10,6 +10,7 @@
 import { toneEngine, INSTRUMENT_CONFIGS } from '../../audio/tone-engine.js';
 import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
 import { injectTransitionNet } from '../macros/runtime.js';
+import { clearLocalMacroState } from '../macros/effects.js';
 import { stageOnProjectSync } from '../ui/stage.js';
 
 export function applyProjectInstruments(el, project) {
@@ -94,6 +95,15 @@ export function applyDefaultPans(el, nets) {
 
 // Apply a buffered project-sync (called immediately or at bar boundary).
 export function applyProjectSync(el, project, seamless = false) {
+    // Clear any in-flight macro queue / running mark / firing class —
+    // _buildUI() below replaces the macro buttons, but _runningMacro
+    // and _macroQueue would otherwise persist across the regen and
+    // gate every subsequent fireMacro behind a ghost slot. That's the
+    // "macro stuck firing, no effect" symptom: new macros pile up in
+    // the queue, button shows .queued, effect never lands. Local-only
+    // (don't ship cancel-macros to the worker — the seamless path
+    // injected its transition net there and we'd prune it).
+    clearLocalMacroState(el);
     // Cancel any in-flight macro animations — their tokens reference DOM
     // nodes about to be replaced and channels whose snapshots no longer
     // apply.

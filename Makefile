@@ -2,7 +2,7 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs
+.PHONY: build run dev clean docs test-audio
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
@@ -43,3 +43,21 @@ public/docs/control-category-og.png: docs/control-category-og.png
 
 clean:
 	rm -f $(BINARY)
+
+# Headless macro-audio verification. Boots a local server (no audio
+# render needed — capture happens inside the test browser tabs) and
+# runs scripts/test-macro-audio.py against it across N parallel
+# Chromium tabs. Requires `pip install playwright numpy scipy` and
+# `playwright install chromium`.
+TEST_AUDIO_PORT := 18091
+TEST_AUDIO_DATA := /tmp/beats-test-audio-data
+TEST_AUDIO_WORKERS ?= 4
+test-audio: build
+	@rm -rf $(TEST_AUDIO_DATA) && mkdir -p $(TEST_AUDIO_DATA)
+	@echo "starting test server on :$(TEST_AUDIO_PORT)"
+	@./$(BINARY) -authoring -addr :$(TEST_AUDIO_PORT) -data $(TEST_AUDIO_DATA) -public public > /tmp/beats-test-audio.log 2>&1 & echo $$! > /tmp/beats-test-audio.pid
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+	    curl -fsS -o /dev/null http://localhost:$(TEST_AUDIO_PORT)/ && break; sleep 0.5; \
+	done
+	@trap 'kill $$(cat /tmp/beats-test-audio.pid) 2>/dev/null; rm -f /tmp/beats-test-audio.pid' EXIT; \
+	  ./scripts/test-macro-audio.py --host http://localhost:$(TEST_AUDIO_PORT) --workers $(TEST_AUDIO_WORKERS) $(TEST_AUDIO_ARGS)
