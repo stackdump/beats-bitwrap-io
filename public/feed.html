@@ -1115,8 +1115,14 @@ function drawFlame() {
   const N = 64;
   const barW = W / N;
 
-  let useSynth = flameSynthMode || !flameAnalyser;
-  if (!useSynth) {
+  // Always sample the analyser if it exists, even when synth mode is
+  // latched — that's the only way to detect "the analyser was silent
+  // briefly (track switch, audio warm-up) but is now producing real
+  // data" and un-latch. The previous code short-circuited past the
+  // read once latched, which made synthMode sticky on desktop after
+  // any momentary silence.
+  let useSynth = !flameAnalyser;
+  if (flameAnalyser) {
     flameAnalyser.getByteFrequencyData(flameBuf);
     let sum = 0;
     for (let i = start; i < start + N; i++) sum += flameBuf[i];
@@ -1124,10 +1130,16 @@ function drawFlame() {
       flameSilentFrames++;
       if (flameSilentFrames >= FLAME_SILENT_TRIP && !audioEl.paused) {
         flameSynthMode = true;
-        useSynth = true;
       }
+      useSynth = flameSynthMode;
     } else {
+      // Real data — clear the silent counter and un-latch synth mode.
+      // On iPad, getByteFrequencyData stays at 0 forever, so this
+      // branch never fires and synth mode persists. On desktop, the
+      // AnalyserNode wakes up after a beat and the real EQ comes back.
       flameSilentFrames = 0;
+      flameSynthMode = false;
+      useSynth = false;
     }
   }
 
