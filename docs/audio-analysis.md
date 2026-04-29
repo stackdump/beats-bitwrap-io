@@ -225,8 +225,24 @@ Unmapped genres fall back to the global `-audio-loudnorm-lufs` /
 `-audio-loudnorm-lra` flags. Updates to the table take effect on the
 next render — past CIDs are pinned.
 
-**04-28 simulation** (per-genre loudnorm applied offline to the
-baseline 9 webms; same analyzer):
+**04-28 measurement** (full catalog re-seeded with the loudnorm
+pipeline live in the renderer; analyzer pulled 3 newest per genre
+from prod after the seed):
+
+| genre | LUFS before → after | crest before → after | target |
+|---|---|---|---|
+| ambient | −34.1 → **−19.2** | 19.0 → 19.0 | −18 / LRA 15 |
+| dubstep | −31.4 → **−15.2** | 14.7 → 12.5 | −13 / LRA 6 |
+| techno  | −24.9 → **−15.5** | 13.5 → 13.4 | −14 / LRA 7 |
+
+LUFS spread **9.2 LU → 4.0 LU**, genre ranking correct
+(dubstep ≈ techno > ambient), crest preserved per-genre. Targets
+landed 1.2–2.2 LU shy — single-pass loudnorm slack at aggressive
+targets, matching the offline-simulation prediction. Two-pass
+loudnorm would close the gap at ~2× render time; not worth it
+for the 1–2 LU recovery.
+
+**04-28 offline simulation** (validated above; kept for reference):
 
 | genre | LUFS before → after | crest before → after |
 |---|---|---|
