@@ -823,7 +823,12 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			origin = "https://" + r.Host
 		}
-		mirrors := mirrorCIDToHosts(cid, canonical, req.Mirror)
+		// Forward the rebuild-secret to mirrors so an official envelope
+		// (source=official + signer + signature) is accepted by the
+		// receiving host's PUT /o/{cid} handler. Without this the
+		// remote rejects the claim with 403.
+		mirrors := mirrorCIDToHosts(cid, canonical, req.Mirror,
+			r.Header.Get("X-Rebuild-Secret"))
 		backlog := pflow.AnalyzeMacroBacklog(pflow.ParseProject(project))
 		backlogReport := make([]map[string]any, 0, len(backlog))
 		for _, b := range backlog {
@@ -875,7 +880,8 @@ func mirrorCIDHandler(shareStore *share.Store) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"cid":     req.CID,
 			"bytes":   len(canonical),
-			"mirrors": mirrorCIDToHosts(req.CID, canonical, req.Hosts),
+			"mirrors": mirrorCIDToHosts(req.CID, canonical, req.Hosts,
+				r.Header.Get("X-Rebuild-Secret")),
 		})
 	}
 }
@@ -1203,7 +1209,12 @@ func buildShareEnvelope(project map[string]any) map[string]any {
 	return envelope
 }
 
-func mirrorCIDToHosts(cid string, canonical []byte, hosts []string) []map[string]any {
+// mirrorCIDToHosts pushes the canonical envelope bytes to each host's
+// /o/{cid} endpoint via PUT. The optional rebuildSecret is sent as an
+// X-Rebuild-Secret header — required when mirroring envelopes that
+// claim source=official, since the receiving host's put() handler
+// rejects such claims without the secret. Empty secret = no header.
+func mirrorCIDToHosts(cid string, canonical []byte, hosts []string, rebuildSecret string) []map[string]any {
 	out := make([]map[string]any, 0, len(hosts))
 	client := &http.Client{Timeout: 15 * time.Second}
 	for _, host := range hosts {
@@ -1215,6 +1226,9 @@ func mirrorCIDToHosts(cid string, canonical []byte, hosts []string) []map[string
 			continue
 		}
 		req.Header.Set("Content-Type", "application/ld+json")
+		if rebuildSecret != "" {
+			req.Header.Set("X-Rebuild-Secret", rebuildSecret)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			out = append(out, map[string]any{"host": host, "status": 0, "error": err.Error()})
