@@ -6,51 +6,159 @@
   <meta name="theme-color" content="#0a0a0a"/>
   <title>beats.bitwrap.io · archive</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+  <link rel="alternate" type="application/rss+xml" title="archive RSS" href="/archive.rss"/>
 <style>
   :root { color-scheme: dark; }
   html, body { background: #0a0a0a; color: #ddd; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 0; line-height: 1.55; }
-  header { padding: 18px 24px; border-bottom: 1px solid #1a1a1a; }
+  header { padding: 18px 24px; border-bottom: 1px solid #1a1a1a; display:flex; align-items:baseline; gap:14px; }
   header h1 { margin: 0; font-size: 18px; font-weight: 600; }
   header h1 a { color: #ddd; text-decoration: none; }
-  main { max-width: 760px; margin: 0 auto; padding: 28px 24px 40px; }
-  h2 { font-size: 16px; margin: 28px 0 10px; color: #eee; font-weight: 600; }
+  header .header-links { margin-left:auto; font-size:12px; color:#888; }
+  header .header-links a { color: #9ad; text-decoration:none; margin-left:14px; }
+  header .header-links a:hover { text-decoration: underline; }
+  main { max-width: 880px; margin: 0 auto; padding: 28px 24px 40px; }
+  h2 { font-size: 15px; margin: 32px 0 12px; color: #eee; font-weight: 600; letter-spacing: 0.02em; }
   p { color: #bbb; }
-  .stats {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 10px; margin: 18px 0;
+  code { background: #1a1a1a; padding: 2px 6px; border-radius: 3px; font-size: 12px; color: #ddd; font-family: ui-monospace, monospace; }
+
+  .hero { color:#aaa; font-size: 14px; max-width: 640px; }
+
+  /* Operator banner — surfaces the signing identity at the top so
+     the rest of the page makes sense. */
+  .operator-banner {
+    margin: 18px 0 4px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #1a1a08 0%, #0d0d0a 100%);
+    border: 1px solid #5a4a18;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #d4b54e;
+    display:flex; align-items:center; gap:10px; flex-wrap: wrap;
   }
-  .stat {
-    background: #111; border: 1px solid #1a1a1a; border-radius: 6px;
-    padding: 12px 14px;
+  .operator-banner .opkey {
+    font-family: ui-monospace, monospace;
+    color:#d4b54e;
+    background: #0a0a05;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
   }
-  .stat .label { font-size: 11px; color: #888; letter-spacing: 0.06em; text-transform: uppercase; }
-  .stat .value { font-size: 22px; font-weight: 600; color: #eee; font-variant-numeric: tabular-nums; margin-top: 4px; }
-  .download {
-    display: inline-block; padding: 12px 22px;
-    background: #1a1a2e; border: 1px solid #0f3460; color: #eee;
-    border-radius: 6px; text-decoration: none; font-weight: 600;
-    margin: 8px 0;
+  .operator-banner a { color: #fbbf24; text-decoration: none; }
+  .operator-banner a:hover { text-decoration: underline; }
+
+  /* Timeline of snapshots — newest first, each card carries
+     signature status + tier info. */
+  .timeline { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+  .snap {
+    background: #0d0d0d;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px 16px;
+    align-items: start;
   }
-  .download:hover { background: #243763; }
-  .download .size { display: block; font-size: 11px; color: #9ad; font-weight: 400; margin-top: 4px; letter-spacing: 0.04em; }
-  pre {
-    background: #0d0d0d; border: 1px solid #1a1a1a; padding: 12px 14px;
-    border-radius: 6px; font-size: 12px; color: #b0c4de; overflow-x: auto;
+  .snap-meta { min-width: 0; }
+  .snap-title {
+    font-size: 14px;
+    color: #eee;
+    font-weight: 600;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  code { background: #1a1a1a; padding: 2px 6px; border-radius: 3px; font-size: 12px; color: #ddd; }
-  details { margin: 12px 0; }
+  .snap-title .label-chip {
+    font-size: 10px;
+    background: #1a3038;
+    color: #67e8f9;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+  .snap-sub {
+    font-size: 12px;
+    color: #888;
+    font-variant-numeric: tabular-nums;
+  }
+  .snap-sub .sep { color: #444; margin: 0 6px; }
+  .snap-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+  }
+  .btn {
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    text-decoration: none;
+    border: 1px solid;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .btn-primary {
+    background: #1a1a2e;
+    border-color: #0f3460;
+    color: #9ad;
+  }
+  .btn-primary:hover { background: #243763; }
+  .btn-secondary {
+    background: transparent;
+    border-color: #1a1a1a;
+    color: #888;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+  .btn-secondary:hover { color: #9ad; border-color: #2a3038; }
+
+  /* Signature row — only shown for signed manifests. Clicking the
+     "verify" link runs a client-side check against /api/operator-pubkey
+     + recomputed canonical bytes. Tarball hash is shown so users can
+     spot-check by running shasum locally. */
+  .snap-sig {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    color: #888;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px 10px;
+    align-items: center;
+  }
+  .snap-sig .ok { color: #67e8f9; }
+  .snap-sig .err { color: #f87171; }
+  .snap-sig .row { display: contents; }
+  .snap-sig .k { color: #555; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+  .snap-sig .v { color: #aaa; word-break: break-all; }
+  .snap-sig button {
+    background: #1a3038; color: #67e8f9; border: 1px solid #2a5868;
+    border-radius: 3px; padding: 2px 8px; font-size: 11px;
+    cursor: pointer; font-family: inherit;
+  }
+  .snap-sig button:hover:not([disabled]) { background: #244858; }
+  .snap-sig button[disabled] { opacity: 0.6; cursor: default; }
+  .snap-sig.unsigned { color: #777; font-style: italic; }
+  .snap-sig.unsigned .k { color: #555; font-style: normal; }
+
+  details { margin: 18px 0; border: 1px solid #1a1a1a; border-radius: 6px; padding: 10px 14px; background:#0a0a0a; }
   details summary { cursor: pointer; color: #9ad; font-size: 13px; user-select: none; }
-  details[open] summary { margin-bottom: 8px; }
-  .cid-list {
-    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 6px;
-    padding: 10px 12px; max-height: 240px; overflow-y: auto;
-    font-family: ui-monospace, "SF Mono", monospace; font-size: 11px;
-    color: #888; line-height: 1.6;
-  }
-  .cid-list a { color: #9ad; text-decoration: none; }
-  .cid-list a:hover { text-decoration: underline; }
-  .meta { font-size: 11px; color: #777; }
+  details[open] summary { margin-bottom: 10px; }
+  pre { background: #0d0d0d; border: 1px solid #1a1a1a; padding: 12px 14px;
+        border-radius: 4px; font-size: 12px; color: #b0c4de; overflow-x: auto; }
+  .meta { font-size: 11px; color: #777; margin-top: 6px; }
+
   footer {
     padding: 14px 24px 22px;
     border-top: 1px solid #1a1a1a;
@@ -68,77 +176,57 @@
 <body>
 <header>
   <h1><a href="/">beats.bitwrap.io</a> · archive</h1>
+  <div class="header-links">
+    <a href="/feed">feed</a>
+    <a href="/archive.rss" title="RSS feed of persisted snapshots">RSS</a>
+    <a href="/api/snapshot" title="Download envelopes-only snapshot of the catalogue right now">live</a>
+  </div>
 </header>
 <main>
-  <p>
-    Every track ever sealed to <code>beats.bitwrap.io</code> lives in a content-addressed
-    share store. The archive below packages those envelopes into a single
-    <code>.tar.gz</code> backup — small, self-contained, and enough to fully
-    reconstruct the catalogue if this server is ever purged.
+  <p class="hero">
+    Every track shared on beats.bitwrap.io is preserved in dated <strong>signed snapshots</strong>.
+    Browse a moment in time, listen to what was on the catalogue then, or download the tarball
+    for a permanent local copy. Each manifest is signed by the operator's Ed25519 key so you
+    can independently verify the bundle hasn't been tampered with.
   </p>
 
-  <div style="margin:18px 0;padding:12px 14px;background:#1a140a;border:1px solid #4a3a1a;border-radius:6px;font-size:13px;color:#ddd;line-height:1.6">
-    <div style="font-size:11px;color:#fbbf24;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px">Archive policy</div>
-    We may archive (purge from the live store) at any time and for any reason —
-    usually because we're rolling forward with changes that would need older
-    shares to be up-converted or re-rendered against newer versions of the
-    software. <strong>Archived shares are not lost</strong>: they stay
-    downloadable in the snapshot tarballs below, and visiting an archived
-    <code>?cid=…</code> URL surfaces a one-click recovery prompt that re-seals
-    it from the latest snapshot. If you want a permanent local copy, grab a
-    snapshot.
+  <div class="operator-banner" id="operator-banner">
+    <span style="font-size:14px">◆</span>
+    <span>Snapshots are signed by the operator key</span>
+    <span class="opkey" id="opkey-short">…</span>
+    <span style="margin-left:auto">
+      <a href="/api/operator-pubkey" target="_blank" rel="noopener" id="opkey-link">view pubkey</a>
+    </span>
   </div>
 
-  <div class="stats" id="stats">
-    <div class="stat"><div class="label">Shares</div><div class="value" id="stat-shares">…</div></div>
-    <div class="stat"><div class="label">Created</div><div class="value" id="stat-created" style="font-size:13px;line-height:1.4">…</div></div>
-    <div class="stat"><div class="label">Format</div><div class="value" style="font-size:13px;line-height:1.4">tar.gz<br><span style="font-size:11px;color:#888">+ JSON-LD manifest</span></div></div>
-  </div>
+  <h2>Snapshots <span style="color:#666;font-size:12px;font-weight:400" id="snap-count"></span></h2>
 
-  <h2>Live snapshot</h2>
-  <p>Envelopes-only — the canonical state of every share, right now.
-     Audio renders can be regenerated from envelopes deterministically.</p>
-  <a class="download" href="/api/snapshot" download>
-    Download live snapshot
-    <span class="size" id="download-size">streaming on demand</span>
-  </a>
-
-  <h2>Persisted snapshots
-    <a href="/archive.rss" title="RSS feed of persisted snapshots" style="font-size:11px;color:#9ad;text-decoration:none;font-weight:400;margin-left:8px">RSS</a>
-  </h2>
-  <p>Operator-captured backups, grouped by label. Each tarball is
-     immutable — same URL forever returns the same bytes.</p>
-  <div id="persisted">…</div>
-
-  <h2>What's inside</h2>
-  <pre id="tree">
-manifest.json         — JSON-LD metadata (this page embeds it)
-o/{cid}.json          — every share envelope
-  </pre>
+  <div class="timeline" id="timeline">…</div>
 
   <details>
-    <summary>Show all CIDs in the current archive</summary>
-    <div class="cid-list" id="cid-list">…</div>
+    <summary>What's in a snapshot, and how do I verify it?</summary>
+    <p>Each persisted snapshot is a content-addressed bundle of every share envelope at a moment in time, optionally including the cached audio renders and the SQLite track index. The sidecar JSON manifest carries:</p>
+    <ul style="color:#bbb;font-size:13px;line-height:1.7">
+      <li><code>archiveSha256</code> — sha256 of the <code>.tgz</code> bytes. Run <code>shasum -a 256 file.tgz</code> locally to compare.</li>
+      <li><code>signer</code> + <code>signature</code> — Ed25519 signature over the canonical-JSON manifest (with <code>signature</code> stripped). Verify against <a href="/api/operator-pubkey" target="_blank" rel="noopener"><code>/api/operator-pubkey</code></a>.</li>
+      <li><code>envelopes.cids</code> — every CID inside. Each envelope is itself content-addressed; signed envelopes inside are independently verifiable.</li>
+    </ul>
+    <p>Restore against any beats-bitwrap server (yours or this one):</p>
+    <pre>./scripts/process-rebuild-queue.py --restore beats-snapshot-YYYYMMDD-HHMMSS.tgz</pre>
+    <p class="meta">Tracks reappear at <code>?cid=…</code>; audio re-renders the first time a listener opens each one.</p>
   </details>
 
-  <h2>Restore</h2>
-  <p>Replay the envelopes against any beats-bitwrap server (yours or this one):</p>
-  <pre>./scripts/process-rebuild-queue.py --restore beats-snapshot-YYYYMMDD-HHMMSS.tgz</pre>
-  <p>That's it — every track shows up at <code>?cid=…</code> again, and audio
-     re-renders the first time a listener opens it.</p>
-
-  <h2>Manifest</h2>
-  <p class="meta">Embedded as JSON-LD below so crawlers and offline copies
-     of this page carry the catalogue index. Live from
-     <a href="/api/snapshot-manifest"><code>/api/snapshot-manifest</code></a>.</p>
-  <pre id="manifest-preview" style="max-height:240px;overflow:auto">…</pre>
+  <details>
+    <summary>Archive policy</summary>
+    <p>We may archive (purge from the live store) at any time and for any reason — usually to roll forward with changes that need older shares to be up-converted or re-rendered. <strong>Archived shares are not lost</strong>: they stay downloadable in the snapshots above, and visiting an archived <code>?cid=…</code> URL surfaces a one-click recovery prompt that re-seals it from the latest snapshot.</p>
+  </details>
 </main>
 <footer>
   <a href="https://creativecommons.org/licenses/by/4.0/" title="Tracks licensed CC BY 4.0 — reuse with attribution to beats.bitwrap.io">CC BY 4.0</a>
   <span class="footer-sep">·</span>
   <a href="/feed">feed</a>
   <span class="footer-sep">·</span>
-  <a href="/feed.rss" title="RSS / podcast feed">RSS</a>
+  <a href="/archive.rss" title="RSS feed of persisted snapshots">archive RSS</a>
   <span class="footer-sep">·</span>
   <a href="/">studio</a>
 </footer>
@@ -148,76 +236,175 @@ o/{cid}.json          — every share envelope
   const fmtBytes = (n) => {
     if (!n || n < 1024) return `${n||0} B`;
     if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
-    return `${(n/1024/1024).toFixed(1)} MB`;
+    if (n < 1024*1024*1024) return `${(n/1024/1024).toFixed(1)} MB`;
+    return `${(n/1024/1024/1024).toFixed(2)} GB`;
   };
-  try {
-    const r = await fetch('/api/snapshot-manifest', { headers: { Accept: 'application/ld+json' } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const m = await r.json();
-    document.getElementById('stat-shares').textContent = (m.envelopes?.count || 0).toLocaleString();
-    const created = new Date(m.createdAt);
-    document.getElementById('stat-created').textContent = created.toISOString().slice(0,16).replace('T',' ') + ' UTC';
-    // Embed manifest as JSON-LD for crawlers / offline copies.
-    document.getElementById('manifest-ld').textContent = JSON.stringify(m, null, 2);
-    document.getElementById('manifest-preview').textContent = JSON.stringify(m, null, 2);
-    // CID list — link each to its share URL.
-    const cids = m.envelopes?.cids || [];
-    const list = document.getElementById('cid-list');
-    if (!cids.length) {
-      list.textContent = '(empty)';
-    } else {
-      list.innerHTML = cids.map(c =>
-        `<a href="/?cid=${encodeURIComponent(c)}" title="Open this share">${c}</a>`
-      ).join('<br>');
-    }
-  } catch (err) {
-    document.getElementById('stat-shares').textContent = '—';
-    document.getElementById('manifest-preview').textContent = `Failed to load manifest: ${err.message}`;
-  }
+  const fmtTime = (iso) => {
+    if (!iso) return '?';
+    const d = new Date(iso);
+    return d.toISOString().slice(0,16).replace('T',' ') + ' UTC';
+  };
+  const short = (s, head=8, tail=6) => s && s.length > head+tail+1 ? `${s.slice(0,head)}…${s.slice(-tail)}` : s;
 
-  // Persisted snapshots — group by label.
+  // 1. Operator pubkey banner.
+  let operatorPubkey = null;
+  try {
+    const r = await fetch('/api/operator-pubkey');
+    if (r.ok) {
+      const d = await r.json();
+      operatorPubkey = d.address;
+      const link = document.getElementById('opkey-link');
+      const chip = document.getElementById('opkey-short');
+      chip.textContent = short(d.address, 10, 6);
+      chip.title = `${d.type} · ${d.address}`;
+      link.href = `/feed?signer=${encodeURIComponent(d.address)}`;
+      link.textContent = 'browse signed tracks';
+      link.title = `${d.type} · ${d.address}`;
+    }
+  } catch {}
+
+  // 2. Snapshot timeline.
+  const tl = document.getElementById('timeline');
+  let snapshots = [];
   try {
     const r = await fetch('/api/snapshots');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const { snapshots } = await r.json();
-    const host = document.getElementById('persisted');
-    if (!snapshots || !snapshots.length) {
-      host.innerHTML = `<p class="meta">No persisted snapshots yet. Operator can capture one with
-        <code>curl -X POST -H "X-Rebuild-Secret: $S" "/api/snapshot-persist?label=experiment-A"</code>.</p>`;
-      return;
-    }
-    const groups = new Map();
-    for (const s of snapshots) {
-      const k = s.label || '(unlabeled)';
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(s);
-    }
-    const fmtTime = (iso) => new Date(iso).toISOString().slice(0,16).replace('T',' ') + ' UTC';
-    const parts = [];
-    for (const [label, items] of groups) {
-      parts.push(`<h3 style="font-size:13px;color:#9ad;margin:18px 0 8px;letter-spacing:0.04em">${label} <span style="color:#666;font-size:11px;font-weight:400">· ${items.length} snapshot${items.length===1?'':'s'}</span></h3>`);
-      parts.push('<div style="display:flex;flex-direction:column;gap:6px">');
-      for (const s of items) {
-        const env = s.envelopes?.count || 0;
-        const inc = s.includes || {};
-        const tiers = ['envelopes', inc.audio && 'audio', inc.db && 'db'].filter(Boolean).join(' + ');
-        parts.push(`<div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:12px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:#ddd">${fmtTime(s.createdAt)}</div>
-            <div style="font-size:11px;color:#888;margin-top:2px">${env.toLocaleString()} envelopes · ${fmtBytes(s.sizeBytes||0)} · ${tiers}</div>
-          </div>
-          <a href="/feed?snapshot=${encodeURIComponent(s.filename)}" style="font-size:12px;color:#9ad;text-decoration:none;white-space:nowrap" title="Browse this snapshot's tracks in the player">▶ browse</a>
-          <a href="/snapshots/${encodeURIComponent(s.filename)}" download style="font-size:12px;color:#9ad;text-decoration:none;white-space:nowrap">⬇ download</a>
-          <a href="/snapshots/${encodeURIComponent(s.filename.replace(/\.tgz$/,'.json'))}" style="font-size:11px;color:#666;text-decoration:none;white-space:nowrap" title="Sidecar manifest">manifest</a>
-        </div>`);
-      }
-      parts.push('</div>');
-    }
-    host.innerHTML = parts.join('');
+    snapshots = (await r.json()).snapshots || [];
   } catch (err) {
-    document.getElementById('persisted').innerHTML =
-      `<p class="meta">Failed to load snapshot list: ${err.message}</p>`;
+    tl.innerHTML = `<p class="meta">Couldn't load snapshots: ${err.message}</p>`;
   }
+  document.getElementById('snap-count').textContent = snapshots.length
+    ? `· ${snapshots.length}` : '';
+  if (!snapshots.length) {
+    tl.innerHTML = '<p class="meta">No persisted snapshots yet.</p>';
+  } else {
+    // Newest first (loadSnapshotSidecars already sorts; defensive).
+    snapshots.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    tl.innerHTML = '';
+    for (const s of snapshots) {
+      const env = s.envelopes?.count || 0;
+      const inc = s.includes || {};
+      const tiers = ['envelopes', inc.audio && 'audio', inc.db && 'db'].filter(Boolean).join(' + ');
+      const isSigned = !!(s.signer && s.signature);
+      const matchesOperator = isSigned && operatorPubkey && s.signer.address === operatorPubkey;
+      const div = document.createElement('div');
+      div.className = 'snap';
+      const sigPanel = isSigned
+        ? `<div class="snap-sig" data-cid="${s.filename}">
+             <span class="k">signer</span>
+             <span class="v" title="${s.signer.type} · ${s.signer.address}">
+               ${s.signer.type} · ${short(s.signer.address, 10, 6)}
+               ${matchesOperator ? '<span class="ok" style="margin-left:6px">◆ matches operator key</span>' : '<span class="err" style="margin-left:6px">⚠ not the current operator key</span>'}
+             </span>
+             <button data-action="verify" type="button">Verify</button>
+             <span class="k">sha256</span>
+             <span class="v" title="${s.archiveSha256||''}">${short(s.archiveSha256||'', 12, 8) || '—'}</span>
+             <span></span>
+             <span class="k">signature</span>
+             <span class="v" title="${s.signature||''}">${short(s.signature||'', 12, 12)}</span>
+             <span></span>
+           </div>`
+        : `<div class="snap-sig unsigned">
+             <span class="k">unsigned</span>
+             <span>captured before manifests were signed (legacy snapshot)</span>
+             <span></span>
+           </div>`;
+      div.innerHTML = `
+        <div class="snap-meta">
+          <div class="snap-title">
+            ${fmtTime(s.createdAt)}
+            ${s.label ? `<span class="label-chip">${s.label}</span>` : ''}
+          </div>
+          <div class="snap-sub">
+            ${env.toLocaleString()} envelopes
+            <span class="sep">·</span>
+            ${fmtBytes(s.sizeBytes||0)}
+            <span class="sep">·</span>
+            ${tiers}
+          </div>
+        </div>
+        <div class="snap-actions">
+          <a class="btn btn-primary" href="/feed?snapshot=${encodeURIComponent(s.filename)}">▶ Browse tracks</a>
+          <a class="btn btn-secondary" href="/snapshots/${encodeURIComponent(s.filename)}" download>⬇ .tgz (${fmtBytes(s.sizeBytes||0)})</a>
+          <a class="btn btn-secondary" href="/snapshots/${encodeURIComponent((s.filename||'').replace(/\.tgz$/,'.json'))}" target="_blank" rel="noopener">manifest JSON</a>
+        </div>
+        ${sigPanel}
+      `;
+      tl.appendChild(div);
+    }
+  }
+
+  // 3. Verify-button: client-side signature check using WebCrypto.
+  // We reproduce the canonical-JSON of the manifest minus the signature
+  // field (signer retained), then verify via subtle.verify Ed25519.
+  // Key parity gotcha: HTML-escape <,>,& inside string values so we
+  // match Go's json.Marshal default. (Server avoids those characters
+  // in manifest content but defensive escaping makes the verifier
+  // robust to future fields.)
+  // Match Go's json.Marshal HTML-escaping for parity. Without this,
+  // any manifest field containing < > & U+2028 U+2029 produces
+  // different bytes in JS than Go signed.
+  function htmlEscape(s) {
+    return s.replace(/[<>&\u2028\u2029]/g, ch =>
+      '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+  }
+  function canonical(v) {
+    if (v === null) return 'null';
+    if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+    if (typeof v === 'object') {
+      const keys = Object.keys(v).sort();
+      return '{' + keys.map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}';
+    }
+    if (typeof v === 'string') return '"' + htmlEscape(v.replace(/[\\" -]/g, ch => {
+      if (ch === '\\') return '\\\\';
+      if (ch === '"') return '\\"';
+      if (ch === '\n') return '\\n';
+      if (ch === '\r') return '\\r';
+      if (ch === '\t') return '\\t';
+      if (ch === '\b') return '\\b';
+      if (ch === '\f') return '\\f';
+      const code = ch.charCodeAt(0).toString(16).padStart(4, '0');
+      return '\\u' + code;
+    })) + '"';
+    return JSON.stringify(v);
+  }
+  async function verifyManifest(filename) {
+    const sidecarUrl = `/snapshots/${encodeURIComponent(filename.replace(/\.tgz$/,'.json'))}`;
+    const r = await fetch(sidecarUrl);
+    if (!r.ok) throw new Error(`fetch sidecar: HTTP ${r.status}`);
+    const m = await r.json();
+    if (!m.signer || !m.signature) throw new Error('manifest is unsigned');
+    const sig = m.signature;
+    const sigBytes = new Uint8Array(sig.match(/.{1,2}/g).map(b => parseInt(b,16)));
+    const pubBytes = new Uint8Array(m.signer.address.match(/.{1,2}/g).map(b => parseInt(b,16)));
+    const stripped = { ...m };
+    delete stripped.signature;
+    const canon = new TextEncoder().encode(canonical(stripped));
+    const key = await crypto.subtle.importKey('raw', pubBytes, { name: 'Ed25519' }, false, ['verify']);
+    const ok = await crypto.subtle.verify({ name: 'Ed25519' }, key, sigBytes, canon);
+    return { ok, signer: m.signer, archiveSha256: m.archiveSha256 };
+  }
+  tl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action="verify"]');
+    if (!btn) return;
+    const sigPanel = btn.closest('.snap-sig');
+    const filename = sigPanel.dataset.cid;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Verifying…';
+    try {
+      const { ok } = await verifyManifest(filename);
+      btn.textContent = ok ? '✓ Verified' : '✗ Invalid';
+      btn.style.color = ok ? '#67e8f9' : '#f87171';
+      btn.style.background = ok ? '#1a3038' : '#3a1818';
+      btn.style.borderColor = ok ? '#2a5868' : '#6a2828';
+    } catch (err) {
+      btn.textContent = '✗ ' + err.message;
+      btn.style.color = '#f87171';
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.style.background = ''; btn.style.borderColor = ''; btn.disabled = false; }, 4000);
+    }
+  });
 </script>
 </body>
 </html>

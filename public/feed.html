@@ -1089,26 +1089,76 @@
   <span class="footer-sep">·</span>
   <a href="/archive.rss" title="RSS feed of persisted snapshots">archive rss</a>
   <span class="footer-sep">·</span>
-  <a id="footer-operator" href="/api/operator-pubkey" title="Operator's Ed25519 public key. Click to fetch the JSON; use it to verify any official track's signature." target="_blank" rel="noopener">◆ operator key</a>
+  <a id="footer-operator" href="#" title="What does it mean for a track to be official?">◆ operator key</a>
   <span class="footer-sep">·</span>
   <a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=bug_report.yml" target="_blank" rel="noopener" title="Report a bug">bug</a>
   <span class="footer-sep">·</span>
   <a href="https://github.com/stackdump/beats-bitwrap-io/issues/new?template=feature_request.yml" target="_blank" rel="noopener" title="Suggest a feature">feature</a>
 </footer>
+<div id="operator-modal" class="card-modal" hidden>
+  <div class="card-modal-inner" style="max-width:540px">
+    <button class="card-modal-close" title="Close (Esc)">&times;</button>
+    <div style="padding:20px 22px 18px">
+      <h2 style="margin:0 0 12px;font-size:18px;color:#d4b54e">◆ Operator key</h2>
+      <p style="color:#bbb;font-size:13px;line-height:1.6;margin:0 0 14px">
+        Tracks tagged <strong style="color:#d4b54e">◆ Official</strong> in the feed are
+        produced by beats.bitwrap.io's seed batch and signed by a long-lived Ed25519
+        keypair held by the operator. The signature is verified server-side before
+        the envelope is sealed, and verifiable by anyone — fetch
+        <a href="/api/operator-pubkey" target="_blank" rel="noopener" style="color:#9ad">the public key</a>,
+        recompute the canonical bytes, and check.
+      </p>
+      <div style="background:#0a0a05;border:1px solid #5a4a18;border-radius:6px;padding:10px 12px;margin:0 0 14px;font-family:ui-monospace,monospace;font-size:11px;color:#d4b54e;word-break:break-all" id="operator-modal-key">…</div>
+      <p style="color:#888;font-size:12px;line-height:1.5;margin:0 0 14px">
+        Browse only tracks signed by this operator key:
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a class="card-modal-open" id="operator-modal-filter" href="#" style="background:#1a1a08;border:1px solid #5a4a18;color:#d4b54e">Show official tracks</a>
+        <a class="card-modal-open" href="/api/operator-pubkey" target="_blank" rel="noopener" style="background:#0d0d0d;border:1px solid #1a1a1a;color:#9ad">View raw key (JSON)</a>
+        <a class="card-modal-open" href="/archive" style="background:#0d0d0d;border:1px solid #1a1a1a;color:#9ad">Archive</a>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
-  // Resolve the operator pubkey on first paint and rewrite the footer
-  // link to filter the feed for that signer + show the truncated key.
-  // The /api/operator-pubkey endpoint stays the link's title so curious
-  // users can still pull the raw JSON.
+  // Resolve operator pubkey + wire the footer link to open the modal
+  // (instead of dumping JSON in a new tab). Modal explains what
+  // "official" means and links to the filtered feed.
+  let operatorAddress = '';
   fetch('/api/operator-pubkey').then(r => r.ok ? r.json() : null).then(d => {
     if (!d?.address) return;
+    operatorAddress = d.address;
     const a = document.getElementById('footer-operator');
-    if (!a) return;
-    const short = d.address.slice(0, 6) + '…' + d.address.slice(-4);
-    a.textContent = `◆ operator ${short}`;
-    a.href = `/feed?signer=${encodeURIComponent(d.address)}`;
-    a.title = `Operator (${d.type}) ${d.address}\nClick to filter the feed to tracks signed by this key.`;
+    if (a) {
+      const short = d.address.slice(0, 6) + '…' + d.address.slice(-4);
+      a.textContent = `◆ operator ${short}`;
+      a.title = `Click to learn what it means and browse the operator's signed tracks`;
+    }
+    const keyEl = document.getElementById('operator-modal-key');
+    if (keyEl) {
+      keyEl.textContent = d.address;
+      keyEl.title = `${d.type} · ${d.address}`;
+    }
+    const filterLink = document.getElementById('operator-modal-filter');
+    if (filterLink) {
+      filterLink.href = `/feed?signer=${encodeURIComponent(d.address)}`;
+    }
   }).catch(() => {});
+
+  const operatorModal = document.getElementById('operator-modal');
+  const openOperatorModal = () => { operatorModal.hidden = false; };
+  const closeOperatorModal = () => { operatorModal.hidden = true; };
+  document.getElementById('footer-operator')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    openOperatorModal();
+  });
+  operatorModal.querySelector('.card-modal-close').addEventListener('click', closeOperatorModal);
+  operatorModal.addEventListener('click', (e) => {
+    if (e.target === operatorModal) closeOperatorModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!operatorModal.hidden && e.key === 'Escape') closeOperatorModal();
+  });
 </script>
 <script type="module">
 import { recordBookmarked, unrecordBookmarked, isBookmarked }
