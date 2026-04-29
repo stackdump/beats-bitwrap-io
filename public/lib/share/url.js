@@ -11,6 +11,7 @@ import {
     gzipToB64Url, b64UrlToGunzip,
 } from './codec.js';
 import { buildSharePayload } from './collect.js';
+import { signEnvelope, localEd25519PublicKey } from './sign.js';
 import { recordShared, recordRendered } from './history.js';
 import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from './client-render.js';
 
@@ -219,7 +220,11 @@ export async function fetchShare(cid) {
 
 export async function onShareClick(el) {
     const forms = await buildShareUrlForms(el);
-    const { shortUrl, fullUrl, stored, fallback } = forms;
+    // shortUrl + fullUrl are `let` (not destructured const) because the
+    // optional Sign button below mutates them after signing — the
+    // signed envelope has a new CID so the link must update.
+    let { shortUrl, fullUrl } = forms;
+    const { stored, fallback } = forms;
     // If the server store accepted the upload we default to the short
     // CID-only URL; if not, the inline form is forced (and the toggle
     // is hidden) because the short URL would 404 elsewhere.
@@ -272,6 +277,22 @@ export async function onShareClick(el) {
                 <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:#9ad;text-decoration:none">CC BY 4.0</a>
                 — recipients may reuse with attribution to beats.bitwrap.io.
             </p>
+            <details class="pn-share-sign" style="margin-top:10px;border:1px solid #1a1a1a;border-radius:6px;background:#080808;padding:8px 10px">
+                <summary style="cursor:pointer;color:#9ad;font-size:12px;letter-spacing:0.04em">Sign this share (optional)</summary>
+                <p class="pn-modal-hint" style="margin-top:8px">
+                    Stamps your identity onto the envelope. The server verifies the signature
+                    before sealing — anyone re-fetching the CID can confirm you minted it.
+                    Signing changes the bytes (and the CID), so the link below updates.
+                </p>
+                <div class="pn-share-sign-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                    <select class="pn-share-sign-mode" style="background:#111;color:#ddd;border:1px solid #2a2a2a;padding:4px 6px;border-radius:4px;font-size:12px">
+                        <option value="ed25519">Auto (Ed25519, browser-local)</option>
+                        <option value="eth">Eth wallet (MetaMask)</option>
+                    </select>
+                    <button type="button" class="pn-share-sign-btn" style="background:#1a3038;color:#67e8f9;border:1px solid #2a5868;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Sign</button>
+                    <span class="pn-share-sign-status" style="font-size:11px;color:#888;font-family:ui-monospace,monospace"></span>
+                </div>
+            </details>
             <div class="pn-modal-actions">
                 <button class="cancel close">Close</button>
                 <button class="save copy">Copy link</button>
@@ -349,6 +370,59 @@ export async function onShareClick(el) {
     });
     overlay.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
+    });
+
+    // Sign button — optional. Signs the current envelope, re-uploads
+    // the resulting (different) CID, and updates the modal's link to
+    // point at the signed version. The original anonymous CID stays
+    // on the server (it's content-addressed, so no overwrite happens
+    // on the new bytes — they get a new address).
+    const signBtn = overlay.querySelector('.pn-share-sign-btn');
+    const signMode = overlay.querySelector('.pn-share-sign-mode');
+    const signStatus = overlay.querySelector('.pn-share-sign-status');
+    // Pre-populate status with the local Ed25519 identity if it exists
+    // — gives the user a hint that signing won't pop a dialog if they
+    // pick the auto mode.
+    const existingPub = localEd25519PublicKey();
+    if (existingPub && signStatus) {
+        signStatus.textContent = `local key: ${existingPub.slice(0, 6)}…${existingPub.slice(-4)}`;
+    }
+    signBtn?.addEventListener('click', async () => {
+        signBtn.disabled = true;
+        const prevText = signBtn.textContent;
+        signBtn.textContent = 'Signing…';
+        signStatus.textContent = '';
+        try {
+            // Re-collect a fresh payload — title/feel may have changed
+            // since the modal opened, and we want the signed envelope
+            // to reflect the current state. Important: this changes
+            // the CID, so we throw away the old shortUrl entirely.
+            const fresh = buildSharePayload(el);
+            const signed = await signEnvelope(fresh, signMode.value);
+            const canonical = canonicalizeJSON(signed);
+            const signedCid = await computeCidForJsonLd(signed);
+            const stored = await uploadShare(signedCid, canonical);
+            if (!stored) throw new Error('server rejected signed envelope');
+            // Mutate the closure state used by render(): point shortUrl
+            // and fullUrl at the signed CID. fullUrl needs a fresh
+            // gzip too.
+            const newZ = await gzipToB64Url(canonical);
+            shortUrl = `${location.origin}${location.pathname}?cid=${signedCid}`;
+            fullUrl = `${shortUrl}&z=${newZ}`;
+            currentUrl = render();
+            const sig = signed.signer;
+            signStatus.textContent = sig.type === 'eth'
+                ? `signed (eth) · ${sig.address.slice(0, 6)}…${sig.address.slice(-4)}`
+                : `signed (ed25519) · ${sig.address.slice(0, 6)}…${sig.address.slice(-4)}`;
+            signStatus.style.color = '#67e8f9';
+            signBtn.textContent = 'Signed ✓';
+        } catch (err) {
+            console.warn('sign failed:', err);
+            signStatus.textContent = `error: ${err.message || err}`;
+            signStatus.style.color = '#c66';
+            signBtn.disabled = false;
+            signBtn.textContent = prevText;
+        }
     });
 }
 
