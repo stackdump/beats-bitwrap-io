@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// Sanity: a fresh Ed25519 keypair signs the canonical-without-sig
-// bytes; verifySignature accepts it. Tampering with either the
-// envelope content OR the signer address makes verification fail.
+// Sanity: a fresh Ed25519 keypair signs the pre-signature CID and
+// verifySignature accepts it. Tampering with the envelope content
+// (which changes the CID) makes verification fail.
 func TestEd25519RoundTrip(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -32,22 +32,26 @@ func TestEd25519RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signed, err := signedBytes(body)
+	cidBytes, err := signedBytes(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig := ed25519.Sign(priv, signed)
-	if err := verifySignature(signed, "ed25519", hex.EncodeToString(pub),
+	// The signed bytes should be the CID string, not the JSON.
+	if len(cidBytes) > 100 || cidBytes[0] != 'z' {
+		t.Fatalf("expected CID-shaped signed bytes, got %d bytes starting with %q", len(cidBytes), cidBytes[:1])
+	}
+	sig := ed25519.Sign(priv, cidBytes)
+	if err := verifySignature(cidBytes, "ed25519", hex.EncodeToString(pub),
 		hex.EncodeToString(sig)); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	// Tamper detection: flip a byte in the envelope -> verify fails.
-	tampered := make([]byte, len(signed))
-	copy(tampered, signed)
-	tampered[len(tampered)/2] ^= 0xFF
-	if err := verifySignature(tampered, "ed25519", hex.EncodeToString(pub),
+	// Tamper detection: change the envelope -> different CID -> verify fails.
+	envelope["seed"] = int64(99)
+	body2, _ := json.Marshal(envelope)
+	cidBytes2, _ := signedBytes(body2)
+	if err := verifySignature(cidBytes2, "ed25519", hex.EncodeToString(pub),
 		hex.EncodeToString(sig)); err == nil {
-		t.Fatal("expected verify failure on tampered bytes")
+		t.Fatal("expected verify failure on tampered envelope (different CID)")
 	}
 }
 

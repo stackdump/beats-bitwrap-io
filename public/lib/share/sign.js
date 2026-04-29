@@ -24,17 +24,25 @@
 // be re-bound to a different claimed key. See signedBytes() in
 // internal/share/sigverify.go for the parity contract.
 
-import { canonicalizeJSON } from './codec.js';
+import { canonicalizeJSON, computeCidForJsonLd } from './codec.js';
 
 const ED25519_KEY_LSKEY = 'pn-ed25519-keypair-v1';
 
-// Stable, JS-side replication of internal/share/sigverify.go's
-// signedBytes: encode the envelope canonically, with `signature`
-// stripped but `signer` preserved.
-function signedBytesFor(envelope) {
+// JS-side replication of internal/share/sigverify.go's signedBytes:
+// the pre-signature CID of the envelope (UTF-8 bytes of the
+// base58btc string). Computed by stripping `signature`, canonicalizing
+// the rest, and running the same CID hash the server uses. `signer`
+// stays in the canonical bytes so the signature commits to the key.
+//
+// Why CID instead of full canonical bytes: signing the CID is
+// equivalent (the verifier recomputes CID from canonical), but the
+// wallet popup shows ~50 readable characters instead of a multi-kB
+// JSON blob.
+async function signedBytesFor(envelope) {
     const clone = { ...envelope };
     delete clone.signature;
-    return new TextEncoder().encode(canonicalizeJSON(clone));
+    const cid = await computeCidForJsonLd(clone);
+    return { cid, bytes: new TextEncoder().encode(cid) };
 }
 
 // --- Ed25519 (auto, browser-local) ---
@@ -63,10 +71,11 @@ async function loadOrCreateEd25519() {
 async function signEd25519(envelope) {
     const { publicKeyHex, privateKey } = await loadOrCreateEd25519();
     const signer = { type: 'ed25519', address: publicKeyHex };
-    // Stamp signer first so signedBytesFor sees it.
+    // Stamp signer first so signedBytesFor sees it (the signature
+    // commits to the claimed key, computed via the pre-sig CID).
     const stamped = { ...envelope, signer };
-    const message = signedBytesFor(stamped);
-    const sigBuf = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, message);
+    const { bytes } = await signedBytesFor(stamped);
+    const sigBuf = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, bytes);
     const sig = Array.from(new Uint8Array(sigBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('');
     return { ...stamped, signature: sig };
@@ -84,15 +93,15 @@ async function signEth(envelope) {
     if (!address) throw new Error('No account selected.');
     const signer = { type: 'eth', address };
     const stamped = { ...envelope, signer };
-    const message = signedBytesFor(stamped);
-    // personal_sign with hex-encoded bytes: MetaMask treats this as
-    // raw bytes (not as a UTF-8 string). The server side prepends the
-    // EIP-191 \x19 prefix + the byte length and recovers the address.
-    const hex = '0x' + Array.from(message)
-        .map(b => b.toString(16).padStart(2, '0')).join('');
+    const { cid } = await signedBytesFor(stamped);
+    // personal_sign with the CID string: MetaMask shows the CID
+    // (~50 readable chars) in the popup. The server prepends the
+    // EIP-191 \x19 prefix + the byte length of the CID string and
+    // recovers the address. Pass the string directly — MetaMask
+    // treats non-hex args as UTF-8 text.
     const sig = await eth.request({
         method: 'personal_sign',
-        params: [hex, address],
+        params: [cid, address],
     });
     return { ...stamped, signature: sig };
 }

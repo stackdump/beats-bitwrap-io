@@ -83,18 +83,32 @@ func (s *Store) validateProvenance(body []byte, headerSecret string) error {
 	return nil
 }
 
-// signedBytes returns the canonical-JSON encoding of the envelope with
-// the `signature` field stripped. `signer` is retained — the signature
-// must commit to the claimed key. Both producer (signing client) and
-// verifier (server) MUST compute these bytes identically; any drift
-// breaks signatures.
+// signedBytes returns what was signed: the **pre-signature CID** of
+// the envelope (UTF-8 bytes of the base58btc CID string). Computed
+// by stripping `signature`, canonicalizing the rest, and running the
+// same CID hash the share store would. `signer` is retained in the
+// canonicalized bytes so the signature commits to the claimed key.
+//
+// Why the CID and not the canonical bytes themselves: the CID is the
+// content hash, so signing it is cryptographically equivalent — the
+// verifier independently recomputes the CID from canonical bytes and
+// compares. Signing the CID gives the wallet popup a short, readable
+// string instead of a multi-kB JSON blob.
+//
+// Both producer (signing client) and verifier (server) MUST compute
+// this identically; any drift in canonicalization or CID encoding
+// breaks every signature.
 func signedBytes(envelope []byte) ([]byte, error) {
 	var v map[string]any
 	if err := json.Unmarshal(envelope, &v); err != nil {
 		return nil, fmt.Errorf("envelope parse: %w", err)
 	}
 	delete(v, "signature")
-	return canonicalJSON(v)
+	canonical, err := canonicalJSON(v)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(computeCid(canonical)), nil
 }
 
 // verifySignature checks the signature over signedBytes using the
