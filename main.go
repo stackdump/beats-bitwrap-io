@@ -150,6 +150,19 @@ func main() {
 	// always rejected (anonymous + signed envelopes still admitted).
 	shareStore.SetRebuildSecret(rebuildSecret)
 
+	// Load (or generate on first start) the operator's Ed25519 keypair
+	// used to sign official envelopes. The seed lives in
+	// data/.operator-key (mode 0600). Public key is exposed at
+	// /api/operator-pubkey so anyone can independently verify any
+	// envelope claiming source=official.
+	operatorKey, err := share.LoadOrCreateOperatorKey(filepath.Join(*dataDir, ".operator-key"))
+	if err != nil {
+		log.Fatalf("operator key init: %v", err)
+	}
+	log.Printf("Operator key: %s (pubkey %s…)",
+		filepath.Join(*dataDir, ".operator-key"),
+		operatorKey.PublicKeyHex()[:16])
+
 	share.GoogleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
 	if share.GoogleAnalyticsID != "" {
 		log.Printf("Google Analytics: %s", share.GoogleAnalyticsID)
@@ -466,7 +479,20 @@ func main() {
 		// /api/project-share + /api/mirror-cid — seal local projects as
 		// share-v1 envelopes with raw nets, optionally mirrored to remote
 		// stores in the same call. See CLAUDE.md for the agent recipe.
-		mux.HandleFunc("/api/project-share", projectShareHandler(seq, shareStore, rebuildSecret))
+		mux.HandleFunc("/api/project-share", projectShareHandler(seq, shareStore, rebuildSecret, operatorKey))
+		// /api/operator-pubkey — publishes the Ed25519 public key the
+		// server uses to sign source=official envelopes. Anyone can
+		// fetch this and independently verify any official envelope's
+		// signature against the canonical bytes (signature stripped,
+		// signer retained, CID recomputed).
+		mux.HandleFunc("/api/operator-pubkey", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "public, max-age=300")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"type":    "ed25519",
+				"address": operatorKey.PublicKeyHex(),
+			})
+		})
 		mux.HandleFunc("/api/mirror-cid", mirrorCIDHandler(shareStore))
 
 		// MIDI routing introspection.
@@ -682,7 +708,7 @@ func collectNetIds(project map[string]interface{}) []string {
 }
 
 // --- /api/project-share handler factory ---
-func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebuildSecret string) http.HandlerFunc {
+func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebuildSecret string, operatorKey *share.OperatorKey) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -741,6 +767,17 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 			rebuildSecret != "" &&
 			constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
 			envelope["source"] = "official"
+			// Stamp signer + signature so "official" is verifiable.
+			// SignEnvelope mutates in-place, computing the pre-sig
+			// CID and signing it with the operator key. After this
+			// call the envelope's CanonicalCID will incorporate the
+			// signature bytes; any third party who fetches /o/{cid}
+			// can independently verify against /api/operator-pubkey.
+			if err := operatorKey.SignEnvelope(envelope); err != nil {
+				http.Error(w, "operator sign: "+err.Error(),
+					http.StatusInternalServerError)
+				return
+			}
 		}
 		// Optional arrangement directive — carried in the envelope so the
 		// client can re-expand the track deterministically on load.
