@@ -187,6 +187,20 @@ func main() {
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
 	mux.HandleFunc("/schema/snapshot-manifest", share.HandleSnapshotManifestSchema)
 	mux.HandleFunc("/schema/beats-audio-analysis", share.HandleBeatsAudioAnalysisSchema)
+	// /api/operator-pubkey — public always (even without -authoring).
+	// Publishes the Ed25519 public key used to sign source=official
+	// envelopes so any verifier (including third-party hosts mirroring
+	// our shares) can independently check authenticity. Lives outside
+	// the authoring block because prod runs without -authoring but
+	// still serves officials whose signatures need to be verifiable.
+	mux.HandleFunc("/api/operator-pubkey", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"type":    "ed25519",
+			"address": operatorKey.PublicKeyHex(),
+		})
+	})
 	svgCard := share.HandleShareCard(shareStore)
 	pngCard := share.HandleShareCardPNG(shareStore)
 	mux.Handle("/share-card/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -480,19 +494,6 @@ func main() {
 		// share-v1 envelopes with raw nets, optionally mirrored to remote
 		// stores in the same call. See CLAUDE.md for the agent recipe.
 		mux.HandleFunc("/api/project-share", projectShareHandler(seq, shareStore, rebuildSecret, operatorKey))
-		// /api/operator-pubkey — publishes the Ed25519 public key the
-		// server uses to sign source=official envelopes. Anyone can
-		// fetch this and independently verify any official envelope's
-		// signature against the canonical bytes (signature stripped,
-		// signer retained, CID recomputed).
-		mux.HandleFunc("/api/operator-pubkey", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Cache-Control", "public, max-age=300")
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"type":    "ed25519",
-				"address": operatorKey.PublicKeyHex(),
-			})
-		})
 		mux.HandleFunc("/api/mirror-cid", mirrorCIDHandler(shareStore))
 
 		// MIDI routing introspection.
