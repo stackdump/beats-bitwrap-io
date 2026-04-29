@@ -93,6 +93,43 @@
     flex-direction: column;
     gap: 2px;
   }
+  /* Column-header row, only shown in list view. Mirrors the column
+     widths set up by .card-meta's grid template (genre/tempo/dur/date
+     min-widths) so the header labels align over their data cells. */
+  .list-header { display: none; }
+  body[data-feed-view="list"] .list-header {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) auto auto auto auto auto auto;
+    gap: 14px;
+    align-items: center;
+    padding: 8px 14px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 10px;
+    color: #888;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  body[data-feed-view="list"] .list-header-art { width: 64px; }
+  body[data-feed-view="list"] .list-header-cell {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 2px 0;
+    text-align: left;
+    white-space: nowrap;
+  }
+  body[data-feed-view="list"] .list-header-cell:hover { color: #ddd; }
+  body[data-feed-view="list"] .list-header-cell[data-active="true"] { color: #67e8f9; }
+  body[data-feed-view="list"] .list-header-cell[data-sort="tempo"],
+  body[data-feed-view="list"] .list-header-cell[data-sort="dur"],
+  body[data-feed-view="list"] .list-header-cell[data-sort="date"] { text-align: right; }
+  body[data-feed-view="list"] .list-header-cell[data-sort="tempo"] { min-width: 56px; }
+  body[data-feed-view="list"] .list-header-cell[data-sort="dur"]   { min-width: 44px; }
+  body[data-feed-view="list"] .list-header-cell[data-sort="date"]  { min-width: 100px; }
+  body[data-feed-view="list"] .list-header-spacer { width: 0; }
   body[data-feed-view="list"] .card {
     flex-direction: row;
     align-items: center;
@@ -1012,6 +1049,23 @@
     </span>
   </button>
   <main>
+    <!-- List-mode column header row. Hidden in card view. Each cell is
+         a sort button — clicking cycles asc → desc → off. The active
+         sort is reflected in an `↑` / `↓` glyph next to the label.
+         Sort happens client-side over the currently-loaded grid; we
+         don't refetch from the server (the feed is paginated newest-
+         first by rendered_at, and re-querying with a different ORDER
+         BY would break cursor-based pagination). -->
+    <div id="list-header" class="list-header" hidden>
+      <span class="list-header-art"></span>
+      <button class="list-header-cell" data-sort="name"   title="Sort by track title">Title</button>
+      <button class="list-header-cell" data-sort="genre"  title="Sort by genre">Genre</button>
+      <button class="list-header-cell" data-sort="tempo"  title="Sort by BPM">BPM</button>
+      <button class="list-header-cell" data-sort="dur"    title="Sort by duration">Dur</button>
+      <button class="list-header-cell" data-sort="date"   title="Sort by render date">Date</button>
+      <button class="list-header-cell" data-sort="signer" title="Sort by provenance / signer address">Signer</button>
+      <span class="list-header-spacer"></span>
+    </div>
     <div id="grid" class="grid"></div>
     <div id="state" class="loading">Loading…</div>
     <button id="more" class="more-btn" hidden>Load more</button>
@@ -2178,11 +2232,13 @@ const renderCard = (t) => {
   dateRel.className = 'card-date card-date-rel';
   dateRel.textContent = fmtTime(t.renderedAt);
   dateRel.title = new Date(t.renderedAt).toLocaleString();
+  dateRel.dataset.ts = String(t.renderedAt || 0);
   subEl.appendChild(dateRel);
   const dateAbs = document.createElement('span');
   dateAbs.className = 'card-date card-date-abs';
   dateAbs.textContent = fmtDate(t.renderedAt);
   dateAbs.title = new Date(t.renderedAt).toLocaleString();
+  dateAbs.dataset.ts = String(t.renderedAt || 0);
   subEl.appendChild(dateAbs);
   // Lazy duration probe via IntersectionObserver so off-screen rows
   // don't fire range requests until they scroll into view.
@@ -2684,6 +2740,7 @@ let feedView = (() => {
   catch { return 'cards'; }
 })();
 const viewBtn = document.getElementById('toggle-view');
+const listHeader = document.getElementById('list-header');
 const renderViewBtn = () => {
   document.body.dataset.feedView = feedView;
   viewBtn.dataset.on = feedView === 'list' ? 'true' : 'false';
@@ -2691,6 +2748,7 @@ const renderViewBtn = () => {
   viewBtn.title = feedView === 'list'
     ? 'Switch to card grid'
     : 'Switch to compact list view';
+  listHeader.hidden = feedView !== 'list';
 };
 renderViewBtn();
 viewBtn.addEventListener('click', () => {
@@ -2698,6 +2756,84 @@ viewBtn.addEventListener('click', () => {
   try { localStorage.setItem(VIEW_KEY, feedView); } catch {}
   renderViewBtn();
 });
+
+// List-mode column sort. State: { key, dir } where key is one of
+// name/genre/tempo/dur/date/signer and dir is 'asc' or 'desc'. Each
+// click cycles asc → desc → off; clicking a different column resets
+// to asc on that key. Sorts the grid's children DOM nodes in place
+// — does not refetch — so pagination + filters stay coherent.
+const SORT_NONE = { key: '', dir: '' };
+let sortState = { ...SORT_NONE };
+const sortValue = (card, key) => {
+  const meta = card.querySelector('.card-meta');
+  if (!meta) return '';
+  const text = (sel) => (meta.querySelector(sel)?.textContent || '').trim();
+  switch (key) {
+    case 'name':   return text('.card-title').toLowerCase();
+    case 'genre':  return text('.card-genre-chip').toLowerCase();
+    case 'tempo':  return parseInt(text('.card-tempo'), 10) || 0;
+    case 'dur':    return parseFloat(text('.card-dur')) || 0;
+    case 'date': {
+      // Both .card-date variants stash data-ts (epoch ms) so we sort
+      // on the truth value, not the human-readable string.
+      const ts = meta.querySelector('.card-date')?.dataset.ts;
+      return ts ? parseInt(ts, 10) : 0;
+    }
+    case 'signer': {
+      // Sort officials first, then by signer address, then anonymous
+      // last. Three-tier composite key keeps related rows together.
+      const off = card.querySelector('.card-prov-official') ? 0 : 1;
+      const sig = card.querySelector('.card-prov-signed')?.dataset.provFilter || '';
+      return `${off}|${sig.toLowerCase()}`;
+    }
+  }
+  return '';
+};
+let sorting = false;  // re-entrancy guard for the MutationObserver
+const applySort = () => {
+  const cells = listHeader.querySelectorAll('.list-header-cell');
+  cells.forEach(c => {
+    const isActive = c.dataset.sort === sortState.key;
+    c.dataset.active = isActive ? 'true' : 'false';
+    const base = c.dataset.label || c.textContent.replace(/[ ↑↓]+$/, '');
+    c.dataset.label = base;
+    c.textContent = base + (isActive ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : '');
+  });
+  if (!sortState.key) return;
+  if (sorting) return;
+  sorting = true;
+  const cards = Array.from(grid.children);
+  const dirMul = sortState.dir === 'desc' ? -1 : 1;
+  cards.sort((a, b) => {
+    const va = sortValue(a, sortState.key);
+    const vb = sortValue(b, sortState.key);
+    if (va < vb) return -1 * dirMul;
+    if (va > vb) return  1 * dirMul;
+    return 0;
+  });
+  cards.forEach(c => grid.appendChild(c));
+  sorting = false;
+};
+listHeader.addEventListener('click', (e) => {
+  const cell = e.target.closest('.list-header-cell');
+  if (!cell) return;
+  const key = cell.dataset.sort;
+  if (sortState.key === key) {
+    sortState.dir = sortState.dir === 'asc' ? 'desc' : '';
+    if (!sortState.dir) sortState.key = '';
+  } else {
+    sortState = { key, dir: 'asc' };
+  }
+  applySort();
+});
+// Re-apply sort when new cards land. fetchPage and reset are const,
+// so we observe DOM mutations on the grid instead of patching them.
+// Cheap: only fires when cards are appended, and applySort is O(n)
+// over the visible children.
+const sortObserver = new MutationObserver(() => {
+  if (sortState.key) applySort();
+});
+sortObserver.observe(grid, { childList: true });
 
 // Help modal — opened by the ? button in the filter bar or the ?
 // keyboard shortcut. Esc / backdrop click / × all close. Mirrors
