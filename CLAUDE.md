@@ -43,13 +43,12 @@ export function fireMacro(el, id) { /* actual implementation */ }
 
 ## Key subsystems
 
-Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits worth knowing up front:
+Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits:
 
 - **Worker / engine** — `public/sequencer-worker.js` runs the tick loop; `public/lib/pflow.js` is the Petri-net engine; `public/audio/tone-engine.js` holds the 40+ instrument configs and master FX. **Don't split tone-engine.js** — the instrument lookup is cohesive and fragmenting hurts it.
-- **Generator** (`public/lib/generator/`) — composer / euclidean / markov / theory / structure / variety / regenerate / macros / genre-instruments. `arrange.js` is a **full JS port of `internal/generator/arrange.go`** — `arrangeWithOpts(proj, genre, size, opts)` with Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process, so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`.
-- **Main-thread modules** (`public/lib/{ui,macros,backend,project,share,feel,audio}/`) — every method on the `PetriNote` class is a one-line wrapper that calls a same-named function in one of these modules (see "Extraction pattern" above). Edit the module.
+- **Generator** (`public/lib/generator/`) — composer / euclidean / markov / theory / structure / variety / regenerate / macros / genre-instruments. `arrange.js` is a **full JS port of `internal/generator/arrange.go`** with byte-identical Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`.
+- **Main-thread modules** (`public/lib/{ui,macros,backend,project,share,feel,audio}/`) — every method on the `PetriNote` class is a one-line wrapper around a same-named function in one of these modules. Edit the module.
 - **Server** (`main.go` + `internal/`) — `share/` is the content-addressed seal/store + JSON-LD/Schema endpoint; `sequencer/` is the authoritative Petri-net executor; `ws/` mirrors the in-page worker protocol; `routes/` is `/api/*`; `midiout/` is CoreMIDI/ALSA fanout; `mcp/` is the stdio MCP server; `generator/` is the Go side of the composer with byte-identical output to JS.
-- **Schemas** — three of them, see "Three schemas in this repo" below.
 
 ## How Petri nets drive everything
 
@@ -62,27 +61,15 @@ Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits worth
 7. **Live performance macros** — `fire-macro` message injects a short linear-chain control net per target; its terminal transition carries the restore action. Exhausted macro nets (token reached terminal place) are auto-pruned from `project.nets` each tick to prevent accumulation.
 8. **Dynamic ring resize** — Each track stores its `generator` recipe (`euclidean`, `markov`, etc.) on `track`; changing Size/Hits sends `update-track-pattern` which rebuilds the subnet and swaps it in at the next bar boundary (`pendingNetUpdates`).
 
-## Front-end UI features
+## Front-end UI
 
-- **Tabs** (toggle bar above the mixer, stack independently top-to-bottom in order FX → Macros → Beats → Auto-DJ): **FX** (master chain sliders), **Macros** (live-performance tricks, see below), **Beats** (hit1–hit4 stinger Fire pads that mirror schema-reserved muted tracks living on channels 20–23), **Auto-DJ**.
-- **Mixer sections** are driven by each net's `track.group` (`drums`/`bass`/`melody`/`harmony`/`arp`/`pad`/`stinger`, or any freeform name). The composer tags its output explicitly; hand-authored tracks pick their own. The mixer renders a divider per distinct group in `sectionOrder` precedence (`drums`, `percussion`, `bass`, `chords`, `harmony`, `lead`, `melody`, `arp`, `pad`, `texture`, `stinger`, anything unknown last). Legacy fallback: if `track.group` is missing, `hitN` IDs are still bucketed as `stinger` so pre-attribute shares keep working; everything else falls into `main` (no divider).
-- **Macros panel**: ~35 tricks across groups — Mute / FX / Pitch / Tempo / Pan (per-channel non-drum) / Shape (per-channel decay: Tighten / Loosen / Pulse). Serial queue with visible depth badge. Right-click any tile to toggle its Auto-DJ-disabled mark (persists to `localStorage['pn-macro-disabled']`). Hover + MIDI pad press binds pad-note to macro. Every macro pulses its target UI (slider / mute button / FX slider) with a chase-light and restores the target to its pre-macro value on release. In-flight pulse tokens / pan snapshots / decay snapshots are cancelled on `applyProjectSync` so project regeneration doesn't leak animations onto new DOM nodes.
-- **Auto-DJ**: armed with `Run`; fires random macros from checked pools every N bars (1–1024, powers of 2). `Stack` (1–3) fires multiple concurrently. `Regen` (off / 8–1024 bars) generates a fresh track on a timer with a one-bar-early pre-render for seamless swaps. `Animate only` spins the ring on cadence without touching macros. Tick-wrap guard on `curTick < prevTick` avoids double-regen after a reset. Ring rotates ±90° per fire (arrowheads flip on CCW so token flow matches the spin). Settings are DOM-only (in the `.pn-effects` panel) and survive `renderMixer` / project regen.
-- **Beats panel**: four `hitN` Fire pads arranged in a 2×2 grid. Each Fire is an **N-bar macro** (bars dropdown, default 2): unmutes the stinger track so its Petri ring pulses on every beat, then re-mutes on timer. Pit dropdown transposes the track during its unmute window (read live in `onRemoteTransitionFired` — so manual unmute via the `1`–`4` hotkey or mixer mute button respects the same pitch). FX dropdown pairs any macro with the Fire click at the same N-bar duration. Instruments come from a curated stinger set including reserved `unbound` (silent slot that still fires paired FX).
-- **Feel modal** (◈ next to genre): XY morph pad with four corner snapshots — **Chill** (BL) / **Drive** (BR) / **Ambient** (TL) / **Euphoric** (TR). Dragging the puck bilinearly blends tempo, master FX, Auto-DJ, swing, humanize. **Genre constellation**: all 19 presets are plotted on the pad; hovering a star shows a dashed ghost puck preview, clicking snaps + engages. Engage/disengage + preview → apply/cancel semantics (Cancel fully restores the pre-open state).
-- **Stage mode** (▣ pill next to Shuffle or `M` hotkey): full-page overlay that renders every unmuted music net as its own live sub-Petri ring, arranged as a meta-net with connector place-circles + arrows. Read-only view; audio keeps playing through the normal pipeline. Four stackable viz modes in the top-left menu: **Flow** (panels drift), **Pulse** (beat particles fly from panel centers to composition center — panels sit in front so particles appear to emerge from behind ring outlines), **Flame** (per-panel radial beam aimed at each panel's exact angle), **Tilt** (3D perspective rotation of the whole grid).
-- **Playhead on the ring**: the last-fired transition keeps a soft gold `.playhead` class until the next one fires, so the beat position reads across the room during live playback.
-- **Keyboard shortcuts** (documented inline in the Help modal): `Space` play/stop · `G` generate · `S` shuffle · `F` Feel · `M` Stage · `J` Auto-DJ Run · `A` animate only · `P` panic · `B` FX bypass · `R` FX reset · `T` tap tempo · `,` / `.` BPM ∓1 · `1`–`4` toggle hit tracks · `[` / `]` prev / next track · `←↑→↓` nudge hovered slider · `?` help · `Esc` close modal. Skipped when focus is in an input/select/textarea or a modal owns keys.
-- **Cursor-anchored slider tip**: a single `.pn-slider-tip` element in `document.body` floats beside the pointer showing the hovered slider's live value (Hz for HP/LP, Q for resonance, L/C/R for pan, ms for decay, %, 0.25s for delay time, Off / `N-bit` for crush, etc.). No inline value spans means hover state never shifts row layout. Shared helpers in `lib/ui/slider-tip.js` (`showSliderTip` / `hideSliderTip` / `syncSliderTip`).
-- **Per-track Preset Manager** (`★` button): save/apply/delete mixer panels (vol/pan/filters/decay) scoped by channel. Persists to `localStorage['pn-instrument-presets']`.
-- **Trait editor modal**: click any genre trait chip (Ghosts, Syncopation, etc.) to toggle on/off or tune percentage. Triggers regeneration with updated params.
-- **MIDI binding editor**: click any note badge on a transition to edit note / channel / velocity / duration. Bidirectional C4 ↔ integer sync. Scroll to nudge any field.
-- **Universal hover-scroll**: every `<input type="number|range">` and `<select>` adjusts by 1 on wheel — capture-phase listener on the host element.
-- **MIDI toggle** (top-right): enables Web MIDI I/O. Per-track audio-output dropdowns only appear when MIDI is enabled.
-- **MIDI tab** (panel-toggle row, alongside FX / Macros / Beats / Auto-DJ / Arrange / Note): consolidates all MIDI input UI. Status row (connected devices + Monitor + Reset MIDI), Xpose pill (±48 semitone live transpose with a 🎹 listen-from-keybed toggle), CC bindings list (with `●`/`○` mute-state indicators when bound to mute targets), Notes bindings list (pads + keybed → macros / mute toggles). Hover-bind on every target type — slider, mute button, section divider, BPM input, macro tile.
-- **Pitch bend default** (controllers with a 2-axis stick like the MPK Mini joystick X): drives Xpose live, ±12 semitones snap-to-semitone, springs to +0 on release. Behaves like a temporary modulator rather than a destructive setter. Modwheel / CC1 (joystick Y) is unbound by default — explicit hover-bind only, so users always see why a control changed when they didn't ask for it.
-- **Feel pad** (◈ next to the genre dropdown): orthogonal tone × BPM XY pad. X axis = master Hi-Cut filter (left dark / 50% closed → right bright / 100% open); Y axis = BPM (bottom slow / base × 0.6 → top fast / base × 1.4). Spring-return on release: pointerdown snapshots the live tempo + LP value, pointerup restores them — the pad is a temporary modulator, not a setter. Other live FX / Auto-DJ / swing / humanize stay where they were set.
-- **MIDI Monitor modal**: opened via the Monitor button on the MIDI tab. Logs every incoming MIDI message verbatim (Note On/Off, CC, Aftertouch, Pitch Bend, Program Change, Channel Pressure, raw hex for anything else). Last-event LCD readout + scrollable history (capped at 200 lines, newest on top) + Clear and Copy-to-clipboard buttons. Bindings still fire while the modal is open so the user sees raw message + bound action together.
+The studio is built from a panel toggle row (FX / Macros / Beats / Auto-DJ / Arrange / MIDI / Note) plus modals (Feel ◈, Stage ▣, MIDI Monitor, Trait editor, MIDI binding editor, per-track Preset Manager ★). All wiring lives in `public/lib/ui/` (panels, sliders, modals, mixer) and `public/lib/macros/` (catalog, runtime, effects). Live FX/macro panels expose ~35 macros across Mute / FX / Pitch / Tempo / Pan / Shape groups; Auto-DJ fires random macros from checked pools every N bars with optional regen + animate-only modes.
+
+Mixer sections are driven by each net's `track.group` (`drums`/`bass`/`melody`/`harmony`/`arp`/`pad`/`stinger`, freeform). Section precedence: `drums`, `percussion`, `bass`, `chords`, `harmony`, `lead`, `melody`, `arp`, `pad`, `texture`, `stinger`, unknown last. Legacy fallback: missing `track.group` → `hitN` IDs bucket as `stinger`, everything else falls into `main`.
+
+Keyboard shortcuts (full list in the in-app Help modal): `Space` play/stop · `G` generate · `S` shuffle · `F` Feel · `M` Stage · `J` Auto-DJ · `A` animate · `P` panic · `B` FX bypass · `R` FX reset · `T` tap tempo · `,`/`.` BPM ∓1 · `1`–`4` toggle hit tracks · `[`/`]` prev/next track · `←↑→↓` nudge hovered slider · `?` help · `Esc` close.
+
+Universal hover-scroll: every `<input type="number|range">` and `<select>` adjusts by 1 on wheel via a capture-phase listener on the host element. Cursor-anchored slider tip lives in `lib/ui/slider-tip.js` (`showSliderTip` / `hideSliderTip` / `syncSliderTip`).
 
 ## Share URLs (CID-addressed)
 
@@ -104,34 +91,30 @@ Everything else is **transient by design** and intentionally omitted:
 | Excluded | Why |
 |---|---|
 | MIDI CC / pad learn bindings | Per-user hardware; bindings aren't portable to someone else's MIDI surface. |
-| Tone presets (`pn-instrument-presets`) | `localStorage`-scoped per browser; portable preset export is a different feature, not a share concern. |
+| Tone presets (`pn-instrument-presets`) | `localStorage`-scoped per browser; portable preset export is a different feature. |
 | Wake-lock / MIDI enable | Device / session settings; nothing to do with the track. |
 | `_spaceHeld` / hover state / `_macroQueue` | Live UI state; exists only during playback. |
-| Auto-DJ regen timer / pre-rendered next track | Performance-side cache; rebuilt fresh on each session. |
+| Auto-DJ regen timer / pre-rendered next track | Performance-side cache; rebuilt fresh each session. |
 | Service-worker / cache version | Deployment concern. |
 | Tap-tempo history / active feel-preview puck | Transient input-state. |
 
 When adding a new user-tunable knob: ask "would the author expect this setting to be preserved when they share?". If yes, add a collector in `lib/share/collect.js`, an applier in `lib/share/apply.js`, and a `$defs` / property entry in `public/schema/beats-share.schema.json`. Defaults should be **omitted from the payload** so unconfigured shares stay byte-identical for CID stability. Appliers run in dependency order in `applyShareOverrides` — DOM-touching appliers (`applyHitState`) run **after** the panel toggle that creates their DOM (`applyUiState`).
 
-## Schema endpoints
+## Schemas
 
-- `GET /schema/beats-share` — content-negotiated:
-  - default / `Accept: application/ld+json` → JSON-LD `@context`
-  - `Accept: application/schema+json` → Draft 2020-12 JSON-Schema
-  - `Accept: text/html` → rendered HTML term glossary
-- Static paths always work: `/schema/beats-share.context.jsonld`, `/schema/beats-share.schema.json`.
+`GET /schema/beats-share` is content-negotiated: default / `application/ld+json` → JSON-LD `@context`; `application/schema+json` → Draft 2020-12 JSON-Schema; `text/html` → rendered glossary. Static paths always work: `/schema/beats-share.context.jsonld`, `/schema/beats-share.schema.json`.
 
-### Three schemas in this repo (don't confuse them)
+Three schemas in this repo (don't confuse them):
 
 | Path | Status | Purpose |
 |---|---|---|
 | `public/schema/beats-share.{context.jsonld,schema.json}` | **Wire format.** Served at `/schema/beats-share`. | Validates the share-v1 envelope (`?cid=…` payloads). The contract for any agent producing playable links. |
 | `public/schema/petri-note.schema.json` | **Runtime project shape.** | What `nets:` round-trips through — `parseNetBundle` consumes this. Used by `internal/share` to validate hand-authored `nets` blocks before sealing. |
-| `schema/petri-note.schema.json` + `schema/README.md` | **Reference / vestigial.** Test-only. | The richer petri-note v1 JSON-LD shape (Scenes, inter-net `connections`, inhibitor arcs, silent transitions) inherited from the merged petri-note repo. `internal/pflow/schema_test.go` validates `schema/example-*.json` against it. Not served, not enforced at runtime — kept because `/api/song.jsonld` and a future Scenes-aware authoring path target this shape. |
+| `schema/petri-note.schema.json` + `schema/README.md` | **Reference / vestigial.** Test-only. | The richer petri-note v1 JSON-LD shape (Scenes, inter-net `connections`, inhibitor arcs, silent transitions). `internal/pflow/schema_test.go` validates `schema/example-*.json` against it. Not served, not enforced at runtime — kept because `/api/song.jsonld` and a future Scenes-aware authoring path target this shape. |
 
 ## Generating a share payload (agents / LLMs / non-UI front-ends)
 
-The share envelope is the IR. Any producer — a human, an LLM, a CLI — that emits valid JSON against `public/schema/beats-share.schema.json` gets the same deterministic playback, the same `?cid=…`, the same offline-playable artifact. The schema is the contract; CLAUDE.md is just a pointer.
+The share envelope is the IR. Any producer that emits valid JSON against `public/schema/beats-share.schema.json` gets the same deterministic playback, the same `?cid=…`, the same offline-playable artifact. The schema is the contract.
 
 **Minimum valid payload** (see `examples/minimal.json`):
 
@@ -145,85 +128,56 @@ The share envelope is the IR. Any producer — a human, an LLM, a CLI — that e
 }
 ```
 
-Everything else is an optional override. Omit defaults to keep CIDs stable across producers.
-
-**Realistic payload with overrides**: `examples/overrides.json`.
+Everything else is an optional override. Omit defaults to keep CIDs stable across producers. Realistic payload with overrides: `examples/overrides.json`.
 
 **Valid `genre` values** are the options in `public/lib/ui/build.js` (`.pn-genre-select`): ambient · blues · bossa · country · dnb · dubstep · edm · funk · garage · house · jazz · lofi · metal · reggae · speedcore · synthwave · techno · trance · trap. A genre outside this list regenerates as the fallback preset.
 
-**Playback**: POST the JSON to `PUT /o/{cid}` (server will re-verify the CID) or just open `?cid=z…&z=<base64url-gzip-json>`. No AI, no model, no backend call during playback.
+**Playback**: POST the JSON to `PUT /o/{cid}` (server will re-verify the CID) or open `?cid=z…&z=<base64url-gzip-json>`. No AI, no model, no backend call during playback.
 
 ## Hand-authored payloads (raw `nets`)
 
-When a project can't be reduced to `(genre, seed)` + overrides — e.g. bespoke petri-net topologies, custom instrument routing, macro-scheduled control nets — the share envelope carries the literal nets in an optional `nets` field. On load, `public/lib/share/url.js::shareFromPayload` threads them through to the boot path, which dispatches `project-load` with the raw project instead of calling the composer. Inflates the URL (≈10-100 kB post-gzip), but is the only way to faithfully round-trip authored content.
+When a project can't be reduced to `(genre, seed)` + overrides — bespoke topologies, custom routing, macro-scheduled control nets — the envelope carries literal nets in an optional `nets` field. On load, `public/lib/share/url.js::shareFromPayload` threads them to the boot path which dispatches `project-load` with the raw project. Inflates the URL (≈10–100 kB post-gzip), but is the only way to faithfully round-trip authored content.
 
-**Shape** — keys are net IDs, values match the JSON the worker's `parseNetBundle` (`lib/pflow.js`) already consumes:
+Shape: keys are net IDs, values match what `parseNetBundle` (`lib/pflow.js`) consumes — `role: music|control`, `track: {channel,instrument,group,...}`, `places: {pN: {initial, x, y}}`, `transitions: {tN: {x, y, midi: {...}}}`, `arcs: [{source, target, weight}]`. Control-only nets set `role: control` and use `control: {action, ...}` on transitions. See `examples/hand-authored.json` and `examples/macro-orchestrated.json`.
 
-```json
-{
-  "@context": "https://beats.bitwrap.io/schema/beats-share.context.jsonld",
-  "@type": "BeatsShare", "v": 1,
-  "genre": "custom", "seed": 0,
-  "tempo": 92, "humanize": 4,
-  "fx": { "reverbWet": 55, "delayWet": 40, "phaserWet": 28 },
-  "nets": {
-    "arp": {
-      "role": "music",
-      "track": { "channel": 4, "defaultVelocity": 90, "instrument": "bright-pluck", "group": "arp" },
-      "places": { "p0": { "initial": [1], "x": 0, "y": 0 }, "p1": { "initial": [0], "x": 10, "y": 0 } },
-      "transitions": {
-        "t0": { "x": 5, "y": 0, "midi": { "note": 60, "channel": 4, "velocity": 90, "duration": 140 } }
-      },
-      "arcs": [ { "source": "p0", "target": "t0", "weight": [1] },
-                { "source": "t0", "target": "p1", "weight": [1] } ]
-    }
-  }
-}
-```
+Supported `control.action`: `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro` (with optional `macro`, `macroBars`, `macroParams`). See `lib/macros/catalog.js` for macro IDs.
 
-Control-only nets set `"role": "control"` and use `"control": { "action": "...", ... }` on transitions instead of `"midi"`. Supported actions: `mute-track`, `unmute-track`, `toggle-track`, `activate-slot`, `stop-transport`, `fire-macro` (with optional `macro`, `macroBars`, `macroParams`). See `lib/macros/catalog.js` for the curated macro ID list.
+**Sealing from an agent — no Go binary needed.** See `examples/README.md` for the end-to-end Python recipe (canonical JSON + CIDv1 + `PUT /o/{cid}`) and worked examples.
 
-**Sealing the payload from an agent — no Go binary needed.** See `examples/README.md` for the end-to-end Python recipe (canonical JSON + CIDv1 + `PUT /o/{cid}`) and a tour of the worked examples (`minimal`, `overrides`, `hand-authored`, `macro-orchestrated`, `voltage-rush`, `phantom-aqueduct`).
-
-Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: at most 256 nets per payload, 2048 places / 2048 transitions / 8192 arcs per net, 64-char IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). `control.action` is one of `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro`. CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
+Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: 256 nets per payload, 2048 places / 2048 transitions / 8192 arcs per net, 64-char IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). CIDs are immutable — same canonical bytes twice return 200 without a second disk write.
 
 ### Arrange-on-load and the polyphony ceiling
 
-The share envelope carries an optional `structure` directive (values: `loop`, `ab`, `drop`, `build`, `jam`, `minimal`, `standard`, `extended`) plus `arrangeSeed`. When present and not `loop`, the boot path runs **in-process** via `arrangeWithOpts` from `public/lib/generator/arrange.js` (the full JS port of Go's `ArrangeWithOpts`) — a 1 kB envelope reconstitutes a 3 MB arranged track. `/api/arrange` still exists in authoring mode as a fallback / tooling path. `ArrangeWithOpts(proj, genre, size, opts)` is deterministic: same inputs → byte-identical output (map iteration order sorted, not ranged). The CID of the envelope uniquely addresses the exact listening experience; compression is free because the expansion rule is public code.
+The share envelope carries an optional `structure` directive (values: `loop`, `ab`, `drop`, `build`, `jam`, `minimal`, `standard`, `extended`) plus `arrangeSeed`. When present and not `loop`, the boot path runs **in-process** via `arrangeWithOpts` from `public/lib/generator/arrange.js` (the full JS port of Go's `ArrangeWithOpts`) — a 1 kB envelope reconstitutes a 3 MB arranged track. `/api/arrange` still exists in authoring mode as a fallback. `ArrangeWithOpts(proj, genre, size, opts)` is deterministic: same inputs → byte-identical output.
 
-**Arrange vocab (envelope fields, also accepted by `/api/arrange` body):**
-- `structure` — section blueprint. Values above.
+**Arrange vocab** (envelope fields, also accepted by `/api/arrange` body):
+- `structure` — section blueprint (values above).
 - `arrangeSeed` — RNG seed for blueprint pick, phrase choice, velocity humanization.
-- `velocityDeltas` — object mapping riff-variant letter to velocity offset, e.g. `{"A":0, "B":25, "C":-15}`. Default `{"A":0, "B":15, "C":-15}`.
-- `maxVariants` — cap on distinct riff letters per role (1-8). Letters beyond the cap collapse back to `A`.
-- `fadeIn` — array of role names that start muted and unmute mid-intro. Variant expansion handled: `"pad"` fans out to `pad-0`/`pad-1`/`pad-2` before the `FadeIn()` helper injects fade-in control nets.
-- `drumBreak` — bars of drum-only break injected at the track midpoint. Non-drum roles mute for the duration (stingers excluded); drums keep playing; everyone returns. `0` disables.
-- `sections` — author-supplied section blueprint replacing the built-in pick. Each entry `{name, steps, active: [roles]}`. Useful for bespoke forms the 19 blueprints don't cover.
-- `feelCurve` — array of `{section, x, y}` entries. Injects a `feel-curve` control net whose transitions fire `set-feel` at section start ticks; the client's `control-fired` handler calls `_applyFeel([x, y])` to snap the Feel XY puck. Morphs tempo/FX/swing/humanize across sections.
-- `macroCurve` — array of `{section, macro, bars}` entries. Injects a `macro-curve` control net that fires `fire-macro` at section start ticks — e.g. `reverb-wash` at `intro`, `riser` at `buildup`, `beat-repeat` at `drop`. Runtime dispatches through the frontend's existing `fire-macro` handler; any macro id in `catalog.js` is valid.
-- **Overlay mode** — when the loaded project already has a `structure` field (composer output, prior arrange), pass `overlayOnly: true` to skip blueprint pick + variant expansion and only layer on the curves/fades/break. Wired automatically: the Arrange tab's apply button runs overlay when possible.
-
-**Arrange tab (UI)** — fifth toggle in the panel row next to Auto-DJ. Exposes the DSL as UI: Structure dropdown, Fade-In checkboxes, Drum-Break bars, Feel-curve preset, Macro-curve preset, and an Arrange ⟳ button that applies the chosen overlay to the currently loaded track. Runs entirely client-side via the JS port — no authoring-mode server required.
+- `velocityDeltas` — riff-variant letter → velocity offset, e.g. `{"A":0,"B":25,"C":-15}`. Default `{"A":0,"B":15,"C":-15}`.
+- `maxVariants` — cap on distinct riff letters per role (1-8). Letters beyond cap collapse to `A`.
+- `fadeIn` — array of role names that start muted and unmute mid-intro. Variant expansion handled (`pad` → `pad-0`/`pad-1`/`pad-2`).
+- `drumBreak` — bars of drum-only break injected at midpoint. Non-drum roles mute (stingers excluded); `0` disables.
+- `sections` — author-supplied section blueprint replacing built-in pick: `{name, steps, active: [roles]}`.
+- `feelCurve` — `[{section, x, y}]`. Injects a `feel-curve` control net firing `set-feel` at section starts; the client's `control-fired` handler calls `_applyFeel([x,y])`.
+- `macroCurve` — `[{section, macro, bars}]`. Injects `macro-curve` firing `fire-macro` at section starts. Any macro id in `catalog.js` is valid.
+- **Overlay mode** — when the loaded project already has `structure`, pass `overlayOnly: true` to skip blueprint pick + variant expansion and only layer on curves/fades/break. The Arrange tab's apply button uses overlay automatically when possible.
 
 Pattern for adding the next directive: schema field → embedded schema sync (`internal/share/beats-share.schema.json`) → envelope passthrough in `main.go::buildShareEnvelope` → `ArrangeOpts` field in Go (`internal/generator/arrange.go`) → JS port field in `public/lib/generator/arrange.js` → `/api/arrange` body in `internal/routes/routes.go` → client reader in `shareFromPayload` → boot-path wiring in `petri-note.js` + `backend/index.js`.
 
-**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on very dense arrangements, logging `Max polyphony exceeded. Note dropped.`. Remaining fixes (tracked in TODO.md):
-
-1. Voice stealing in `playNote()` — track `(note, releaseTime)` per channel and cancel the oldest release when at capacity.
-2. Arrangement-aware release on mute — cancel in-flight notes on a channel when `mute-track` fires. Root-cause fix.
+**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on dense arrangements (`Max polyphony exceeded. Note dropped.`). Remaining fixes (TODO.md): voice stealing in `playNote()`; arrangement-aware release on mute (cancel in-flight notes when `mute-track` fires).
 
 ## Running locally for hand-authored tracks
 
-The same binary that serves `beats.bitwrap.io` can run locally as a **full authoring engine** under a single `-authoring` flag. This wakes up:
+Same binary that serves `beats.bitwrap.io` runs locally as a **full authoring engine** under a single `-authoring` flag. This wakes up:
 
-- **Sequencer control** — `/api/project` (GET/POST current project), `/api/generate` (compose from genre+seed+params), `/api/transport` (play/stop/pause), `/api/tempo`, `/api/mute`, `/api/instrument`, `/api/shuffle-instruments`, `/api/arrange` (regenerate song structure).
-- **Read-only catalog** — `/api/genres` (genres + their tunable parameters, drives the dropdown), `/api/instruments` (synth catalog), `/api/midi-routing` (current MIDI mode + net→port assignments when fanout is on).
-- **Preview without loading** — `/api/generate-preview` renders a fresh project but does not swap it into the live sequencer; `/api/song.jsonld` is the JSON-LD-envelope variant of `/api/project` for interop with the petri-note v1 schema.
-- **Local saved-track gallery** — `/api/save` (POST a project, stores it on disk under its CID with a tag and metadata), `/api/tracks` (list, sorted by upvotes), `/api/tracks/{cid}.jsonld` (load one back), `/api/vote` (record an EIP-191 / MetaMask-signed upvote — see `internal/routes/eth.go`).
-- **Share + mirror** — `/api/project-share` seals the currently-loaded project as a share-v1 envelope with raw nets + optional mirror PUTs to remote hosts in one call. `/api/mirror-cid` replays an already-sealed local CID to `beats.bitwrap.io` (or any other seal host).
-- `/ws` — the same message protocol the in-page worker speaks, so a browser pointed at `data-backend="ws"` drives its audio through the Go sequencer instead of Tone.js alone.
-- Server-side MIDI output via `gitlab.com/gomidi/midi/v2` — stream sequencer fires to CoreMIDI (macOS), ALSA (Linux), or a virtual port so headless hosts can drive a DAW.
-- `./beats-bitwrap-io mcp` — stdio MCP server so Claude Code can generate, audition, and seal tracks via 11 curated tools (`generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`).
+- **Sequencer control** — `/api/project`, `/api/generate`, `/api/transport`, `/api/tempo`, `/api/mute`, `/api/instrument`, `/api/shuffle-instruments`, `/api/arrange`.
+- **Read-only catalog** — `/api/genres`, `/api/instruments`, `/api/midi-routing`.
+- **Preview** — `/api/generate-preview`, `/api/song.jsonld`.
+- **Local saved-track gallery** — `/api/save`, `/api/tracks`, `/api/tracks/{cid}.jsonld`, `/api/vote` (EIP-191 / MetaMask-signed; see `internal/routes/eth.go`).
+- **Share + mirror** — `/api/project-share` seals the loaded project as share-v1 with raw nets + optional mirror PUTs in one call. `/api/mirror-cid` replays a sealed CID to remote hosts.
+- `/ws` — same protocol as the in-page worker; a browser pointed at `data-backend="ws"` drives audio through the Go sequencer.
+- Server-side MIDI output via `gitlab.com/gomidi/midi/v2` — CoreMIDI / ALSA / virtual port.
+- `./beats-bitwrap-io mcp` — stdio MCP server with 11 tools (`generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`).
 
 ### Start the server
 
@@ -234,18 +188,18 @@ make build
 
 Server flags (apply with or without `-authoring`):
 - `-addr ":8089"` — listen address.
-- `-public ""` — serve from disk instead of embedded files (use this when iterating on `public/lib/*` so changes don't require a rebuild).
+- `-public ""` — serve from disk (use when iterating on `public/lib/*`).
 - `-data "./data"` — content-addressed share-store directory.
-- `-max-store-bytes 268435456` — hard cap on total share-store bytes (default 256 MiB).
-- `-put-per-min 10` / `-global-put-per-min 120` — share-store rate limits (per-IP, then global; `0` disables the global cap).
+- `-max-store-bytes 268435456` — hard cap on share-store bytes (default 256 MiB).
+- `-put-per-min 10` / `-global-put-per-min 120` — share-store rate limits.
 
-MIDI flags (mutually exclusive routing modes; require `-authoring`):
-- `-midi "IAC"` — send to one multi-channel port, substring-matched. Add `-midi-virtual` to create a virtual port with that name when no existing port matches.
-- `-midi-per-net` — create one virtual port per net. Name prefix is configurable via `-midi-prefix "petri-note"` (yielding `petri-note-kick`, `petri-note-bass`, …).
-- `-midi-fanout "petri-note Bus"` — open every existing output port whose name starts with the given prefix and pin nets to ports by **musical role priority** (drums → bass → melody/lead → arp/pads → others alphabetical). Deterministic across restarts so in-DAW per-channel filters keep working. `GET /api/midi-routing` returns the live netID → port map.
-- `-midi-list` — print available ports and exit (no server starts).
+MIDI flags (mutually exclusive; require `-authoring`):
+- `-midi "IAC"` — send to one multi-channel port, substring-matched. Add `-midi-virtual` to create a virtual port if no existing port matches.
+- `-midi-per-net` — one virtual port per net. Prefix configurable via `-midi-prefix "petri-note"`.
+- `-midi-fanout "petri-note Bus"` — open every existing port whose name starts with prefix; pin nets by **musical role priority** (drums → bass → melody/lead → arp/pads → others alphabetical). Deterministic across restarts. `GET /api/midi-routing` returns the live netID → port map.
+- `-midi-list` — print available ports and exit.
 
-Without `-authoring` the same binary runs the production configuration (static + share store only); all authoring routes return 404 and MIDI flags emit a warning.
+Without `-authoring` the same binary runs production config (static + share store only); authoring routes return 404 and MIDI flags warn.
 
 ### Wire Claude Code to the MCP server
 
@@ -253,7 +207,7 @@ Without `-authoring` the same binary runs the production configuration (static +
 claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
 
-Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running in another shell. Override the target with `BEATS_BTW_URL=http://localhost:<port>` in the MCP entry's env (useful when `:8080` is taken by another service). The MCP tools are the same ones documented in the in-app help modal under **Using with AI**; `generate` takes a genre + seed + variety params, `load_project` accepts a raw petri-net JSON (the hand-authored shape documented above), and so on.
+Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running. Override with `BEATS_BTW_URL=http://localhost:<port>`.
 
 ### Drive a track hand-to-hand
 
@@ -264,12 +218,10 @@ curl -sX POST http://localhost:8080/api/project -d @examples/hand-authored.json
 # 2. Seal + mirror to the public store so the ?cid= URL works anywhere.
 curl -sX POST http://localhost:8080/api/project-share \
     -d '{"mirror":["https://beats.bitwrap.io"]}'
-# → { "cid": "z…", "shortUrl": "http://localhost:8080/?cid=z…", "mirrors": [{"host":"…","status":200}] }
-
-# 3. Share the returned shortUrl (with the beats.bitwrap.io host swapped in).
+# → { "cid": "z…", "shortUrl": "...", "mirrors": [{"host":"…","status":200}] }
 ```
 
-Everything that petri-note.git previously did now lives here. That repo is archived — use `-authoring` on this binary for the same functionality.
+The archived `petri-note.git` repo's functionality lives here under `-authoring`.
 
 ## Build & Run
 
@@ -279,7 +231,7 @@ make run     # Build and serve embedded files on :8089
 make dev     # Serve public/ from disk on :8089 — needed when iterating on JS/CSS
 ```
 
-Requires Go 1.22+. No npm, no node_modules, no bundler. The embedded build is the right choice for production; `make dev` is faster for iteration because every file save is picked up without a rebuild.
+Requires Go 1.22+. No npm, no node_modules, no bundler. Embedded build is right for production; `make dev` is faster for iteration.
 
 When smoke-testing with Playwright against local, pass `-public public` so lib/* changes don't require a rebuild:
 
@@ -308,231 +260,104 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 
 ### Purge the feed without nuking shares
 
-Clears the gallery / RSS feed but keeps every `?cid=…` link working. Existing audio renders are dropped; the server re-renders on the next visit:
+Clears the gallery / RSS feed but keeps every `?cid=…` link working. Existing audio renders are dropped; the server re-renders on next visit:
 
 ```bash
-# 1. Stop just beats-bitwrap (per-service form respects its argument).
 ssh pflow.dev "~/services stop beats-bitwrap"
-
-# 2. Wipe feed index + audio cache (leave data/o/ + data/snapshots/ alone).
 ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -f data/index.db && rm -rf data/audio"
-
-# 3. Restart.
 ssh pflow.dev "~/services start beats-bitwrap"
 ```
 
-Verify the feed is empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
+Verify empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
 
-To **also** purge every shared CID, follow the **belt-and-suspenders
-pattern** in the Archival & restore section below — it captures three
-independent backup copies first, then auto-restore handles recovery
-on a per-link basis as users visit them. Don't bare-`rm -rf data/o`
-without that capture; deleting the share store is the only operation
-in this codebase that can produce permanently-unrecoverable state.
+To **also** purge every shared CID, follow the **belt-and-suspenders pattern** in the Archival section below — capture three independent backup copies first; auto-restore handles per-link recovery as users visit them. Don't bare-`rm -rf data/o` without that capture; deleting the share store is the only operation in this codebase that can produce permanently-unrecoverable state.
 
 ### Rebuild queue (off-host audio repair)
 
-Listeners can flag a feed card with broken or stuck audio by tapping the
-⟳ button — the server records the CID in `data/index.db.rebuild_queue`,
-and an off-host worker (`scripts/process-rebuild-queue.py`) picks it
-up, re-renders, uploads, and clears the row. Live in production
-(prod's `~/services` script invokes the binary with `-rebuild-queue`);
-the ⟳ button is hidden when the flag is off.
+Listeners flag a feed card with broken/stuck audio via the ⟳ button — the server records the CID in `data/index.db.rebuild_queue`, and an off-host worker (`scripts/process-rebuild-queue.py`) picks it up, re-renders, uploads, and clears the row. Live in production (prod's `~/services` invokes the binary with `-rebuild-queue`); ⟳ is hidden when the flag is off.
 
-Routes (all open: anyone can mark, anyone can read, anyone can clear —
-the cost of abuse is bounded by the worker's render budget and the
-`X-Rebuild-Secret` gating on actual writes):
+Routes (all open: anyone can mark, read, clear — abuse cost bounded by worker render budget and `X-Rebuild-Secret` gating on actual writes):
 
-- `POST /api/rebuild-mark {cid}` — adds to queue (rate-limited via the
-  share-store limiter).
+- `POST /api/rebuild-mark {cid}` — adds to queue (rate-limited).
 - `GET  /api/rebuild-queue?limit=N` — JSON array of pending CIDs.
-- `POST /api/rebuild-clear {cid}` — removes a row (worker calls after
-  a successful upload).
-- `GET  /api/features` — `{rebuildQueue, genreColors}`. Frontend
-  feature-detects the ⟳ button visibility from this.
+- `POST /api/rebuild-clear {cid}` — removes a row (worker calls after upload).
+- `GET  /api/features` — `{rebuildQueue, genreColors}`. Frontend feature-detects ⟳ visibility.
 
 Worker (run on a MacBook with chromedp / Chrome):
 
 ```bash
 ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret"
-# in one terminal — local server with -audio-auto-enqueue=false to avoid
-# the chromedp race that produced the original 110-byte stubs:
 ./beats-bitwrap-io -authoring -audio-render -audio-auto-enqueue=false \
     -audio-concurrent 2 -audio-max-duration 6m -audio-render-timeout 15m \
     -addr :18090 -data /tmp/beats-worker-data
-# in another terminal:
 BEATS_REBUILD_SECRET=$(...) ./scripts/process-rebuild-queue.py --watch
 ```
 
-The worker sends `X-Rebuild-Secret` on every PUT `/audio/{cid}.webm`
-which bypasses three checks: rate limit, faster-than-realtime, and
-first-write-wins. That last one is what lets it replace stuck audio
-without SSH-deleting the bad file. Without the secret, a worker can
-still queue and render but its uploads fall back to the public path —
-fine for fresh CIDs, useless for stuck ones.
+The worker sends `X-Rebuild-Secret` on every PUT `/audio/{cid}.webm`, bypassing rate-limit / faster-than-realtime / first-write-wins checks — that last one is what lets it replace stuck audio without SSH-deleting the bad file.
 
 ### Archival & restore
 
-Production runs **without** `-audio-render` — the server stores
-client-uploaded renders but never spawns chromedp itself. Two
-independent backup channels live alongside, plus a public archive
-surface that lets users (and the operator) recover purged tracks
-without coordination.
+Production runs **without** `-audio-render` — the server stores client-uploaded renders but never spawns chromedp itself. Three archive surfaces live alongside, letting users (and the operator) recover purged tracks without coordination.
 
-#### Channel 1: streaming snapshot — envelopes only, public
+**Channel 1 — streaming snapshot (envelopes only, public):**
+- `GET /api/snapshot` — `.tar.gz` of every envelope + JSON-LD `manifest.json`. Hundreds of KB even with thousands of shares. Audio + db variants gated by `X-Rebuild-Secret` (`?audio=1&db=1`).
+- `GET /api/snapshot-manifest` — JSON-LD manifest standalone. Embedded inline on `/archive` so crawlers carry the catalogue.
 
-- `GET /api/snapshot` — public, no auth. Streams a `.tar.gz` of every
-  envelope in the share store + a `manifest.json` (JSON-LD
-  `BeatsSnapshotManifest`) listing CIDs and byte counts. Small —
-  hundreds of KB even with thousands of shares. Anyone can hold a
-  recoverable copy of the canonical state. Audio + db variants stay
-  gated (see below).
-- `GET /api/snapshot-manifest` — same JSON-LD manifest standalone.
-  Embedded inline on `/archive` as `<script type="application/ld+json">`
-  so crawlers + offline page copies carry the catalogue index.
+**Channel 2 — persisted snapshots (operator-triggered, browsable):**
+- `POST /api/snapshot-persist?label=<tag>` — gated. Writes `data/snapshots/beats-snapshot-{ts}-{label}.tgz` + sidecar `.json`. Use `label` to group experiments — `/archive` renders groups as headings. Optional `&audio=1&db=1`.
+- `GET /api/snapshots` — public list (sidecar reads only).
+- `GET /snapshots/{filename}` — public static download.
+- `GET /archive.rss` — podcast-shaped RSS feed; `<enclosure>` carries the `.tgz`.
+- `GET /api/snapshot-contents?file=<name>.tgz` — feed-card shape so `/feed?snapshot=X` renders the snapshot's tracks in the player UI.
 
-#### Channel 2: persisted snapshots — operator-triggered, browsable
+**Channel 3 — per-CID lookup + restore (public, on-demand):**
+- `GET /api/archive-lookup?cid=X` — which snapshots contain X + `live` flag.
+- `POST /api/archive-restore?cid=X` — public, no auth (snapshots themselves are public). Walks newest-first, extracts `o/X.json`, re-seals via `Store.SealDirect` (re-verifies CID — tampered tarball can't poison the store).
 
-Manual capture writes a tarball + sidecar manifest to `data/snapshots/`
-on the box. The sidecars drive a public list + RSS feed so users (and
-crawlers) discover backups without operator action.
+When a `?cid=…` link 404s on the live store, the studio frontend silently checks if any persisted snapshot has the CID and restores before the user sees an error. Green "Restored from snapshot X" notice appears in the welcome card.
 
-- `POST /api/snapshot-persist?label=<tag>` — gated by `X-Rebuild-Secret`.
-  Writes `data/snapshots/beats-snapshot-{timestamp}-{label}.tgz` plus a
-  sidecar `.json` (the JSON-LD manifest, extracted, with `label` +
-  `filename` + `sizeBytes` added). Optional `&audio=1&db=1` for the
-  heavier tiers. Use `label` to **group experiments** ("pre-purge",
-  "before-genre-rework", "alpha-1") — the /archive page renders
-  groups as headings.
-- `GET /api/snapshots` — public. Lists every sidecar manifest
-  newest-first. Cheap (sidecar reads only, never opens a tarball).
-- `GET /snapshots/{filename}` — public. Static download of a `.tgz`
-  or `.json` sidecar. Immutable cache.
-- `GET /archive.rss` — public. Podcast-shaped RSS feed: one `<item>`
-  per persisted snapshot, `<enclosure>` carries the `.tgz`. Subscribe
-  to know when new backups land.
-- `GET /api/snapshot-contents?file=<name>.tgz` — public. Returns the
-  envelopes inside a snapshot in feed-card shape so `/feed?snapshot=X`
-  renders the snapshot's tracks in the existing player UI. Click any
-  card → studio loads `/?cid=X` → auto-restore from snapshot kicks in.
-
-#### Channel 3: per-CID lookup + restore — public, on-demand
-
-When a `?cid=…` link 404s on the live store, the studio frontend
-silently checks if any persisted snapshot has the CID and restores
-it before the user sees an error. They get a green "Restored from
-snapshot X" notice in the welcome card.
-
-- `GET /api/archive-lookup?cid=X` — public. Returns which persisted
-  snapshots (if any) contain CID X, plus a `live` flag.
-- `POST /api/archive-restore?cid=X` — public, no auth (the snapshots
-  themselves are public, so restore can't expose anything that wasn't
-  already downloadable). Walks snapshots newest-first, extracts
-  `o/X.json`, re-seals via `Store.SealDirect` (re-verifies the CID,
-  so a tampered tarball can't poison the store).
-
-#### Heavier tiers (audio + db) — still operator-only
-
-`X-Rebuild-Secret`-gated, value in `data/.rebuild-secret` (mode 0600):
-
-- `GET /api/snapshot?audio=1&db=1` — full tarball with cached `.webm`
-  renders + sqlite track index. Multi-MB to GB; resaturating bandwidth
-  is the abuse concern.
-- `POST /api/archive-delete {cid}` — cascade-removes a CID across
-  every persistence layer (envelope + audio + index row + queue row).
-  Idempotent. For pruning unrenderable shares.
-- `POST /api/snapshot-persist?label=...&audio=1&db=1` — write a heavy
-  tarball to disk. Useful before risky migrations.
-
-Open read endpoint (no auth — read-only, cheap):
-
-- `GET /api/archive-missing?limit=N` — share-store CIDs without an
-  audio render yet. Drives the off-host worker's archive sweep.
+**Heavier tiers (`X-Rebuild-Secret`-gated):**
+- `GET /api/snapshot?audio=1&db=1` — full tarball with cached `.webm` + sqlite.
+- `POST /api/archive-delete {cid}` — cascade-removes a CID across all persistence layers. Idempotent.
+- `POST /api/snapshot-persist?label=...&audio=1&db=1` — heavy tarball before risky migrations.
+- `GET /api/archive-missing?limit=N` (no auth, read-only) — shares without an audio render. Drives the off-host worker's archive sweep.
 
 #### Belt-and-suspenders pattern (recommended for destructive ops)
 
-Before any rm-rf-style purge, hold the catalogue in **three independent
-locations** so a corrupted snapshot in one place isn't fatal. None of
-the three depend on each other for integrity — every envelope's CID is
-re-verified on every read (`PUT /o/{cid}` recomputes
-`base58btc(CIDv1(dag-json, sha256(canonical-JSON(payload))))` and
-rejects mismatches), so a tampered tarball can't poison anything that
-restores from it.
+Hold the catalogue in **three independent locations** before any rm-rf-style purge. None depend on each other for integrity — every envelope's CID is re-verified on every read (`PUT /o/{cid}` recomputes the hash and rejects mismatches), so a tampered tarball can't poison anything that restores from it.
 
 ```bash
 export S=$(ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret")
 
-# 1. New persisted snapshot on the box (with a label that names what
-#    you're about to do — future-you will thank you).
+# 1. New persisted snapshot on the box (label what you're about to do).
 curl -fsS -X POST -H "X-Rebuild-Secret: $S" \
      "https://beats.bitwrap.io/api/snapshot-persist?label=pre-<thing>"
 
-# 2. Earlier persisted snapshot already on the box (any prior
-#    capture). Verify it's still there and readable:
+# 2. Verify earlier snapshots still on the box.
 ssh pflow.dev "ls -la ~/Workspace/beats-bitwrap-io/data/snapshots/"
 
-# 3. Local copy off the box. SCP one of the snapshots down so a
-#    catastrophic prod loss (disk failure, fat-finger) survives.
+# 3. Local copy off the box.
 mkdir -p ~/beats-backups
 scp pflow.dev:~/Workspace/beats-bitwrap-io/data/snapshots/beats-snapshot-*.tgz \
     ~/beats-backups/
 
-# 4. Now purge. Stops only beats-bitwrap (per-service); preserves
-#    data/snapshots/ and data/.rebuild-secret.
+# 4. Now purge. Stops only beats-bitwrap; preserves data/snapshots/ + .rebuild-secret.
 ssh pflow.dev "~/services stop beats-bitwrap"
 ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -rf data/o data/audio data/index.db"
 ssh pflow.dev "~/services start beats-bitwrap"
 
-# 5. Verify empty + snapshots still listed
+# 5. Verify empty + snapshots still listed.
 curl -fsS https://beats.bitwrap.io/api/snapshot-manifest | jq '.envelopes.count'   # 0
 curl -fsS https://beats.bitwrap.io/api/snapshots | jq '.count'                     # >= 2
 ```
 
-After purge, recovery is automatic: any `?cid=…` link triggers
-auto-restore from the newest matching snapshot. Bulk restore (replay
-every envelope at once) is still available via the worker:
+Recovery is automatic: any `?cid=…` link triggers auto-restore from the newest matching snapshot. Bulk restore via `./scripts/process-rebuild-queue.py --restore ~/beats-backups/beats-snapshot-*.tgz`. Full purge + bulk-rebuild is rarely the right move now — the lazy path is cheaper, and listening to a track triggers an audio re-render via auto-render-on-share, so the feed self-heals.
 
-```bash
-./scripts/process-rebuild-queue.py --restore ~/beats-backups/beats-snapshot-*.tgz
-```
-
-Full purge + bulk-rebuild is rarely the right move now that
-auto-restore exists — the lazy path is cheaper, and listening to a
-track triggers an audio re-render via the auto-render-on-share flow,
-so the feed self-heals as users visit it.
-
-#### Worker modes (off-host audio rebuilds + restores)
-
-```bash
-# Backup — pull a fresh streaming snapshot (envelopes only, public)
-./scripts/process-rebuild-queue.py --snapshot snap.tgz
-
-# Backup — everything (envelopes + audio + db; needs the secret)
-./scripts/process-rebuild-queue.py --snapshot snap.tgz \
-    --include-audio --include-db
-
-# Restore from a snapshot — replays o/* via PUT /o/{cid} (CID
-# re-verified server-side) and audio/* via PUT /audio/{cid}.webm
-# (needs the secret). index.db is skipped — drop it directly into
-# data/index.db on the box for a faster cold start.
-./scripts/process-rebuild-queue.py --restore snap.tgz
-
-# Sweep the catalogue: render anything without audio yet.
-# Combine with --watch for a continuous keep-up loop.
-BEATS_REBUILD_SECRET=$S ./scripts/process-rebuild-queue.py --archive --watch
-
-# Prune unrenderable shares
-./scripts/process-rebuild-queue.py --delete CID1 --delete CID2
-```
+Worker has additional flags for snapshot/restore/sweep — see `./scripts/process-rebuild-queue.py --help`.
 
 #### Archive policy (user-visible)
 
-The /help and /archive surfaces both state: **we may archive (purge
-from the live store) at any time and for any reason** — usually
-because we're rolling forward with changes that need older shares to
-be up-converted or re-rendered against newer software. Archived
-shares are not lost; they live in the snapshot tarballs above and
-auto-restore on visit.
+The /help and /archive surfaces both state: **we may archive (purge from the live store) at any time and for any reason** — usually because we're rolling forward with changes that need older shares to be up-converted or re-rendered against newer software. Archived shares are not lost; they live in snapshot tarballs and auto-restore on visit.
 
 ## Conventions
 
@@ -540,9 +365,9 @@ auto-restore on visit.
 - **No framework** — single custom HTMLElement (`<petri-note>`).
 - **Deterministic** — same genre + seed = same track (seeded PRNG via `mulberry32`).
 - **Worker does all sequencing** — main thread only handles UI and audio output.
-- **Class methods on `PetriNote` are thin wrappers** — edit the module, not `petri-note.js`, unless you're touching the constructor, lifecycle, or wiring.
+- **Class methods on `PetriNote` are thin wrappers** — edit the module, not `petri-note.js`, unless touching constructor / lifecycle / wiring.
 - **No behavioral changes in extraction passes** — every refactor should produce byte-identical share payloads and identical DOM output. Round-trip a share through Playwright to verify.
-- **Content addressing never changes retroactively** — if you modify what `_buildSharePayload` returns, existing `?cid=…` links still point at the OLD bytes (which were hashed into those CIDs). Plan feature rollouts around that.
+- **Content addressing never changes retroactively** — modifying what `_buildSharePayload` returns means existing `?cid=…` links still point at the OLD bytes (which were hashed into those CIDs). Plan feature rollouts around that.
 
 ## Testing
 
@@ -552,43 +377,21 @@ auto-restore on visit.
   make dev  # or: /tmp/beats-local -public public
   # Playwright: navigate, wait for _project + _currentGen.params.seed, exercise _buildShareUrlForms + the specific feature you changed.
   ```
-- Manual: click Share → copy URL → open in a fresh tab → confirm genre/seed/tempo/tracks match.
+- Manual: click Share → copy URL → open fresh tab → confirm genre/seed/tempo/tracks match.
 
-## Bulk feed seeding — generation times
+## Bulk feed seeding
 
-`scripts/seed-feed.py` is the parallel seeder (see "Running locally for hand-authored tracks" + the script docstring). Local server runs `-authoring -audio-render -audio-concurrent N`, script runs `--workers N`. Generate+seal stages serialize on a lock; chromedp realtime renders run N-wide.
+`scripts/seed-feed.py` is the parallel seeder. Local server runs `-authoring -audio-render -audio-concurrent N`, script runs `--workers N`. Generate+seal stages serialize on a lock; chromedp realtime renders run N-wide.
 
-### Render path: realtime vs offline (status: realtime is canonical)
+`-audio-render-mode realtime` is canonical (chromedp tab plays at 1× wall time, MediaRecorder captures Tone.js destination — exactly what the live studio plays). `-audio-render-mode offline` is experimental — see header comment in `public/lib/share/offline-render.js` for fidelity gaps. **Use realtime for production seeding.**
 
-Two `-audio-render-mode` values exist:
+Quality knobs for feed seeding (the cached `.webm` is what listeners hear on feed cards, first-write-wins):
+- **Default**: `macrosDisabled` covers disruptive groups (Mute: `drop`/`breakdown`/`solo-drums`/`cut`/`beat-repeat`/`double-drop`; Tempo: `half-time`/`tape-stop`/`tempo-anchor`) AND `autoDj.run=false`. Stable, predictable per CID.
+- **Auto-DJ enabled** (`--no-auto-dj-off`): keeps disruptive macros disabled but lets Auto-DJ engage — only safe macros (FX/pitch/pan/shape) fire. Adds flavor without silences/pitch artifacts. Render no longer reproducible (envelope CID stays deterministic).
+- **`--no-disable`**: skip macrosDisabled entirely. Only when intentionally seeding chaotic listening experiences.
 
-- **`realtime`** (default): chromedp tab plays the project at 1× wall time, MediaRecorder captures Tone.js destination. **This is the canonical, drop-in path** — what production has used since launch. Audio is exactly what the live studio plays, including all instrument timbre, master FX, Auto-DJ macro flavor, swing/humanize/drift, and macro-driven performance variation. Bound by 1× wall time and (rarely) MediaRecorder dropouts under CPU pressure.
-- **`offline`** (experimental): page renders via Tone.Offline against an OfflineAudioContext, then ffmpeg transcodes WAV → Opus/WebM. The on-disk shape is identical to realtime renders, but **the audio is currently being refined and is not yet drop-in equivalent**. Specifically:
-    - **Sample-load lag**: the offline ToneEngine is a fresh instance inside `Tone.Offline`; sampler instruments re-fetch + re-decode SoundFonts per render. First render of a track is sample-load-bound.
-    - **Subtly different mix**: per-channel pulse / accent / decay envelope handling and master pitch-shift behavior under offline rendering don't match live exactly. A trained ear hears a slightly drier / less alive mix.
-    - **Macro effect timing**: `scheduleMacroEffect` in `public/lib/share/offline-render.js` approximates live `fxSweep` / `fxHold` curves with 3-point schedules instead of the live throttled rAF. Most listeners can't tell, but A/B comparison reveals a less-smooth ramp.
-    - **WS-dispatched mute macros are no-ops** in offline (Drop / Cut / Beat-Repeat / etc.). These are typically baked off via `macrosDisabled` in seed contexts anyway, but if you're rendering a hand-authored project that depends on Auto-DJ-fired mutes, offline will silently skip them.
-    - **Speed**: on a CPU-bound dev Mac, full-fidelity offline (with Auto-DJ + all macro types) renders at roughly 1× realtime — same wall time as the canonical path. Speedup grows with hardware headroom; the bare-minimum "no Auto-DJ + simple FX chain" variant hit 1.5× on the same Mac, but that's a degraded artifact.
-    - The offline path remains a viable fallback when the realtime path can't run (no audio device, headless server without GUI, MediaRecorder unavailable). Once fidelity gaps close it will likely become the default.
-
-**For seeding production tracks today, use `-audio-render-mode realtime`.** The offline mode is in iterative refinement; track its progress in `public/lib/share/offline-render.js` (header comment lists remaining gaps).
-
-**Quality stipulations baked into envelopes for feed seeding** — these knobs control whether the cached `.webm` is a clean listen or has macro artifacts smeared across it. Use them when the rendered audio is the listening experience (feed cards play the cached render, first-write-wins):
-
-- **Default mode**: `macrosDisabled` covers the disruptive groups (Mute: `drop`, `breakdown`, `solo-drums`, `cut`, `beat-repeat`, `double-drop` · Tempo: `half-time`, `tape-stop`, `tempo-anchor`) AND `autoDj.run=false`. Yields a stable, predictable render per CID.
-- **Auto-DJ enabled** (`--no-auto-dj-off`): keeps the disruptive macros disabled but lets Auto-DJ engage during render — only the safe macros (FX, pitch, pan, shape) fire. Adds performance flavor without silences/pitch artifacts. Trade-off: render is no longer reproducible (re-rendering yields a different `.webm`) but the envelope CID stays deterministic.
-- **`--no-disable`**: skip macrosDisabled entirely. Only use when intentionally seeding chaotic listening experiences.
-
-**Run log** — record wall-clock + per-track averages so we know how long a 19-genre × N-per-genre batch takes and can spot regressions:
-
-| Date | Tracks | Workers | Flags | Wall time | Per-track avg | Notes |
-|---|---|---|---|---|---|---|
-| 2026-04-26 | 57 (19×3) | 4 | `--no-auto-dj-off` (realtime) | 33:32 | ~35 s wall · ~140 s per-worker | Auto-DJ on, mute/tempo macros baked off. Per-genre render times track track length: ambient 218 s, reggae 210 s, lofi 192 s, bossa 180 s, blues 167 s, funk 147 s, jazz 145 s, country 145 s, synthwave 147 s, house 129 s, techno 125 s, garage 123 s, edm 116 s, trance/trap 115 s, dubstep 115 s, dnb 93 s, metal 90 s, speedcore 75 s. |
-| 2026-04-27 | 57 (19×3) | 4 | `--no-auto-dj-off` (offline `-audio-render-mode offline`) | 22:38 | ~24 s wall · ~95 s per-worker | **1.5× faster than realtime** on the same hardware. Local server uses `-audio-render-mode offline`; chromedp navigates to `?render=offline` and the page renders via Tone.Offline + a fresh ToneEngine in the offline context; server transcodes WAV→Opus via ffmpeg. Per-track render times mostly 50–110 s (vs 75–218 s realtime); a few worker-contention outliers in the 230–270 s range. Audio fidelity matches live's instrument timbre + master FX + arrangement structure; missing Auto-DJ macro flavor (no live element to dispatch macros). |
-| 2026-04-27 | 57 (19×3) | 4 | `--no-auto-dj-off` (realtime, post-macro-refactor) | 33:32 | ~35 s wall · ~140 s per-worker | A/B against the 2026-04-26 realtime baseline (33:32 — same wall time within noise). Confirms the day's macro / Tone.Transport refactor introduced **zero performance regression** in the realtime render path. Per-genre render times byte-identical to the 04-26 row (ambient 218 s, lofi 192 s, blues 167 s, etc.). What changed: live macros now restore at sample-accurate audio time vs. setTimeout-jittered (10–200 ms tighter on busy main threads); offline render path is now drop-in available via `-audio-render-mode offline`; offline path is being refined for fidelity parity (see `public/lib/share/offline-render.js` header). |
-
-When recording a new row: include the flag set that was active, the local server config (`-audio-concurrent`), and any anomalies (worker crashes, polyphony-exceeded warnings, prod PUT throttle hits). The per-track average is the useful metric — chromedp render runs at 1× playback so a 3-min track ≈ 3 min wall time per worker; a healthy `--workers 4` batch should average ≈ `(track length) / workers`.
+A `--workers 4` realtime batch averages ≈ `(track length) / workers` per track; chromedp runs at 1× playback so a 3-min track ≈ 3 min wall time per worker.
 
 ## Roadmap — Remote Conductor (WS backend)
 
-Front-end supports `data-backend="ws"` — when set, `connectWebSocket(el)` opens `ws://<host>/ws` and speaks the same JSON message types as the in-page worker. Authoritative dispatch in `internal/ws/hub.go`; client-side handlers in `lib/backend/index.js::handleWsMessage`. Production `beats.bitwrap.io` does NOT run `/ws` (deployed without `-authoring` to keep attack surface minimal); run locally via `-authoring` to enable it. Motivation: let a remote sequencer or agent conduct the browser, or render headless via CoreMIDI/ALSA.
+Front-end supports `data-backend="ws"` — `connectWebSocket(el)` opens `ws://<host>/ws` speaking the same JSON message types as the in-page worker. Authoritative dispatch in `internal/ws/hub.go`; handlers in `lib/backend/index.js::handleWsMessage`. Production does NOT run `/ws` (deployed without `-authoring`); run locally via `-authoring`.
