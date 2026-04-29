@@ -580,7 +580,7 @@
     font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .pl-item-remove {
+  .pl-item-view, .pl-item-remove {
     background: transparent;
     border: none;
     color: #555;
@@ -589,6 +589,11 @@
     padding: 0 4px;
     flex-shrink: 0;
   }
+  .pl-item-view {
+    display: inline-flex; align-items: center; justify-content: center;
+    line-height: 1;
+  }
+  .pl-item-view:hover { color: #67e8f9; }
   .pl-item-remove:hover { color: #c66; }
   .pl-meta {
     font-size: 11px;
@@ -1853,13 +1858,18 @@ const renderPlaylist = () => {
         <div class="pl-item-title"></div>
         <div class="pl-item-sub"></div>
       </div>
+      <button class="pl-item-view" title="View card" aria-label="View card"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8 C 4 3.5, 12 3.5, 14.5 8 C 12 12.5, 4 12.5, 1.5 8 Z"/><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"/></svg></button>
       <button class="pl-item-remove" title="Remove">×</button>
     `;
     row.querySelector('.pl-item-title').textContent = trackTitle(t);
     row.querySelector('.pl-item-sub').textContent = sub;
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.pl-item-remove')) return;
+      if (e.target.closest('.pl-item-remove') || e.target.closest('.pl-item-view')) return;
       playIndex(i);
+    });
+    row.querySelector('.pl-item-view').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showCardModal(t);
     });
     row.querySelector('.pl-item-remove').addEventListener('click', (e) => {
       e.stopPropagation();
