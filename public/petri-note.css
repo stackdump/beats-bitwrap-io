@@ -1466,46 +1466,42 @@ input[type="range"][data-default] {
     background: rgba(100, 255, 218, 0.1);
 }
 
-/* Stack action buttons live inside the Pools fieldset, sharing its
-   border + padding so they read as part of the macro grouping. The
-   thin separator marks the visual boundary between pool toggles
-   (filter the random pick) and stack actions (fire the manual stack). */
-.pn-autodj-pool-sep {
-    width: 1px;
-    align-self: stretch;
-    background: #1a4a7a;
-    margin: 2px 4px;
-    opacity: 0.6;
-}
-
-.pn-autodj-pools .pn-autodj-fire-stack,
-.pn-autodj-pools .pn-autodj-clear-stack {
+/* Fire Stack / Clear sit under the "Edit Stack" toggle in the Macros
+   panel's Auto-DJ edit group. They share the orange .pn-macros-stack-mode
+   theme so the trio reads as one cluster, but with smaller padding and
+   filled (Fire) vs ghost (Clear) variants to differentiate. */
+.pn-macro-edit-group .pn-autodj-fire-stack,
+.pn-macro-edit-group .pn-autodj-clear-stack {
+    padding: 4px 10px;
     border: 1px solid #f0a020;
-    background: rgba(240, 160, 32, 0.08);
+    border-radius: 4px;
+    background: rgba(240, 160, 32, 0.12);
     color: #f0a020;
-    border-radius: 3px;
-    padding: 2px 9px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.02em;
     cursor: pointer;
     font-family: inherit;
-    line-height: 1.4;
 }
 
-.pn-autodj-pools .pn-autodj-fire-stack:hover:not(:disabled),
-.pn-autodj-pools .pn-autodj-clear-stack:hover:not(:disabled) {
-    background: rgba(240, 160, 32, 0.18);
+.pn-macro-edit-group .pn-autodj-fire-stack:hover:not(:disabled) {
+    background: #f0a020;
+    color: #1a1a2e;
 }
 
-.pn-autodj-pools .pn-autodj-clear-stack {
+.pn-macro-edit-group .pn-autodj-clear-stack {
     border-color: #6a4a2a;
     color: #b88a4a;
     background: transparent;
 }
 
-.pn-autodj-pools .pn-autodj-fire-stack:disabled,
-.pn-autodj-pools .pn-autodj-clear-stack:disabled {
+.pn-macro-edit-group .pn-autodj-clear-stack:hover:not(:disabled) {
+    border-color: #f0a020;
+    color: #f0a020;
+}
+
+.pn-macro-edit-group .pn-autodj-fire-stack:disabled,
+.pn-macro-edit-group .pn-autodj-clear-stack:disabled {
     opacity: 0.35;
     cursor: not-allowed;
 }

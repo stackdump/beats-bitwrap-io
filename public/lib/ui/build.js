@@ -502,9 +502,6 @@ export function buildUI(el) {
                 <label><input type="checkbox" class="pn-autodj-pool" value="Tempo">Tempo</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Beats">Beats</label>
                 <label title="Only fires on regen boundaries — curated sweeps/washes/risers for track transitions"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
-                <span class="pn-autodj-pool-sep" aria-hidden="true"></span>
-                <button class="pn-autodj-fire-stack" title="Fire every macro you've stacked (shift-click a macro tile to add it). Stacked macros fire simultaneously." disabled>Fire Stack</button>
-                <button class="pn-autodj-clear-stack" title="Clear the stacked-macro list" disabled>Clear</button>
             </fieldset>
             <label class="pn-autodj-field">
                 <span>Stack</span>
@@ -614,7 +611,9 @@ export function buildUI(el) {
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
                 <button class="pn-macros-edit" title="Toggle edit mode — tap tiles to exclude them from Auto-DJ (right-click / long-press also works)">Edit Excludes</button>
-                <button class="pn-macros-stack-mode" title="Toggle stack mode — tap tiles to add them to the Auto-DJ stack. Fire / Clear from the Auto-DJ panel.">Edit Stack</button>
+                <button class="pn-macros-stack-mode" title="Toggle stack mode — tap tiles to add them to the Auto-DJ stack.">Edit Stack</button>
+                <button class="pn-autodj-fire-stack" title="Fire every macro you've stacked (shift-click a tile or use Edit Stack). Stacked macros fire simultaneously." disabled>Fire Stack</button>
+                <button class="pn-autodj-clear-stack" title="Clear the stacked-macro list" disabled>Clear</button>
                 <div class="pn-macro-edit-hint">Tap tiles to toggle</div>
             </div>
             ${(() => {
@@ -1046,10 +1045,10 @@ export function buildUI(el) {
         const statusEl = el.querySelector('.pn-autodj-status');
         if (statusEl) statusEl.textContent = `⟳ ${macro?.label || id}`;
     });
-    autoDjPanel.querySelector('.pn-autodj-fire-stack')?.addEventListener('click', () => {
+    el.querySelector('.pn-autodj-fire-stack')?.addEventListener('click', () => {
         el._fireStackedMacros();
     });
-    autoDjPanel.querySelector('.pn-autodj-clear-stack')?.addEventListener('click', () => {
+    el.querySelector('.pn-autodj-clear-stack')?.addEventListener('click', () => {
         el._clearStackedMacros();
     });
     // Hydrate the panel from the last-saved settings (if any)
