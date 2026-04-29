@@ -241,6 +241,34 @@
     body[data-feed-view="list"] .card-dur,
     body[data-feed-view="list"] .card-tempo { min-width: 0; text-align: left; }
   }
+  /* Tablet (iPad-class) with playlist open: the right column is ~660px
+     wide, so the desktop 6-column grid still applies but the title
+     column gets squeezed to an unreadable ellipsis. Reuse the phone
+     stacked layout — title on its own line, meta wraps below. The
+     list-header row hides too since the columns no longer line up. */
+  @media (min-width: 721px) and (max-width: 1100px) {
+    body[data-feed-view="list"] .layout[data-pl="open"] .list-header { display: none; }
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-sub {
+      display: flex;
+      flex-flow: row wrap;
+      align-items: center;
+      gap: 4px 10px;
+      min-width: 0;
+    }
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-genre-chip,
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-tempo,
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-dur,
+    body[data-feed-view="list"] .layout[data-pl="open"] .card-date {
+      min-width: 0;
+      text-align: left;
+    }
+  }
   .card {
     background: #0d0d0d;
     border: 1px solid #1a1a1a;
