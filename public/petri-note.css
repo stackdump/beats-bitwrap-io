@@ -1466,6 +1466,50 @@ input[type="range"][data-default] {
     background: rgba(100, 255, 218, 0.1);
 }
 
+/* Stack action buttons live inside the Pools fieldset, sharing its
+   border + padding so they read as part of the macro grouping. The
+   thin separator marks the visual boundary between pool toggles
+   (filter the random pick) and stack actions (fire the manual stack). */
+.pn-autodj-pool-sep {
+    width: 1px;
+    align-self: stretch;
+    background: #1a4a7a;
+    margin: 2px 4px;
+    opacity: 0.6;
+}
+
+.pn-autodj-pools .pn-autodj-fire-stack,
+.pn-autodj-pools .pn-autodj-clear-stack {
+    border: 1px solid #f0a020;
+    background: rgba(240, 160, 32, 0.08);
+    color: #f0a020;
+    border-radius: 3px;
+    padding: 2px 9px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.pn-autodj-pools .pn-autodj-fire-stack:hover:not(:disabled),
+.pn-autodj-pools .pn-autodj-clear-stack:hover:not(:disabled) {
+    background: rgba(240, 160, 32, 0.18);
+}
+
+.pn-autodj-pools .pn-autodj-clear-stack {
+    border-color: #6a4a2a;
+    color: #b88a4a;
+    background: transparent;
+}
+
+.pn-autodj-pools .pn-autodj-fire-stack:disabled,
+.pn-autodj-pools .pn-autodj-clear-stack:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 .pn-autodj-status {
     margin-left: auto;
     color: #6aa;

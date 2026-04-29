@@ -720,7 +720,13 @@ export function refreshMacroDisabledMarks(el) {
 export function loadStackedMacros() {
     try {
         const raw = localStorage.getItem('pn-macro-stacked');
-        return new Set(raw ? JSON.parse(raw) : []);
+        const ids = raw ? JSON.parse(raw) : [];
+        const known = new Set(MACROS.map(m => m.id));
+        const filtered = ids.filter(id => known.has(id));
+        if (filtered.length !== ids.length) {
+            try { localStorage.setItem('pn-macro-stacked', JSON.stringify(filtered)); } catch {}
+        }
+        return new Set(filtered);
     } catch { return new Set(); }
 }
 
@@ -756,19 +762,19 @@ export function updateStackCountBadge(el) {
     if (clearBtn) clearBtn.disabled = n === 0;
 }
 
-// Fire every stacked macro at once. Uses executeMacro for all but the
-// first so the serial queue doesn't gate them — true simultaneous stack.
+// Fire every stacked macro at once. All ids bypass the serial queue so
+// they fire truly simultaneously — including when another macro is
+// already running (otherwise ids[0] would be queued behind it while
+// ids[1..N] fired immediately, breaking the "stack" promise).
 export function fireStackedMacros(el) {
     el._stackedMacros = el._stackedMacros || loadStackedMacros();
     const ids = [...el._stackedMacros];
     if (ids.length === 0) return;
     const statusEl = el.querySelector('.pn-autodj-status');
-    fireMacro(el, ids[0]);
-    for (let i = 1; i < ids.length; i++) {
-        // Bypass the serial queue — the first fire owns the running slot.
+    for (const id of ids) {
         const saved = el._runningMacro;
         el._runningMacro = null;
-        try { executeMacro(el, ids[i]); } finally { el._runningMacro = saved; }
+        try { executeMacro(el, id); } finally { el._runningMacro = saved; }
     }
     if (statusEl) statusEl.textContent = `→ stack: ${ids.join(' + ')}`;
 }

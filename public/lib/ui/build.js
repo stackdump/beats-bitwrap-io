@@ -502,6 +502,9 @@ export function buildUI(el) {
                 <label><input type="checkbox" class="pn-autodj-pool" value="Tempo">Tempo</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Beats">Beats</label>
                 <label title="Only fires on regen boundaries — curated sweeps/washes/risers for track transitions"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
+                <span class="pn-autodj-pool-sep" aria-hidden="true"></span>
+                <button class="pn-autodj-fire-stack" title="Fire every macro you've stacked (shift-click a macro tile to add it). Stacked macros fire simultaneously." disabled>Fire Stack</button>
+                <button class="pn-autodj-clear-stack" title="Clear the stacked-macro list" disabled>Clear</button>
             </fieldset>
             <label class="pn-autodj-field">
                 <span>Stack</span>
@@ -521,8 +524,6 @@ export function buildUI(el) {
                 </select>
             </label>
             <button class="pn-autodj-test-transition" title="Fire a random Transition-pool macro now. Ignores Auto-DJ arm state.">Transition ⟳</button>
-            <button class="pn-autodj-fire-stack" title="Fire every macro you've stacked (shift-click a macro tile to add it). Stacked macros fire simultaneously." disabled>Fire Stack</button>
-            <button class="pn-autodj-clear-stack" title="Clear the stacked-macro list" disabled>Clear</button>
             <span class="pn-autodj-status">idle</span>
         </div>
         <div class="pn-arrange-panel" style="display:${el._showArrange ? 'flex' : 'none'}">

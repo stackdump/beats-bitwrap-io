@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <title>feed · beats.bitwrap.io</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <link rel="license" href="https://creativecommons.org/licenses/by/4.0/">
 <link rel="alternate" type="application/rss+xml" title="beats.bitwrap.io recent renders" href="/feed.rss">
 <style>
+  html, body { overflow-x: hidden; max-width: 100vw; }
   body {
     background: #0a0a0a;
     color: #ddd;
@@ -808,6 +809,14 @@
     .pl-fab { display: inline-flex; }
     .layout[data-pl="open"] ~ .pl-fab,
     .layout[data-pl="open"] .pl-fab { display: none; }
+    /* Tighten the page on phones so nothing forces horizontal scroll
+       (which on iOS prompts the pinch-zoom-out reflex). The 280px card
+       minimum overflows on narrow screens with main's 24px side padding;
+       reduce padding and let cards scale to viewport width. */
+    header { padding: 12px 14px; }
+    main { padding: 16px 14px; }
+    .grid { grid-template-columns: 1fr; gap: 12px; }
+    .filters input[type="search"] { min-width: 0; flex: 1 1 140px; }
   }
 
   /* Narrow viewports: phone-class. The 360px sidebar column would
@@ -826,7 +835,11 @@
          and shoves the right edge offscreen. Border-box keeps
          the close button inside the visible viewport. */
       box-sizing: border-box;
-      height: 100vh;
+      /* 100vh on mobile Safari is the large-viewport height (URL bar
+         collapsed); when the URL bar is showing, the element falls
+         short of the visible viewport and the underlying feed shows
+         through at the bottom. 100dvh tracks the dynamic viewport. */
+      height: 100dvh;
       z-index: 50;
       box-shadow: 0 0 40px rgba(0,0,0,0.6);
       border-right: none;
@@ -1540,16 +1553,36 @@ const savePlaybackState = () => {
   } catch {}
 };
 
-const setPaneOpen = (open) => {
+// Phones: when opening the player overlay we ask for fullscreen so the
+// browser URL bar / tab strip get out of the way. Best-effort — iOS
+// Safari on iPhone doesn't expose requestFullscreen on the document
+// element (only on <video>), so the call simply rejects there. Must
+// run inside a user-gesture handler to be honored at all.
+const isPhoneViewport = () => window.matchMedia('(max-width: 720px)').matches;
+const requestFs = () => {
+  if (!isPhoneViewport()) return;
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) { try { req.call(el).catch(() => {}); } catch {} }
+};
+const exitFs = () => {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) return;
+  const ex = document.exitFullscreen || document.webkitExitFullscreen;
+  if (ex) { try { ex.call(document).catch?.(() => {}); } catch {} }
+};
+const setPaneOpen = (open, opts = {}) => {
   layout.dataset.pl = open ? 'open' : 'closed';
   toggleBtn.dataset.active = open ? 'true' : 'false';
   try { localStorage.setItem(PL_OPEN_KEY, open ? '1' : '0'); } catch {}
+  if (opts.userGesture) {
+    if (open) requestFs(); else exitFs();
+  }
 };
 setPaneOpen(localStorage.getItem(PL_OPEN_KEY) === '1' || playlist.length > 0);
 toggleBtn.addEventListener('click', () => {
-  setPaneOpen(layout.dataset.pl !== 'open');
+  setPaneOpen(layout.dataset.pl !== 'open', { userGesture: true });
 });
-document.getElementById('pl-close').addEventListener('click', () => setPaneOpen(false));
+document.getElementById('pl-close').addEventListener('click', () => setPaneOpen(false, { userGesture: true }));
 
 // Phone mini-player FAB — opens the playlist overlay. Title text
 // mirrors the LCD readout so glancing at the pill answers "what am I
@@ -1557,7 +1590,7 @@ document.getElementById('pl-close').addEventListener('click', () => setPaneOpen(
 const fabBtn = document.getElementById('pl-fab');
 const fabTitle = document.getElementById('pl-fab-title');
 const fabMeta = document.getElementById('pl-fab-meta');
-fabBtn.addEventListener('click', () => setPaneOpen(true));
+fabBtn.addEventListener('click', () => setPaneOpen(true, { userGesture: true }));
 const syncFab = () => {
   const t = current >= 0 ? playlist[current] : null;
   if (t) {
