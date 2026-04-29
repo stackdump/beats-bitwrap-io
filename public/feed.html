@@ -236,7 +236,8 @@
   }
   .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
   /* Provenance badge — the diamond/dot mark + label sits below the
-     subtitle. Compact and unobtrusive; never shown for anonymous. */
+     subtitle. Compact and unobtrusive; never shown for anonymous.
+     Renders as a button (clickable filter) but styled as a chip. */
   .card-prov {
     font-size: 10px;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -246,7 +247,9 @@
     border-radius: 3px;
     line-height: 1.3;
     letter-spacing: 0.02em;
+    cursor: pointer;
   }
+  .card-prov:hover { filter: brightness(1.3); }
   .card-prov-official {
     background: #1a1a08;
     color: #d4b54e;
@@ -897,6 +900,16 @@
         <option value="">all</option>
       </select>
     </label>
+    <label>signer
+      <select id="signer-filter" title="Filter by provenance: official tracks, any signed track, anonymous, or paste a specific eth address / ed25519 hex">
+        <option value="">all</option>
+        <option value="official">◆ official</option>
+        <option value="signed">● any signed</option>
+        <option value="anonymous">○ anonymous</option>
+        <option value="__custom" disabled>───────────</option>
+      </select>
+    </label>
+    <input type="text" id="signer-address" placeholder="0x… or ed25519 hex" title="Specific signer address to filter by (case-insensitive). Click any badge on a card to populate." autocomplete="off" style="font-family:ui-monospace,monospace;font-size:11px;width:140px">
     <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
     <button class="pn-toggle-pl" id="toggle-view" title="Toggle between card grid and compact list view">list</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
@@ -1097,6 +1110,8 @@ const grid = document.getElementById('grid');
 const stateEl = document.getElementById('state');
 const more = document.getElementById('more');
 const genreSel = document.getElementById('genre');
+const signerSel = document.getElementById('signer-filter');
+const signerAddrInput = document.getElementById('signer-address');
 const search = document.getElementById('search');
 const toggleBtn = document.getElementById('toggle-pl');
 const layout = document.getElementById('layout');
@@ -2243,18 +2258,18 @@ function _glyphRand(seed) {
 // before the row was written to the index. The client just renders.
 function renderProvenanceBadge(t) {
   if (t.source === 'official') {
-    return `<div class="card-prov card-prov-official" title="Official — produced by beats.bitwrap.io's seed batch and validated server-side">◆ Official</div>`;
+    // data-prov-filter wires the click handler in the grid delegate
+    // below — clicking pins the signer-filter dropdown to "official".
+    return `<button type="button" class="card-prov card-prov-official" data-prov-filter="official" title="Official — produced by beats.bitwrap.io's seed batch and validated server-side. Click to filter feed.">◆ Official</button>`;
   }
   if (t.signerType && t.signerAddress) {
     const addr = t.signerAddress;
-    // Short form: 0x1234…abcd for eth, 4-char prefix … 4-char suffix
-    // for ed25519 hex. Signer type is shown via the leading mark.
     const short = addr.length > 12
       ? `${addr.slice(0, 6)}…${addr.slice(-4)}`
       : addr;
     const label = t.signerType === 'eth' ? 'eth' : 'ed25519';
-    const title = `Signed (${label}) — server-verified ${addr}`;
-    return `<div class="card-prov card-prov-signed" title="${title}">● ${short}</div>`;
+    const title = `Signed (${label}) — server-verified ${addr}. Click to show only tracks by this signer.`;
+    return `<button type="button" class="card-prov card-prov-signed" data-prov-filter="${addr}" title="${title}">● ${short}</button>`;
   }
   return '';
 }
@@ -2360,6 +2375,12 @@ const fetchPage = async () => {
   stateEl.style.display = grid.children.length ? 'none' : 'block';
   const params = new URLSearchParams();
   if (genreSel.value) params.set('genre', genreSel.value);
+  // Provenance filter: select sentinel ('official'|'signed'|'anonymous')
+  // OR a literal address from the input. The input wins if both set.
+  const sigAddr = signerAddrInput.value.trim();
+  const sigSel = signerSel.value;
+  if (sigAddr) params.set('signer', sigAddr);
+  else if (sigSel) params.set('signer', sigSel);
   if (cursor) params.set('before', String(cursor));
   // Pull a wider page when search is active so there's enough to
   // filter against without forcing the user to click "load more"
@@ -2448,6 +2469,47 @@ genreSel.addEventListener('change', () => {
   reset();
 });
 
+// Signer filter: dropdown picks a sentinel (official/signed/anonymous)
+// OR the address input takes a literal eth/ed25519 hex. The input
+// hides until the user clicks any signer-address chip on a card or
+// pastes into the address box manually. URL-state sync mirrors the
+// genre filter so a copied URL reproduces the filter exactly.
+const applySignerFilterToUrl = () => {
+  const u = new URL(location.href);
+  const addr = signerAddrInput.value.trim();
+  const sel = signerSel.value;
+  if (addr) u.searchParams.set('signer', addr);
+  else if (sel) u.searchParams.set('signer', sel);
+  else u.searchParams.delete('signer');
+  history.replaceState(null, '', u);
+};
+signerSel.addEventListener('change', () => {
+  // If the user picks a sentinel, clear the freeform address input
+  // so the two stay mutually exclusive in the UI.
+  if (signerSel.value) signerAddrInput.value = '';
+  applySignerFilterToUrl();
+  reset();
+});
+let signerAddrTimer = null;
+signerAddrInput.addEventListener('input', () => {
+  if (signerAddrInput.value.trim()) signerSel.value = '';
+  if (signerAddrTimer) clearTimeout(signerAddrTimer);
+  signerAddrTimer = setTimeout(() => {
+    applySignerFilterToUrl();
+    reset();
+  }, 250);
+});
+
+// Restore signer filter from URL on first load. If it's a sentinel
+// value, prefer the dropdown; otherwise treat as literal address and
+// reveal the input.
+const initialSigner = url.searchParams.get('signer') || '';
+if (initialSigner === 'official' || initialSigner === 'signed' || initialSigner === 'anonymous') {
+  signerSel.value = initialSigner;
+} else if (initialSigner) {
+  signerAddrInput.value = initialSigner;
+}
+
 // Debounce search so typing doesn't refetch on every keystroke.
 let searchTimer = null;
 search.addEventListener('input', () => {
@@ -2462,6 +2524,26 @@ search.addEventListener('input', () => {
 });
 
 more.addEventListener('click', fetchPage);
+
+// Delegated click on provenance badges — clicking one pins the
+// signer filter to that value (sentinel "official" or a literal
+// address) and reloads the feed. Same pattern the genre chip uses.
+grid.addEventListener('click', (e) => {
+  const prov = e.target.closest('.card-prov[data-prov-filter]');
+  if (!prov) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const v = prov.dataset.provFilter;
+  if (v === 'official' || v === 'signed' || v === 'anonymous') {
+    signerSel.value = v;
+    signerAddrInput.value = '';
+  } else {
+    signerSel.value = '';
+    signerAddrInput.value = v;
+  }
+  applySignerFilterToUrl();
+  reset();
+});
 
 // Favorites filter — toggles a client-side ★ filter on the grid.
 // Bookmarks are localStorage so the server keeps paginating the full

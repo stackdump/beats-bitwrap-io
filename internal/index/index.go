@@ -135,8 +135,12 @@ func (d *DB) Latest() (string, error) {
 // FeedQuery describes a single page request against the tracks index.
 type FeedQuery struct {
 	Genre  string // "" matches all
-	Before int64  // unix ms cursor; 0 = newest
-	Limit  int    // clamped to [1, 100]; 0 → 20
+	Signer string // signer_address, "" matches all. Sentinel values:
+	//   "official" → matches source='official'
+	//   "signed"   → matches any non-empty signer_address
+	//   "anonymous"→ matches rows with both source='' AND signer=''
+	Before int64 // unix ms cursor; 0 = newest
+	Limit  int   // clamped to [1, 100]; 0 → 20
 }
 
 // Track is the JSON shape returned to feed clients.
@@ -202,6 +206,21 @@ func (d *DB) Feed(q FeedQuery) ([]Track, error) {
 	if q.Genre != "" {
 		where += " AND genre = ?"
 		args = append(args, q.Genre)
+	}
+	switch q.Signer {
+	case "":
+		// no filter
+	case "official":
+		where += " AND source = 'official'"
+	case "signed":
+		where += " AND signer_address != ''"
+	case "anonymous":
+		where += " AND signer_address = '' AND source = ''"
+	default:
+		// Literal address match — case-insensitive comparison so eth
+		// addresses round-trip regardless of checksumming style.
+		where += " AND lower(signer_address) = lower(?)"
+		args = append(args, q.Signer)
 	}
 	if q.Before > 0 {
 		where += " AND rendered_at < ?"

@@ -1219,7 +1219,8 @@ func midiMultiCloser(m *midiout.MultiOutput) io.Closer {
 func feedHandler(idx *index.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := index.FeedQuery{
-			Genre: r.URL.Query().Get("genre"),
+			Genre:  r.URL.Query().Get("genre"),
+			Signer: r.URL.Query().Get("signer"),
 		}
 		if v := r.URL.Query().Get("before"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
