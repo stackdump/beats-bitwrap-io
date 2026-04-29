@@ -235,6 +235,29 @@
     white-space: nowrap;
   }
   .card-sub { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+  /* Provenance badge — the diamond/dot mark + label sits below the
+     subtitle. Compact and unobtrusive; never shown for anonymous. */
+  .card-prov {
+    font-size: 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    margin-top: 4px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
+  }
+  .card-prov-official {
+    background: #1a1a08;
+    color: #d4b54e;
+    border: 1px solid #5a4a18;
+  }
+  .card-prov-signed {
+    background: #0a1418;
+    color: #67e8f9;
+    border: 1px solid #1a4858;
+  }
+  body[data-feed-view="list"] .card-prov { margin-top: 0; }
   .card-genre-chip {
     background: transparent;
     /* Per-genre accent — hue from --genre-color (set inline at render
@@ -1862,7 +1885,9 @@ const renderPlaylist = () => {
       <button class="pl-item-remove" title="Remove">×</button>
     `;
     row.querySelector('.pl-item-title').textContent = trackTitle(t);
-    row.querySelector('.pl-item-sub').textContent = sub;
+    const prov = renderProvenanceBadge(t);
+    row.querySelector('.pl-item-sub').innerHTML = sub
+      + (prov ? ' ' + prov : '');
     row.addEventListener('click', (e) => {
       if (e.target.closest('.pl-item-remove') || e.target.closest('.pl-item-view')) return;
       playIndex(i);
@@ -1960,6 +1985,13 @@ const renderCard = (t) => {
   //    and the QR is too small to scan anyway. Same dot algorithm as
   //    lib/share/card.js so the visual identity carries between modes.
   const glyph = renderCardGlyph(t);
+  // Provenance badge — three tiers, lightweight, sits on the meta row:
+  //   ◆ Official     (server-validated source=official, operator-set)
+  //   ● 0x1234…cdef  (signer present + signature verified server-side)
+  //   (nothing)      (anonymous — no badge)
+  // The server is the trust boundary: any of these means "the server
+  // accepted the claim", not "the client said so".
+  const provenance = renderProvenanceBadge(t);
   card.innerHTML = `
     <${bodyTag} ${bodyAttrs}>
       <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">
@@ -1967,6 +1999,7 @@ const renderCard = (t) => {
       <div class="card-meta">
         <div class="card-title"></div>
         <div class="card-sub"></div>
+        ${provenance}
       </div>
     </${bodyTag}>
     <div class="card-actions">
@@ -2187,6 +2220,30 @@ function _glyphRand(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// Provenance badge HTML for a track. Three tiers:
+//   official     → ◆ Official              (operator-set, server-validated)
+//   signed       → ● {short-address}       (server-verified signature)
+//   anonymous    → ''                       (no badge)
+// Trust boundary is the server: every value here was already validated
+// before the row was written to the index. The client just renders.
+function renderProvenanceBadge(t) {
+  if (t.source === 'official') {
+    return `<div class="card-prov card-prov-official" title="Official — produced by beats.bitwrap.io's seed batch and validated server-side">◆ Official</div>`;
+  }
+  if (t.signerType && t.signerAddress) {
+    const addr = t.signerAddress;
+    // Short form: 0x1234…abcd for eth, 4-char prefix … 4-char suffix
+    // for ed25519 hex. Signer type is shown via the leading mark.
+    const short = addr.length > 12
+      ? `${addr.slice(0, 6)}…${addr.slice(-4)}`
+      : addr;
+    const label = t.signerType === 'eth' ? 'eth' : 'ed25519';
+    const title = `Signed (${label}) — server-verified ${addr}`;
+    return `<div class="card-prov card-prov-signed" title="${title}">● ${short}</div>`;
+  }
+  return '';
 }
 
 // 16-dot ring fingerprint, sized for a list-view thumbnail. Each

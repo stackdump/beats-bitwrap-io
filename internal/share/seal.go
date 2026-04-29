@@ -95,7 +95,21 @@ type Store struct {
 	// rendering. Callbacks run synchronously on the seal path — keep
 	// them non-blocking (spawn a goroutine if needed).
 	onSeal []func(cid string)
+
+	// rebuildSecret gates `source: "official"` claims on the PUT path.
+	// An envelope claiming source=official without an X-Rebuild-Secret
+	// header that constant-time-compares to this value is rejected
+	// (403). Empty disables operator-source attestations entirely
+	// (server still admits anonymous + signed envelopes). Set via
+	// SetRebuildSecret after construction so the constructor signature
+	// stays stable.
+	rebuildSecret string
 }
+
+// SetRebuildSecret enables operator-source validation. Call once at
+// startup after NewStore. Empty value (default) disables source claims:
+// any envelope with source=official will be rejected unconditionally.
+func (s *Store) SetRebuildSecret(secret string) { s.rebuildSecret = secret }
 
 // OnSeal registers a callback that fires after a NEW canonical-JSON
 // payload is sealed under cid. Re-PUTs of an already-stored CID don't
@@ -413,6 +427,10 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request, cid string) {
 		http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.validateProvenance(body, r.Header.Get("X-Rebuild-Secret")); err != nil {
+		http.Error(w, "provenance: "+err.Error(), http.StatusForbidden)
+		return
+	}
 	// Idempotent: if the index already has the CID, skip the write entirely.
 	// Also enforce the global disk cap — content-addressed writes are
 	// immutable, so we only admit new payloads while there's headroom.
@@ -467,7 +485,11 @@ func (s *Store) SealDirect(cid string, body []byte) error {
 // limits. Used by in-process callers (the /api/project-share route)
 // that already hold authenticated authoring context. Idempotent on
 // repeat CIDs. Still validates the payload against the share schema
-// and respects the disk cap.
+// and respects the disk cap. In-process callers are responsible for
+// gating source=official claims themselves (the route handler should
+// check X-Rebuild-Secret before passing source through). Signature
+// verification still runs because envelopes can be hand-authored
+// before sealDirect is called.
 func (s *Store) sealDirect(cid string, body []byte) error {
 	if !cidPattern.MatchString(cid) {
 		return fmt.Errorf("invalid cid")
@@ -480,6 +502,12 @@ func (s *Store) sealDirect(cid string, body []byte) error {
 	}
 	if err := validateSharePayload(body); err != nil {
 		return fmt.Errorf("invalid payload: %w", err)
+	}
+	// In-process path: source claims are caller-gated (see comment
+	// above). Signature verification still runs unconditionally so a
+	// hand-authored signed envelope is verified before storage.
+	if err := s.validateProvenance(body, s.rebuildSecret); err != nil {
+		return fmt.Errorf("provenance: %w", err)
 	}
 	s.mu.Lock()
 	if _, exists := s.index[cid]; exists {

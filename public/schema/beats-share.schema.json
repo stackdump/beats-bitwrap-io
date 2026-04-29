@@ -133,6 +133,27 @@
       "maxProperties": 256,
       "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$" },
       "additionalProperties": { "$ref": "#/$defs/Net" }
+    },
+    "source": {
+      "description": "Operator-set provenance tag. The only currently-defined value is 'official' which marks tracks produced by beats.bitwrap.io's seed-feed.py batch. Server rejects PUT /o/{cid} envelopes claiming source=official without a valid X-Rebuild-Secret header — so a user cannot mint a fake official-tagged track. Anything other than absent or 'official' is rejected.",
+      "type": ["string", "null"],
+      "enum": [null, "official"]
+    },
+    "signer": {
+      "description": "Public-key identity of the entity that signed this envelope. When present, `signature` must verify under this key over the canonical-JSON bytes of the envelope with `signature` removed. Two key types: 'eth' (a 0x-prefixed 20-byte Ethereum address; signature is EIP-191 personal_sign over the canonical-without-sig bytes), and 'ed25519' (32-byte public key, hex-encoded; signature is raw Ed25519 over the same bytes). Absent = anonymous track.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["type", "address"],
+      "properties": {
+        "type":    { "enum": ["eth", "ed25519"] },
+        "address": { "type": "string", "minLength": 4, "maxLength": 132 }
+      }
+    },
+    "signature": {
+      "description": "Hex-encoded signature over the canonical-JSON bytes of the envelope with `signature` field stripped (NOT removed from `signer`). Validated by the server against `signer`. EIP-191 sigs are 65 bytes (130 hex); Ed25519 sigs are 64 bytes (128 hex). 0x prefix optional.",
+      "type": ["string", "null"],
+      "pattern": "^(0x)?[0-9a-fA-F]+$",
+      "maxLength": 256
     }
   },
   "$defs": {

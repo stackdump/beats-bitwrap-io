@@ -11,7 +11,16 @@ CREATE TABLE IF NOT EXISTS tracks (
     bars         INTEGER,
     structure    TEXT NOT NULL DEFAULT '',
     rendered_at  INTEGER NOT NULL,
-    bytes        INTEGER NOT NULL DEFAULT 0
+    bytes        INTEGER NOT NULL DEFAULT 0,
+    -- Provenance fields, populated at RecordRender from the envelope.
+    -- source: '' (anonymous) or 'official' (operator-set, validated
+    -- against X-Rebuild-Secret on PUT /o/{cid}).
+    -- signer_type / signer_address: optional EIP-191 or Ed25519
+    -- public-key identity. Validated server-side; the server only
+    -- writes these columns if the signature verified.
+    source         TEXT NOT NULL DEFAULT '',
+    signer_type    TEXT NOT NULL DEFAULT '',
+    signer_address TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS tracks_recent ON tracks(rendered_at DESC);

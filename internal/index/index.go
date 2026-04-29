@@ -31,6 +31,18 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("index: apply schema: %w", err)
 	}
+	// Idempotent ALTER-TABLE migrations for columns added after the
+	// initial schema. SQLite's CREATE TABLE IF NOT EXISTS doesn't add
+	// columns to a pre-existing table, so each new column needs an
+	// explicit add. Failures swallowed — "duplicate column" is normal
+	// on every startup after the first.
+	for _, alter := range []string{
+		`ALTER TABLE tracks ADD COLUMN source         TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN signer_type    TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN signer_address TEXT NOT NULL DEFAULT ''`,
+	} {
+		_, _ = s.Exec(alter)
+	}
 	return &DB{sql: s}, nil
 }
 
@@ -53,6 +65,11 @@ type payload struct {
 	ScaleName string `json:"scaleName,omitempty"`
 	Bars      int    `json:"bars,omitempty"`
 	Structure string `json:"structure,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Signer    *struct {
+		Type    string `json:"type"`
+		Address string `json:"address"`
+	} `json:"signer,omitempty"`
 }
 
 // RecordRender upserts the index row for cid using the current time
@@ -72,16 +89,26 @@ func (d *DB) RecordRenderAt(cid string, payloadBytes []byte, bytes, renderedAt i
 	if err := json.Unmarshal(payloadBytes, &p); err != nil {
 		return fmt.Errorf("index: parse payload: %w", err)
 	}
+	signerType, signerAddress := "", ""
+	if p.Signer != nil {
+		signerType = p.Signer.Type
+		signerAddress = p.Signer.Address
+	}
 	_, err := d.sql.Exec(
 		`INSERT INTO tracks
 		    (cid, genre, name, seed, tempo, swing, humanize,
-		     root_note, scale_name, bars, structure, rendered_at, bytes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		     root_note, scale_name, bars, structure, rendered_at, bytes,
+		     source, signer_type, signer_address)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(cid) DO UPDATE SET
-		    rendered_at = excluded.rendered_at,
-		    bytes       = excluded.bytes`,
+		    rendered_at    = excluded.rendered_at,
+		    bytes          = excluded.bytes,
+		    source         = excluded.source,
+		    signer_type    = excluded.signer_type,
+		    signer_address = excluded.signer_address`,
 		cid, p.Genre, p.Name, p.Seed, p.Tempo, p.Swing, p.Humanize,
 		nullableInt(p.RootNote), p.ScaleName, p.Bars, p.Structure, renderedAt, bytes,
+		p.Source, signerType, signerAddress,
 	)
 	if err != nil {
 		return fmt.Errorf("index: insert: %w", err)
@@ -114,13 +141,16 @@ type FeedQuery struct {
 
 // Track is the JSON shape returned to feed clients.
 type Track struct {
-	CID        string `json:"cid"`
-	Name       string `json:"name,omitempty"`
-	Genre      string `json:"genre,omitempty"`
-	Tempo      int    `json:"tempo,omitempty"`
-	Seed       int64  `json:"seed"`
-	Structure  string `json:"structure,omitempty"`
-	RenderedAt int64  `json:"renderedAt"`
+	CID           string `json:"cid"`
+	Name          string `json:"name,omitempty"`
+	Genre         string `json:"genre,omitempty"`
+	Tempo         int    `json:"tempo,omitempty"`
+	Seed          int64  `json:"seed"`
+	Structure     string `json:"structure,omitempty"`
+	RenderedAt    int64  `json:"renderedAt"`
+	Source        string `json:"source,omitempty"`
+	SignerType    string `json:"signerType,omitempty"`
+	SignerAddress string `json:"signerAddress,omitempty"`
 }
 
 // DeleteTrack removes the row for cid from the rendered-track index
@@ -179,7 +209,8 @@ func (d *DB) Feed(q FeedQuery) ([]Track, error) {
 	}
 	args = append(args, limit)
 	rows, err := d.sql.Query(
-		`SELECT cid, name, genre, tempo, seed, structure, rendered_at
+		`SELECT cid, name, genre, tempo, seed, structure, rendered_at,
+		        source, signer_type, signer_address
 		   FROM tracks `+where+`
 		   ORDER BY rendered_at DESC
 		   LIMIT ?`,
@@ -194,6 +225,7 @@ func (d *DB) Feed(q FeedQuery) ([]Track, error) {
 		var t Track
 		if err := rows.Scan(
 			&t.CID, &t.Name, &t.Genre, &t.Tempo, &t.Seed, &t.Structure, &t.RenderedAt,
+			&t.Source, &t.SignerType, &t.SignerAddress,
 		); err != nil {
 			return nil, fmt.Errorf("index: feed scan: %w", err)
 		}

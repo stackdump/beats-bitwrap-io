@@ -145,6 +145,10 @@ func main() {
 	}
 	log.Printf("Rebuild secret: %s (X-Rebuild-Secret bypasses first-write-wins on PUT /audio)",
 		filepath.Join(*dataDir, ".rebuild-secret"))
+	// Hand the secret to the share store so PUT /o/{cid} can validate
+	// `source: "official"` claims. Without this call, source claims are
+	// always rejected (anonymous + signed envelopes still admitted).
+	shareStore.SetRebuildSecret(rebuildSecret)
 
 	share.GoogleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
 	if share.GoogleAnalyticsID != "" {
@@ -454,7 +458,7 @@ func main() {
 		// /api/project-share + /api/mirror-cid — seal local projects as
 		// share-v1 envelopes with raw nets, optionally mirrored to remote
 		// stores in the same call. See CLAUDE.md for the agent recipe.
-		mux.HandleFunc("/api/project-share", projectShareHandler(seq, shareStore))
+		mux.HandleFunc("/api/project-share", projectShareHandler(seq, shareStore, rebuildSecret))
 		mux.HandleFunc("/api/mirror-cid", mirrorCIDHandler(shareStore))
 
 		// MIDI routing introspection.
@@ -670,7 +674,7 @@ func collectNetIds(project map[string]interface{}) []string {
 }
 
 // --- /api/project-share handler factory ---
-func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http.HandlerFunc {
+func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebuildSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -694,6 +698,10 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 			// false} to ensure the listener / renderer never engages.
 			MacrosDisabled []string       `json:"macrosDisabled"`
 			AutoDj         map[string]any `json:"autoDj"`
+			// Source claim: only "official" is accepted, only when the
+			// request carries a valid X-Rebuild-Secret. Anything else
+			// (including a wrong secret) is silently dropped.
+			Source string `json:"source"`
 		}
 		if r.ContentLength > 0 {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -715,6 +723,16 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store) http
 		}
 		if len(req.AutoDj) > 0 {
 			envelope["autoDj"] = req.AutoDj
+		}
+		// Source claim. Validate the rebuild-secret here at the route
+		// level — sealDirect bypasses the HTTP layer that the share
+		// store uses to gate this normally. Drop the field silently
+		// if the secret is wrong (don't 401 — a bad-faith user can't
+		// distinguish "secret rejected" from "field never read").
+		if req.Source == "official" &&
+			rebuildSecret != "" &&
+			constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+			envelope["source"] = "official"
 		}
 		// Optional arrangement directive — carried in the envelope so the
 		// client can re-expand the track deterministically on load.

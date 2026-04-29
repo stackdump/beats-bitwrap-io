@@ -77,10 +77,13 @@ def http(method: str, url: str, body: bytes | None = None,
         return e.code, e.read() if e.fp else b""
 
 
-def post_json(url: str, payload: dict, timeout: float = 60) -> tuple[int, dict]:
+def post_json(url: str, payload: dict, timeout: float = 60,
+              extra_headers: dict | None = None) -> tuple[int, dict]:
     body = json.dumps(payload).encode()
-    code, raw = http("POST", url, body, {"Content-Type": "application/json"},
-                     timeout=timeout)
+    headers = {"Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+    code, raw = http("POST", url, body, headers, timeout=timeout)
     try:
         return code, json.loads(raw or b"{}")
     except json.JSONDecodeError:
@@ -111,7 +114,8 @@ def process_track(local: str, upload: str, genre: str, seed: int,
                   disabled_macros: list[str], no_auto_dj: bool,
                   generate_lock: threading.Lock,
                   seal_throttle: Throttle, audio_throttle: Throttle,
-                  dry_run: bool, rebuild_secret: str = "") -> dict | None:
+                  dry_run: bool, rebuild_secret: str = "",
+                  official: bool = False) -> dict | None:
     if dry_run:
         print(f"  [dry] {genre:<10} seed={seed:<6}")
         return {"genre": genre, "seed": seed, "cid": None, "ok": True}
@@ -124,6 +128,14 @@ def process_track(local: str, upload: str, genre: str, seed: int,
         payload_share["macrosDisabled"] = disabled_macros
     if no_auto_dj:
         payload_share["autoDj"] = {"run": False}
+    # Operator provenance: stamp source=official into the envelope so
+    # the feed UI can render an "Official" badge. Server validates the
+    # rebuild-secret header before honoring this — without it, the
+    # field is silently dropped and the envelope ships anonymous.
+    share_headers: dict[str, str] = {}
+    if official and rebuild_secret:
+        payload_share["source"] = "official"
+        share_headers["X-Rebuild-Secret"] = rebuild_secret
 
     with generate_lock:
         code, _ = post_json(f"{local}/api/generate",
@@ -132,7 +144,8 @@ def process_track(local: str, upload: str, genre: str, seed: int,
             print(f"  ! generate {genre}/{seed} HTTP {code}", file=sys.stderr)
             return None
         seal_throttle.acquire()
-        code, body = post_json(f"{local}/api/project-share", payload_share)
+        code, body = post_json(f"{local}/api/project-share", payload_share,
+                               extra_headers=share_headers or None)
         if code != 200:
             print(f"  ! project-share {genre}/{seed} HTTP {code}: {body}",
                   file=sys.stderr)
@@ -191,10 +204,16 @@ def main():
                     help="X-Rebuild-Secret to bypass first-write-wins on the audio "
                          "PUT — required when re-seeding deterministic CIDs whose "
                          ".webm already exists on prod (e.g. recovering from a "
-                         "broken render path). Read from stdin if value is '-'.")
+                         "broken render path). Also gates --official. Read from "
+                         "stdin if value is '-'.")
+    ap.add_argument("--official", action="store_true",
+                    help="Stamp source=official on the envelope so the feed UI "
+                         "shows an Official badge. Requires --rebuild-secret.")
     args = ap.parse_args()
     if args.rebuild_secret == "-":
         args.rebuild_secret = sys.stdin.readline().strip()
+    if args.official and not args.rebuild_secret:
+        ap.error("--official requires --rebuild-secret")
 
     genres = args.genres or GENRES
     plan = [(g, s) for g in genres for s in seeds_for(g, args.per_genre)]
@@ -235,7 +254,7 @@ def main():
                         args.local_host, args.upload_host, g, s,
                         disabled, not args.no_auto_dj_off,
                         generate_lock, seal_throttle, audio_throttle,
-                        args.dry_run, args.rebuild_secret)
+                        args.dry_run, args.rebuild_secret, args.official)
             for (g, s) in plan
         ]
         for fut in concurrent.futures.as_completed(futs):

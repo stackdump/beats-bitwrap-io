@@ -36,6 +36,11 @@
 
     "mix":           { "@id": "vocab:mix"           },
     "instrument":    { "@id": "vocab:instrument", "@type": "xsd:string" },
-    "instrumentSet": { "@id": "vocab:instrumentSet", "@container": "@list" }
+    "instrumentSet": { "@id": "vocab:instrumentSet", "@container": "@list" },
+
+    "source":    { "@id": "vocab:source",    "@type": "xsd:string" },
+    "signer":    { "@id": "vocab:signer"    },
+    "signature": { "@id": "vocab:signature", "@type": "xsd:string" },
+    "address":   { "@id": "vocab:address",   "@type": "xsd:string" }
   }
 }
