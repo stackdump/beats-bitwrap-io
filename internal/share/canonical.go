@@ -64,7 +64,12 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 		buf.WriteByte(']')
 	default:
 		// Strings, numbers, booleans, null — delegate to encoding/json.
-		// json.Number passes through via its MarshalJSON.
+		// json.Number passes through via its MarshalJSON. NOTE: this
+		// path HTML-escapes < > & in strings (Go default), which is
+		// non-JCS but baked into every existing share-envelope CID.
+		// The strict (JCS-compliant) alternative is canonicalJSONStrict
+		// below, used for manifest signing where there are no
+		// pre-existing CIDs to preserve.
 		b, err := json.Marshal(x)
 		if err != nil {
 			return fmt.Errorf("canonicalJSON leaf: %w", err)

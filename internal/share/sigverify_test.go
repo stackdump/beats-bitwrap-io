@@ -153,6 +153,44 @@ func TestOwnerDeleteAuth(t *testing.T) {
 	}
 }
 
+// SignManifest stamps a verifiable signature onto a snapshot manifest.
+// Verifies that re-canonicalizing (without the signature field) and
+// checking the signature against the stamped public key succeeds.
+func TestSignManifestRoundTrip(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	k := &OperatorKey{priv: priv, publicHex: hex.EncodeToString(pub)}
+	manifest := map[string]any{
+		"@type":         "BeatsSnapshotManifest",
+		"version":       1,
+		"createdAt":     "2026-04-29T00:00:00Z",
+		"archiveSha256": "deadbeef",
+		"includes": map[string]any{
+			"envelopes": true, "audio": false, "db": false,
+		},
+		"envelopes": map[string]any{
+			"count": int64(2),
+			"cids":  []string{"z4EBG9j_a", "z4EBG9j_b"},
+		},
+	}
+	if err := k.SignManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	sig, _ := manifest["signature"].(string)
+	sigBytes, err := hex.DecodeString(sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := make(map[string]any, len(manifest))
+	for kk, v := range manifest {
+		clone[kk] = v
+	}
+	delete(clone, "signature")
+	canonical, _ := canonicalJSON(clone)
+	if !ed25519.Verify(pub, canonical, sigBytes) {
+		t.Fatal("signature did not verify against re-canonicalized manifest")
+	}
+}
+
 // signer + signature must both be present together; one without the
 // other is malformed.
 func TestProvenanceSignerSignaturePaired(t *testing.T) {

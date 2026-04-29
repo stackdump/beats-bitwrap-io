@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
@@ -429,7 +430,7 @@ func main() {
 		snapshotDir := filepath.Join(*dataDir, "snapshots")
 		mux.HandleFunc("/api/snapshot-persist",
 			persistedSnapshotHandler(snapshotDir, shareStore, ar,
-				filepath.Join(*dataDir, "index.db"), rebuildSecret))
+				filepath.Join(*dataDir, "index.db"), rebuildSecret, operatorKey))
 		mux.HandleFunc("/api/snapshots", snapshotsListHandler(snapshotDir))
 		mux.HandleFunc("/api/archive-lookup", archiveLookupHandler(snapshotDir, shareStore))
 		mux.HandleFunc("/api/archive-restore", archiveRestoreHandler(snapshotDir, shareStore))
@@ -1607,7 +1608,12 @@ func buildSnapshotManifest(host string, createdAt time.Time, includeAudio, inclu
 		"version":   1,
 		"createdAt": createdAt.Format(time.RFC3339),
 		"host":      host,
-		"includes": map[string]bool{
+		// map[string]any (not map[string]bool) so canonicalJSON's
+		// type switch sorts keys deterministically. With a typed map
+		// it'd fall through to json.Marshal, which iterates Go maps
+		// in randomized order — different bytes every signing pass,
+		// signature parity broken.
+		"includes": map[string]any{
 			"envelopes": true,
 			"audio":     includeAudio,
 			"db":        includeDB,
@@ -1624,7 +1630,10 @@ func buildSnapshotManifest(host string, createdAt time.Time, includeAudio, inclu
 		"indexDb": map[string]any{
 			"bytes": dbBytes,
 		},
-		"restore": "scripts/process-rebuild-queue.py --restore <this-file>",
+		// Plain text value — no HTML chars. Go's json.Marshal HTML-
+		// escapes <,>,& and Python's json.dumps doesn't, breaking
+		// signature parity for any verifier that JCS-canonicalizes.
+		"restore": "scripts/process-rebuild-queue.py --restore THIS_FILE",
 		"docs":    "https://github.com/stackdump/beats-bitwrap-io#archival--restore",
 	}
 }
@@ -1654,7 +1663,7 @@ func snapshotManifestHandler(store *share.Store) http.HandlerFunc {
 // before/after a series of edits). audio=1 and db=1 are honored
 // (operator already authenticated, so the heavier tiers are fair).
 func persistedSnapshotHandler(snapshotDir string, store *share.Store, ar *audiorender.Renderer,
-	indexPath string, rebuildSecret string,
+	indexPath string, rebuildSecret string, operatorKey *share.OperatorKey,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1703,7 +1712,28 @@ func persistedSnapshotHandler(snapshotDir string, store *share.Store, ar *audior
 		info, _ := os.Stat(tgzPath)
 		manifest["label"] = label
 		manifest["filename"] = base + ".tgz"
-		manifest["sizeBytes"] = func() int64 { if info != nil { return info.Size() }; return 0 }()
+		manifest["sizeBytes"] = func() int64 {
+			if info != nil {
+				return info.Size()
+			}
+			return 0
+		}()
+		// Hash + sign the manifest. archiveSha256 binds the manifest
+		// to the exact tarball bytes; signing the manifest binds the
+		// whole envelope (operator pubkey + creation time + counts +
+		// CIDs + tarball hash) to the operator key. A verifier hashes
+		// the .tgz they downloaded, compares to archiveSha256, then
+		// checks the manifest signature against /api/operator-pubkey.
+		if hash, err := sha256File(tgzPath); err == nil {
+			manifest["archiveSha256"] = hash
+		} else {
+			log.Printf("snapshot sha256 %s: %v", tgzPath, err)
+		}
+		if operatorKey != nil {
+			if err := operatorKey.SignManifest(manifest); err != nil {
+				log.Printf("snapshot sign %s: %v", jsonPath, err)
+			}
+		}
 		body, _ := json.MarshalIndent(manifest, "", "  ")
 		if err := os.WriteFile(jsonPath, body, 0o644); err != nil {
 			log.Printf("snapshot sidecar %s: %v", jsonPath, err)
@@ -2253,6 +2283,21 @@ func ownerDeleteHandler(idx *index.DB, store *share.Store, ar *audiorender.Rende
 				req.CID, audioErr, idxErr, shareErr)
 		}
 	}
+}
+
+// sha256File hex-encodes the SHA-256 of a file's bytes. Streams in
+// 64 KB chunks so a multi-GB tarball doesn't load fully into memory.
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func errStr(err error) string {

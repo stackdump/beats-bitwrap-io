@@ -124,3 +124,28 @@ func (k *OperatorKey) SignEnvelope(envelope map[string]any) error {
 	envelope["signature"] = k.Sign([]byte(cidStr))
 	return nil
 }
+
+// SignManifest stamps `signer` + `signature` onto a snapshot
+// manifest map in-place. Unlike SignEnvelope, manifests are not
+// content-addressed (no CID), so the signature is over the
+// canonical-JSON of the manifest itself with `signature` stripped.
+// The verifier reproduces the canonical bytes the same way and
+// checks the signature against the operator pubkey. Pair with
+// archiveSha256 to bind the manifest to a specific .tgz file.
+func (k *OperatorKey) SignManifest(manifest map[string]any) error {
+	manifest["signer"] = map[string]any{
+		"type":    "ed25519",
+		"address": k.PublicKeyHex(),
+	}
+	clone := make(map[string]any, len(manifest))
+	for k2, v := range manifest {
+		clone[k2] = v
+	}
+	delete(clone, "signature")
+	canonical, err := canonicalJSON(clone)
+	if err != nil {
+		return err
+	}
+	manifest["signature"] = k.Sign(canonical)
+	return nil
+}
