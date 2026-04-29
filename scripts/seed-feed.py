@@ -111,7 +111,7 @@ def process_track(local: str, upload: str, genre: str, seed: int,
                   disabled_macros: list[str], no_auto_dj: bool,
                   generate_lock: threading.Lock,
                   seal_throttle: Throttle, audio_throttle: Throttle,
-                  dry_run: bool) -> dict | None:
+                  dry_run: bool, rebuild_secret: str = "") -> dict | None:
     if dry_run:
         print(f"  [dry] {genre:<10} seed={seed:<6}")
         return {"genre": genre, "seed": seed, "cid": None, "ok": True}
@@ -154,8 +154,11 @@ def process_track(local: str, upload: str, genre: str, seed: int,
 
     # Stage 4: upload to prod (throttled — separate budget from seal).
     audio_throttle.acquire()
+    audio_headers = {"Content-Type": "audio/webm"}
+    if rebuild_secret:
+        audio_headers["X-Rebuild-Secret"] = rebuild_secret
     code, body = http("PUT", f"{upload}/audio/{cid}.webm", webm,
-                      {"Content-Type": "audio/webm"}, timeout=120)
+                      audio_headers, timeout=120)
     if code not in (200, 201):
         print(f"  ! prod audio PUT {cid} HTTP {code}: "
               f"{body[:200].decode('utf-8', 'replace')}", file=sys.stderr)
@@ -184,7 +187,14 @@ def main():
     ap.add_argument("--no-auto-dj-off", action="store_true",
                     help="Don't bake autoDj.run=false (default: bakes it)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--rebuild-secret", default="",
+                    help="X-Rebuild-Secret to bypass first-write-wins on the audio "
+                         "PUT — required when re-seeding deterministic CIDs whose "
+                         ".webm already exists on prod (e.g. recovering from a "
+                         "broken render path). Read from stdin if value is '-'.")
     args = ap.parse_args()
+    if args.rebuild_secret == "-":
+        args.rebuild_secret = sys.stdin.readline().strip()
 
     genres = args.genres or GENRES
     plan = [(g, s) for g in genres for s in seeds_for(g, args.per_genre)]
@@ -221,7 +231,7 @@ def main():
                         args.local_host, args.upload_host, g, s,
                         disabled, not args.no_auto_dj_off,
                         generate_lock, seal_throttle, audio_throttle,
-                        args.dry_run)
+                        args.dry_run, args.rebuild_secret)
             for (g, s) in plan
         ]
         for fut in concurrent.futures.as_completed(futs):
