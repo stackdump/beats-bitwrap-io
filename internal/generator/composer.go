@@ -340,7 +340,17 @@ var GenreInstrumentSets = map[string]map[string][]string{
 		"snare":  {"drums-v8", "drums"},
 		"hihat":  {"drums-v8", "drums"},
 		"bass":   {"wobble-bass", "reese", "acid", "808-bass", "rubber-bass", "drop-bass", "fm-bass"},
-		"melody": {"detuned-saw", "distorted-lead", "rave-stab", "supersaw", "hoover", "wobble-lead", "screech"},
+		// Replaced detuned-saw + supersaw (both dark — chorused
+		// sawtooth, no filter env pushing harmonics up) with
+		// scream-lead. Measured 04-28 the genre's centroid sat at
+		// 2214 Hz — darker than ambient (2350) — because the dark
+		// leads were getting picked 2/7 of the time and wobble-bass
+		// dominated the spectrum. The remaining pool is uniformly
+		// bright: distorted-lead (filter env to 4.8 kHz +
+		// distortion), rave-stab (5 kHz bandpass), scream-lead
+		// (filter env to 8 kHz), hoover (filter env to 3.2 kHz),
+		// wobble-lead, screech.
+		"melody": {"scream-lead", "distorted-lead", "rave-stab", "hoover", "wobble-lead", "screech"},
 	},
 	"country": {
 		"kick":   {"drums", "drums-cr78"},
