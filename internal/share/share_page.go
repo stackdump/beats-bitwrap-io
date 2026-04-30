@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	texttemplate "text/template"
 
@@ -1015,4 +1016,45 @@ const shareSvgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   <text x="70" y="610" font-family="ui-monospace, monospace" font-size="18" fill="#777">{{.CID}}</text>
   <text x="1130" y="610" font-family="system-ui, sans-serif" font-size="18" fill="#888" text-anchor="end">open in a browser to play →</text>
 </svg>`
+
+// WrapStaticForAnalytics wraps a static-file handler so that text/html
+// responses get the gtag snippet injected before being written. Routes
+// like /feed and /archive serve raw .html files through the static
+// handler and never pass through serveIndexBytes, so without this they
+// would not be tracked. Non-HTML responses pass through untouched.
+func WrapStaticForAnalytics(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if GoogleAnalyticsID == "" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		rec := &htmlInjectRecorder{header: http.Header{}}
+		h.ServeHTTP(rec, r)
+		body := rec.buf.Bytes()
+		ct := rec.header.Get("Content-Type")
+		status := rec.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if status == http.StatusOK && strings.HasPrefix(ct, "text/html") {
+			body = injectIntoHead(body, []byte(googleAnalyticsTag(GoogleAnalyticsID)))
+			rec.header.Set("Content-Length", strconv.Itoa(len(body)))
+		}
+		for k, v := range rec.header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(status)
+		w.Write(body)
+	})
+}
+
+type htmlInjectRecorder struct {
+	header http.Header
+	buf    bytes.Buffer
+	status int
+}
+
+func (r *htmlInjectRecorder) Header() http.Header        { return r.header }
+func (r *htmlInjectRecorder) WriteHeader(code int)       { r.status = code }
+func (r *htmlInjectRecorder) Write(b []byte) (int, error) { return r.buf.Write(b) }
 

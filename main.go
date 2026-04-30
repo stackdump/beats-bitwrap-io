@@ -167,6 +167,10 @@ func main() {
 	share.GoogleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
 	if share.GoogleAnalyticsID != "" {
 		log.Printf("Google Analytics: %s", share.GoogleAnalyticsID)
+		// /feed and /archive serve static .html via staticHandler and
+		// would otherwise miss the gtag snippet — wrap so any HTML the
+		// static handler produces gets it injected.
+		staticHandler = share.WrapStaticForAnalytics(staticHandler)
 	}
 
 	decorated := share.DecoratedIndex(shareStore, publicSub, *dir)
