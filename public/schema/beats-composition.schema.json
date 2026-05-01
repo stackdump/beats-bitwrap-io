@@ -254,6 +254,7 @@
     "MasterChainStep": {
       "oneOf": [
         { "$ref": "#/$defs/StepHighpass" },
+        { "$ref": "#/$defs/StepLowpass" },
         { "$ref": "#/$defs/StepCompress" },
         { "$ref": "#/$defs/StepEQ" },
         { "$ref": "#/$defs/StepLimiter" },
@@ -267,6 +268,15 @@
       "properties": {
         "type": { "const": "highpass" },
         "freq": { "type": ["number", "null"], "minimum": 10, "maximum": 500, "description": "3 dB cutoff Hz. Default 30." }
+      }
+    },
+    "StepLowpass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "lowpass" },
+        "freq": { "type": ["number", "null"], "minimum": 1000, "maximum": 20000, "description": "3 dB cutoff Hz. Default 8000. Set 5000-7000 for synthwave/lofi tape-style top-end rolloff; <5000 darkens the mix dramatically." }
       }
     },
     "StepCompress": {

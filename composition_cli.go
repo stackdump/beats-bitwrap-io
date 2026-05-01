@@ -50,7 +50,7 @@ func decodeMasterChain(raw []json.RawMessage) ([]audiorender.ChainStep, error) {
 		var step audiorender.ChainStep
 		step.Type = head.Type
 		switch head.Type {
-		case "highpass":
+		case "highpass", "lowpass":
 			var p struct {
 				Freq float64 `json:"freq"`
 			}

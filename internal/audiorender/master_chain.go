@@ -113,6 +113,21 @@ func compileChainStep(s ChainStep) (string, error) {
 		}
 		return fmt.Sprintf("highpass=f=%.2f:p=2", freq), nil
 
+	case "lowpass":
+		// Tape-style high-frequency rolloff. Killing everything above
+		// ~5-8 kHz is a real synthwave / lofi production move (period
+		// analog tape did this naturally) and is the only reliable
+		// way to tame an inherently bright source spectrum that EQ
+		// shelves can't reach without making the mix muddy.
+		freq := s.Freq
+		if freq <= 0 {
+			freq = 8000
+		}
+		if freq < 1000 || freq > 20000 {
+			return "", fmt.Errorf("lowpass freq %v out of range [1000, 20000]", freq)
+		}
+		return fmt.Sprintf("lowpass=f=%.2f:p=2", freq), nil
+
 	case "compress":
 		// acompressor's threshold is a LINEAR amplitude (0..1), not dB.
 		// Convert: thr_lin = 10^(dB/20). Sensible defaults for a
