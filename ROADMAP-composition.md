@@ -24,6 +24,18 @@
 
 This file sequences the deferred work. Each PR is sized to land + verify independently. Schema fields are additive — old envelopes always render; new envelopes degrade gracefully on older worker binaries by ignoring unknown fields.
 
+## Design principle: nudge, don't gatekeep
+
+The Compose UI, presets, and example envelopes should **direct users toward tasteful arrangements** (drone as intro pad, drums-don't-overlap, fade-out at the end) — but the schema and renderer must continue to **allow the wacky stuff**. A 50-bar drone running flat under everything is "wrong" by pop-arrangement rules but landed as an interesting listen during the Neon Highway development. Drone music IS a genre. Beat-mismatched layers ARE a deliberate technique. Don't validate them out.
+
+Concrete implications for future PRs:
+- Compose UI suggestions / templates should default to tasteful structure (intro + verse + chorus + outro shapes), but a "blank canvas" mode must stay one click away.
+- Schema validators reject malformed envelopes (negative lengths, out-of-range LUFS) but never reject *arrangements* (drone for the whole track, 32 bars of solo riser, 9-track polyrhythmic stack).
+- Master-chain presets (`club`, `broadcast`, `ambient`, `lofi`) should each have a sensible default but the user can always supply an explicit `chain` to override.
+- The feed UI can rank or label "tasteful" tracks higher (if we ever build curation), but every published composition must remain reachable.
+
+The compositional vocabulary belongs to authors, not the renderer.
+
 ---
 
 ## PR-2 · Per-track operations
