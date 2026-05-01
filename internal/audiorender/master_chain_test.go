@@ -42,10 +42,14 @@ func TestCompileChainStep_Compress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	for _, want := range []string{"acompressor=", "ratio=2", "attack=10", "release=100", "makeup=2"} {
+	for _, want := range []string{"acompressor=", "ratio=2", "attack=10", "release=100"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in %q", want, got)
 		}
+	}
+	// makeup is now dB→linear: 2 dB → 10^(2/20) ≈ 1.2589
+	if !strings.Contains(got, "makeup=1.25") {
+		t.Fatalf("makeup dB→linear conversion off; got %q", got)
 	}
 	// Threshold -12 dB → 10^(-12/20) ≈ 0.2512. Allow precision slack.
 	if !strings.Contains(got, "threshold=0.25") {

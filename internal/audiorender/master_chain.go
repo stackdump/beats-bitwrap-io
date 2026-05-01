@@ -86,7 +86,12 @@ func applyMasterChain(ctx context.Context, ffmpegPath, src, dst string, chain []
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ffmpeg master chain: %w (%s)", err, strings.TrimSpace(string(out)))
+		// Don't fail the whole render on a chain error — the chain
+		// is timbre shaping, loudnorm still gets to run on the
+		// unchained mix. Log the cause + fall back to copyFile.
+		log.Printf("audiorender/composition: master chain failed; shipping unchained mix to loudnorm. cause: %s",
+			strings.TrimSpace(string(out)))
+		return copyFile(src, dst)
 	}
 	return nil
 }
@@ -134,14 +139,25 @@ func compileChainStep(s ChainStep) (string, error) {
 		if release <= 0 {
 			release = 250
 		}
-		makeup := s.Makeup
-		if makeup < 0 {
-			makeup = 0
+		makeupDB := s.Makeup
+		if makeupDB < 0 {
+			makeupDB = 0
+		}
+		// ffmpeg's acompressor takes makeup as a LINEAR gain factor
+		// in [1, 64], not dB. Schema field stays in dB (intuitive
+		// for authors); we convert here. 0 dB → 1.0, +6 dB → 2.0,
+		// +24 dB → ≈ 15.85.
+		makeupLin := math.Pow(10, makeupDB/20)
+		if makeupLin < 1 {
+			makeupLin = 1
+		}
+		if makeupLin > 64 {
+			makeupLin = 64
 		}
 		thrLin := math.Pow(10, threshDB/20)
 		return fmt.Sprintf(
 			"acompressor=threshold=%.6f:ratio=%.4f:attack=%.4f:release=%.4f:makeup=%.4f:knee=2.82843:detection=rms",
-			thrLin, ratio, attack, release, makeup,
+			thrLin, ratio, attack, release, makeupLin,
 		), nil
 
 	case "eq":
