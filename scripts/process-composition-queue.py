@@ -40,9 +40,11 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def hex_digest_short(s: str) -> str:
@@ -362,54 +364,88 @@ def render_composition_to_wav(cid: str, env_bytes: bytes, args, secret: str,
     sub_tmp = os.path.join(tmp, f"d{depth}-{cid[:14]}")
     os.makedirs(sub_tmp, exist_ok=True)
     ingredient_paths: dict[str, str] = {}
+    sealed_lock = threading.Lock()
     sealed: set[str] = set()
-    for key, info in source_resolution.items():
+
+    def materialize(key, info):
+        """Render one ingredient (cid / nested / gen) to a WAV.
+        Returns (key, wav_path) on success, (key, None) on failure.
+        Designed for ThreadPoolExecutor so multiple chromedp renders
+        run in parallel up to the local server's -audio-concurrent
+        cap (typically 2)."""
         kind = info[0]
-        if kind == "cid":
-            _, ing_cid, query = info
-            if ing_cid not in sealed:
-                if not seal_local(args.local, "/o", ing_cid, cid_envelopes[ing_cid], secret):
-                    print(f"{indent}! local seal {ing_cid} failed", file=sys.stderr)
-                    return None
-                sealed.add(ing_cid)
-            slug = "vanilla" if not query else hex_digest_short(query)
-            webm = os.path.join(sub_tmp, f"{ing_cid}-{slug}.webm")
-            if not render_ingredient_to_webm(args.local, ing_cid, webm, query):
-                return None
-            wav = os.path.join(sub_tmp, f"{ing_cid}-{slug}.wav")
-            if not webm_to_wav(webm, wav):
+        try:
+            if kind == "cid":
+                _, ing_cid, query = info
+                with sealed_lock:
+                    needs_seal = ing_cid not in sealed
+                    if needs_seal:
+                        sealed.add(ing_cid)  # mark optimistically
+                if needs_seal:
+                    if not seal_local(args.local, "/o", ing_cid, cid_envelopes[ing_cid], secret):
+                        print(f"{indent}! local seal {ing_cid} failed", file=sys.stderr)
+                        return key, None
+                slug = "vanilla" if not query else hex_digest_short(query)
+                webm = os.path.join(sub_tmp, f"{ing_cid}-{slug}.webm")
+                if not render_ingredient_to_webm(args.local, ing_cid, webm, query):
+                    return key, None
+                wav = os.path.join(sub_tmp, f"{ing_cid}-{slug}.wav")
+                if not webm_to_wav(webm, wav):
+                    return key, None
+                return key, wav
+            elif kind == "nested":
+                # PR-7.3: recursive composition render. Returns the
+                # nested master.wav which we plug in as if it were a
+                # share-derived ingredient. Recursion runs the inner
+                # render_composition_to_wav which itself parallelises
+                # — so deep trees get parallelism at every level.
+                _, sub_cid = info
+                sub_env = composition_envelopes[sub_cid]
+                nested_outputs = render_composition_to_wav(sub_cid, sub_env, args, secret, sub_tmp, depth + 1)
+                if not nested_outputs or not nested_outputs.get("wav"):
+                    return key, None
+                return key, nested_outputs["wav"]
+            elif kind == "gen":
+                _, spec = info
+                spec_to_render = {k: v for k, v in spec.items() if not k.startswith("_")}
+                if spec.get("type") == "counterMelody":
+                    sibling_cid = spec.get("_siblingCid")
+                    sib_env_bytes = cid_envelopes.get(sibling_cid)
+                    if not sib_env_bytes:
+                        print(f"{indent}! counterMelody sibling envelope missing", file=sys.stderr)
+                        return key, None
+                    sib_path = os.path.join(sub_tmp, f"src-{sibling_cid[:14]}.json")
+                    with open(sib_path, "wb") as f:
+                        f.write(sib_env_bytes)
+                    spec_to_render["sourceEnvelopePath"] = sib_path
+                    spec_to_render["_baseURL"] = args.local
+                    spec_to_render["_rebuildSecret"] = secret
+                wav = os.path.join(sub_tmp, f"{key}.wav")
+                if not render_insert(args.binary, spec_to_render, wav):
+                    return key, None
+                print(f"{indent}  ↳ generated {spec.get('type')} ({spec.get('durationSec'):.2f}s) → {key}")
+                return key, wav
+        except Exception as e:
+            print(f"{indent}! materialize {key}: {e}", file=sys.stderr)
+            return key, None
+        return key, None
+
+    # Parallel materialisation. Worker count matches the local
+    # server's MaxConcurrent (default 2) — running more chromedp
+    # tabs than the server's semaphore wastes worker slots
+    # blocked on the sem. Insert renders (riser/drone/impact/etc.)
+    # are fast pure-ffmpeg and use a slot briefly; that's fine.
+    parallel = max(1, args.parallel)
+    with ThreadPoolExecutor(max_workers=parallel) as ex:
+        futs = [ex.submit(materialize, k, v) for k, v in source_resolution.items()]
+        for f in as_completed(futs):
+            key, wav = f.result()
+            if not wav:
+                # Cancel remaining work and bubble the failure up.
+                for other in futs:
+                    other.cancel()
                 return None
             ingredient_paths[key] = wav
-        elif kind == "nested":
-            # PR-7.3: recursive composition render. Returns the
-            # nested master.wav which we plug in as if it were a
-            # share-derived ingredient.
-            _, sub_cid = info
-            sub_env = composition_envelopes[sub_cid]
-            nested_outputs = render_composition_to_wav(sub_cid, sub_env, args, secret, sub_tmp, depth + 1)
-            if not nested_outputs or not nested_outputs.get("wav"):
-                return None
-            ingredient_paths[key] = nested_outputs["wav"]
-        elif kind == "gen":
-            _, spec = info
-            spec_to_render = {k: v for k, v in spec.items() if not k.startswith("_")}
-            if spec.get("type") == "counterMelody":
-                sibling_cid = spec.get("_siblingCid")
-                sib_env_bytes = cid_envelopes.get(sibling_cid)
-                if not sib_env_bytes:
-                    print(f"{indent}! counterMelody sibling envelope missing", file=sys.stderr)
-                    return None
-                sib_path = os.path.join(sub_tmp, f"src-{sibling_cid[:14]}.json")
-                with open(sib_path, "wb") as f:
-                    f.write(sib_env_bytes)
-                spec_to_render["sourceEnvelopePath"] = sib_path
-                spec_to_render["_baseURL"] = args.local
-                spec_to_render["_rebuildSecret"] = secret
-            wav = os.path.join(sub_tmp, f"{key}.wav")
-            if not render_insert(args.binary, spec_to_render, wav):
-                return None
-            ingredient_paths[key] = wav
-            print(f"{indent}  ↳ generated {spec.get('type')} ({spec.get('durationSec'):.2f}s) → {key}")
 
     # Rewrite envelope for the CLI: each track's source becomes the
     # variant key (so the assembler's ingredient lookup matches),
@@ -746,6 +782,8 @@ def main():
     ap.add_argument("--watch", action="store_true", help="poll forever")
     ap.add_argument("--interval", type=int, default=30, help="poll seconds when --watch")
     ap.add_argument("--once", action="store_true", help="exit after one drain pass")
+    ap.add_argument("--parallel", type=int, default=8,
+                    help="ingredient materialisations run in parallel up to this many at a time. Should match the local server's -audio-concurrent flag — exceeding it just wastes worker slots blocked on the sem.")
     args = ap.parse_args()
 
     secret = os.environ.get("BEATS_REBUILD_SECRET", "").strip()
