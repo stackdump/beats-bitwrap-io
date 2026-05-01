@@ -75,6 +75,22 @@ type MasterSpec struct {
 	LUFS    float64
 	LRA     float64
 	Formats []string
+	// Preset is the named master-chain shorthand (club/broadcast/
+	// ambient/lofi). When Chain is empty and Preset is set, the
+	// pipeline expands the preset to its canonical chain at render
+	// time. CID-stable: presets are stored as the name only — the
+	// expanded chain is not part of the canonical envelope. Changing
+	// preset values will change rendered output for old envelopes;
+	// authors who want pinned-forever output should set Chain
+	// explicitly.
+	Preset string
+	// Chain is the ordered mastering filter graph. Runs BEFORE the
+	// loudnorm pass — chain shapes timbre, loudnorm rides level.
+	// Empty = no chain (loudnorm-only behaviour, byte-identical to
+	// pre-PR-3). Author-supplied chains are passed through in
+	// declared order; the assembler logs a soft warning when the
+	// order differs from canonical.
+	Chain []ChainStep
 }
 
 const (
@@ -125,6 +141,20 @@ func RenderComposition(
 		return nil, err
 	}
 
+	// Master-chain pass. Runs before loudnorm so the chain shapes
+	// timbre + glues the mix; loudnorm then rides level on the
+	// chained signal. Empty chain (and empty preset) → pass-through
+	// copy via applyMasterChain's fast path, byte-identical to
+	// pre-PR-3 behaviour.
+	chain := env.Master.Chain
+	if len(chain) == 0 && env.Master.Preset != "" {
+		chain = PresetChain(env.Master.Preset)
+	}
+	chainedWav := filepath.Join(workDir, "chained.wav")
+	if err := applyMasterChain(ctx, ffmpegPath, mixWav, chainedWav, chain); err != nil {
+		return nil, fmt.Errorf("audiorender/composition: master chain: %w", err)
+	}
+
 	// Mastering pass. Reuses internal/audiorender/loudnorm.go.
 	targetLUFS := env.Master.LUFS
 	if targetLUFS == 0 {
@@ -135,7 +165,7 @@ func RenderComposition(
 		targetLRA = defaultCompositionLRA
 	}
 	masterWav := filepath.Join(workDir, "master.wav")
-	if err := loudnormToWav(ctx, ffmpegPath, mixWav, masterWav, targetLUFS, defaultTruePeakDB, targetLRA); err != nil {
+	if err := loudnormToWav(ctx, ffmpegPath, chainedWav, masterWav, targetLUFS, defaultTruePeakDB, targetLRA); err != nil {
 		return nil, fmt.Errorf("audiorender/composition: loudnorm: %w", err)
 	}
 

@@ -29,6 +29,69 @@ import (
 	"beats-bitwrap-io/internal/audiorender"
 )
 
+// decodeMasterChain parses the envelope's `master.chain` array — a
+// tagged-union of step types — into a slice of audiorender.ChainStep.
+// Sniffs each entry's `type` field and reads only the params that
+// step cares about. Unknown types are accepted at the JSON layer
+// (the chain compiler will skip them at render time with a logged
+// warning, matching the rubberband-fallback pattern).
+func decodeMasterChain(raw []json.RawMessage) ([]audiorender.ChainStep, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]audiorender.ChainStep, 0, len(raw))
+	for i, entry := range raw {
+		var head struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(entry, &head); err != nil {
+			return nil, fmt.Errorf("chain[%d]: %w", i, err)
+		}
+		var step audiorender.ChainStep
+		step.Type = head.Type
+		switch head.Type {
+		case "highpass":
+			var p struct {
+				Freq float64 `json:"freq"`
+			}
+			_ = json.Unmarshal(entry, &p)
+			step.Freq = p.Freq
+		case "compress":
+			var p struct {
+				Threshold float64 `json:"threshold"`
+				Ratio     float64 `json:"ratio"`
+				Attack    float64 `json:"attack"`
+				Release   float64 `json:"release"`
+				Makeup    float64 `json:"makeup"`
+			}
+			_ = json.Unmarshal(entry, &p)
+			step.Threshold, step.Ratio = p.Threshold, p.Ratio
+			step.Attack, step.Release, step.Makeup = p.Attack, p.Release, p.Makeup
+		case "eq":
+			var p struct {
+				Tilt     float64 `json:"tilt"`
+				Presence float64 `json:"presence"`
+			}
+			_ = json.Unmarshal(entry, &p)
+			step.Tilt, step.Presence = p.Tilt, p.Presence
+		case "limiter":
+			var p struct {
+				Ceiling float64 `json:"ceiling"`
+			}
+			_ = json.Unmarshal(entry, &p)
+			step.Ceiling = p.Ceiling
+		case "stereoWiden":
+			var p struct {
+				Amount float64 `json:"amount"`
+			}
+			_ = json.Unmarshal(entry, &p)
+			step.Amount = p.Amount
+		}
+		out = append(out, step)
+	}
+	return out, nil
+}
+
 func runRenderCompositionCLI(args []string) int {
 	fs := flag.NewFlagSet("render-composition", flag.ExitOnError)
 	envelopePath := fs.String("envelope", "", "path to BeatsComposition envelope JSON")
@@ -72,8 +135,11 @@ func runRenderCompositionCLI(args []string) int {
 			SourceBPM int `json:"sourceBpm"`
 		} `json:"tracks"`
 		Master struct {
-			LUFS    float64  `json:"lufs"`
-			Format  []string `json:"format"`
+			LUFS    float64           `json:"lufs"`
+			LRA     float64           `json:"lra"`
+			Format  []string          `json:"format"`
+			Preset  string            `json:"preset"`
+			Chain   []json.RawMessage `json:"chain"`
 		} `json:"master"`
 	}
 	if err := json.Unmarshal(envBytes, &raw); err != nil {
@@ -92,11 +158,19 @@ func runRenderCompositionCLI(args []string) int {
 		return 1
 	}
 
+	chain, err := decodeMasterChain(raw.Master.Chain)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "parse master.chain: %v\n", err)
+		return 1
+	}
 	env := audiorender.CompositionEnvelope{
 		Tempo: raw.Tempo,
 		Master: audiorender.MasterSpec{
 			LUFS:    raw.Master.LUFS,
+			LRA:     raw.Master.LRA,
 			Formats: raw.Master.Format,
+			Preset:  raw.Master.Preset,
+			Chain:   chain,
 		},
 	}
 	for _, t := range raw.Tracks {

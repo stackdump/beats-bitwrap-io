@@ -189,7 +189,7 @@
     "Master": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "description": "Master-bus settings. First PR scope: loudnorm target + format fan-out only.",
+      "description": "Master-bus settings. lufs/lra/format drive the loudnorm pass + format fan-out; preset/chain drive an optional pre-loudnorm filter graph that shapes timbre.",
       "properties": {
         "lufs": {
           "type": ["number", "null"],
@@ -197,13 +197,89 @@
           "maximum": 0,
           "description": "Integrated-loudness target in LUFS for the loudnorm pass. Default -16 (streaming-tier). Standard targets: -14 (loudness-war), -16 (Spotify/YouTube), -23 (EBU broadcast)."
         },
+        "lra": {
+          "type": ["number", "null"],
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Loudness-range target for loudnorm. Default 11 (pop). Lower values squash dynamics; higher values preserve them."
+        },
         "format": {
           "type": ["array", "null"],
           "maxItems": 8,
           "uniqueItems": true,
           "description": "Ordered list of formats to fan out from the master WAV. Default ['wav','flac','mp3','webm']. The .wav is the lossless archive; .webm is the streaming derivative.",
           "items": { "enum": ["wav", "flac", "mp3", "webm"] }
+        },
+        "preset": {
+          "type": ["string", "null"],
+          "enum": ["club", "broadcast", "ambient", "lofi", null],
+          "description": "Named master-chain shorthand. Expanded to a canonical chain when `chain` is absent. Ignored when `chain` is set. CID-stable: only the preset name is canonicalised, not the expanded chain — preset values may evolve, so authors who want byte-stable masters across software versions should pin an explicit chain."
+        },
+        "chain": {
+          "type": ["array", "null"],
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/MasterChainStep" },
+          "description": "Ordered mastering filter chain. Each step compiles to one ffmpeg fragment. Runs BEFORE loudnorm. Canonical order is highpass → compress → eq → limiter → stereoWiden; author-supplied chains are NOT reordered (the assembler emits a soft warning if the order deviates)."
         }
+      }
+    },
+    "MasterChainStep": {
+      "oneOf": [
+        { "$ref": "#/$defs/StepHighpass" },
+        { "$ref": "#/$defs/StepCompress" },
+        { "$ref": "#/$defs/StepEQ" },
+        { "$ref": "#/$defs/StepLimiter" },
+        { "$ref": "#/$defs/StepStereoWiden" }
+      ]
+    },
+    "StepHighpass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "highpass" },
+        "freq": { "type": ["number", "null"], "minimum": 10, "maximum": 500, "description": "3 dB cutoff Hz. Default 30." }
+      }
+    },
+    "StepCompress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":      { "const": "compress" },
+        "threshold": { "type": ["number", "null"], "minimum": -60, "maximum": 0, "description": "dB. Default -18." },
+        "ratio":     { "type": ["number", "null"], "minimum": 1, "maximum": 20, "description": "Default 2." },
+        "attack":    { "type": ["number", "null"], "minimum": 0.1, "maximum": 2000, "description": "ms. Default 20." },
+        "release":   { "type": ["number", "null"], "minimum": 1, "maximum": 9000, "description": "ms. Default 250." },
+        "makeup":    { "type": ["number", "null"], "minimum": 0, "maximum": 24, "description": "dB. Default 0." }
+      }
+    },
+    "StepEQ": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":     { "const": "eq" },
+        "tilt":     { "type": ["number", "null"], "minimum": -6, "maximum": 6, "description": "Symmetrical low/high shelf in dB. Negative = brighter; positive = darker." },
+        "presence": { "type": ["number", "null"], "minimum": -6, "maximum": 6, "description": "4 kHz peaking EQ gain in dB." }
+      }
+    },
+    "StepLimiter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":    { "const": "limiter" },
+        "ceiling": { "type": ["number", "null"], "minimum": -6, "maximum": 0, "description": "True-peak ceiling in dBTP. Default -1." }
+      }
+    },
+    "StepStereoWiden": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":   { "const": "stereoWiden" },
+        "amount": { "type": ["number", "null"], "minimum": 0, "maximum": 1.5, "description": "Side gain. 0 = mono-safe; 0.2 = subtle; 1.0 = aggressive. Default 0.2." }
       }
     }
   }
