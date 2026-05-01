@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"strings"
 )
@@ -89,24 +90,28 @@ func RenderInsert(ctx context.Context, ffmpegPath string, spec InsertSpec, dst s
 	return fmt.Errorf("audiorender/inserts: unknown insert type %q", spec.Type)
 }
 
-// renderRiser produces the classic build-up effect: filtered noise
-// whose volume ramps from −∞ → target dB across the full duration,
-// with a high-pass tilt that keeps the low rumble out of the mix.
-// Pure ffmpeg — no Tone.js, no chromedp — so it's fast and the same
-// bytes drop on any host with a compatible ffmpeg.
+// renderRiser produces a build-up tension effect: filtered noise
+// whose high-pass cutoff sweeps from fStart Hz → fEnd Hz over the
+// duration, with a quarter-sine volume curve so the build feels
+// musically natural (soft start → climaxing finish). The frequency
+// sweep is what makes a riser perceptually "rise" — without it the
+// effect just sounds like static getting louder. Pure ffmpeg —
+// no Tone.js, no chromedp — so it's fast and the same bytes drop
+// on any host with a compatible ffmpeg.
 //
 // Riser knobs (all optional, sensible defaults):
-//   - shape  "white-noise" | "pink-noise"  (default white)
-//   - fStart Hz at t=0 — set high to produce a tighter build
-//   - fEnd   Hz at t=duration — irrelevant in this v1 implementation
-//            (we don't do a swept filter yet); reserved for v1.1
+//   - shape  "white-noise" | "pink-noise" (default white)
+//   - fStart Hz at t=0 (default 200; lower = denser, higher = airier)
+//   - fEnd   Hz at t=duration (default 8000; the perceived "top" of
+//            the rise — sweeping to 8 kHz puts the energy in the
+//            ear's most-sensitive band right before the drop)
 //   - level  peak dB target at the end of the build (default -6)
 //
-// The fEnd param is accepted but not used by the static-filter v1.
-// Adding a swept high-pass requires ffmpeg's sendcmd machinery; that
-// can land in a follow-up without breaking envelope CIDs because the
-// new fEnd reading-but-not-using-it doesn't change the canonical
-// bytes when omitted.
+// Sweep is implemented via ffmpeg sendcmd: 32 stepped highpass
+// frequency commands, log-interpolated between fStart and fEnd.
+// Logarithmic spacing matches perceptual pitch (each octave gets
+// the same number of steps), avoiding the "bunched at the low end"
+// feel of linear interpolation.
 func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst string) error {
 	bin := ffmpegPath
 	if bin == "" {
@@ -123,19 +128,47 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	}
 	fStart := spec.FStart
 	if fStart <= 0 {
-		fStart = 80
+		fStart = 200
+	}
+	fEnd := spec.FEnd
+	if fEnd <= 0 {
+		fEnd = 8000
+	}
+	if fEnd <= fStart {
+		// Sweep must rise; a flat or descending sweep wouldn't be a
+		// riser. Coerce to one octave above fStart.
+		fEnd = fStart * 2
 	}
 	level := spec.Level
 	if level >= 0 {
 		level = -6
 	}
+
+	// Build the sendcmd sweep table. 32 steps logarithmically
+	// distributed in frequency over the full duration.
+	const steps = 32
+	cmds := make([]string, 0, steps+1)
+	for i := 0; i <= steps; i++ {
+		ratio := float64(i) / float64(steps)
+		t := ratio * spec.DurationSec
+		f := fStart * math.Pow(fEnd/fStart, ratio)
+		cmds = append(cmds, fmt.Sprintf("%.4f highpass f %.0f", t, f))
+	}
+	sweepExpr := strings.Join(cmds, "; ")
+
 	src := fmt.Sprintf("anoisesrc=color=%s:duration=%.6f:amplitude=1.0", color, spec.DurationSec)
-	// afade-in over the full duration is the build. highpass at
-	// fStart keeps the low end clean. volume sets the peak target.
-	// aformat ensures the output stays stereo even though the noise
-	// source is mono.
+	// Quarter-sine volume curve (curve=qsin) ramps soft → hard:
+	// barely audible at the start, full level at the end. Combined
+	// with the sweep, this gives the classic "tension build"
+	// silhouette. afade ends slightly before the duration boundary
+	// so the riser tail doesn't get trimmed by atrim downstream.
+	fadeDur := spec.DurationSec * 0.95
+	if fadeDur < 0.1 {
+		fadeDur = spec.DurationSec
+	}
 	filters := strings.Join([]string{
-		fmt.Sprintf("afade=t=in:st=0:d=%.6f", spec.DurationSec),
+		fmt.Sprintf("afade=t=in:st=0:d=%.6f:curve=qsin", fadeDur),
+		fmt.Sprintf("asendcmd=c='%s'", sweepExpr),
 		fmt.Sprintf("highpass=f=%.0f", fStart),
 		fmt.Sprintf("volume=%.2fdB", level),
 		"aformat=channel_layouts=stereo",
@@ -156,16 +189,25 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	return nil
 }
 
-// renderDrone produces a sustained pad: three sine waves at root,
-// fifth (1.5×), and octave (2×) summed into a single bus, low-passed
-// for warmth, with a slow attack and slow release at the tail. Useful
-// under drops, intro builds, and outro fades. Pure ffmpeg — fast and
-// deterministic.
+// renderDrone produces a sustained pad — six detuned sawtooth voices
+// (root + fifth + octave, each doubled with a slightly-sharp partner
+// 2-3 cents above) summed into a single bus, low-passed at 1200 Hz
+// for warmth, with a slow tremolo (0.2 Hz amplitude LFO) so the
+// drone breathes instead of sitting static. v1 used three pure sine
+// waves which sounded like electrical hum at low rootHz — sawtooth
+// harmonics + detuning + LFO give the texture a "pad" character that
+// doesn't trip listener-pattern-matching for hum.
 //
 // Knobs:
-//   - rootHz  Hz of the fundamental. Default 220 (A3).
-//   - level   peak dB after summing. Default -12 (drone sits *under*
-//             the mix; loudnorm later catches up if needed).
+//   - rootHz  Hz of the fundamental. Default 110 (A2 — typical bass
+//             register; previously 220, lowered so drones sit under
+//             the mix without competing with vocals/leads).
+//   - level   peak dB after summing. Default -14 (subliminal bed).
+//
+// The detune ratios (1.0017, 1.0021, 1.0029) are small primes
+// chosen so the beat frequencies between paired voices don't lock
+// to a regular interval — gives the slow chorus/shimmer feel of a
+// classic analog pad.
 func renderDrone(ctx context.Context, ffmpegPath string, spec InsertSpec, dst string) error {
 	bin := ffmpegPath
 	if bin == "" {
@@ -173,44 +215,61 @@ func renderDrone(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	}
 	rootHz := spec.RootHz
 	if rootHz <= 0 {
-		rootHz = 220.0
+		rootHz = 110.0
 	}
 	if rootHz < 20 || rootHz > 4000 {
 		return fmt.Errorf("audiorender/inserts: drone rootHz %v out of range [20, 4000]", rootHz)
 	}
 	level := spec.Level
 	if level >= 0 {
-		level = -12
+		level = -14
 	}
-	// Three sine sources for root + fifth + octave. amix(normalize=0)
-	// preserves levels so the loudnorm pass can take over later.
-	// Attack + release fades cover the first/last 25% of the duration
-	// (capped at 2s each) so a 1-second drone doesn't fade in for the
-	// full second.
+	// Six voices: root + fifth + octave, each with a slightly-sharp
+	// detuned partner. Six different small ratios so the beat
+	// frequencies don't synchronize.
+	voices := []float64{
+		rootHz,
+		rootHz * 1.0021,
+		rootHz * 1.5,
+		rootHz * 1.5 * 1.0017,
+		rootHz * 2.0,
+		rootHz * 2.0 * 1.0029,
+	}
 	attack := spec.DurationSec * 0.25
-	if attack > 2.0 {
-		attack = 2.0
+	if attack > 4.0 {
+		attack = 4.0
 	}
 	release := attack
 	relStart := spec.DurationSec - release
 	if relStart < 0 {
 		relStart = 0
 	}
-	srcs := [][]string{
-		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz, spec.DurationSec)},
-		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz*1.5, spec.DurationSec)},
-		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz*2.0, spec.DurationSec)},
-	}
 	args := []string{"-y", "-loglevel", "error"}
-	for _, s := range srcs {
-		args = append(args, s...)
+	for _, f := range voices {
+		// Sawtooth waveform via aevalsrc: 2*(t*f - floor(t*f + 0.5))
+		// produces values in [-1, +1] with a bandwidth-rich harmonic
+		// series. Lowpass downstream tames the upper harmonics.
+		expr := fmt.Sprintf("2*(t*%.4f - floor(t*%.4f + 0.5))", f, f)
+		args = append(args, "-f", "lavfi", "-i",
+			fmt.Sprintf("aevalsrc=exprs='%s':duration=%.6f:sample_rate=48000",
+				expr, spec.DurationSec))
 	}
-	filterChain := fmt.Sprintf(
-		"[0:a][1:a][2:a]amix=inputs=3:normalize=0,lowpass=f=2200,"+
-			"afade=t=in:st=0:d=%.6f,afade=t=out:st=%.6f:d=%.6f,"+
-			"volume=%.2fdB,aformat=channel_layouts=stereo[out]",
-		attack, relStart, release, level,
-	)
+	// amix preserves voice levels (normalize=0); the per-voice
+	// amplitude is already 1/6 after summing, so loudnorm later
+	// catches up. tremolo at 0.2 Hz with depth 0.05 = a ±0.2 dB
+	// LFO swing that gives the drone breath without obvious wobble.
+	inputs := make([]string, 0, len(voices))
+	for i := range voices {
+		inputs = append(inputs, fmt.Sprintf("[%d:a]", i))
+	}
+	filterChain := strings.Join(inputs, "") +
+		fmt.Sprintf("amix=inputs=%d:normalize=0,", len(voices)) +
+		"lowpass=f=1200," +
+		"tremolo=f=0.2:d=0.05," +
+		fmt.Sprintf("afade=t=in:st=0:d=%.6f,", attack) +
+		fmt.Sprintf("afade=t=out:st=%.6f:d=%.6f,", relStart, release) +
+		fmt.Sprintf("volume=%.2fdB,", level) +
+		"aformat=channel_layouts=stereo[out]"
 	args = append(args,
 		"-filter_complex", filterChain,
 		"-map", "[out]",

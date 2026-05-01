@@ -3071,10 +3071,20 @@ function showCardModal(arg) {
   // future card-modal opens for the same CID get the proper label.
   const hasMeta = !!(t.name || t.genre || Number.isFinite(+t.seed));
   titleEl.textContent = hasMeta ? trackTitle(t) : 'Track';
-  const subParts = [t.genre, t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean);
+  const subParts = [t.contentType === 'BeatsComposition' ? '🎚 Composition' : t.genre,
+                    t.tempo ? `${t.tempo} BPM` : ''].filter(Boolean);
   subEl.textContent = subParts.join(' · ') || 'Confirm and play';
-  art.src = `/share-card/${encodeURIComponent(cid)}.svg`;
-  editorLink.href = `/?cid=${encodeURIComponent(cid)}`;
+  // Composition rows pull cover art from /composition-card/, the
+  // "open in studio" link points at the master .webm (the studio
+  // can't load composition envelopes — that's PR-8 territory).
+  const isComposition = (t.contentType === 'BeatsComposition');
+  art.src = isComposition
+    ? `/composition-card/${encodeURIComponent(cid)}.svg`
+    : `/share-card/${encodeURIComponent(cid)}.svg`;
+  editorLink.href = isComposition
+    ? `/audio-master/${encodeURIComponent(cid)}.webm`
+    : `/?cid=${encodeURIComponent(cid)}`;
+  editorLink.textContent = isComposition ? 'Download master' : 'Open in studio';
   // View-signature panel: lazy-fetch /o/{cid} and populate the raw
   // signer + signature so curious users can verify independently.
   // Hidden when the envelope is anonymous. Fetched once per open;
@@ -3088,7 +3098,14 @@ function showCardModal(arg) {
     sigPanel.open = false;
     sigMeta.textContent = '';
     sigValue.textContent = '';
-    fetch(`/o/${encodeURIComponent(cid)}`, { headers: { Accept: 'application/ld+json' } })
+    // BeatsShare lives at /o/{cid}; BeatsComposition at /c/{cid}.
+    // Compositions don't carry signer/signature today — the
+    // sig panel just stays hidden for them. Still issue the fetch
+    // so future signed-composition envelopes light up automatically.
+    const envPath = isComposition
+      ? `/c/${encodeURIComponent(cid)}`
+      : `/o/${encodeURIComponent(cid)}`;
+    fetch(envPath, { headers: { Accept: 'application/ld+json' } })
       .then(r => r.ok ? r.json() : null)
       .then(env => {
         if (!env || !env.signer || !env.signature) return;
@@ -3115,7 +3132,13 @@ function showCardModal(arg) {
   // Share / copy permalink. Falls back to text-select if Clipboard API
   // isn't available (insecure context, old browsers).
   shareBtn.addEventListener('click', async () => {
-    const url = `${location.origin}/?cid=${encodeURIComponent(cid)}`;
+    // Compositions don't load in the studio (their envelope is a
+    // BeatsComposition, not a BeatsShare); share a direct link to
+    // their master .webm so a recipient can listen without needing
+    // a Compose UI client.
+    const url = isComposition
+      ? `${location.origin}/audio-master/${encodeURIComponent(cid)}.webm`
+      : `${location.origin}/?cid=${encodeURIComponent(cid)}`;
     const label = shareBtn.querySelector('.card-modal-share-label');
     try {
       // Web Share API on mobile gets the native share sheet; desktop
