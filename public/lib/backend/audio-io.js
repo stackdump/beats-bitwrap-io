@@ -550,6 +550,35 @@ export function setMuteGroup(el, target, muted) {
     }
 }
 
+// applyRenderMuteOpts is the page-side counterpart of the
+// IngredientOpts the audio renderer carries on /audio/{cid}.webm
+// requests (?solo=…&mute=…). It mutates `el._mutedNets` directly so
+// the next playNote() call will skip muted nets — no worker
+// round-trip required, which matters in headless render mode where
+// the worker is in-process but timing-sensitive. Call BEFORE the
+// MediaRecorder starts or you'll capture a few notes from groups you
+// meant to mute.
+//
+// `soloRoles` is "keep only these track.group values"; everything
+// else gets muted. `muteRoles` is then applied on top so an author
+// can solo drums+bass and additionally mute a specific stinger group.
+// Both arrays are optional.
+export function applyRenderMuteOpts(el, soloRoles, muteRoles) {
+    if (!el?._project?.nets) return;
+    const nets = el._project.nets;
+    const allow = (Array.isArray(soloRoles) && soloRoles.length > 0)
+        ? new Set(soloRoles)
+        : null;
+    const block = new Set(Array.isArray(muteRoles) ? muteRoles : []);
+    for (const [id, net] of Object.entries(nets)) {
+        const group = net?.track?.group;
+        let shouldMute = false;
+        if (allow && (!group || !allow.has(group))) shouldMute = true;
+        if (group && block.has(group)) shouldMute = true;
+        if (shouldMute) el._mutedNets.add(id);
+    }
+}
+
 export function debouncedRenderMixer(el) {
     if (el._renderMixerTimeout) return;
     el._renderMixerTimeout = setTimeout(() => {

@@ -46,7 +46,38 @@
         "in":      { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
         "len":     { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
         "fadeIn":  { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-in duration in seconds. Default 0." },
-        "fadeOut": { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-out duration in seconds. Default 0." }
+        "fadeOut": { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-out duration in seconds. Default 0." },
+        "soloRoles": {
+          "type": ["array", "null"],
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Render only nets whose track.group matches one of these roles (drums/bass/melody/harmony/arp/pad/stinger/...). When set, all other groups are muted before the ingredient renders.",
+          "items": { "type": "string", "maxLength": 32 }
+        },
+        "mute": {
+          "type": ["array", "null"],
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Mute nets whose track.group matches one of these roles. Applied AFTER soloRoles, so mute can further trim a soloed render.",
+          "items": { "type": "string", "maxLength": 32 }
+        },
+        "transposeSemis": {
+          "type": ["integer", "null"],
+          "minimum": -24,
+          "maximum": 24,
+          "description": "Pitch-shift the slice by this many semitones via ffmpeg rubberband. Pitch-preserving, so groove and tempo are unchanged. Default 0."
+        },
+        "tempoMatch": {
+          "type": ["string", "null"],
+          "enum": ["stretch", "repitch", "none", null],
+          "description": "Bring the ingredient to the composition's master tempo. 'stretch' uses ffmpeg atempo (pitch-preserving). 'repitch' uses asetrate (pitch shifts as side effect). 'none' (default) leaves the audio at its native tempo."
+        },
+        "gain": {
+          "type": ["number", "null"],
+          "minimum": -40,
+          "maximum": 12,
+          "description": "Per-track volume trim in dB applied before the bus mix. Default 0."
+        }
       }
     },
     "Master": {

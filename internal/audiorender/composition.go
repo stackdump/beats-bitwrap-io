@@ -26,10 +26,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // CompositionEnvelope is the subset of a BeatsComposition envelope the
@@ -53,6 +56,19 @@ type CompositionTrackSpec struct {
 	LenBars    int
 	FadeInSec  float64
 	FadeOutSec float64
+	// PR-2 per-track operations. Zero values are no-ops.
+	SoloRoles      []string // "drums" / "bass" / etc — only these track.group nets render
+	Mute           []string // mute these track.group nets after solo
+	TransposeSemis int      // -24..24
+	TempoMatch     string   // "stretch" | "repitch" | "none" (default)
+	Gain           float64  // dB, -40..12
+	// Tempo metadata for stretch/repitch math. Worker reads these
+	// from the ingredient share envelope (SourceBPM) and the
+	// composition envelope (MasterBPM). When either is zero, the
+	// tempo-match step is skipped silently — the assembler can't
+	// compute the ratio without both BPMs.
+	SourceBPM int
+	MasterBPM int
 }
 
 type MasterSpec struct {
@@ -183,10 +199,45 @@ func assembleTimeline(
 	var chains []string
 	var labels []string
 	for i, t := range tracks {
+		// Per-track ops apply BEFORE atrim/afade/adelay so length
+		// calculations (lenSec) use the post-stretch duration. Order:
+		//   volume → atempo (tempoMatch=stretch) | asetrate (=repitch)
+		//          → rubberband (transpose) → atrim → afade → adelay
+		// `lenSec` is computed from the COMPOSITION's bar length
+		// (already passed in via barSec) — so a track with len=8 bars
+		// at master tempo 124 takes the same 15.48 s out of the
+		// stretched ingredient as it would from a vanilla one.
 		lenSec := float64(t.LenBars) * barSec
+		chain := fmt.Sprintf("[%d:a]", i)
+		if t.Gain != 0 {
+			chain += fmt.Sprintf("volume=%.4fdB,", t.Gain)
+		}
+		switch strings.ToLower(t.TempoMatch) {
+		case "stretch":
+			if t.SourceBPM > 0 && t.MasterBPM > 0 && t.SourceBPM != t.MasterBPM {
+				chain += atempoChain(float64(t.MasterBPM)/float64(t.SourceBPM)) + ","
+			}
+		case "repitch":
+			if t.SourceBPM > 0 && t.MasterBPM > 0 && t.SourceBPM != t.MasterBPM {
+				ratio := float64(t.MasterBPM) / float64(t.SourceBPM)
+				// asetrate scales the apparent sample rate (and thus
+				// pitch); aresample restores the standard rate so
+				// downstream filters keep their math right. 48000 is
+				// the assembler's working rate (set by -ar 48000 on
+				// the output).
+				chain += fmt.Sprintf("asetrate=%.0f,aresample=48000,", 48000.0*ratio)
+			}
+		}
+		if t.TransposeSemis != 0 {
+			if RubberbandAvailable(ffmpegPath) {
+				chain += fmt.Sprintf("rubberband=pitch=%.6f,", semisToRatio(t.TransposeSemis))
+			} else {
+				log.Printf("audiorender/composition: ffmpeg lacks rubberband filter; skipping transposeSemis=%d for track %s", t.TransposeSemis, t.SourceCID)
+			}
+		}
 		// Slice + reset PTS so atrim's offset doesn't bleed into the
 		// downstream filters' time math.
-		chain := fmt.Sprintf("[%d:a]atrim=0:%.6f,asetpts=PTS-STARTPTS", i, lenSec)
+		chain += fmt.Sprintf("atrim=0:%.6f,asetpts=PTS-STARTPTS", lenSec)
 		if t.FadeInSec > 0 {
 			chain += fmt.Sprintf(",afade=t=in:st=0:d=%.6f", t.FadeInSec)
 		}
@@ -260,6 +311,74 @@ func loudnormToWav(ctx context.Context, ffmpegPath, src, dst string, lufs, tp, l
 		return fmt.Errorf("ffmpeg loudnorm: %w (%s)", err, strings.TrimSpace(string(outBytes)))
 	}
 	return nil
+}
+
+// rubberbandAvailable is the lazy-evaluated result of asking the
+// configured ffmpeg whether it was built with --enable-librubberband.
+// First call shells out; subsequent calls return the cached value.
+// When false, the assembler skips the transposeSemis filter and logs
+// once per process. Worth checking at startup (before any composition
+// render is attempted) so operators see the warning early.
+var (
+	rubberbandOnce      sync.Once
+	rubberbandHasFilter bool
+)
+
+func RubberbandAvailable(ffmpegPath string) bool {
+	rubberbandOnce.Do(func() {
+		bin := ffmpegPath
+		if bin == "" {
+			bin = "ffmpeg"
+		}
+		cmd := exec.Command(bin, "-hide_banner", "-filters")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return
+		}
+		rubberbandHasFilter = strings.Contains(string(out), "rubberband")
+	})
+	return rubberbandHasFilter
+}
+
+// semisToRatio converts a semitone offset to a pitch ratio for the
+// rubberband filter. 12 semis = 1 octave = ratio 2.0. Negative semis
+// pitch down. rubberband expects a positive multiplier; a clamped
+// ±24 semitones range gives ratios between ~0.25 and ~4.0.
+func semisToRatio(semis int) float64 {
+	return math.Pow(2.0, float64(semis)/12.0)
+}
+
+// atempoChain returns one or more chained `atempo=…` filters that
+// multiply to `ratio`. Each ffmpeg atempo accepts ratios in [0.5,
+// 2.0]; for ratios outside that range we chain multiple atempos so
+// total = ratio. e.g. ratio=3.0 → "atempo=1.732,atempo=1.732".
+// Pitch-preserving (atempo's whole point); the rubberband-filter
+// alternative is heavier and chained atempos sound fine for ±25%
+// tempo swings, which is the realistic composition range.
+func atempoChain(ratio float64) string {
+	if ratio <= 0 {
+		return "atempo=1.0"
+	}
+	const lo, hi = 0.5, 2.0
+	if ratio >= lo && ratio <= hi {
+		return fmt.Sprintf("atempo=%.6f", ratio)
+	}
+	// Decompose ratio into a chain of factors each within [lo, hi].
+	parts := []float64{}
+	for ratio < lo {
+		parts = append(parts, lo)
+		ratio /= lo
+	}
+	for ratio > hi {
+		parts = append(parts, hi)
+		ratio /= hi
+	}
+	parts = append(parts, ratio)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, fmt.Sprintf("atempo=%.6f", p))
+	}
+	return strings.Join(out, ",")
 }
 
 // transcodeWavToFlac re-encodes a WAV master as FLAC. Lossless,

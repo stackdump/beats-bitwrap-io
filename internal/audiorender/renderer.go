@@ -294,14 +294,28 @@ func (r *Renderer) Delete(cid string) error {
 	return nil
 }
 
-// CachePath returns the on-disk path where {cid}.webm lives (or would
-// live). The file may not exist yet — call Stat or Render to check/produce.
+// CachePath returns the on-disk path for the bare-CID render of cid
+// (no per-track ops applied). For variant renders use CachePathFor.
 func (r *Renderer) CachePath(cid string) string {
+	return r.CachePathFor(cid, "")
+}
+
+// CachePathFor returns the on-disk path where the render of (cid,
+// optsHash) lives (or would live). Empty optsHash → bare-CID
+// `{cid}.webm`. Non-empty → `{cid}-{optsHash}.webm`. The file may not
+// exist yet — call Stat or Render to check/produce. Bucketed by the
+// current year/month so no single directory accumulates more than a
+// month's worth of writes.
+func (r *Renderer) CachePathFor(cid, optsHash string) string {
 	now := time.Now().UTC()
+	name := cid + ".webm"
+	if optsHash != "" {
+		name = cid + "-" + optsHash + ".webm"
+	}
 	return filepath.Join(r.cfg.CacheDir,
 		fmt.Sprintf("%04d", now.Year()),
 		fmt.Sprintf("%02d", int(now.Month())),
-		cid+".webm")
+		name)
 }
 
 // validMasterExt enumerates the formats produced by the composition
@@ -372,15 +386,23 @@ func (r *Renderer) MasterFormatsAvailable(cid string) []string {
 	return out
 }
 
-// CachedPath returns the path to the cached file for cid, or "" if no
-// render exists yet. Cache-only — never spawns a render. Lets HEAD
-// probes (e.g. the welcome card audio button) check availability
-// without kicking off a multi-minute Chromium capture.
+// CachedPath returns the path to the bare-CID cached file for cid, or
+// "" if no render exists yet. Variant renders aren't matched here; use
+// CachedPathFor for those. Cache-only — never spawns a render.
 func (r *Renderer) CachedPath(cid string) string {
+	return r.CachedPathFor(cid, "")
+}
+
+// CachedPathFor returns the path to the cached file for the (cid,
+// optsHash) variant, or "" if no render exists yet. Empty optsHash is
+// the bare-CID lookup. Lets HEAD probes (welcome card, composition
+// status) check availability without kicking off a multi-minute
+// Chromium capture.
+func (r *Renderer) CachedPathFor(cid, optsHash string) string {
 	if !ValidCID(cid) {
 		return ""
 	}
-	return r.findExisting(cid)
+	return r.findExistingFor(cid, optsHash)
 }
 
 // LatestCID returns the CID of the most recently rendered (or
@@ -408,13 +430,25 @@ func (r *Renderer) LatestCID() string {
 	return newest
 }
 
-// findExisting walks the cache dir looking for {cid}.webm in any
-// year/month bucket. Returns "" if absent. Slower than an in-memory
-// index, but the cache is small enough (~10 GiB cap, ~100 KB/file =
-// 100k files max) that the walk is fine and avoids restart bookkeeping.
+// findExisting walks the cache dir looking for the bare-CID render of
+// cid in any year/month bucket. Returns "" if absent. Variant renders
+// (with per-track ops applied) live at `{cid}-{hash}.webm`; use
+// findExistingFor to look those up.
 func (r *Renderer) findExisting(cid string) string {
+	return r.findExistingFor(cid, "")
+}
+
+// findExistingFor walks the cache dir for the (cid, optsHash) variant.
+// Empty optsHash matches the bare-CID file `{cid}.webm`; non-empty
+// matches the variant file `{cid}-{optsHash}.webm`. Exact filename
+// match means a request for the bare render never picks up a variant
+// file (and vice versa) — good: solo=drums shouldn't return a full mix.
+func (r *Renderer) findExistingFor(cid, optsHash string) string {
 	var found string
 	target := cid + ".webm"
+	if optsHash != "" {
+		target = cid + "-" + optsHash + ".webm"
+	}
 	_ = filepath.Walk(r.cfg.CacheDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return nil
@@ -556,17 +590,32 @@ func (r *Renderer) OverwriteClientRender(cid string, body []byte) (path string, 
 	return dst, nil
 }
 
-// Render returns the path to the rendered audio file for cid. On a cache
-// hit it's instant; on a miss it spawns headless Chromium, records the
-// track, and writes the file before returning. Concurrent calls for the
-// same cid coalesce — only one render runs. expectedMs is the caller's
+// Render returns the path to the rendered audio file for cid (no
+// per-track ops applied — the bare-CID render). On a cache hit it's
+// instant; on a miss it spawns headless Chromium, records the track,
+// and writes the file before returning. Concurrent calls for the same
+// cid coalesce — only one render runs. expectedMs is the caller's
 // estimate of render wall-clock (≈ track length); used by Status to
 // project queue wait totals. Pass 0 to use the fallback estimate.
 func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (string, error) {
+	return r.RenderVariant(ctx, cid, IngredientOpts{}, expectedMs)
+}
+
+// RenderVariant returns the path to a per-track-ops variant of cid.
+// The opts hash is computed from the IngredientOpts; bare-CID requests
+// (zero opts) share a cache slot with Render. Variant requests cache
+// at `{cid}-{hash}.webm` so a composition can request multiple
+// shapings of the same ingredient (drums-only, transposed, stretched)
+// without collision. Single-flight per (cid, hash). Page-side params
+// are propagated through chromedp's navigate URL so the renderer
+// applies the mute / transpose / tempo before the MediaRecorder
+// starts.
+func (r *Renderer) RenderVariant(ctx context.Context, cid string, opts IngredientOpts, expectedMs int64) (string, error) {
 	if !ValidCID(cid) {
 		return "", fmt.Errorf("audiorender: invalid cid %q", cid)
 	}
-	if path := r.findExisting(cid); path != "" {
+	optsHash := HashIngredientOpts(opts)
+	if path := r.findExistingFor(cid, optsHash); path != "" {
 		_ = touchAccessTime(path)
 		return path, nil
 	}
@@ -574,31 +623,37 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 		expectedMs = fallbackRenderMs
 	}
 
-	// Single-flight: if another goroutine is rendering the same CID,
-	// wait on its channel and then retry the cache lookup.
+	// Single-flight key: bare and variant renders coexist, so the in-
+	// flight map is keyed on (cid, optsHash). Empty optsHash matches
+	// the bare-CID lock so callers of Render and RenderVariant with
+	// zero opts coalesce as expected.
+	flightKey := cid
+	if optsHash != "" {
+		flightKey = cid + ":" + optsHash
+	}
 	r.mu.Lock()
-	if ch, ok := r.inflight[cid]; ok {
+	if ch, ok := r.inflight[flightKey]; ok {
 		r.mu.Unlock()
 		select {
 		case <-ch:
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-		if path := r.findExisting(cid); path != "" {
+		if path := r.findExistingFor(cid, optsHash); path != "" {
 			return path, nil
 		}
-		return "", fmt.Errorf("audiorender: peer render of %s failed", cid)
+		return "", fmt.Errorf("audiorender: peer render of %s failed", flightKey)
 	}
 	ch := make(chan struct{})
-	r.inflight[cid] = ch
-	r.queued[cid] = expectedMs
+	r.inflight[flightKey] = ch
+	r.queued[flightKey] = expectedMs
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		delete(r.inflight, cid)
-		delete(r.running, cid)
-		delete(r.queued, cid)
+		delete(r.inflight, flightKey)
+		delete(r.running, flightKey)
+		delete(r.queued, flightKey)
 		r.mu.Unlock()
 		close(ch)
 	}()
@@ -612,11 +667,11 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	defer func() { <-r.sem }()
 	// Promote queued → running once we hold a sem slot.
 	r.mu.Lock()
-	delete(r.queued, cid)
-	r.running[cid] = renderRun{StartedAt: time.Now(), ExpectedMs: expectedMs}
+	delete(r.queued, flightKey)
+	r.running[flightKey] = renderRun{StartedAt: time.Now(), ExpectedMs: expectedMs}
 	r.mu.Unlock()
 
-	path := r.CachePath(cid)
+	path := r.CachePathFor(cid, optsHash)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("audiorender: mkdir bucket: %w", err)
 	}
@@ -624,7 +679,7 @@ func (r *Renderer) Render(ctx context.Context, cid string, expectedMs int64) (st
 	renderCtx, cancel := context.WithTimeout(ctx, r.cfg.RenderTimeout)
 	defer cancel()
 
-	data, err := r.captureBlob(renderCtx, cid)
+	data, err := r.captureBlob(renderCtx, cid, opts)
 	if err != nil {
 		return "", err
 	}
@@ -785,7 +840,7 @@ func transcodeWavToWebm(ctx context.Context, ffmpegPath, src, dst string) error 
 	return nil
 }
 
-func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) {
+func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts IngredientOpts) ([]byte, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", "new"),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
@@ -839,6 +894,28 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string) ([]byte, error) 
 	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=" + renderFlag
 	if r.cfg.MaxDuration > 0 {
 		target += fmt.Sprintf("&maxMs=%d", r.cfg.MaxDuration.Milliseconds())
+	}
+	// Per-track ops are surfaced to the page via URL params. The page
+	// reads them in render-mode.js::runRender() and mutes / transposes
+	// nets before the MediaRecorder starts. Empty values are omitted
+	// so the page-side parser stays happy with `undefined`.
+	if len(ingredientOpts.SoloRoles) > 0 {
+		target += "&solo=" + url.QueryEscape(strings.Join(ingredientOpts.SoloRoles, ","))
+	}
+	if len(ingredientOpts.Mute) > 0 {
+		target += "&mute=" + url.QueryEscape(strings.Join(ingredientOpts.Mute, ","))
+	}
+	if ingredientOpts.Transpose != 0 {
+		target += fmt.Sprintf("&transpose=%d", ingredientOpts.Transpose)
+	}
+	if ingredientOpts.TempoMatch != "" && !strings.EqualFold(ingredientOpts.TempoMatch, "none") {
+		target += "&tempoMatch=" + url.QueryEscape(ingredientOpts.TempoMatch)
+		if ingredientOpts.SourceBPM > 0 {
+			target += fmt.Sprintf("&sourceBpm=%d", ingredientOpts.SourceBPM)
+		}
+		if ingredientOpts.MasterBPM > 0 {
+			target += fmt.Sprintf("&masterBpm=%d", ingredientOpts.MasterBPM)
+		}
 	}
 
 	if err := chromedp.Run(browserCtx,

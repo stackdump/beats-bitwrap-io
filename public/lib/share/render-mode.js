@@ -14,6 +14,7 @@
 
 import { renderToBlob } from './client-render.js';
 import { renderToBlobOffline, isOfflineRenderMode } from './offline-render.js';
+import { applyRenderMuteOpts } from '../backend/audio-io.js';
 
 const PPQ = 4;                // mirrors sequencer-worker.js
 const POLL_INTERVAL_MS = 100; // how often we check for project readiness
@@ -48,6 +49,12 @@ async function runRender(el) {
     await waitForTone();
     await waitForReady(el);
     const maxMs = readMaxMs();
+    const { solo, mute } = readMuteOpts();
+    if ((solo && solo.length) || (mute && mute.length)) {
+        applyRenderMuteOpts(el, solo, mute);
+        console.log('[render-mode] applied mute opts solo=', solo, 'mute=', mute,
+                    'mutedCount=', el._mutedNets.size);
+    }
 
     const totalSteps = el._totalSteps > 0 ? el._totalSteps : 1024;
     const tempo = el._tempo || 120;
@@ -133,6 +140,28 @@ function readMaxMs() {
         return Number.isFinite(n) && n > 0 ? n : 0;
     } catch {
         return 0;
+    }
+}
+
+// readMuteOpts pulls ?solo=drums,bass&mute=pad,lead off the URL and
+// returns trimmed arrays. Empty / missing params yield empty arrays.
+// Used by runRender to apply per-track mute before MediaRecorder
+// starts, so a composition can request "drums-only" or "no pad" cuts
+// of the same ingredient share — see internal/audiorender's
+// IngredientOpts on the Go side.
+function readMuteOpts() {
+    try {
+        const params = new URLSearchParams(location.search);
+        const split = (raw) => (raw || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        return {
+            solo: split(params.get('solo')),
+            mute: split(params.get('mute')),
+        };
+    } catch {
+        return { solo: [], mute: [] };
     }
 }
 

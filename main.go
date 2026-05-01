@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -956,6 +957,61 @@ func midiRoutingHandler(single *midiout.Output, multi *midiout.MultiOutput, fan 
 // distinguish "queued behind N others, ~M seconds wait" from
 // "rendering, X% done" without burning a HEAD-per-poll on the audio
 // handler. Cheap (no disk I/O beyond a single Stat for the ready case).
+// parseIngredientOpts pulls per-track-op overrides off the request URL
+// and returns them as an audiorender.IngredientOpts. Empty/missing
+// params produce a zero-value struct (which means "bare-CID render").
+// Used by the GET path in audioHandler to support composition tracks
+// that need a soloed / muted / transposed / tempo-stretched variant of
+// an ingredient share without breaking the existing cache for the
+// vanilla render.
+func parseIngredientOpts(q neturl.Values) audiorender.IngredientOpts {
+	o := audiorender.IngredientOpts{}
+	if s := strings.TrimSpace(q.Get("solo")); s != "" {
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				o.SoloRoles = append(o.SoloRoles, p)
+			}
+		}
+	}
+	if s := strings.TrimSpace(q.Get("mute")); s != "" {
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				o.Mute = append(o.Mute, p)
+			}
+		}
+	}
+	if v := q.Get("transpose"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n < -24 {
+				n = -24
+			}
+			if n > 24 {
+				n = 24
+			}
+			o.Transpose = n
+		}
+	}
+	if v := strings.TrimSpace(q.Get("tempoMatch")); v != "" {
+		switch v {
+		case "stretch", "repitch", "none":
+			o.TempoMatch = v
+		}
+	}
+	if v := q.Get("sourceBpm"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < 1000 {
+			o.SourceBPM = n
+		}
+	}
+	if v := q.Get("masterBpm"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < 1000 {
+			o.MasterBPM = n
+		}
+	}
+	return o
+}
+
 // audioMasterHandler serves /audio-master/{cid}.{ext} for composition
 // renders. GET / HEAD stream cached files; PUT (with X-Rebuild-Secret)
 // uploads a worker-rendered master in one of the supported formats
@@ -1203,12 +1259,21 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			fmt.Fprintf(w, `{"wrote":%v,"bytes":%d}`, wrote, len(body))
 			return
 		}
+		// Per-track-ops variant routing. When the request URL carries
+		// solo / mute / transpose / tempoMatch / gain / masterBpm
+		// params, the cache key incorporates a hash of those opts so
+		// the bare-CID render and any number of variants coexist.
+		// Empty IngredientOpts (no params or all defaults) produces an
+		// empty hash and falls through to the original bare-CID path.
+		ingredientOpts := parseIngredientOpts(r.URL.Query())
+		optsHash := audiorender.HashIngredientOpts(ingredientOpts)
+
 		// With server-side render disabled, GET / POST against an
 		// un-uploaded CID has no fallback path — return 404 instead of
 		// blocking. Cached files still serve normally.
 		if !enableServerRender {
 			if r.Method == http.MethodGet {
-				if path := ar.CachedPath(cid); path != "" {
+				if path := ar.CachedPathFor(cid, optsHash); path != "" {
 					w.Header().Set("Content-Type", "audio/webm")
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 					http.ServeFile(w, r, path)
@@ -1249,7 +1314,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		// every visitor to a fresh share would block 2+ minutes on a
 		// link probe. 200 if cached, 404 otherwise.
 		if r.Method == http.MethodHead {
-			if path := ar.CachedPath(cid); path != "" {
+			if path := ar.CachedPathFor(cid, optsHash); path != "" {
 				if info, err := os.Stat(path); err == nil {
 					w.Header().Set("Content-Type", "audio/webm")
 					w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
@@ -1270,7 +1335,9 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		}
 		// expectedMs=0 falls back to the renderer's default — the GET
 		// path doesn't carry the caller's track-length estimate.
-		path, err := ar.Render(r.Context(), cid, 0)
+		// RenderVariant collapses to the bare-CID Render path when
+		// optsHash is empty, so vanilla GETs are unaffected.
+		path, err := ar.RenderVariant(r.Context(), cid, ingredientOpts, 0)
 		if err != nil {
 			log.Printf("audio render %s: %v", cid, err)
 			httpErrorNoStore(w, "render failed", http.StatusInternalServerError)

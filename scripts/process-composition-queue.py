@@ -34,6 +34,7 @@ Usage:
   ./scripts/process-composition-queue.py --watch --interval 30
 """
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -42,6 +43,12 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+
+def hex_digest_short(s: str) -> str:
+    """8-char hex digest of s — used to slug variant queries into
+    stable per-track WAV filenames in the worker tempdir."""
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:8]
 
 
 def http(method, url, body=None, headers=None, timeout=900):
@@ -84,15 +91,54 @@ def seal_local(local: str, prefix: str, cid: str, body: bytes, secret: str) -> b
     return code in (200, 201)
 
 
-def render_ingredient_to_webm(local: str, cid: str, dst: str) -> bool:
-    """Trigger chromedp realtime render via the local server, save to dst."""
-    code, body = http("GET", f"{local}/audio/{cid}.webm", timeout=900)
+def render_ingredient_to_webm(local: str, cid: str, dst: str, query: str = "") -> bool:
+    """Trigger chromedp realtime render via the local server, save to dst.
+
+    `query` carries the per-track variant params (?solo=…&mute=…&transpose=
+    …&tempoMatch=…&sourceBpm=…&masterBpm=…) so two composition tracks
+    referencing the same ingredient with different shapings each cache to
+    a distinct {cid}-{hash}.webm on the local server.
+    """
+    url = f"{local}/audio/{cid}.webm"
+    if query:
+        url += ("&" if "?" in url else "?") + query.lstrip("?&")
+    code, body = http("GET", url, timeout=900)
     if code != 200 or not body:
         print(f"  ! render {cid} HTTP {code} ({len(body)} bytes)", file=sys.stderr)
         return False
     with open(dst, "wb") as f:
         f.write(body)
     return True
+
+
+def build_variant_query(track: dict, master_bpm: int, source_bpm: int) -> tuple[str, bool]:
+    """Build the URL query string for a track's per-track ops.
+
+    Returns (query, hasOps). hasOps=False means the track is a vanilla
+    bare-CID render and the worker can reuse the cache key without any
+    suffix; True means the resulting wav file is a variant and must be
+    keyed distinctly so two tracks referencing the same ingredient with
+    different shapings don't collide on disk.
+    """
+    parts: list[str] = []
+    solo = [s for s in (track.get("soloRoles") or []) if s]
+    mute = [s for s in (track.get("mute") or []) if s]
+    transpose = int(track.get("transposeSemis") or 0)
+    tempo_match = (track.get("tempoMatch") or "").strip()
+    if solo:
+        parts.append("solo=" + ",".join(solo))
+    if mute:
+        parts.append("mute=" + ",".join(mute))
+    if transpose:
+        parts.append(f"transpose={transpose}")
+    if tempo_match and tempo_match != "none":
+        parts.append(f"tempoMatch={tempo_match}")
+        if source_bpm > 0:
+            parts.append(f"sourceBpm={source_bpm}")
+        if master_bpm > 0:
+            parts.append(f"masterBpm={master_bpm}")
+    has_ops = bool(parts)
+    return ("&".join(parts), has_ops)
 
 
 def webm_to_wav(src: str, dst: str) -> bool:
@@ -155,35 +201,89 @@ def process_one(cid: str, args, secret: str) -> bool:
         print(f"  ! envelope parse failed for {cid}", file=sys.stderr)
         return False
 
-    ingredient_cids = []
-    for t in env.get("tracks", []):
-        src = t.get("source", {}).get("cid")
-        if src and src not in ingredient_cids:
-            ingredient_cids.append(src)
-    if not ingredient_cids:
-        print(f"  ! {cid} has no ingredients", file=sys.stderr)
+    master_bpm = int(env.get("tempo") or 0)
+    tracks = env.get("tracks", [])
+    if not tracks:
+        print(f"  ! {cid} has no tracks", file=sys.stderr)
         return False
 
+    # Source BPM cache: each ingredient envelope is fetched at most once
+    # and we read its tempo (if present) so the assembler can compute
+    # tempoMatch ratios without re-fetching.
+    source_bpm: dict[str, int] = {}
+
+    # Per-track variant key: same ingredient with different ops becomes
+    # a distinct WAV under a different filename so the assembler picks
+    # them up via separate ingredient_paths entries. The map key is
+    # `{cid}#{queryString}` so vanilla renders reuse the bare-CID slot.
+    ingredient_variants: dict[str, tuple[str, str, dict]] = {}  # variant_key → (cid, query, track)
+    for t in tracks:
+        src = t.get("source", {}).get("cid")
+        if not src:
+            print(f"  ! track without source.cid in {cid}", file=sys.stderr)
+            return False
+        # We need the source BPM before we can build the query (the
+        # query embeds sourceBpm for the server-side hash to match the
+        # assembler's ratio).
+        if src not in source_bpm:
+            ing_env_bytes = fetch_envelope(args.remote, "/o", src)
+            if not ing_env_bytes:
+                return False
+            try:
+                ing = json.loads(ing_env_bytes)
+                source_bpm[src] = int(ing.get("tempo") or 0)
+            except json.JSONDecodeError:
+                source_bpm[src] = 0
+            # Stash for the seal+render loop below; avoids a second GET.
+            ingredient_variants.setdefault(f"__env__::{src}", (src, "", {"_envBytes": ing_env_bytes}))
+        query, _ = build_variant_query(t, master_bpm, source_bpm[src])
+        variant_key = f"{src}#{query}"
+        if variant_key not in ingredient_variants:
+            ingredient_variants[variant_key] = (src, query, t)
+
     with tempfile.TemporaryDirectory(prefix=f"comp-{cid}-") as tmp:
-        ingredient_paths: dict[str, str] = {}
-        for ing_cid in ingredient_cids:
-            ing_env = fetch_envelope(args.remote, "/o", ing_cid)
-            if not ing_env:
+        ingredient_paths: dict[str, str] = {}      # variant_key → wav path
+        sealed: set[str] = set()
+        for variant_key, (ing_cid, query, track) in ingredient_variants.items():
+            if variant_key.startswith("__env__::"):
+                continue
+            if ing_cid not in sealed:
+                env_bytes_for_ing = ingredient_variants[f"__env__::{ing_cid}"][2]["_envBytes"]
+                if not seal_local(args.local, "/o", ing_cid, env_bytes_for_ing, secret):
+                    print(f"  ! local seal {ing_cid} failed", file=sys.stderr)
+                    return False
+                sealed.add(ing_cid)
+            # Stable per-variant local filename so two tracks
+            # referencing the same ingredient with different ops cache
+            # to distinct wavs on disk.
+            slug = "vanilla" if not query else hex_digest_short(query)
+            webm = os.path.join(tmp, f"{ing_cid}-{slug}.webm")
+            if not render_ingredient_to_webm(args.local, ing_cid, webm, query):
                 return False
-            if not seal_local(args.local, "/o", ing_cid, ing_env, secret):
-                print(f"  ! local seal {ing_cid} failed", file=sys.stderr)
-                return False
-            webm = os.path.join(tmp, f"{ing_cid}.webm")
-            if not render_ingredient_to_webm(args.local, ing_cid, webm):
-                return False
-            wav = os.path.join(tmp, f"{ing_cid}.wav")
+            wav = os.path.join(tmp, f"{ing_cid}-{slug}.wav")
             if not webm_to_wav(webm, wav):
                 return False
-            ingredient_paths[ing_cid] = wav
+            ingredient_paths[variant_key] = wav
+
+        # Inject source BPM into each track BEFORE writing the envelope
+        # the CLI reads. The composition envelope on disk is canonical
+        # bytes (CID-stable), so we mutate a parsed copy instead and
+        # also rewrite source.cid → variant key so the CLI sees one
+        # ingredient per track.
+        env_for_cli = json.loads(env_bytes)
+        for i, t in enumerate(env_for_cli.get("tracks", [])):
+            src = t.get("source", {}).get("cid", "")
+            t["sourceBpm"] = source_bpm.get(src, 0)
+            query, _ = build_variant_query(t, master_bpm, source_bpm.get(src, 0))
+            t["source"]["cid"] = f"{src}#{query}"  # variant key for ingredients map
+            # The CLI's struct doesn't use variant keys directly — it
+            # passes source.cid into ingredients[]. By using the variant
+            # key here, we keep the CLI mapping correct.
+            env_for_cli["tracks"][i] = t
 
         env_path = os.path.join(tmp, "envelope.json")
-        with open(env_path, "wb") as f:
-            f.write(env_bytes)
+        with open(env_path, "w") as f:
+            json.dump(env_for_cli, f)
         ingest_path = os.path.join(tmp, "ingredients.json")
         with open(ingest_path, "w") as f:
             json.dump(ingredient_paths, f)

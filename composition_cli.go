@@ -57,6 +57,19 @@ func runRenderCompositionCLI(args []string) int {
 			Len     int     `json:"len"`
 			FadeIn  float64 `json:"fadeIn"`
 			FadeOut float64 `json:"fadeOut"`
+			// PR-2 per-track ops. SoloRoles + Mute are passed
+			// through to the ingredient render and don't affect
+			// the assembler chain. Transpose / TempoMatch / Gain
+			// drive ffmpeg filters in assembleTimeline.
+			SoloRoles      []string `json:"soloRoles"`
+			Mute           []string `json:"mute"`
+			TransposeSemis int      `json:"transposeSemis"`
+			TempoMatch     string   `json:"tempoMatch"`
+			Gain           float64  `json:"gain"`
+			// Worker passes the ingredient share's tempo here so
+			// the assembler can compute the stretch ratio without
+			// re-fetching the ingredient envelope.
+			SourceBPM int `json:"sourceBpm"`
 		} `json:"tracks"`
 		Master struct {
 			LUFS    float64  `json:"lufs"`
@@ -88,11 +101,18 @@ func runRenderCompositionCLI(args []string) int {
 	}
 	for _, t := range raw.Tracks {
 		env.Tracks = append(env.Tracks, audiorender.CompositionTrackSpec{
-			SourceCID:  t.Source.CID,
-			InBars:     t.In,
-			LenBars:    t.Len,
-			FadeInSec:  t.FadeIn,
-			FadeOutSec: t.FadeOut,
+			SourceCID:      t.Source.CID,
+			InBars:         t.In,
+			LenBars:        t.Len,
+			FadeInSec:      t.FadeIn,
+			FadeOutSec:     t.FadeOut,
+			SoloRoles:      t.SoloRoles,
+			Mute:           t.Mute,
+			TransposeSemis: t.TransposeSemis,
+			TempoMatch:     t.TempoMatch,
+			Gain:           t.Gain,
+			SourceBPM:      t.SourceBPM,
+			MasterBPM:      raw.Tempo,
 		})
 	}
 
