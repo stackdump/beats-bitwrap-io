@@ -69,8 +69,16 @@
   }
   .bar-row .clip.cid { background: linear-gradient(90deg, #2a4a6a 0%, #3a5a7a 100%); }
   .bar-row .clip.gen { background: linear-gradient(90deg, #5a3a6a 0%, #7a4a8a 100%); }
-  .bar-row .clip.fade-in::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, rgba(0,0,0,0.5), transparent); border-radius: 3px 0 0 3px; }
-  .bar-row .clip.fade-out::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(0,0,0,0.5)); border-radius: 0 3px 3px 0; }
+  .bar-row .clip.fade-in::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, rgba(0,0,0,0.5), transparent); border-radius: 3px 0 0 3px; pointer-events: none; }
+  .bar-row .clip.fade-out::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(0,0,0,0.5)); border-radius: 0 3px 3px 0; pointer-events: none; }
+  .bar-row .clip.dragging { opacity: 0.7; cursor: grabbing; box-shadow: 0 0 0 2px #6cf; }
+  .bar-row .clip-resize {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
+    cursor: ew-resize; background: rgba(255,255,255,0.0);
+    border-right: 2px solid rgba(255,255,255,0.25);
+    border-radius: 0 3px 3px 0;
+  }
+  .bar-row .clip-resize:hover { background: rgba(255,255,255,0.15); }
   .bar-grid-label { color: #777; font-size: 11px; margin-bottom: 4px; }
 </style>
 </head>

@@ -14,13 +14,13 @@
 | PR-4.3.2 | counterMelody Tone.js OfflineAudioContext synth (timbre fidelity) | ✅ shipped |
 | PR-5.1 | Minimal Compose page (form-based) | ✅ shipped |
 | PR-5.2 | Compose page bar-grid timeline visualisation | ✅ shipped |
-| PR-5.3 | Compose page drag-drop interactivity + client-side preview | 🔜 |
+| PR-5.3 | Compose page drag-drop interactivity (timeline grid) | ✅ shipped |
 | PR-6 | Feed surface for compositions (cards / RSS / `?type=` filter) | ✅ shipped |
 | PR-7.1 | Composition cover art (`/composition-card/{cid}.svg`) | ✅ shipped |
 | PR-7.2 | "→ Compose" link on share cards (`/compose.html?seed=…`) | ✅ shipped |
-| PR-7.3 | Compositions of compositions (recursive ingredients) | 🔜 |
-| PR-7.4 | Stems output (per-soloRoles group emitted alongside master) | 🔜 |
-| PR-7.5 | Live composition mode (WS-driven re-render on edit) | 🔜 |
+| PR-7.3 | Compositions of compositions (recursive ingredients) | ✅ shipped |
+| PR-7.4 | Stems output (per-group emitted alongside master) | ✅ shipped |
+| PR-7.5 | Live composition mode (WS-driven re-render on edit) | 🔜 (deferred — niche, large) |
 
 This file sequences the deferred work. Each PR is sized to land + verify independently. Schema fields are additive — old envelopes always render; new envelopes degrade gracefully on older worker binaries by ignoring unknown fields.
 

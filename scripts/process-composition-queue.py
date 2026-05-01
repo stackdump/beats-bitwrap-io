@@ -79,6 +79,20 @@ def fetch_envelope(base: str, prefix: str, cid: str) -> bytes | None:
     return body
 
 
+def resolve_ingredient_envelope(remote: str, cid: str) -> tuple[str, bytes] | None:
+    """Returns ('share', bytes) if cid is at /o/{cid}, ('composition',
+    bytes) if at /c/{cid}, or None if neither. Lets PR-7.3 nested
+    compositions reference each other without the worker having to
+    know upfront which prefix any given track points at."""
+    code, body = http("GET", f"{remote}/o/{cid}", timeout=30)
+    if code == 200:
+        return ('share', body)
+    code, body = http("GET", f"{remote}/c/{cid}", timeout=30)
+    if code == 200:
+        return ('composition', body)
+    return None
+
+
 def seal_local(local: str, prefix: str, cid: str, body: bytes, secret: str) -> bool:
     headers = {"Content-Type": "application/ld+json"}
     # source=official envelopes (operator-signed shares from prod) need
@@ -237,7 +251,303 @@ def post_clear(remote: str, cid: str) -> None:
          headers={"Content-Type": "application/json"}, timeout=30)
 
 
+MAX_COMPOSITION_DEPTH = 3
+
+
+def render_composition_to_wav(cid: str, env_bytes: bytes, args, secret: str,
+                              tmp: str, depth: int = 0) -> dict | None:
+    """Render a single composition (top-level or nested) into a WAV
+    file inside `tmp` and return the path. Top-level callers pass
+    depth=0 and run upload + queue-clear afterwards; recursive calls
+    from PR-7.3 nested ingredients pass depth+1 and just consume the
+    returned WAV as if it were a share-rendered ingredient.
+
+    Returns None on any failure (errors already logged).
+    """
+    if depth > MAX_COMPOSITION_DEPTH:
+        print(f"  ! composition recursion depth {depth} > {MAX_COMPOSITION_DEPTH} — aborting", file=sys.stderr)
+        return None
+    indent = "  " + "    " * depth
+    print(f"{indent}↳ rendering composition {cid[:14]}… (depth {depth})")
+    try:
+        env = json.loads(env_bytes)
+    except json.JSONDecodeError:
+        print(f"{indent}! envelope parse failed", file=sys.stderr)
+        return None
+
+    master_bpm = int(env.get("tempo") or 0)
+    tracks = env.get("tracks", [])
+    if not tracks:
+        print(f"{indent}! {cid} has no tracks", file=sys.stderr)
+        return None
+    bar_sec = (4.0 * 60.0) / master_bpm if master_bpm > 0 else 0.5
+
+    # First pass: id → cid map for counterMelody.of resolution.
+    track_id_to_cid: dict[str, str] = {}
+    for t in tracks:
+        tid = t.get("id")
+        src_cid = (t.get("source") or {}).get("cid")
+        if tid and src_cid:
+            track_id_to_cid[tid] = src_cid
+
+    source_bpm: dict[str, int] = {}
+    cid_envelopes: dict[str, bytes] = {}
+    composition_envelopes: dict[str, bytes] = {}  # PR-7.3 nested compositions
+    track_source_keys: list[str] = [None] * len(tracks)
+    source_resolution: dict[str, tuple] = {}
+
+    for i, t in enumerate(tracks):
+        src = t.get("source") or {}
+        if "cid" in src:
+            ing_cid = src["cid"]
+            # PR-7.3: probe both /o/ and /c/ to discover whether this
+            # ingredient is a share (chromedp render) or a composition
+            # (recursive render via the assembler).
+            if ing_cid not in cid_envelopes and ing_cid not in composition_envelopes:
+                resolved = resolve_ingredient_envelope(args.remote, ing_cid)
+                if not resolved:
+                    print(f"{indent}! ingredient {ing_cid} not found at /o/ or /c/", file=sys.stderr)
+                    return None
+                kind, body = resolved
+                if kind == 'share':
+                    cid_envelopes[ing_cid] = body
+                    try:
+                        source_bpm[ing_cid] = int(json.loads(body).get("tempo") or 0)
+                    except json.JSONDecodeError:
+                        source_bpm[ing_cid] = 0
+                else:  # composition
+                    composition_envelopes[ing_cid] = body
+                    source_bpm[ing_cid] = int(json.loads(body).get("tempo") or 0)
+            if ing_cid in composition_envelopes:
+                # Nested composition — variant query is meaningless;
+                # the composition is its own master.
+                key = f"comp:{ing_cid}"
+                track_source_keys[i] = key
+                source_resolution.setdefault(key, ("nested", ing_cid))
+            else:
+                query, _ = build_variant_query(t, master_bpm, source_bpm[ing_cid])
+                key = f"{ing_cid}#{query}"
+                track_source_keys[i] = key
+                source_resolution.setdefault(key, ("cid", ing_cid, query))
+        elif "generate" in src:
+            spec = dict(src["generate"])
+            if spec.get("type") == "counterMelody":
+                sibling_id = spec.get("of")
+                if not sibling_id:
+                    print(f"{indent}! counterMelody track missing `of`", file=sys.stderr)
+                    return None
+                sibling_cid = track_id_to_cid.get(sibling_id)
+                if not sibling_cid:
+                    print(f"{indent}! counterMelody.of={sibling_id!r} unresolved", file=sys.stderr)
+                    return None
+                if sibling_cid not in cid_envelopes:
+                    sib_env_bytes = fetch_envelope(args.remote, "/o", sibling_cid)
+                    if not sib_env_bytes:
+                        return None
+                    cid_envelopes[sibling_cid] = sib_env_bytes
+                spec["_siblingCid"] = sibling_cid
+            spec_with_duration = dict(spec)
+            spec_with_duration["durationSec"] = float(t.get("len", 1)) * bar_sec
+            spec_for_key = {k: v for k, v in spec_with_duration.items() if not k.startswith("_")}
+            key = generate_source_key(spec_for_key)
+            track_source_keys[i] = key
+            source_resolution.setdefault(key, ("gen", spec_with_duration))
+        else:
+            print(f"{indent}! track {i} has neither source.cid nor source.generate", file=sys.stderr)
+            return None
+
+    # Materialize each unique source into a WAV inside this depth's
+    # tempdir (sub-compositions get their own subdir to avoid name
+    # collisions with the parent's ingredient WAVs).
+    sub_tmp = os.path.join(tmp, f"d{depth}-{cid[:14]}")
+    os.makedirs(sub_tmp, exist_ok=True)
+    ingredient_paths: dict[str, str] = {}
+    sealed: set[str] = set()
+    for key, info in source_resolution.items():
+        kind = info[0]
+        if kind == "cid":
+            _, ing_cid, query = info
+            if ing_cid not in sealed:
+                if not seal_local(args.local, "/o", ing_cid, cid_envelopes[ing_cid], secret):
+                    print(f"{indent}! local seal {ing_cid} failed", file=sys.stderr)
+                    return None
+                sealed.add(ing_cid)
+            slug = "vanilla" if not query else hex_digest_short(query)
+            webm = os.path.join(sub_tmp, f"{ing_cid}-{slug}.webm")
+            if not render_ingredient_to_webm(args.local, ing_cid, webm, query):
+                return None
+            wav = os.path.join(sub_tmp, f"{ing_cid}-{slug}.wav")
+            if not webm_to_wav(webm, wav):
+                return None
+            ingredient_paths[key] = wav
+        elif kind == "nested":
+            # PR-7.3: recursive composition render. Returns the
+            # nested master.wav which we plug in as if it were a
+            # share-derived ingredient.
+            _, sub_cid = info
+            sub_env = composition_envelopes[sub_cid]
+            nested_outputs = render_composition_to_wav(sub_cid, sub_env, args, secret, sub_tmp, depth + 1)
+            if not nested_outputs or not nested_outputs.get("wav"):
+                return None
+            ingredient_paths[key] = nested_outputs["wav"]
+        elif kind == "gen":
+            _, spec = info
+            spec_to_render = {k: v for k, v in spec.items() if not k.startswith("_")}
+            if spec.get("type") == "counterMelody":
+                sibling_cid = spec.get("_siblingCid")
+                sib_env_bytes = cid_envelopes.get(sibling_cid)
+                if not sib_env_bytes:
+                    print(f"{indent}! counterMelody sibling envelope missing", file=sys.stderr)
+                    return None
+                sib_path = os.path.join(sub_tmp, f"src-{sibling_cid[:14]}.json")
+                with open(sib_path, "wb") as f:
+                    f.write(sib_env_bytes)
+                spec_to_render["sourceEnvelopePath"] = sib_path
+                spec_to_render["_baseURL"] = args.local
+                spec_to_render["_rebuildSecret"] = secret
+            wav = os.path.join(sub_tmp, f"{key}.wav")
+            if not render_insert(args.binary, spec_to_render, wav):
+                return None
+            ingredient_paths[key] = wav
+            print(f"{indent}  ↳ generated {spec.get('type')} ({spec.get('durationSec'):.2f}s) → {key}")
+
+    # Rewrite envelope for the CLI: each track's source becomes the
+    # variant key (so the assembler's ingredient lookup matches),
+    # and sourceBpm carries the matched ingredient tempo.
+    env_for_cli = json.loads(env_bytes)
+    for i, t in enumerate(env_for_cli.get("tracks", [])):
+        key = track_source_keys[i]
+        kind = source_resolution[key][0]
+        if kind == "cid":
+            ing_cid = source_resolution[key][1]
+            t["sourceBpm"] = source_bpm.get(ing_cid, 0)
+        elif kind == "nested":
+            t["sourceBpm"] = 0  # nested already master-rendered, no further tempo work
+        else:
+            t["sourceBpm"] = 0
+        t["source"] = {"cid": key}
+        env_for_cli["tracks"][i] = t
+    # Nested compositions only need a single WAV format — the parent
+    # assembler decodes and re-mixes. Skip mp3/flac/webm fan-out for
+    # depth > 0 to save render time.
+    if depth > 0:
+        env_for_cli.setdefault("master", {})["format"] = ["wav"]
+
+    env_path = os.path.join(sub_tmp, "envelope.json")
+    with open(env_path, "w") as f:
+        json.dump(env_for_cli, f)
+    ingest_path = os.path.join(sub_tmp, "ingredients.json")
+    with open(ingest_path, "w") as f:
+        json.dump(ingredient_paths, f)
+    out_dir = os.path.join(sub_tmp, "out")
+    os.makedirs(out_dir, exist_ok=True)
+    outputs = render_composition(args.binary, env_path, ingest_path, out_dir)
+    if not outputs:
+        return None
+    return outputs
+
+
 def process_one(cid: str, args, secret: str) -> bool:
+    """Top-level worker entry: fetch composition envelope, dispatch
+    to the recursive renderer, then upload masters + emit stems +
+    clear queue. The render-composition CLI handles ffmpeg assembly;
+    PR-7.3's render_composition_to_wav handles ingredient resolution
+    (including nested compositions); PR-7.4 emits per-group stems."""
+    print(f"  · {cid}")
+    env_bytes = fetch_envelope(args.remote, "/c", cid)
+    if not env_bytes:
+        return False
+    with tempfile.TemporaryDirectory(prefix=f"comp-{cid}-") as tmp:
+        outputs = render_composition_to_wav(cid, env_bytes, args, secret, tmp, depth=0)
+        if not outputs:
+            return False
+        for ext, path in outputs.items():
+            if not upload_master(args.remote, cid, ext, path, secret):
+                return False
+            print(f"    ✓ {ext}: {os.path.getsize(path):,} bytes")
+
+        # PR-7.4: per-group stems. master.stems lists track-group
+        # names; each one re-renders the composition with every cid
+        # track soloed to that group (and generative inserts dropped),
+        # uploads as /audio-stems/{cid}/{group}.{ext}.
+        try:
+            env = json.loads(env_bytes)
+        except json.JSONDecodeError:
+            env = {}
+        stems = ((env.get("master") or {}).get("stems") or [])
+        for group in stems:
+            if not isinstance(group, str) or not group.strip():
+                continue
+            print(f"    ↳ stem render: {group}")
+            stem_outputs = render_stem(cid, env_bytes, group, args, secret, tmp)
+            if not stem_outputs:
+                print(f"    ! stem {group} render failed", file=sys.stderr)
+                continue
+            for ext, path in stem_outputs.items():
+                if not upload_stem(args.remote, cid, group, ext, path, secret):
+                    print(f"    ! stem upload {group}.{ext} failed", file=sys.stderr)
+                    continue
+                print(f"      ✓ stem {group}.{ext}: {os.path.getsize(path):,} bytes")
+    post_clear(args.remote, cid)
+    return True
+
+
+def render_stem(cid: str, env_bytes: bytes, group: str, args, secret: str, tmp: str) -> dict | None:
+    """Render a single per-group stem of the composition. Strategy:
+    take the original envelope, override soloRoles=[group] on every
+    cid track, drop every generative-insert track (they don't have a
+    track.group concept), shrink format list to wav+webm, then run
+    the same recursive renderer. Output goes into a stem-specific
+    subdir so the parent's master files don't get clobbered."""
+    try:
+        env = json.loads(env_bytes)
+    except json.JSONDecodeError:
+        return None
+    new_tracks = []
+    for t in env.get("tracks", []):
+        src = t.get("source") or {}
+        if "cid" not in src:
+            continue  # drop generative inserts from stem renders
+        nt = dict(t)
+        nt["soloRoles"] = [group]
+        nt.pop("mute", None)
+        new_tracks.append(nt)
+    if not new_tracks:
+        return None
+    env["tracks"] = new_tracks
+    master = dict(env.get("master") or {})
+    master["format"] = ["wav", "webm"]
+    master.pop("stems", None)
+    env["master"] = master
+    new_env_bytes = json.dumps(env).encode()
+
+    stem_tmp = os.path.join(tmp, f"stem-{group}")
+    os.makedirs(stem_tmp, exist_ok=True)
+    return render_composition_to_wav(cid, new_env_bytes, args, secret, stem_tmp, depth=0)
+
+
+def upload_stem(remote: str, cid: str, group: str, ext: str, path: str, secret: str) -> bool:
+    """Upload a stem render via curl (same urllib-vs-Go-Server reason
+    as upload_master)."""
+    cmd = [
+        "curl", "-sS", "-X", "PUT",
+        "-H", f"X-Rebuild-Secret: {secret}",
+        "-H", "Content-Type: application/octet-stream",
+        "--data-binary", f"@{path}",
+        "-w", "%{http_code}",
+        "-o", "/dev/null",
+        f"{remote}/audio-stems/{cid}/{group}.{ext}",
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=600)
+    if r.returncode != 0:
+        return False
+    return r.stdout.decode().strip() in ("200", "201")
+
+
+def _legacy_process_one_unused(cid: str, args, secret: str) -> bool:
+    """Pre-PR-7.3 implementation kept for reference during the
+    migration; remove in a follow-up after the recursive path has
+    soaked in production."""
     print(f"  · {cid}")
     env_bytes = fetch_envelope(args.remote, "/c", cid)
     if not env_bytes:

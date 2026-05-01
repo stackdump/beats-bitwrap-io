@@ -370,6 +370,82 @@ func (r *Renderer) MasterCachedPath(cid, ext string) string {
 	return found
 }
 
+// stemGroupPattern enforces the schema's stem-group format on the
+// HTTP path layer so a stem upload can't pop out of the masters tree.
+var stemGroupPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// ValidStemGroup reports whether g is a syntactically-valid stem
+// group name. Mirrors the schema's pattern. Empty / invalid groups
+// are rejected by the route layer.
+func ValidStemGroup(g string) bool { return stemGroupPattern.MatchString(g) }
+
+// StemPath returns the on-disk path for a stem render of (cid, group,
+// ext) for new writes (year/month bucketed). Returns "" when MasterDir
+// is unset or any input fails validation. The bucket sits beside the
+// master tree at data/audio-master/{YYYY}/{MM}/stems/ so stems share
+// the LRU eviction window with masters but stay grouped.
+func (r *Renderer) StemPath(cid, group, ext string) string {
+	if r.cfg.MasterDir == "" || !ValidCID(cid) || !ValidStemGroup(group) || !ValidMasterExt(ext) {
+		return ""
+	}
+	now := time.Now().UTC()
+	return filepath.Join(r.cfg.MasterDir,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", int(now.Month())),
+		"stems",
+		cid+"-"+group+"."+ext)
+}
+
+// StemCachedPath walks MasterDir for an existing stem of (cid, group,
+// ext). Returns "" if absent. Used by GET /audio-stems/{cid}/{group}.{ext}
+// to serve the bytes if a worker has already uploaded them.
+func (r *Renderer) StemCachedPath(cid, group, ext string) string {
+	if r.cfg.MasterDir == "" || !ValidCID(cid) || !ValidStemGroup(group) || !ValidMasterExt(ext) {
+		return ""
+	}
+	target := cid + "-" + group + "." + ext
+	var found string
+	_ = filepath.Walk(r.cfg.MasterDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if info.Name() == target {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// OverwriteStem writes a stem WAV/MP3/WEBM unconditionally, replacing
+// any existing cached version. Authenticated worker uploads only —
+// caller must verify X-Rebuild-Secret before invoking.
+func (r *Renderer) OverwriteStem(cid, group, ext string, body []byte) (path string, err error) {
+	if r.cfg.MasterDir == "" {
+		return "", fmt.Errorf("audiorender: master dir not configured")
+	}
+	dst := r.StemPath(cid, group, ext)
+	if dst == "" {
+		return "", fmt.Errorf("audiorender: invalid stem (cid/group/ext)")
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", fmt.Errorf("audiorender: mkdir stem bucket: %w", err)
+	}
+	if old := r.StemCachedPath(cid, group, ext); old != "" && old != dst {
+		_ = os.Remove(old)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", fmt.Errorf("audiorender: write stem tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("audiorender: rename stem: %w", err)
+	}
+	return dst, nil
+}
+
 // MasterFormatsAvailable reports which of the fan-out formats are
 // currently cached for cid. Used by /api/composition-status to surface
 // per-format readiness to the worker and the UI.

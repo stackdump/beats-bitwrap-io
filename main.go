@@ -428,6 +428,7 @@ func main() {
 			}
 		}
 		mux.Handle("/audio-master/", audioMasterHandler(ar, compositionStore, rebuildSecret, onMasterIngest))
+		mux.Handle("/audio-stems/", audioStemsHandler(ar, compositionStore, rebuildSecret))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
 			cid, _ := idx.Latest()
@@ -1160,6 +1161,113 @@ func audioMasterHandler(ar *audiorender.Renderer, compositionStore *share.Store,
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusCreated)
 			fmt.Fprintf(w, `{"wrote":true,"bytes":%d,"format":%q}`, len(body), ext)
+			return
+		default:
+			httpErrorNoStore(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+// audioStemsHandler serves /audio-stems/{cid}/{group}.{ext}. Mirrors
+// audioMasterHandler's GET/HEAD/PUT shape: GET/HEAD stream the stem
+// if it's cached, PUT (with X-Rebuild-Secret) accepts a worker
+// upload. Stems are derivative renders of a single track-group —
+// e.g. drums-only, bass-only — useful for remixers grabbing layers
+// in isolation.
+func audioStemsHandler(ar *audiorender.Renderer, compositionStore *share.Store, rebuildSecret string) http.Handler {
+	httpErrorNoStore := func(w http.ResponseWriter, msg string, code int) {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, msg, code)
+	}
+	mimeFor := func(ext string) string {
+		switch ext {
+		case "wav":
+			return "audio/wav"
+		case "flac":
+			return "audio/flac"
+		case "mp3":
+			return "audio/mpeg"
+		case "webm":
+			return "audio/webm"
+		}
+		return "application/octet-stream"
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path: /audio-stems/{cid}/{group}.{ext}
+		rest := strings.TrimPrefix(r.URL.Path, "/audio-stems/")
+		slash := strings.IndexByte(rest, '/')
+		if slash < 1 {
+			httpErrorNoStore(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		cid := rest[:slash]
+		tail := rest[slash+1:]
+		dot := strings.LastIndex(tail, ".")
+		if dot < 1 {
+			httpErrorNoStore(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		group := tail[:dot]
+		ext := tail[dot+1:]
+		if !audiorender.ValidCID(cid) || !audiorender.ValidStemGroup(group) || !audiorender.ValidMasterExt(ext) {
+			httpErrorNoStore(w, "invalid cid/group/ext", http.StatusBadRequest)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			if _, err := compositionStore.Lookup(cid); err != nil {
+				httpErrorNoStore(w, "cid not in composition store", http.StatusNotFound)
+				return
+			}
+			path := ar.StemCachedPath(cid, group, ext)
+			if path == "" {
+				httpErrorNoStore(w, "stem not yet rendered", http.StatusNotFound)
+				return
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				httpErrorNoStore(w, "stat failed", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", mimeFor(ext))
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			http.ServeFile(w, r, path)
+			return
+		case http.MethodPut:
+			if !(rebuildSecret != "" && constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret)) {
+				httpErrorNoStore(w, "X-Rebuild-Secret required", http.StatusForbidden)
+				return
+			}
+			if _, err := compositionStore.Lookup(cid); err != nil {
+				httpErrorNoStore(w, "cid not in composition store", http.StatusNotFound)
+				return
+			}
+			const maxStemPutBytes = 200 * 1024 * 1024
+			r.Body = http.MaxBytesReader(w, r.Body, maxStemPutBytes+1)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				httpErrorNoStore(w, "stem upload too large or unreadable", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if len(body) == 0 {
+				httpErrorNoStore(w, "empty stem body", http.StatusBadRequest)
+				return
+			}
+			if _, err := ar.OverwriteStem(cid, group, ext, body); err != nil {
+				log.Printf("stem overwrite %s/%s.%s: %v", cid, group, ext, err)
+				httpErrorNoStore(w, "overwrite failed", http.StatusInternalServerError)
+				return
+			}
+			log.Printf("stem: authenticated overwrite %s/%s.%s (%d bytes)", cid, group, ext, len(body))
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"wrote":true,"bytes":%d,"group":%q,"format":%q}`, len(body), group, ext)
 			return
 		default:
 			httpErrorNoStore(w, "method not allowed", http.StatusMethodNotAllowed)

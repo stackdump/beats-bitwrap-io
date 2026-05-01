@@ -132,19 +132,82 @@ function renderBarGrid() {
         clip.style.left = ((t.in || 0) * barPx) + 'px';
         clip.style.width = ((t.len || 1) * barPx - 2) + 'px';
         clip.title = (t.kind === 'cid')
-            ? `${t.name || ''}\nbars ${t.in}–${t.in + t.len} (len ${t.len})`
-            : `${t.type}\nbars ${t.in}–${t.in + t.len} (len ${t.len})`;
+            ? `${t.name || ''}\nbars ${t.in}–${t.in + t.len} (len ${t.len})\n— drag body to move, drag right edge to resize, click body to focus form row`
+            : `${t.type}\nbars ${t.in}–${t.in + t.len} (len ${t.len})\n— drag body to move, drag right edge to resize, click body to focus form row`;
         clip.textContent = (t.kind === 'cid')
             ? (t.name?.split('·').pop()?.trim() || t.cid.slice(0, 10))
             : '⚡ ' + t.type;
-        clip.onclick = () => {
-            // Highlight the matching form row
-            const formRow = $('tracks').children[i];
-            if (formRow) formRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        };
+        // PR-5.3: drag clip body to change `in` (move); drag the
+        // right-edge handle to change `len` (resize). Snap to bar
+        // gridlines (24 px = 1 bar). Pointer events so a stray
+        // touchstart doesn't escape and select text on iPad.
+        const handle = document.createElement('div');
+        handle.className = 'clip-resize';
+        handle.title = 'Drag to resize length';
+        handle.addEventListener('pointerdown', (e) => startDrag(e, i, 'resize'));
+        clip.addEventListener('pointerdown', (e) => {
+            // Distinguish click vs drag at pointerup.
+            if (e.target === handle) return;
+            startDrag(e, i, 'move');
+        });
+        clip.appendChild(handle);
         row.appendChild(clip);
         host.appendChild(row);
     });
+}
+
+const _dragState = { active: false, idx: -1, mode: '', startX: 0, origIn: 0, origLen: 0, moved: false };
+
+function startDrag(e, idx, mode) {
+    e.preventDefault();
+    const t = state.tracks[idx];
+    if (!t) return;
+    _dragState.active = true;
+    _dragState.idx = idx;
+    _dragState.mode = mode;
+    _dragState.startX = e.clientX;
+    _dragState.origIn = t.in;
+    _dragState.origLen = t.len;
+    _dragState.moved = false;
+    document.body.style.cursor = (mode === 'resize') ? 'ew-resize' : 'grabbing';
+    e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragEnd, { once: true });
+}
+
+function onDragMove(e) {
+    if (!_dragState.active) return;
+    const barPx = 24;
+    const dx = e.clientX - _dragState.startX;
+    const barDelta = Math.round(dx / barPx);
+    if (barDelta === 0 && !_dragState.moved) return;
+    _dragState.moved = true;
+    const t = state.tracks[_dragState.idx];
+    if (!t) return;
+    if (_dragState.mode === 'resize') {
+        t.len = Math.max(1, _dragState.origLen + barDelta);
+    } else {
+        t.in = Math.max(0, _dragState.origIn + barDelta);
+    }
+    renderBarGrid();
+}
+
+function onDragEnd() {
+    document.removeEventListener('pointermove', onDragMove);
+    document.body.style.cursor = '';
+    if (_dragState.moved) {
+        // Drag committed — re-render the form so the number inputs
+        // reflect the new in/len. (renderBarGrid already updated the
+        // visual during move.)
+        renderTracks();
+    } else {
+        // Plain click: scroll the form row into focus, same as the
+        // original onclick handler.
+        const formRow = $('tracks').children[_dragState.idx];
+        if (formRow) formRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    _dragState.active = false;
+    _dragState.mode = '';
 }
 
 function renderTracks() {

@@ -231,6 +231,13 @@
           "description": "Ordered list of formats to fan out from the master WAV. Default ['wav','flac','mp3','webm']. The .wav is the lossless archive; .webm is the streaming derivative.",
           "items": { "enum": ["wav", "flac", "mp3", "webm"] }
         },
+        "stems": {
+          "type": ["array", "null"],
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 32, "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "description": "Per-group stems to emit alongside the master. Each entry is a track.group label (drums/bass/lead/pad/...). For each named group the worker re-renders the composition with every cid track soloed to that group (and generative inserts muted), uploading the result to /audio-stems/{cid}/{group}.{ext}. Useful for remixers who want individual layers."
+        },
         "preset": {
           "type": ["string", "null"],
           "enum": ["club", "broadcast", "ambient", "lofi", null],
