@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>compose · beats.bitwrap.io</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="license" href="https://creativecommons.org/licenses/by/4.0/">
+<style>
+  html, body { overflow-x: hidden; max-width: 100vw; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #ddd; font: 14px/1.5 system-ui, sans-serif; }
+  a { color: #6af; }
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.2rem; margin: 0; font-weight: 600; }
+  header .nav a { color: #888; margin-right: 12px; }
+  header .nav a:hover { color: #6af; }
+  main { padding: 16px 24px; display: grid; gap: 24px; grid-template-columns: 320px 1fr; max-width: 1400px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: #131313; border: 1px solid #222; border-radius: 6px; padding: 12px 16px; }
+  section h2 { font-size: 0.95rem; margin: 0 0 8px; color: #aaa; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .ing { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border: 1px solid #1a1a1a; border-radius: 4px; margin-bottom: 4px; cursor: grab; font-size: 13px; }
+  .ing:hover { background: #1a1a1a; border-color: #2a2a2a; }
+  .ing .cid { color: #888; font-family: ui-monospace, monospace; font-size: 11px; }
+  .ing button { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 3px; background: #2a4a6a; color: #cce; font-size: 11px; }
+  .ing button:hover { background: #3a5a7a; }
+  .track-row { display: grid; grid-template-columns: 30px 1fr 80px 60px 60px 60px 60px 100px 30px; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid #1a1a1a; font-size: 12px; }
+  .track-row.header { color: #777; font-weight: 600; border-bottom: 1px solid #2a2a2a; }
+  .track-row .label { font-family: ui-monospace, monospace; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-row input, .track-row select { background: #0a0a0a; color: #ddd; border: 1px solid #2a2a2a; padding: 3px 5px; border-radius: 3px; font-size: 12px; width: 100%; box-sizing: border-box; }
+  .track-row .del { all: unset; cursor: pointer; color: #855; padding: 2px 6px; border-radius: 3px; }
+  .track-row .del:hover { color: #d77; background: #2a1010; }
+  .add-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .add-row select, .add-row button { background: #1a1a1a; color: #ddd; border: 1px solid #2a2a2a; padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; }
+  .add-row button:hover { background: #2a2a2a; }
+  .master-row { display: grid; grid-template-columns: 100px 1fr; gap: 8px; margin-bottom: 6px; align-items: center; font-size: 13px; }
+  .master-row label { color: #aaa; }
+  .master-row input, .master-row select { background: #0a0a0a; color: #ddd; border: 1px solid #2a2a2a; padding: 5px 8px; border-radius: 3px; font-size: 13px; width: 100%; box-sizing: border-box; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .actions button {
+    background: #2a4a6a; color: #cce; border: 1px solid #3a5a7a; padding: 8px 16px;
+    border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  .actions button:hover { background: #3a5a7a; }
+  .actions button.primary { background: #4a8a4a; border-color: #5a9a5a; color: #efe; }
+  .actions button.primary:hover { background: #5a9a5a; }
+  .actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+  pre.envelope { background: #0a0a0a; color: #aaa; border: 1px solid #1a1a1a; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; max-height: 200px; }
+  .status { padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-top: 8px; }
+  .status.info { background: #1a2a3a; color: #cce; }
+  .status.success { background: #1a3a1a; color: #cec; }
+  .status.error { background: #3a1a1a; color: #ecc; }
+  audio { width: 100%; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>compose</h1>
+  <div class="nav">
+    <a href="/">studio</a>
+    <a href="/feed">feed</a>
+    <a href="/archive">archive</a>
+  </div>
+</header>
+<main>
+  <section id="ingredients-pane">
+    <h2>ingredients</h2>
+    <p style="color: #888; font-size: 12px; margin: 0 0 8px;">Click a track to add it to the timeline.</p>
+    <div id="ingredients" style="max-height: 70vh; overflow-y: auto;"></div>
+  </section>
+
+  <section id="timeline-pane">
+    <h2>timeline</h2>
+    <div class="track-row header">
+      <span></span>
+      <span>source</span>
+      <span>id</span>
+      <span title="bar offset on master timeline">in</span>
+      <span title="length in bars">len</span>
+      <span title="fade-in seconds">fIn</span>
+      <span title="fade-out seconds">fOut</span>
+      <span title="extra ops">ops</span>
+      <span></span>
+    </div>
+    <div id="tracks"></div>
+    <div class="add-row">
+      <select id="add-insert-type">
+        <option value="">-- add insert --</option>
+        <option value="riser">riser</option>
+        <option value="drone">drone</option>
+        <option value="impact">impact</option>
+        <option value="texture">texture</option>
+        <option value="counterMelody">counterMelody</option>
+      </select>
+      <button id="add-insert">add insert track</button>
+    </div>
+
+    <h2 style="margin-top: 24px;">master</h2>
+    <div class="master-row">
+      <label>title</label>
+      <input id="m-title" placeholder="Untitled composition" />
+    </div>
+    <div class="master-row">
+      <label>tempo (bpm)</label>
+      <input id="m-tempo" type="number" min="20" max="300" value="124" />
+    </div>
+    <div class="master-row">
+      <label>lufs</label>
+      <input id="m-lufs" type="number" min="-40" max="0" step="0.5" value="-16" />
+    </div>
+    <div class="master-row">
+      <label>preset</label>
+      <select id="m-preset">
+        <option value="">(none)</option>
+        <option value="club">club</option>
+        <option value="broadcast">broadcast</option>
+        <option value="ambient">ambient</option>
+        <option value="lofi">lofi</option>
+      </select>
+    </div>
+    <div class="master-row">
+      <label>formats</label>
+      <input id="m-formats" value="wav,mp3,webm" />
+    </div>
+
+    <div class="actions">
+      <button id="btn-preview">preview envelope</button>
+      <button id="btn-seal" class="primary">seal + render</button>
+      <button id="btn-listen" disabled>listen</button>
+    </div>
+
+    <div id="status" class="status info" style="display:none"></div>
+    <pre id="envelope-preview" class="envelope" style="display:none"></pre>
+    <audio id="player" controls style="display:none"></audio>
+  </section>
+</main>
+<script type="module" src="/lib/compose/main.js"></script>
+</body>
+</html>
