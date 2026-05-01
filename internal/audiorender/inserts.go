@@ -34,11 +34,18 @@ type InsertSpec struct {
 	// invoking RenderInsert).
 	DurationSec float64 `json:"durationSec"`
 
-	// Riser params.
-	Shape  string  `json:"shape,omitempty"`  // "white-noise" | "pink-noise"
-	FStart float64 `json:"fStart,omitempty"` // Hz
-	FEnd   float64 `json:"fEnd,omitempty"`   // Hz
-	Level  float64 `json:"level,omitempty"`  // dB
+	// Shared params across multiple insert types.
+	//   - Riser:   Shape, FStart, FEnd, Level
+	//   - Drone:   RootHz, Level (with built-in fifth + octave overtones)
+	//   - Impact:  Variant ("sub-boom"|"low-thump"|"snare-crack"), Level
+	//   - Texture: Kind ("vinyl-crackle"|"pink-bed"|"white-bed"), Level
+	Shape   string  `json:"shape,omitempty"`
+	FStart  float64 `json:"fStart,omitempty"`
+	FEnd    float64 `json:"fEnd,omitempty"`
+	Level   float64 `json:"level,omitempty"`
+	RootHz  float64 `json:"rootHz,omitempty"`
+	Variant string  `json:"variant,omitempty"`
+	Kind    string  `json:"kind,omitempty"`
 }
 
 // RenderInsert dispatches on InsertSpec.Type and writes a WAV at dst
@@ -51,6 +58,12 @@ func RenderInsert(ctx context.Context, ffmpegPath string, spec InsertSpec, dst s
 	switch spec.Type {
 	case "riser":
 		return renderRiser(ctx, ffmpegPath, spec, dst)
+	case "drone":
+		return renderDrone(ctx, ffmpegPath, spec, dst)
+	case "impact":
+		return renderImpact(ctx, ffmpegPath, spec, dst)
+	case "texture":
+		return renderTexture(ctx, ffmpegPath, spec, dst)
 	}
 	return fmt.Errorf("audiorender/inserts: unknown insert type %q", spec.Type)
 }
@@ -120,4 +133,237 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 		return fmt.Errorf("ffmpeg riser: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// renderDrone produces a sustained pad: three sine waves at root,
+// fifth (1.5×), and octave (2×) summed into a single bus, low-passed
+// for warmth, with a slow attack and slow release at the tail. Useful
+// under drops, intro builds, and outro fades. Pure ffmpeg — fast and
+// deterministic.
+//
+// Knobs:
+//   - rootHz  Hz of the fundamental. Default 220 (A3).
+//   - level   peak dB after summing. Default -12 (drone sits *under*
+//             the mix; loudnorm later catches up if needed).
+func renderDrone(ctx context.Context, ffmpegPath string, spec InsertSpec, dst string) error {
+	bin := ffmpegPath
+	if bin == "" {
+		bin = "ffmpeg"
+	}
+	rootHz := spec.RootHz
+	if rootHz <= 0 {
+		rootHz = 220.0
+	}
+	if rootHz < 20 || rootHz > 4000 {
+		return fmt.Errorf("audiorender/inserts: drone rootHz %v out of range [20, 4000]", rootHz)
+	}
+	level := spec.Level
+	if level >= 0 {
+		level = -12
+	}
+	// Three sine sources for root + fifth + octave. amix(normalize=0)
+	// preserves levels so the loudnorm pass can take over later.
+	// Attack + release fades cover the first/last 25% of the duration
+	// (capped at 2s each) so a 1-second drone doesn't fade in for the
+	// full second.
+	attack := spec.DurationSec * 0.25
+	if attack > 2.0 {
+		attack = 2.0
+	}
+	release := attack
+	relStart := spec.DurationSec - release
+	if relStart < 0 {
+		relStart = 0
+	}
+	srcs := [][]string{
+		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz, spec.DurationSec)},
+		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz*1.5, spec.DurationSec)},
+		{"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=%.4f:duration=%.6f", rootHz*2.0, spec.DurationSec)},
+	}
+	args := []string{"-y", "-loglevel", "error"}
+	for _, s := range srcs {
+		args = append(args, s...)
+	}
+	filterChain := fmt.Sprintf(
+		"[0:a][1:a][2:a]amix=inputs=3:normalize=0,lowpass=f=2200,"+
+			"afade=t=in:st=0:d=%.6f,afade=t=out:st=%.6f:d=%.6f,"+
+			"volume=%.2fdB,aformat=channel_layouts=stereo[out]",
+		attack, relStart, release, level,
+	)
+	args = append(args,
+		"-filter_complex", filterChain,
+		"-map", "[out]",
+		"-c:a", "pcm_s16le",
+		"-ar", "48000",
+		"-ac", "2",
+		dst,
+	)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg drone: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// renderImpact produces a short transient — kick-style sub-boom by
+// default. Useful at section boundaries (drop hits) where a riser
+// builds tension and the impact resolves it. Three variants:
+//
+//   - sub-boom    (default): sine at 60 Hz with sharp attack + slow
+//                 decay across ~0.4 s; pads to durationSec with silence.
+//   - low-thump   sine at 100 Hz, faster decay (~0.2 s).
+//   - snare-crack white noise burst with band-pass + fast envelope.
+//
+// The full duration is honoured (silence padding) so the timeline
+// math in the assembler stays simple.
+func renderImpact(ctx context.Context, ffmpegPath string, spec InsertSpec, dst string) error {
+	bin := ffmpegPath
+	if bin == "" {
+		bin = "ffmpeg"
+	}
+	level := spec.Level
+	if level >= 0 {
+		level = -3
+	}
+	variant := spec.Variant
+	if variant == "" {
+		variant = "sub-boom"
+	}
+	var src string
+	var filters string
+	switch variant {
+	case "sub-boom":
+		src = fmt.Sprintf("sine=frequency=60:duration=%.6f", spec.DurationSec)
+		// 5 ms attack, decay across 0.4 s, then silence to end.
+		decay := 0.4
+		if decay > spec.DurationSec*0.8 {
+			decay = spec.DurationSec * 0.8
+		}
+		filters = strings.Join([]string{
+			fmt.Sprintf("afade=t=in:st=0:d=0.005"),
+			fmt.Sprintf("afade=t=out:st=0.005:d=%.6f", decay),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	case "low-thump":
+		src = fmt.Sprintf("sine=frequency=100:duration=%.6f", spec.DurationSec)
+		decay := 0.2
+		if decay > spec.DurationSec*0.8 {
+			decay = spec.DurationSec * 0.8
+		}
+		filters = strings.Join([]string{
+			"afade=t=in:st=0:d=0.005",
+			fmt.Sprintf("afade=t=out:st=0.005:d=%.6f", decay),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	case "snare-crack":
+		src = fmt.Sprintf("anoisesrc=color=white:duration=%.6f:amplitude=1.0", spec.DurationSec)
+		decay := 0.15
+		if decay > spec.DurationSec*0.8 {
+			decay = spec.DurationSec * 0.8
+		}
+		filters = strings.Join([]string{
+			"highpass=f=1500",
+			"lowpass=f=8000",
+			"afade=t=in:st=0:d=0.002",
+			fmt.Sprintf("afade=t=out:st=0.002:d=%.6f", decay),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	default:
+		return fmt.Errorf("audiorender/inserts: impact variant %q not supported (use sub-boom|low-thump|snare-crack)", variant)
+	}
+	args := []string{
+		"-y", "-loglevel", "error",
+		"-f", "lavfi", "-i", src,
+		"-af", filters,
+		"-c:a", "pcm_s16le",
+		"-ar", "48000",
+		"-ac", "2",
+		dst,
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg impact (%s): %w (%s)", variant, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// renderTexture produces a sustained noise bed. Sits underneath the
+// mix as ambient texture (vinyl crackle, lo-fi hiss). Three kinds:
+//
+//   - vinyl-crackle (default): pink noise low-passed to ~3 kHz with
+//                   light high-pass at 80 Hz; emulates record surface.
+//   - pink-bed:     unfiltered pink noise — broader spectrum, useful
+//                   under quiet sections.
+//   - white-bed:    flat white noise; brightest, most "shh" character.
+//
+// All three render at low level by default (-30 dB) — texture is meant
+// to be subliminal. Author can override via spec.level.
+func renderTexture(ctx context.Context, ffmpegPath string, spec InsertSpec, dst string) error {
+	bin := ffmpegPath
+	if bin == "" {
+		bin = "ffmpeg"
+	}
+	kind := spec.Kind
+	if kind == "" {
+		kind = "vinyl-crackle"
+	}
+	level := spec.Level
+	if level >= 0 {
+		level = -30
+	}
+	var src, filters string
+	switch kind {
+	case "vinyl-crackle":
+		src = fmt.Sprintf("anoisesrc=color=pink:duration=%.6f:amplitude=1.0", spec.DurationSec)
+		filters = strings.Join([]string{
+			"highpass=f=80",
+			"lowpass=f=3000",
+			fmt.Sprintf("afade=t=in:st=0:d=0.5"),
+			fmt.Sprintf("afade=t=out:st=%.6f:d=0.5", maxFloat(0, spec.DurationSec-0.5)),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	case "pink-bed":
+		src = fmt.Sprintf("anoisesrc=color=pink:duration=%.6f:amplitude=1.0", spec.DurationSec)
+		filters = strings.Join([]string{
+			fmt.Sprintf("afade=t=in:st=0:d=0.5"),
+			fmt.Sprintf("afade=t=out:st=%.6f:d=0.5", maxFloat(0, spec.DurationSec-0.5)),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	case "white-bed":
+		src = fmt.Sprintf("anoisesrc=color=white:duration=%.6f:amplitude=1.0", spec.DurationSec)
+		filters = strings.Join([]string{
+			fmt.Sprintf("afade=t=in:st=0:d=0.5"),
+			fmt.Sprintf("afade=t=out:st=%.6f:d=0.5", maxFloat(0, spec.DurationSec-0.5)),
+			fmt.Sprintf("volume=%.2fdB", level),
+			"aformat=channel_layouts=stereo",
+		}, ",")
+	default:
+		return fmt.Errorf("audiorender/inserts: texture kind %q not supported (use vinyl-crackle|pink-bed|white-bed)", kind)
+	}
+	args := []string{
+		"-y", "-loglevel", "error",
+		"-f", "lavfi", "-i", src,
+		"-af", filters,
+		"-c:a", "pcm_s16le",
+		"-ar", "48000",
+		"-ac", "2",
+		dst,
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg texture (%s): %w (%s)", kind, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }

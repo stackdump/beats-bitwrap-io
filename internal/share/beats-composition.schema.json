@@ -97,9 +97,12 @@
     },
     "InsertSpec": {
       "oneOf": [
-        { "$ref": "#/$defs/RiserSpec" }
+        { "$ref": "#/$defs/RiserSpec" },
+        { "$ref": "#/$defs/DroneSpec" },
+        { "$ref": "#/$defs/ImpactSpec" },
+        { "$ref": "#/$defs/TextureSpec" }
       ],
-      "description": "Generative insert. Discriminated by the `type` field. v1 supports `riser`; later versions extend with drone/impact/texture/counterMelody (see ROADMAP-composition.md PR-4.2+)."
+      "description": "Generative insert. Discriminated by the `type` field. PR-4.1+4.2 ship riser, drone, impact, texture (pure-DSP); counterMelody arrives in PR-4.3 with a chromedp+Tone.js render path."
     },
     "RiserSpec": {
       "type": "object",
@@ -126,6 +129,60 @@
           "type": ["number", "null"],
           "minimum": -40, "maximum": 0,
           "description": "Peak dB of the riser at the end of its build. Default -6."
+        }
+      }
+    },
+    "DroneSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":   { "const": "drone" },
+        "rootHz": {
+          "type": ["number", "null"],
+          "minimum": 20, "maximum": 4000,
+          "description": "Hz of the fundamental sine. Drone adds a fifth (×1.5) and an octave (×2) on top. Default 220 (A3)."
+        },
+        "level": {
+          "type": ["number", "null"],
+          "minimum": -40, "maximum": 0,
+          "description": "Peak dB after summing the three sines. Default -12 (sits under the mix)."
+        }
+      }
+    },
+    "ImpactSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":    { "const": "impact" },
+        "variant": {
+          "type": ["string", "null"],
+          "enum": ["sub-boom", "low-thump", "snare-crack", null],
+          "description": "Transient flavour. Default sub-boom."
+        },
+        "level": {
+          "type": ["number", "null"],
+          "minimum": -40, "maximum": 0,
+          "description": "Peak dB. Default -3 (drops hit louder than ambient layers)."
+        }
+      }
+    },
+    "TextureSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "texture" },
+        "kind": {
+          "type": ["string", "null"],
+          "enum": ["vinyl-crackle", "pink-bed", "white-bed", null],
+          "description": "Noise bed character. Default vinyl-crackle."
+        },
+        "level": {
+          "type": ["number", "null"],
+          "minimum": -60, "maximum": 0,
+          "description": "Peak dB. Default -30 (texture is intentionally subliminal)."
         }
       }
     },
