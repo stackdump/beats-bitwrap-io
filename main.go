@@ -60,6 +60,12 @@ func main() {
 		}
 		return
 	}
+	// `beats-bitwrap-io render-composition` — off-host worker entry
+	// point that wraps internal/audiorender.RenderComposition. See
+	// composition_cli.go for the full flag set.
+	if len(os.Args) > 1 && os.Args[1] == "render-composition" {
+		os.Exit(runRenderCompositionCLI(os.Args[2:]))
+	}
 
 	// --- Flags shared across production + authoring modes ---
 	addr := flag.String("addr", ":8089", "listen address")
@@ -140,6 +146,18 @@ func main() {
 	log.Printf("Share store: %s (cap %d bytes, %d PUT/min/IP, %d PUT/min global)",
 		*dataDir, *maxStoreBytes, *putPerMin, *globalPutPerMin)
 
+	// Companion store for BeatsComposition envelopes at /c/{cid}. Same
+	// rate limits and disk cap; on-disk root is dataDir/c (parallel to
+	// dataDir/o for shares). Compositions are typically small JSON-LD
+	// envelopes that reference one or more BeatsShare ingredients —
+	// rendered audio masters land in dataDir/audio-master/ via the
+	// audiorender package, not in the share store itself.
+	compositionStore, err := share.NewStoreForType(share.CompositionType, *dataDir, *maxStoreBytes, *putPerMin, *globalPutPerMin)
+	if err != nil {
+		log.Fatalf("composition store init: %v", err)
+	}
+	log.Printf("Composition store: %s/c (cap %d bytes)", *dataDir, *maxStoreBytes)
+
 	rebuildSecret, err := loadOrCreateRebuildSecret(filepath.Join(*dataDir, ".rebuild-secret"))
 	if err != nil {
 		log.Fatalf("rebuild-secret init: %v", err)
@@ -189,7 +207,9 @@ func main() {
 		_, _ = w.Write([]byte(version))
 	})
 	mux.Handle("/o/", shareStore)
+	mux.Handle("/c/", compositionStore)
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
+	mux.HandleFunc("/schema/beats-composition", share.HandleBeatsCompositionSchema)
 	mux.HandleFunc("/schema/snapshot-manifest", share.HandleSnapshotManifestSchema)
 	mux.HandleFunc("/schema/beats-audio-analysis", share.HandleBeatsAudioAnalysisSchema)
 	// /api/operator-pubkey — public always (even without -authoring).
@@ -338,6 +358,7 @@ func main() {
 		}
 		ar, err := audiorender.New(audiorender.Config{
 			CacheDir:           filepath.Join(*dataDir, "audio"),
+			MasterDir:          filepath.Join(*dataDir, "audio-master"),
 			BaseURL:            base,
 			MaxBytes:           *audioMaxBytes,
 			MaxConcurrent:      *audioConcurrent,
@@ -368,6 +389,7 @@ func main() {
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret))
+		mux.Handle("/audio-master/", audioMasterHandler(ar, compositionStore, rebuildSecret))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
 			cid, _ := idx.Latest()
@@ -395,7 +417,11 @@ func main() {
 			mux.HandleFunc("/api/rebuild-mark", rebuildMarkHandler(idx, shareStore))
 			mux.HandleFunc("/api/rebuild-queue", rebuildQueueHandler(idx))
 			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx, shareStore))
-			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear})")
+			mux.HandleFunc("/api/composition-mark", compositionMarkHandler(idx, compositionStore))
+			mux.HandleFunc("/api/composition-queue", compositionQueueHandler(idx))
+			mux.HandleFunc("/api/composition-clear", compositionClearHandler(idx, compositionStore))
+			mux.HandleFunc("/api/composition-status/", compositionStatusHandler(ar, idx, compositionStore))
+			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear}, /api/composition-{mark,queue,clear,status})")
 		}
 		// /api/archive-missing — every CID that's in the share store but
 		// not in the rendered-audio index. Lets an offline worker drive
@@ -469,6 +495,20 @@ func main() {
 			// use the renderer's fallback estimate.
 			shareStore.OnSeal(func(cid string) { ar.Enqueue(cid, 0) })
 			log.Printf("Audio render: auto-enqueue on PUT /o/{cid} ON")
+		}
+		// Composition auto-enqueue: every PUT /c/{cid} marks the
+		// composition for the off-host worker. Skipped silently if the
+		// rebuild-queue routes aren't mounted (idx is non-nil but the
+		// worker has nowhere to poll). Failures are logged and
+		// swallowed — the seal already succeeded; the user can mark
+		// manually via /api/composition-mark.
+		if *rebuildQueueEnabled {
+			compositionStore.OnSeal(func(cid string) {
+				if err := idx.MarkComposition(cid, "auto-enqueue"); err != nil {
+					log.Printf("composition auto-enqueue %s: %v", cid, err)
+				}
+			})
+			log.Printf("Composition queue: auto-enqueue on PUT /c/{cid} ON")
 		}
 	}
 
@@ -916,6 +956,115 @@ func midiRoutingHandler(single *midiout.Output, multi *midiout.MultiOutput, fan 
 // distinguish "queued behind N others, ~M seconds wait" from
 // "rendering, X% done" without burning a HEAD-per-poll on the audio
 // handler. Cheap (no disk I/O beyond a single Stat for the ready case).
+// audioMasterHandler serves /audio-master/{cid}.{ext} for composition
+// renders. GET / HEAD stream cached files; PUT (with X-Rebuild-Secret)
+// uploads a worker-rendered master in one of the supported formats
+// (wav/flac/mp3/webm). The cid must already exist in the composition
+// store so we never accept renders for arbitrary input. Mirrors the
+// .webm /audio/ handler but for the multi-format master cache and
+// without the server-side render fallback (compositions are always
+// rendered off-host by the composition-queue worker).
+func audioMasterHandler(ar *audiorender.Renderer, compositionStore *share.Store, rebuildSecret string) http.Handler {
+	httpErrorNoStore := func(w http.ResponseWriter, msg string, code int) {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, msg, code)
+	}
+	mimeFor := func(ext string) string {
+		switch ext {
+		case "wav":
+			return "audio/wav"
+		case "flac":
+			return "audio/flac"
+		case "mp3":
+			return "audio/mpeg"
+		case "webm":
+			return "audio/webm"
+		}
+		return "application/octet-stream"
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path: /audio-master/{cid}.{ext}.
+		name := strings.TrimPrefix(r.URL.Path, "/audio-master/")
+		dot := strings.LastIndex(name, ".")
+		if dot < 1 {
+			httpErrorNoStore(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		cid, ext := name[:dot], name[dot+1:]
+		if !audiorender.ValidCID(cid) {
+			httpErrorNoStore(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidMasterExt(ext) {
+			httpErrorNoStore(w, "invalid format", http.StatusBadRequest)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			if _, err := compositionStore.Lookup(cid); err != nil {
+				httpErrorNoStore(w, "cid not in composition store", http.StatusNotFound)
+				return
+			}
+			path := ar.MasterCachedPath(cid, ext)
+			if path == "" {
+				httpErrorNoStore(w, "master not yet rendered", http.StatusNotFound)
+				return
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				httpErrorNoStore(w, "stat failed", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", mimeFor(ext))
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			http.ServeFile(w, r, path)
+			return
+		case http.MethodPut:
+			authed := rebuildSecret != "" &&
+				constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret)
+			if !authed {
+				httpErrorNoStore(w, "X-Rebuild-Secret required", http.StatusForbidden)
+				return
+			}
+			if _, err := compositionStore.Lookup(cid); err != nil {
+				httpErrorNoStore(w, "cid not in composition store", http.StatusNotFound)
+				return
+			}
+			// Lossless masters can be tens of MB; cap at 200 MiB so a
+			// runaway upload can't fill the disk.
+			const maxMasterPutBytes = 200 * 1024 * 1024
+			r.Body = http.MaxBytesReader(w, r.Body, maxMasterPutBytes+1)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				httpErrorNoStore(w, "master upload too large or unreadable", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if len(body) == 0 {
+				httpErrorNoStore(w, "empty master body", http.StatusBadRequest)
+				return
+			}
+			if _, err := ar.OverwriteMaster(cid, ext, body); err != nil {
+				log.Printf("master overwrite %s.%s: %v", cid, ext, err)
+				httpErrorNoStore(w, "overwrite failed", http.StatusInternalServerError)
+				return
+			}
+			log.Printf("master: authenticated overwrite %s.%s (%d bytes)", cid, ext, len(body))
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"wrote":true,"bytes":%d,"format":%q}`, len(body), ext)
+			return
+		default:
+			httpErrorNoStore(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
 func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cid := r.URL.Query().Get("cid")
@@ -2452,6 +2601,131 @@ func rebuildClearHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}
+
+// compositionMarkHandler accepts POST /api/composition-mark {cid}.
+// Validates the CID exists in the composition store, then inserts into
+// the composition_queue. Rate-limited via the composition store's
+// per-IP limiter. Same trust model as rebuild-mark — duplicates are
+// no-ops and the worker is idempotent on master uploads.
+func compositionMarkHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if ok, reason := store.RateLimitPUT(r); !ok {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, reason, http.StatusTooManyRequests)
+			return
+		}
+		var req struct {
+			CID string `json:"cid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if !audiorender.ValidCID(req.CID) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		if _, err := store.Lookup(req.CID); err != nil {
+			http.Error(w, "cid not in composition store", http.StatusNotFound)
+			return
+		}
+		hash := fnv.New64a()
+		hash.Write([]byte(clientIP(r)))
+		if err := idx.MarkComposition(req.CID, fmt.Sprintf("%x", hash.Sum64())); err != nil {
+			log.Printf("composition-mark %s: %v", req.CID, err)
+			http.Error(w, "mark failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "cid": req.CID})
+	}
+}
+
+// compositionQueueHandler answers GET /api/composition-queue?limit=
+// with a JSON array of CIDs awaiting render, oldest first. Workers
+// poll this and call /api/composition-clear after every format lands.
+func compositionQueueHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		cids, err := idx.CompositionQueue(limit)
+		if err != nil {
+			log.Printf("composition-queue: %v", err)
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(cids)
+	}
+}
+
+// compositionClearHandler accepts POST /api/composition-clear {cid}
+// from workers after a successful render+upload of all requested
+// formats. Same rate limit + idempotency story as rebuild-clear.
+func compositionClearHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if ok, reason := store.RateLimitPUT(r); !ok {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, reason, http.StatusTooManyRequests)
+			return
+		}
+		var req struct {
+			CID string `json:"cid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if err := idx.ClearComposition(req.CID); err != nil {
+			log.Printf("composition-clear %s: %v", req.CID, err)
+			http.Error(w, "clear failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}
+
+// compositionStatusHandler answers GET /api/composition-status/{cid}.
+// Reports whether the composition envelope is sealed, which master
+// formats are currently cached, and whether the CID is queued or in
+// flight. Drives both the worker (poll for completion) and any UI
+// surface that wants to show "rendering / partial / ready".
+func compositionStatusHandler(ar *audiorender.Renderer, idx *index.DB, store *share.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cid := strings.TrimPrefix(r.URL.Path, "/api/composition-status/")
+		if !audiorender.ValidCID(cid) {
+			http.Error(w, "invalid cid", http.StatusBadRequest)
+			return
+		}
+		out := map[string]any{"cid": cid}
+		if _, err := store.Lookup(cid); err == nil {
+			out["sealed"] = true
+		} else {
+			out["sealed"] = false
+		}
+		out["formats"] = ar.MasterFormatsAvailable(cid)
+		if marked, _ := idx.IsMarkedForComposition(cid); marked {
+			out["queued"] = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 

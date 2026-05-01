@@ -40,6 +40,7 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE tracks ADD COLUMN source         TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tracks ADD COLUMN signer_type    TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tracks ADD COLUMN signer_address TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN content_type   TEXT NOT NULL DEFAULT 'BeatsShare'`,
 	} {
 		_, _ = s.Exec(alter)
 	}
@@ -319,6 +320,70 @@ func (d *DB) IsMarkedForRebuild(cid string) (bool, error) {
 	var n int
 	err := d.sql.QueryRow(
 		`SELECT 1 FROM rebuild_queue WHERE cid = ?`, cid).Scan(&n)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// MarkComposition adds cid to the composition_queue (no-op if already
+// present). markedBy is a free-form attribution tag — the seal-on-PUT
+// auto-enqueue path passes the requester's IP hash. Mirrors MarkRebuild
+// for the .webm rebuild flow.
+func (d *DB) MarkComposition(cid, markedBy string) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO composition_queue (cid, marked_at, marked_by)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(cid) DO NOTHING`,
+		cid, time.Now().UnixMilli(), markedBy,
+	)
+	if err != nil {
+		return fmt.Errorf("index: mark composition: %w", err)
+	}
+	return nil
+}
+
+// CompositionQueue returns up to limit pending CIDs in marked_at order.
+// Workers clear via ClearComposition after a successful render. Same
+// no-claim model as RebuildQueue; concurrent worker races settle on
+// the master uploads (OverwriteMaster is idempotent within a CID+ext).
+func (d *DB) CompositionQueue(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := d.sql.Query(
+		`SELECT cid FROM composition_queue ORDER BY marked_at LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("index: composition queue: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, err
+		}
+		out = append(out, cid)
+	}
+	return out, rows.Err()
+}
+
+// ClearComposition removes a CID from the composition_queue. Workers
+// call this after a successful render+upload.
+func (d *DB) ClearComposition(cid string) error {
+	_, err := d.sql.Exec(`DELETE FROM composition_queue WHERE cid = ?`, cid)
+	if err != nil {
+		return fmt.Errorf("index: clear composition: %w", err)
+	}
+	return nil
+}
+
+// IsMarkedForComposition returns true if cid is currently in the
+// composition queue.
+func (d *DB) IsMarkedForComposition(cid string) (bool, error) {
+	var n int
+	err := d.sql.QueryRow(
+		`SELECT 1 FROM composition_queue WHERE cid = ?`, cid).Scan(&n)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

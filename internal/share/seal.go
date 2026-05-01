@@ -70,6 +70,13 @@ func computeCid(body []byte) string {
 }
 
 type Store struct {
+	// contentType pins the URL prefix, disk subdir, and schema for this
+	// store instance. Set once at construction; never mutated. Defaults
+	// to ShareType for backward compat (NewStore preserves the original
+	// /o/{cid} signature); use NewStoreForType to mount a /c/{cid}
+	// composition store.
+	contentType *ContentType
+
 	dir            string
 	maxBytes       int64
 	putPerMin      int
@@ -166,7 +173,7 @@ func (s *Store) Snapshot(tw *tar.Writer) (int, int64, error) {
 			return count, total, fmt.Errorf("snapshot read %s: %w", cid, err)
 		}
 		hdr := &tar.Header{
-			Name:    "o/" + cid + ".json",
+			Name:    s.contentType.DiskSub + "/" + cid + ".json",
 			Mode:    0o644,
 			Size:    int64(len(body)),
 			ModTime: time.Now(),
@@ -231,14 +238,29 @@ type ipBucket struct {
 	count       int
 }
 
+// NewStore constructs a content-addressed store for BeatsShare envelopes
+// at /o/{cid}. Preserves the original signature so existing callers
+// (main.go, tests) keep working unchanged. Use NewStoreForType to mount
+// other content types (e.g. BeatsComposition at /c/{cid}).
 func NewStore(dir string, maxBytes int64, putPerMin, globalPerMin int) (*Store, error) {
+	return NewStoreForType(ShareType, dir, maxBytes, putPerMin, globalPerMin)
+}
+
+// NewStoreForType constructs a Store pinned to a specific ContentType.
+// Each type lives under its own subdirectory (ct.DiskSub) of the shared
+// data root, so two stores can safely share the same dir without colliding.
+func NewStoreForType(ct *ContentType, dir string, maxBytes int64, putPerMin, globalPerMin int) (*Store, error) {
+	if ct == nil {
+		return nil, errors.New("share: nil content type")
+	}
 	if dir == "" {
 		return nil, errors.New("empty store dir")
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "o"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ct.DiskSub), 0o755); err != nil {
 		return nil, err
 	}
 	s := &Store{
+		contentType:  ct,
 		dir:          dir,
 		maxBytes:     maxBytes,
 		putPerMin:    putPerMin,
@@ -252,7 +274,7 @@ func NewStore(dir string, maxBytes int64, putPerMin, globalPerMin int) (*Store, 
 	// Prime curBytes + CID→path index by walking the store once at startup.
 	// Filenames are bare CIDs (no extension) regardless of bucket depth, so
 	// the base name is authoritative — we don't need to reconstruct dates.
-	root := filepath.Join(dir, "o")
+	root := filepath.Join(dir, ct.DiskSub)
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return nil
@@ -274,7 +296,7 @@ func NewStore(dir string, maxBytes int64, putPerMin, globalPerMin int) (*Store, 
 // the CID→path index so historical payloads in any bucket still resolve.
 func (s *Store) bucketPath(cid string) string {
 	now := time.Now().UTC()
-	return filepath.Join(s.dir, "o",
+	return filepath.Join(s.dir, s.contentType.DiskSub,
 		fmt.Sprintf("%04d", now.Year()),
 		fmt.Sprintf("%02d", int(now.Month())),
 		cid)
@@ -357,7 +379,7 @@ func clientIP(r *http.Request) string {
 }
 
 func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	cid := strings.TrimPrefix(r.URL.Path, "/o/")
+	cid := strings.TrimPrefix(r.URL.Path, s.contentType.URLPrefix)
 	if !cidPattern.MatchString(cid) {
 		http.Error(w, "invalid cid", http.StatusBadRequest)
 		return
@@ -423,13 +445,17 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request, cid string) {
 		http.Error(w, "cid mismatch", http.StatusBadRequest)
 		return
 	}
-	if err := validateSharePayload(body); err != nil {
+	if err := s.validatePayload(body); err != nil {
 		http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.validateProvenance(body, r.Header.Get("X-Rebuild-Secret")); err != nil {
-		http.Error(w, "provenance: "+err.Error(), http.StatusForbidden)
-		return
+	// Provenance (source / signer / signature) is BeatsShare-specific.
+	// Composition envelopes don't carry those fields.
+	if s.contentType == ShareType {
+		if err := s.validateProvenance(body, r.Header.Get("X-Rebuild-Secret")); err != nil {
+			http.Error(w, "provenance: "+err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 	// Idempotent: if the index already has the CID, skip the write entirely.
 	// Also enforce the global disk cap — content-addressed writes are
@@ -500,14 +526,17 @@ func (s *Store) sealDirect(cid string, body []byte) error {
 	if computed := computeCid(body); computed != cid {
 		return fmt.Errorf("cid mismatch: got %s want %s", computed, cid)
 	}
-	if err := validateSharePayload(body); err != nil {
+	if err := s.validatePayload(body); err != nil {
 		return fmt.Errorf("invalid payload: %w", err)
 	}
 	// In-process path: source claims are caller-gated (see comment
 	// above). Signature verification still runs unconditionally so a
 	// hand-authored signed envelope is verified before storage.
-	if err := s.validateProvenance(body, s.rebuildSecret); err != nil {
-		return fmt.Errorf("provenance: %w", err)
+	// Provenance fields are BeatsShare-only.
+	if s.contentType == ShareType {
+		if err := s.validateProvenance(body, s.rebuildSecret); err != nil {
+			return fmt.Errorf("provenance: %w", err)
+		}
 	}
 	s.mu.Lock()
 	if _, exists := s.index[cid]; exists {
@@ -566,22 +595,33 @@ func mustCompileShareSchema() *jsonschema.Schema {
 }
 
 func validateSharePayload(body []byte) error {
+	return validatePayloadFor(ShareType, body)
+}
+
+// validatePayload is the type-aware entry point used by HTTP PUT and
+// SealDirect on a Store: it validates body against s.contentType.Schema
+// and runs any post-decode checks specific to that type.
+func (s *Store) validatePayload(body []byte) error {
+	return validatePayloadFor(s.contentType, body)
+}
+
+func validatePayloadFor(ct *ContentType, body []byte) error {
 	var v any
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&v); err != nil {
 		return fmt.Errorf("not valid JSON: %w", err)
 	}
-	if err := compiledShareSchema.Validate(v); err != nil {
+	if err := ct.Schema.Validate(v); err != nil {
 		return errors.New(schemaErrorString(err))
 	}
-	// `note` must already be sanitised — if SanitizeNote(note) != note
-	// the client either skipped its mirror sanitiser or hand-authored
-	// the payload past the filter. Reject so the canonical bytes
-	// addressed by the CID always reflect the post-filter form.
-	if m, ok := v.(map[string]any); ok {
-		if raw, ok := m["note"].(string); ok {
-			if SanitizeNote(raw) != raw {
-				return errors.New("note: must be pre-sanitised (no tags / urls / control chars / leading-trailing space; see SanitizeNote rules)")
+	// Per-type post-decode checks. Today only BeatsShare has one
+	// (the `note` sanitiser); compositions inherit no post-checks.
+	if ct == ShareType {
+		if m, ok := v.(map[string]any); ok {
+			if raw, ok := m["note"].(string); ok {
+				if SanitizeNote(raw) != raw {
+					return errors.New("note: must be pre-sanitised (no tags / urls / control chars / leading-trailing space; see SanitizeNote rules)")
+				}
 			}
 		}
 	}

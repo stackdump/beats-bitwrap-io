@@ -20,7 +20,12 @@ CREATE TABLE IF NOT EXISTS tracks (
     -- writes these columns if the signature verified.
     source         TEXT NOT NULL DEFAULT '',
     signer_type    TEXT NOT NULL DEFAULT '',
-    signer_address TEXT NOT NULL DEFAULT ''
+    signer_address TEXT NOT NULL DEFAULT '',
+    -- @type of the underlying envelope. Empty / 'BeatsShare' for
+    -- legacy rows; 'BeatsComposition' for rendered composition
+    -- masters (assembled from one or more BeatsShare ingredients).
+    -- Lets feed surfaces filter or render compositions distinctly.
+    content_type   TEXT NOT NULL DEFAULT 'BeatsShare'
 );
 
 CREATE INDEX IF NOT EXISTS tracks_recent ON tracks(rendered_at DESC);
@@ -39,6 +44,20 @@ CREATE TABLE IF NOT EXISTS rebuild_queue (
     claimed_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS rebuild_queue_marked ON rebuild_queue(marked_at);
+
+-- composition_queue: drives the off-host BeatsComposition render farm
+-- (scripts/process-composition-queue.py). Auto-populated on PUT /c/{cid}
+-- so sealing a composition envelope triggers a worker render. The worker
+-- polls /api/composition-queue, fetches the envelope + ingredients,
+-- assembles + masters via ffmpeg, PUTs each format to /audio-master/{cid}.{ext},
+-- then calls /api/composition-clear to drop the row.
+CREATE TABLE IF NOT EXISTS composition_queue (
+    cid        TEXT PRIMARY KEY,
+    marked_at  INTEGER NOT NULL,
+    marked_by  TEXT NOT NULL DEFAULT '',
+    claimed_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS composition_queue_marked ON composition_queue(marked_at);
 
 -- track_analysis: per-CID audio quality measurements. One row per
 -- CID, last-write-wins. Two producers write here:

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beats.bitwrap.io/schema/beats-composition.schema.json",
+  "title": "BeatsComposition",
+  "description": "Envelope for a finished master assembled from one or more BeatsShare ingredients. Each entry in tracks references a /o/{cid} BeatsShare and places a slice of it on a bar timeline. The composition's CID (base58 sha2-256 of canonical-JSON bytes) is sealed at /c/{cid}; rendered audio masters land at /audio-master/{cid}.{ext}. This first version is intentionally minimal — per-track operations (solo/mute/transpose/tempo-match), generative inserts, and master FX chains beyond loudnorm are reserved for later versions of the schema.",
+  "type": "object",
+  "required": ["@type", "v", "tracks"],
+  "additionalProperties": false,
+  "properties": {
+    "@context": {
+      "description": "JSON-LD context URL. Canonical value is the hosted context document.",
+      "type": "string",
+      "format": "uri"
+    },
+    "@type":   { "const": "BeatsComposition" },
+    "v":       { "const": 1 },
+    "title":   { "type": ["string", "null"], "maxLength": 128 },
+    "tempo":   { "type": ["integer", "null"], "minimum": 20, "maximum": 300, "description": "Optional advisory tempo in BPM. The first PR ignores this — assembly does not stretch ingredient audio. Reserved for tempoMatch in a later PR." },
+    "tracks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "description": "Ordered list of ingredients placed on the master timeline. Each entry slices a BeatsShare ingredient and drops it at the given bar offset.",
+      "items": { "$ref": "#/$defs/CompositionTrack" }
+    },
+    "master": { "$ref": "#/$defs/Master" }
+  },
+  "$defs": {
+    "CompositionTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "in", "len"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cid"],
+          "properties": {
+            "cid": {
+              "type": "string",
+              "pattern": "^z[1-9A-HJ-NP-Za-km-z]{1,128}$",
+              "description": "CID of an existing BeatsShare envelope at /o/{cid}."
+            }
+          }
+        },
+        "in":      { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
+        "len":     { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
+        "fadeIn":  { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-in duration in seconds. Default 0." },
+        "fadeOut": { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-out duration in seconds. Default 0." }
+      }
+    },
+    "Master": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Master-bus settings. First PR scope: loudnorm target + format fan-out only.",
+      "properties": {
+        "lufs": {
+          "type": ["number", "null"],
+          "minimum": -40,
+          "maximum": 0,
+          "description": "Integrated-loudness target in LUFS for the loudnorm pass. Default -16 (streaming-tier). Standard targets: -14 (loudness-war), -16 (Spotify/YouTube), -23 (EBU broadcast)."
+        },
+        "format": {
+          "type": ["array", "null"],
+          "maxItems": 8,
+          "uniqueItems": true,
+          "description": "Ordered list of formats to fan out from the master WAV. Default ['wav','flac','mp3','webm']. The .wav is the lossless archive; .webm is the streaming derivative.",
+          "items": { "enum": ["wav", "flac", "mp3", "webm"] }
+        }
+      }
+    }
+  }
+}

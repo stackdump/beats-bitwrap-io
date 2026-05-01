@@ -51,6 +51,12 @@ type Config struct {
 	// CacheDir is the on-disk root for rendered audio. Year/month bucketing
 	// happens under this. Required.
 	CacheDir string
+	// MasterDir is the on-disk root for rendered composition masters
+	// (BeatsComposition outputs). Year/month bucketing happens under
+	// this. Optional — when empty, master ingest/serve methods fail
+	// with an explicit error so callers can detect that compositions
+	// are not configured on this server.
+	MasterDir string
 	// BaseURL is the host the headless browser navigates to (e.g.
 	// "http://127.0.0.1:8089"). Required — chromedp opens
 	// {BaseURL}/?cid={cid}&render=1.
@@ -208,6 +214,11 @@ func New(cfg Config) (*Renderer, error) {
 	if err := os.MkdirAll(cfg.CacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("audiorender: mkdir cache: %w", err)
 	}
+	if cfg.MasterDir != "" {
+		if err := os.MkdirAll(cfg.MasterDir, 0o755); err != nil {
+			return nil, fmt.Errorf("audiorender: mkdir master: %w", err)
+		}
+	}
 	return &Renderer{
 		cfg:      cfg,
 		sem:      make(chan struct{}, cfg.MaxConcurrent),
@@ -291,6 +302,74 @@ func (r *Renderer) CachePath(cid string) string {
 		fmt.Sprintf("%04d", now.Year()),
 		fmt.Sprintf("%02d", int(now.Month())),
 		cid+".webm")
+}
+
+// validMasterExt enumerates the formats produced by the composition
+// fan-out pipeline. Anything outside this set is rejected at the route
+// layer so a typo can't poke at arbitrary disk paths.
+var validMasterExt = map[string]bool{
+	"wav":  true,
+	"flac": true,
+	"mp3":  true,
+	"webm": true,
+}
+
+// ValidMasterExt reports whether ext (without leading dot) is one of the
+// formats produced by the composition fan-out (wav/flac/mp3/webm).
+func ValidMasterExt(ext string) bool { return validMasterExt[ext] }
+
+// MasterPath returns the on-disk path where {cid}.{ext} for a composition
+// master would land for new writes (year/month bucketed). Returns "" if
+// MasterDir isn't configured. The file may not yet exist — use
+// MasterCachedPath to check.
+func (r *Renderer) MasterPath(cid, ext string) string {
+	if r.cfg.MasterDir == "" || !ValidMasterExt(ext) {
+		return ""
+	}
+	now := time.Now().UTC()
+	return filepath.Join(r.cfg.MasterDir,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", int(now.Month())),
+		cid+"."+ext)
+}
+
+// MasterCachedPath returns the path to a stored master file for (cid, ext),
+// or "" if no master exists yet (or the format/cid is invalid). Walks the
+// MasterDir tree across all year/month buckets, like findExisting does for
+// .webm renders. Cache-only — never spawns a render.
+func (r *Renderer) MasterCachedPath(cid, ext string) string {
+	if r.cfg.MasterDir == "" || !ValidCID(cid) || !ValidMasterExt(ext) {
+		return ""
+	}
+	target := cid + "." + ext
+	var found string
+	_ = filepath.Walk(r.cfg.MasterDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if info.Name() == target {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// MasterFormatsAvailable reports which of the fan-out formats are
+// currently cached for cid. Used by /api/composition-status to surface
+// per-format readiness to the worker and the UI.
+func (r *Renderer) MasterFormatsAvailable(cid string) []string {
+	if r.cfg.MasterDir == "" || !ValidCID(cid) {
+		return nil
+	}
+	var out []string
+	for ext := range validMasterExt {
+		if r.MasterCachedPath(cid, ext) != "" {
+			out = append(out, ext)
+		}
+	}
+	return out
 }
 
 // CachedPath returns the path to the cached file for cid, or "" if no
@@ -378,6 +457,73 @@ func (r *Renderer) IngestClientRender(cid string, body []byte) (path string, wro
 	}
 	r.evictIfOverCap()
 	return dst, true, nil
+}
+
+// IngestMaster stores a pre-rendered composition master at the canonical
+// MasterPath for (cid, ext). First-write-wins: returns (path, false, nil)
+// if a master already exists for this format so the original is never
+// silently overwritten; returns (path, true, nil) on a successful new
+// write. Caller is responsible for size + auth gating before calling.
+// Mirrors IngestClientRender for the .webm cache.
+func (r *Renderer) IngestMaster(cid, ext string, body []byte) (path string, wrote bool, err error) {
+	if r.cfg.MasterDir == "" {
+		return "", false, fmt.Errorf("audiorender: master dir not configured")
+	}
+	if !ValidCID(cid) {
+		return "", false, fmt.Errorf("audiorender: invalid cid %q", cid)
+	}
+	if !ValidMasterExt(ext) {
+		return "", false, fmt.Errorf("audiorender: invalid master ext %q", ext)
+	}
+	if existing := r.MasterCachedPath(cid, ext); existing != "" {
+		_ = touchAccessTime(existing)
+		return existing, false, nil
+	}
+	dst := r.MasterPath(cid, ext)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", false, fmt.Errorf("audiorender: mkdir master bucket: %w", err)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", false, fmt.Errorf("audiorender: write master tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", false, fmt.Errorf("audiorender: rename master: %w", err)
+	}
+	return dst, true, nil
+}
+
+// OverwriteMaster writes a master file unconditionally, replacing any
+// existing cached version. Intended for authenticated worker uploads
+// where the operator explicitly wants to replace a broken render.
+// Caller must verify auth before calling. Mirrors OverwriteClientRender.
+func (r *Renderer) OverwriteMaster(cid, ext string, body []byte) (path string, err error) {
+	if r.cfg.MasterDir == "" {
+		return "", fmt.Errorf("audiorender: master dir not configured")
+	}
+	if !ValidCID(cid) {
+		return "", fmt.Errorf("audiorender: invalid cid %q", cid)
+	}
+	if !ValidMasterExt(ext) {
+		return "", fmt.Errorf("audiorender: invalid master ext %q", ext)
+	}
+	dst := r.MasterPath(cid, ext)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", fmt.Errorf("audiorender: mkdir master bucket: %w", err)
+	}
+	if old := r.MasterCachedPath(cid, ext); old != "" && old != dst {
+		_ = os.Remove(old)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return "", fmt.Errorf("audiorender: write master tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("audiorender: rename master: %w", err)
+	}
+	return dst, nil
 }
 
 // OverwriteClientRender writes body unconditionally, replacing any

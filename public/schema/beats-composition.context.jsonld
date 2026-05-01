@@ -1,0 +1,26 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "vocab": "https://beats.bitwrap.io/schema/vocab#",
+    "@vocab": "https://beats.bitwrap.io/schema/vocab#",
+
+    "BeatsComposition": "vocab:BeatsComposition",
+
+    "v":     { "@id": "vocab:v",     "@type": "xsd:integer" },
+    "title": { "@id": "vocab:title", "@type": "xsd:string"  },
+    "tempo": { "@id": "vocab:tempo", "@type": "xsd:integer" },
+
+    "tracks":  { "@id": "vocab:tracks",  "@container": "@list" },
+    "source":  { "@id": "vocab:source"  },
+    "cid":     { "@id": "vocab:cid",     "@type": "xsd:string"  },
+    "in":      { "@id": "vocab:in",      "@type": "xsd:integer" },
+    "len":     { "@id": "vocab:len",     "@type": "xsd:integer" },
+    "fadeIn":  { "@id": "vocab:fadeIn",  "@type": "xsd:decimal" },
+    "fadeOut": { "@id": "vocab:fadeOut", "@type": "xsd:decimal" },
+
+    "master":  { "@id": "vocab:master"  },
+    "lufs":    { "@id": "vocab:lufs",    "@type": "xsd:decimal" },
+    "format":  { "@id": "vocab:format",  "@container": "@list"  }
+  }
+}

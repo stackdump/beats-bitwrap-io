@@ -26,7 +26,11 @@ var beatsAudioAnalysisContextBytes []byte
 //go:embed beats-audio-analysis.schema.json
 var beatsAudioAnalysisSchemaBytes []byte
 
+//go:embed beats-composition.context.jsonld
+var beatsCompositionContextBytes []byte
+
 // shareSchemaBytes is defined in seal.go (embedded for validator compilation).
+// compositionSchemaBytes is defined in types.go.
 
 type schemaTerm struct {
 	Name      string
@@ -141,6 +145,35 @@ func HandleBeatsAudioAnalysisSchema(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/ld+json")
 		w.Header().Set("Cache-Control", "public, max-age=300")
 		w.Write(beatsAudioAnalysisContextBytes)
+	}
+}
+
+// HandleBeatsCompositionSchema serves /schema/beats-composition with the
+// same three-tier content negotiation as HandleBeatsShareSchema:
+// schema+json → JSON-Schema, html → term glossary, anything else → JSON-LD.
+func HandleBeatsCompositionSchema(w http.ResponseWriter, r *http.Request) {
+	accept := r.Header.Get("Accept")
+	switch {
+	case acceptMentions(accept, "application/schema+json"):
+		w.Header().Set("Content-Type", "application/schema+json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(compositionSchemaBytes)
+	case acceptMentions(accept, "text/html") &&
+		!acceptMentions(accept, "application/ld+json") &&
+		!acceptMentions(accept, "application/schema+json"):
+		terms, err := parseContextTerms(beatsCompositionContextBytes)
+		if err != nil {
+			http.Error(w, "schema render error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := schemaGlossaryTmpl.Execute(w, terms); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
+		}
+	default:
+		w.Header().Set("Content-Type", "application/ld+json")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(beatsCompositionContextBytes)
 	}
 }
 
