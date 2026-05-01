@@ -395,7 +395,33 @@ func main() {
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret))
-		mux.Handle("/audio-master/", audioMasterHandler(ar, compositionStore, rebuildSecret))
+		// onMasterIngest projects newly-rendered compositions into the
+		// SQLite tracks index so /api/feed and /feed.rss surface them
+		// alongside BeatsShare renders. Reads the composition envelope
+		// from the store and stamps content_type='BeatsComposition'.
+		onMasterIngest := func(cid string) {
+			env, err := compositionStore.Lookup(cid)
+			if err != nil {
+				log.Printf("composition feed-record %s: lookup: %v", cid, err)
+				return
+			}
+			// Approximate "headline" size — a master's .webm is the
+			// streaming derivative; if the worker hasn't uploaded it
+			// yet we fall back to whatever first format is on disk.
+			var bytes int64
+			for _, ext := range []string{"webm", "mp3", "flac", "wav"} {
+				if path := ar.MasterCachedPath(cid, ext); path != "" {
+					if info, err := os.Stat(path); err == nil {
+						bytes = info.Size()
+						break
+					}
+				}
+			}
+			if err := idx.RecordCompositionRender(cid, env, bytes); err != nil {
+				log.Printf("composition feed-record %s: %v", cid, err)
+			}
+		}
+		mux.Handle("/audio-master/", audioMasterHandler(ar, compositionStore, rebuildSecret, onMasterIngest))
 		mux.HandleFunc("/api/audio-status", audioStatusHandler(ar))
 		mux.HandleFunc("/api/audio-latest", func(w http.ResponseWriter, r *http.Request) {
 			cid, _ := idx.Latest()
@@ -1025,7 +1051,13 @@ func parseIngredientOpts(q neturl.Values) audiorender.IngredientOpts {
 // .webm /audio/ handler but for the multi-format master cache and
 // without the server-side render fallback (compositions are always
 // rendered off-host by the composition-queue worker).
-func audioMasterHandler(ar *audiorender.Renderer, compositionStore *share.Store, rebuildSecret string) http.Handler {
+//
+// onMasterIngest fires after the first format lands (worker uploads
+// formats serially: wav → flac → mp3 → webm); main.go wires this to
+// idx.RecordCompositionRender so compositions surface in /api/feed
+// alongside BeatsShare renders. Idempotent — repeated uploads of
+// the same {cid, ext} don't double-record.
+func audioMasterHandler(ar *audiorender.Renderer, compositionStore *share.Store, rebuildSecret string, onMasterIngest func(cid string)) http.Handler {
 	httpErrorNoStore := func(w http.ResponseWriter, msg string, code int) {
 		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, msg, code)
@@ -1115,6 +1147,9 @@ func audioMasterHandler(ar *audiorender.Renderer, compositionStore *share.Store,
 				return
 			}
 			log.Printf("master: authenticated overwrite %s.%s (%d bytes)", cid, ext, len(body))
+			if onMasterIngest != nil {
+				onMasterIngest(cid)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusCreated)
@@ -1497,8 +1532,9 @@ func midiMultiCloser(m *midiout.MultiOutput) io.Closer {
 func feedHandler(idx *index.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := index.FeedQuery{
-			Genre:  r.URL.Query().Get("genre"),
-			Signer: r.URL.Query().Get("signer"),
+			Genre:       r.URL.Query().Get("genre"),
+			Signer:      r.URL.Query().Get("signer"),
+			ContentType: r.URL.Query().Get("type"),
 		}
 		if v := r.URL.Query().Get("before"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -2935,7 +2971,11 @@ func rssFeedHandler(idx *index.DB, publicURL string) http.HandlerFunc {
 				title = generator.NameForSeed(t.Genre, t.Seed)
 			}
 			itemURL := fmt.Sprintf("%s/?cid=%s", publicURL, t.CID)
-			audioURL := fmt.Sprintf("%s/audio/%s.webm", publicURL, t.CID)
+			audioPath := "/audio/"
+			if t.ContentType == "BeatsComposition" {
+				audioPath = "/audio-master/"
+			}
+			audioURL := fmt.Sprintf("%s%s%s.webm", publicURL, audioPath, t.CID)
 			pubDate := time.UnixMilli(t.RenderedAt).UTC().Format(time.RFC1123Z)
 			fmt.Fprintf(w, `  <item>`+"\n")
 			fmt.Fprintf(w, `    <title>%s</title>`+"\n", xmlEscape(title))

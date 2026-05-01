@@ -142,6 +142,11 @@ type FeedQuery struct {
 	//   "anonymous"→ matches rows with both source='' AND signer=''
 	Before int64 // unix ms cursor; 0 = newest
 	Limit  int   // clamped to [1, 100]; 0 → 20
+	// ContentType filter:
+	//   "" or "all"        → both BeatsShare + BeatsComposition rows
+	//   "BeatsShare"       → only share renders (legacy default behaviour)
+	//   "BeatsComposition" → only composition masters
+	ContentType string
 }
 
 // Track is the JSON shape returned to feed clients.
@@ -156,6 +161,11 @@ type Track struct {
 	Source        string `json:"source,omitempty"`
 	SignerType    string `json:"signerType,omitempty"`
 	SignerAddress string `json:"signerAddress,omitempty"`
+	// ContentType is "BeatsShare" (legacy default) or "BeatsComposition"
+	// for assembled composition masters. Lets the feed UI render
+	// each row with appropriate chrome and pick the right audio
+	// path (/audio/{cid}.webm vs /audio-master/{cid}.webm).
+	ContentType string `json:"contentType,omitempty"`
 }
 
 // DeleteTrack removes the row for cid from the rendered-track index
@@ -227,10 +237,22 @@ func (d *DB) Feed(q FeedQuery) ([]Track, error) {
 		where += " AND rendered_at < ?"
 		args = append(args, q.Before)
 	}
+	switch q.ContentType {
+	case "", "all":
+		// No filter — both shares and compositions land in the feed.
+	case "BeatsShare":
+		where += " AND content_type = 'BeatsShare'"
+	case "BeatsComposition":
+		where += " AND content_type = 'BeatsComposition'"
+	default:
+		// Unknown filter is a 0-row match rather than a SQL injection
+		// vector — clients sending garbage just see an empty page.
+		where += " AND 1 = 0"
+	}
 	args = append(args, limit)
 	rows, err := d.sql.Query(
 		`SELECT cid, name, genre, tempo, seed, structure, rendered_at,
-		        source, signer_type, signer_address
+		        source, signer_type, signer_address, content_type
 		   FROM tracks `+where+`
 		   ORDER BY rendered_at DESC
 		   LIMIT ?`,
@@ -245,13 +267,48 @@ func (d *DB) Feed(q FeedQuery) ([]Track, error) {
 		var t Track
 		if err := rows.Scan(
 			&t.CID, &t.Name, &t.Genre, &t.Tempo, &t.Seed, &t.Structure, &t.RenderedAt,
-			&t.Source, &t.SignerType, &t.SignerAddress,
+			&t.Source, &t.SignerType, &t.SignerAddress, &t.ContentType,
 		); err != nil {
 			return nil, fmt.Errorf("index: feed scan: %w", err)
 		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// RecordCompositionRender upserts the index row for a composition
+// master. Same shape as RecordRender but reads composition-shaped
+// envelope fields (title → name, no genre/seed) and stamps
+// content_type='BeatsComposition' so the feed can distinguish them.
+// Bytes is the size of the served .webm derivative (or any chosen
+// "headline" format) — used by the feed for at-a-glance sizing.
+func (d *DB) RecordCompositionRender(cid string, envelopeBytes []byte, bytes int64) error {
+	var c struct {
+		Title string `json:"title"`
+		Tempo int    `json:"tempo"`
+	}
+	_ = json.Unmarshal(envelopeBytes, &c)
+	now := time.Now().UnixMilli()
+	_, err := d.sql.Exec(
+		`INSERT INTO tracks
+		    (cid, genre, name, seed, tempo, swing, humanize,
+		     root_note, scale_name, bars, structure, rendered_at, bytes,
+		     source, signer_type, signer_address, content_type)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(cid) DO UPDATE SET
+		    rendered_at  = excluded.rendered_at,
+		    bytes        = excluded.bytes,
+		    name         = excluded.name,
+		    tempo        = excluded.tempo,
+		    content_type = excluded.content_type`,
+		cid, "", c.Title, int64(0), c.Tempo, 0, 0,
+		nil, "", 0, "", now, bytes,
+		"", "", "", "BeatsComposition",
+	)
+	if err != nil {
+		return fmt.Errorf("index: insert composition: %w", err)
+	}
+	return nil
 }
 
 // nullableInt converts a *int to a nullable int for INSERT — sqlite

@@ -1667,12 +1667,23 @@ const fmtDur = (sec) => {
 // text on loadedmetadata. Browsers cache the range response so
 // scroll-back is free, and we only probe the rows the user actually
 // sees.
+// audioUrlFor returns the right audio path for a track row based on
+// its contentType. BeatsShare renders live at /audio/{cid}.webm;
+// BeatsComposition masters at /audio-master/{cid}.webm. Default to
+// the share path so legacy callers passing just a cid continue
+// working.
+function audioUrlFor(cid, contentType) {
+  const base = (contentType === 'BeatsComposition') ? '/audio-master/' : '/audio/';
+  return `${base}${encodeURIComponent(cid)}.webm`;
+}
+
 const _durObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries) => {
   for (const e of entries) {
     if (!e.isIntersecting) continue;
     const card = e.target;
     _durObserver.unobserve(card);
     const cid = card.dataset.durCid;
+    const ct = card.dataset.durType || '';
     const el = card.querySelector('.card-dur');
     if (!cid || !el || el.dataset.loaded === '1') continue;
     el.dataset.loaded = '1';
@@ -1683,12 +1694,13 @@ const _durObserver = ('IntersectionObserver' in window) ? new IntersectionObserv
       probe.src = '';
     }, { once: true });
     probe.addEventListener('error', () => { probe.src = ''; }, { once: true });
-    probe.src = `/audio/${encodeURIComponent(cid)}.webm`;
+    probe.src = audioUrlFor(cid, ct);
   }
 }, { rootMargin: '200px' }) : null;
 
-const scheduleDurationProbe = (card, cid, el) => {
+const scheduleDurationProbe = (card, cid, el, contentType) => {
   card.dataset.durCid = cid;
+  card.dataset.durType = contentType || '';
   if (_durObserver) {
     _durObserver.observe(card);
   } else {
@@ -1698,7 +1710,7 @@ const scheduleDurationProbe = (card, cid, el) => {
     probe.addEventListener('loadedmetadata', () => {
       el.textContent = fmtDur(probe.duration);
     }, { once: true });
-    probe.src = `/audio/${encodeURIComponent(cid)}.webm`;
+    probe.src = audioUrlFor(cid, contentType);
   }
 };
 
@@ -1708,6 +1720,7 @@ const addToPlaylist = (track) => {
   if (isInPlaylist(track.cid)) return;
   playlist.push({
     cid: track.cid,
+    contentType: track.contentType || '',
     name: track.name || '',
     genre: track.genre || '',
     tempo: track.tempo || 0,
@@ -1772,7 +1785,7 @@ const exportPlaylistJsonld = () => {
     'name': trackTitle(t),
     'genre': t.genre || undefined,
     'url': `${origin}/?cid=${encodeURIComponent(t.cid)}`,
-    'audio': `${origin}/audio/${encodeURIComponent(t.cid)}.webm`,
+    'audio': `${origin}${audioUrlFor(t.cid, t.contentType)}`,
     'position': i + 1,
   }));
   const doc = {
@@ -1938,14 +1951,14 @@ const preloadNext = () => {
   preloadLink = document.createElement('link');
   preloadLink.rel = 'preload';
   preloadLink.as = 'audio';
-  preloadLink.href = `/audio/${encodeURIComponent(next.cid)}.webm`;
+  preloadLink.href = audioUrlFor(next.cid, next.contentType);
   document.head.appendChild(preloadLink);
 };
 
 const loadCurrent = (autoplay = true) => {
   if (current < 0 || current >= playlist.length) { clearNow(); return; }
   const t = playlist[current];
-  audioEl.src = `/audio/${encodeURIComponent(t.cid)}.webm`;
+  audioEl.src = audioUrlFor(t.cid, t.contentType);
   // Re-apply native loop after every src swap — setting src resets
   // .loop to false. This is what makes repeat-one gapless: the
   // browser wraps from end to start without firing 'ended' or
@@ -2283,9 +2296,17 @@ const renderCard = (t) => {
   // The server is the trust boundary: any of these means "the server
   // accepted the claim", not "the client said so".
   const provenance = renderProvenanceBadge(t);
+  // Composition masters don't yet have a server-rendered share-card
+  // (PR-7.1 cover-art will fill that gap with a deterministic SVG
+  // from the composition CID). For now, BeatsShare rows get the
+  // existing /share-card/{cid}.svg; compositions get a placeholder
+  // gradient so the card chrome stays consistent.
+  const cardArt = (t.contentType === 'BeatsComposition')
+    ? `<div class="card-art" style="background:linear-gradient(135deg,#1a2a4a 0%,#2a3a6a 50%,#3a2a5a 100%);" aria-hidden="true"></div>`
+    : `<img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">`;
   card.innerHTML = `
     <${bodyTag} ${bodyAttrs}>
-      <img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">
+      ${cardArt}
       ${glyph}
       <div class="card-meta">
         <div class="card-title"></div>
@@ -2322,6 +2343,14 @@ const renderCard = (t) => {
   // separator behind.
   const subEl = card.querySelector('.card-sub');
   subEl.innerHTML = '';
+  if (t.contentType === 'BeatsComposition') {
+    const badge = document.createElement('span');
+    badge.className = 'card-comp-badge';
+    badge.textContent = '🎚 Composition';
+    badge.title = 'Assembled master composed of one or more BeatsShare ingredients';
+    badge.style.cssText = 'background:#2a3a5a;color:#cce;border:1px solid #3a4a6a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:0.02em;';
+    subEl.appendChild(badge);
+  }
   if (t.genre) {
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -2371,7 +2400,7 @@ const renderCard = (t) => {
   subEl.appendChild(dateAbs);
   // Lazy duration probe via IntersectionObserver so off-screen rows
   // don't fire range requests until they scroll into view.
-  scheduleDurationProbe(card, t.cid, durEl);
+  scheduleDurationProbe(card, t.cid, durEl, t.contentType);
   const addBtn = card.querySelector('.card-add');
   addBtn.addEventListener('click', (e) => {
     e.preventDefault();
