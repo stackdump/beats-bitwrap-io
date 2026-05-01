@@ -242,6 +242,7 @@ func main() {
 		svgCard.ServeHTTP(w, r)
 	}))
 	mux.Handle("/qr", share.HandleQRCode())
+	mux.HandleFunc("/composition-card/", compositionCardHandler(compositionStore))
 
 	// --- Server-side audio render (production-safe; not authoring-gated) ---
 	// Always wire the audio storage layer (cache + uploads + feed) — the

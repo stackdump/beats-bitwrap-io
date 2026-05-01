@@ -2296,14 +2296,12 @@ const renderCard = (t) => {
   // The server is the trust boundary: any of these means "the server
   // accepted the claim", not "the client said so".
   const provenance = renderProvenanceBadge(t);
-  // Composition masters don't yet have a server-rendered share-card
-  // (PR-7.1 cover-art will fill that gap with a deterministic SVG
-  // from the composition CID). For now, BeatsShare rows get the
-  // existing /share-card/{cid}.svg; compositions get a placeholder
-  // gradient so the card chrome stays consistent.
-  const cardArt = (t.contentType === 'BeatsComposition')
-    ? `<div class="card-art" style="background:linear-gradient(135deg,#1a2a4a 0%,#2a3a6a 50%,#3a2a5a 100%);" aria-hidden="true"></div>`
-    : `<img class="card-art" src="/share-card/${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">`;
+  // BeatsShare rows pull from /share-card/{cid}.svg (server-rendered
+  // by internal/share). BeatsComposition rows pull from
+  // /composition-card/{cid}.svg (PR-7.1 — deterministic gradient +
+  // title + track-count seeded by the composition CID).
+  const cardSrc = (t.contentType === 'BeatsComposition') ? '/composition-card/' : '/share-card/';
+  const cardArt = `<img class="card-art" src="${cardSrc}${encodeURIComponent(t.cid)}.svg" alt="" loading="lazy">`;
   card.innerHTML = `
     <${bodyTag} ${bodyAttrs}>
       ${cardArt}
