@@ -53,6 +53,25 @@
   .status.success { background: #1a3a1a; color: #cec; }
   .status.error { background: #3a1a1a; color: #ecc; }
   audio { width: 100%; margin-top: 8px; }
+  /* Bar-grid timeline visualisation */
+  .bar-grid { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 4px; padding: 8px; margin-top: 8px; overflow-x: auto; }
+  .bar-grid-header { display: flex; gap: 0; height: 16px; margin-bottom: 4px; min-width: max-content; }
+  .bar-grid-header .tick { width: 24px; border-left: 1px solid #1a1a1a; color: #555; font-size: 9px; padding-left: 2px; box-sizing: border-box; }
+  .bar-grid-header .tick.major { border-left-color: #2a2a2a; color: #888; }
+  .bar-row { position: relative; height: 28px; margin-bottom: 3px; min-width: max-content; }
+  .bar-row .clip {
+    position: absolute; top: 0; height: 26px;
+    border-radius: 3px; padding: 4px 6px;
+    font-size: 11px; font-family: ui-monospace, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    box-sizing: border-box; cursor: pointer;
+    color: #fff;
+  }
+  .bar-row .clip.cid { background: linear-gradient(90deg, #2a4a6a 0%, #3a5a7a 100%); }
+  .bar-row .clip.gen { background: linear-gradient(90deg, #5a3a6a 0%, #7a4a8a 100%); }
+  .bar-row .clip.fade-in::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, rgba(0,0,0,0.5), transparent); border-radius: 3px 0 0 3px; }
+  .bar-row .clip.fade-out::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(0,0,0,0.5)); border-radius: 0 3px 3px 0; }
+  .bar-grid-label { color: #777; font-size: 11px; margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -96,6 +115,9 @@
       </select>
       <button id="add-insert">add insert track</button>
     </div>
+
+    <div class="bar-grid-label">timeline (each cell = 1 bar)</div>
+    <div id="bar-grid" class="bar-grid"></div>
 
     <h2 style="margin-top: 24px;">master</h2>
     <div class="master-row">

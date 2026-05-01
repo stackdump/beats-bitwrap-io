@@ -100,7 +100,55 @@ function nextBarOffset() {
     return state.tracks.reduce((m, t) => Math.max(m, (t.in || 0) + (t.len || 0)), 0);
 }
 
+// renderBarGrid visualises the timeline as a horizontal grid of bars,
+// one row per track. Clips span [in, in+len] in 24px-per-bar units.
+// Read-only in PR-5.2; drag/drop interactivity is a later iteration.
+function renderBarGrid() {
+    const host = $('bar-grid');
+    if (!host) return;
+    host.innerHTML = '';
+    if (state.tracks.length === 0) {
+        host.innerHTML = '<div style="color:#666;padding:8px;font-size:12px">No tracks yet — pick an ingredient or add an insert above.</div>';
+        return;
+    }
+    const totalBars = Math.max(16, ...state.tracks.map(t => (t.in || 0) + (t.len || 0)));
+    const barPx = 24;
+    // Header with bar numbers (every 4 bars labelled).
+    const head = document.createElement('div');
+    head.className = 'bar-grid-header';
+    for (let i = 0; i < totalBars; i++) {
+        const tick = document.createElement('div');
+        tick.className = 'tick' + (i % 4 === 0 ? ' major' : '');
+        tick.textContent = (i % 4 === 0) ? String(i) : '';
+        head.appendChild(tick);
+    }
+    host.appendChild(head);
+    state.tracks.forEach((t, i) => {
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+        row.style.width = (totalBars * barPx) + 'px';
+        const clip = document.createElement('div');
+        clip.className = 'clip ' + t.kind + (t.fadeIn > 0 ? ' fade-in' : '') + (t.fadeOut > 0 ? ' fade-out' : '');
+        clip.style.left = ((t.in || 0) * barPx) + 'px';
+        clip.style.width = ((t.len || 1) * barPx - 2) + 'px';
+        clip.title = (t.kind === 'cid')
+            ? `${t.name || ''}\nbars ${t.in}–${t.in + t.len} (len ${t.len})`
+            : `${t.type}\nbars ${t.in}–${t.in + t.len} (len ${t.len})`;
+        clip.textContent = (t.kind === 'cid')
+            ? (t.name?.split('·').pop()?.trim() || t.cid.slice(0, 10))
+            : '⚡ ' + t.type;
+        clip.onclick = () => {
+            // Highlight the matching form row
+            const formRow = $('tracks').children[i];
+            if (formRow) formRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        };
+        row.appendChild(clip);
+        host.appendChild(row);
+    });
+}
+
 function renderTracks() {
+    renderBarGrid();
     const host = $('tracks');
     host.innerHTML = '';
     state.tracks.forEach((t, i) => {
@@ -126,10 +174,10 @@ function renderTracks() {
         idIn.placeholder = '(no id)';
         idIn.onchange = (e) => { t.id = e.target.value || undefined; renderTracks(); };
 
-        const inB = mkNum(t.in, 0, 1024, 1, (v) => t.in = v);
-        const lenB = mkNum(t.len, 1, 1024, 1, (v) => t.len = v);
-        const fIn = mkNum(t.fadeIn, 0, 60, 0.5, (v) => t.fadeIn = v);
-        const fOut = mkNum(t.fadeOut, 0, 60, 0.5, (v) => t.fadeOut = v);
+        const inB = mkNum(t.in, 0, 1024, 1, (v) => { t.in = v; renderBarGrid(); });
+        const lenB = mkNum(t.len, 1, 1024, 1, (v) => { t.len = v; renderBarGrid(); });
+        const fIn = mkNum(t.fadeIn, 0, 60, 0.5, (v) => { t.fadeIn = v; renderBarGrid(); });
+        const fOut = mkNum(t.fadeOut, 0, 60, 0.5, (v) => { t.fadeOut = v; renderBarGrid(); });
 
         const ops = document.createElement('span');
         if (t.kind === 'cid') {
