@@ -676,7 +676,7 @@ function scheduleMacroEffect(engine, macroId, audioTime, durationMs, fxState, ch
 // dependencies. Stereo interleaved. Supports any sample rate the
 // AudioBuffer carries.
 
-function audioBufferToWavBlob(audioBuffer) {
+export function audioBufferToWavBlob(audioBuffer) {
     const numChannels = Math.min(2, audioBuffer.numberOfChannels);
     const sampleRate = audioBuffer.sampleRate;
     const numFrames = audioBuffer.length;

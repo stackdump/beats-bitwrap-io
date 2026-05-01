@@ -840,7 +840,13 @@ func transcodeWavToWebm(ctx context.Context, ffmpegPath, src, dst string) error 
 	return nil
 }
 
-func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts IngredientOpts) ([]byte, error) {
+// captureURL is the generic chromedp dispatcher: spawns headless
+// Chromium, navigates to `target`, polls `window.__renderDone`,
+// reads `window.__renderBlob` (base64) on completion. `label` is
+// stamped into log lines (typically a CID for share renders or a
+// short marker like "insert-counterMelody" for insert renders) so
+// chromedp console + exception output is greppable in server logs.
+func (r *Renderer) captureURL(ctx context.Context, label, target string) ([]byte, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", "new"),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
@@ -848,13 +854,6 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts I
 		chromedp.Flag("disable-gpu", "true"),
 		chromedp.Flag("no-sandbox", "true"),
 		chromedp.Flag("disable-dev-shm-usage", "true"),
-		// Headless Chromium (even with --headless=new) treats the
-		// render target as a backgrounded/occluded tab and throttles
-		// setInterval/setTimeout — the sequencer worker fires slow
-		// and bunchy, the audio scheduler re-anchors per fire, and
-		// the recording captures audible jitter (see
-		// scripts/measure-jitter.py against examples/metronome.json).
-		// These three flags keep timers running at full rate.
 		chromedp.Flag("disable-background-timer-throttling", "true"),
 		chromedp.Flag("disable-backgrounding-occluded-windows", "true"),
 		chromedp.Flag("disable-renderer-backgrounding", "true"),
@@ -868,9 +867,6 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts I
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
 
-	// Surface page-side console messages + uncaught exceptions to the
-	// server log. Indispensable when render-mode.js stalls — without
-	// this, a thrown error in the page is invisible.
 	chromedp.ListenTarget(browserCtx, func(ev any) {
 		switch e := ev.(type) {
 		case *runtime.EventConsoleAPICalled:
@@ -878,45 +874,14 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts I
 			for _, a := range e.Args {
 				parts = append(parts, string(a.Value))
 			}
-			log.Printf("audiorender[%s] console.%s: %s", cid, e.Type, strings.Join(parts, " "))
+			log.Printf("audiorender[%s] console.%s: %s", label, e.Type, strings.Join(parts, " "))
 		case *runtime.EventExceptionThrown:
-			log.Printf("audiorender[%s] exception: %s", cid, e.ExceptionDetails.Error())
+			log.Printf("audiorender[%s] exception: %s", label, e.ExceptionDetails.Error())
 		case *cdlog.EventEntryAdded:
-			log.Printf("audiorender[%s] log[%s/%s]: %s (%s)", cid,
+			log.Printf("audiorender[%s] log[%s/%s]: %s (%s)", label,
 				e.Entry.Source, e.Entry.Level, e.Entry.Text, e.Entry.URL)
 		}
 	})
-
-	renderFlag := "1"
-	if r.cfg.RenderMode == "offline" {
-		renderFlag = "offline"
-	}
-	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=" + renderFlag
-	if r.cfg.MaxDuration > 0 {
-		target += fmt.Sprintf("&maxMs=%d", r.cfg.MaxDuration.Milliseconds())
-	}
-	// Per-track ops are surfaced to the page via URL params. The page
-	// reads them in render-mode.js::runRender() and mutes / transposes
-	// nets before the MediaRecorder starts. Empty values are omitted
-	// so the page-side parser stays happy with `undefined`.
-	if len(ingredientOpts.SoloRoles) > 0 {
-		target += "&solo=" + url.QueryEscape(strings.Join(ingredientOpts.SoloRoles, ","))
-	}
-	if len(ingredientOpts.Mute) > 0 {
-		target += "&mute=" + url.QueryEscape(strings.Join(ingredientOpts.Mute, ","))
-	}
-	if ingredientOpts.Transpose != 0 {
-		target += fmt.Sprintf("&transpose=%d", ingredientOpts.Transpose)
-	}
-	if ingredientOpts.TempoMatch != "" && !strings.EqualFold(ingredientOpts.TempoMatch, "none") {
-		target += "&tempoMatch=" + url.QueryEscape(ingredientOpts.TempoMatch)
-		if ingredientOpts.SourceBPM > 0 {
-			target += fmt.Sprintf("&sourceBpm=%d", ingredientOpts.SourceBPM)
-		}
-		if ingredientOpts.MasterBPM > 0 {
-			target += fmt.Sprintf("&masterBpm=%d", ingredientOpts.MasterBPM)
-		}
-	}
 
 	if err := chromedp.Run(browserCtx,
 		runtime.Enable(),
@@ -926,7 +891,6 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts I
 		return nil, fmt.Errorf("audiorender: navigate: %w", err)
 	}
 
-	// Poll window.__renderDone until set or context expires.
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
@@ -967,6 +931,51 @@ func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts I
 		return nil, errors.New("audiorender: zero-byte blob")
 	}
 	return data, nil
+}
+
+// CaptureURL is the public form of captureURL — used by sibling
+// packages (e.g. internal/audiorender/insert_counter_melody.go) to
+// drive their own chromedp captures with a custom URL.
+func (r *Renderer) CaptureURL(ctx context.Context, label, target string) ([]byte, error) {
+	return r.captureURL(ctx, label, target)
+}
+
+// BaseURL returns the configured base URL for the local server. Used
+// by the counterMelody insert path to build its `?insert=` URL.
+func (r *Renderer) BaseURL() string { return r.cfg.BaseURL }
+
+func (r *Renderer) captureBlob(ctx context.Context, cid string, ingredientOpts IngredientOpts) ([]byte, error) {
+	renderFlag := "1"
+	if r.cfg.RenderMode == "offline" {
+		renderFlag = "offline"
+	}
+	target := r.cfg.BaseURL + "/?cid=" + url.QueryEscape(cid) + "&render=" + renderFlag
+	if r.cfg.MaxDuration > 0 {
+		target += fmt.Sprintf("&maxMs=%d", r.cfg.MaxDuration.Milliseconds())
+	}
+	// Per-track ops are surfaced to the page via URL params. The page
+	// reads them in render-mode.js::runRender() and mutes / transposes
+	// nets before the MediaRecorder starts. Empty values are omitted
+	// so the page-side parser stays happy with `undefined`.
+	if len(ingredientOpts.SoloRoles) > 0 {
+		target += "&solo=" + url.QueryEscape(strings.Join(ingredientOpts.SoloRoles, ","))
+	}
+	if len(ingredientOpts.Mute) > 0 {
+		target += "&mute=" + url.QueryEscape(strings.Join(ingredientOpts.Mute, ","))
+	}
+	if ingredientOpts.Transpose != 0 {
+		target += fmt.Sprintf("&transpose=%d", ingredientOpts.Transpose)
+	}
+	if ingredientOpts.TempoMatch != "" && !strings.EqualFold(ingredientOpts.TempoMatch, "none") {
+		target += "&tempoMatch=" + url.QueryEscape(ingredientOpts.TempoMatch)
+		if ingredientOpts.SourceBPM > 0 {
+			target += fmt.Sprintf("&sourceBpm=%d", ingredientOpts.SourceBPM)
+		}
+		if ingredientOpts.MasterBPM > 0 {
+			target += fmt.Sprintf("&masterBpm=%d", ingredientOpts.MasterBPM)
+		}
+	}
+	return r.captureURL(ctx, cid, target)
 }
 
 // Enqueue triggers a background render of cid. Returns immediately.

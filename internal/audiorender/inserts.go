@@ -55,6 +55,16 @@ type InsertSpec struct {
 	Seed               int64   `json:"seed,omitempty"`               // optional explicit seed
 	Instrument         string  `json:"instrument,omitempty"`         // optional instrument id (PR-4.3.2 Tone.js path)
 	SourceEnvelopePath string  `json:"sourceEnvelopePath,omitempty"` // worker writes the resolved source share JSON here
+
+	// PR-4.3.2 Tone.js synth path. When BaseURL + RebuildSecret are
+	// set the counterMelody renderer chromedp-spawns the local server
+	// and runs synthesis through the page-side insert-render.js
+	// (matching the studio's instrument timbre). Empty values fall
+	// back to the ffmpeg-sine path. Worker fills these in before
+	// shelling out to `beats-bitwrap-io render-insert`.
+	BaseURL          string    `json:"_baseURL,omitempty"`
+	RebuildSecret    string    `json:"_rebuildSecret,omitempty"`
+	RendererInstance *Renderer `json:"-"`
 }
 
 // RenderInsert dispatches on InsertSpec.Type and writes a WAV at dst

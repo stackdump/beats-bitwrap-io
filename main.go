@@ -243,6 +243,11 @@ func main() {
 	}))
 	mux.Handle("/qr", share.HandleQRCode())
 	mux.HandleFunc("/composition-card/", compositionCardHandler(compositionStore))
+	// /api/insert-notes — ephemeral store used by the PR-4.3.2
+	// counterMelody Tone.js synth path (Go side POSTs notes, chromedp
+	// page-side GETs them).
+	mux.Handle("/api/insert-notes", insertNotesHandler(rebuildSecret))
+	mux.Handle("/api/insert-notes/", insertNotesHandler(rebuildSecret))
 
 	// --- Server-side audio render (production-safe; not authoring-gated) ---
 	// Always wire the audio storage layer (cache + uploads + feed) — the

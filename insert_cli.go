@@ -51,6 +51,23 @@ func runRenderInsertCLI(args []string) int {
 		fmt.Fprintf(os.Stderr, "parse spec: %v\n", err)
 		return 1
 	}
+	// counterMelody with a configured base URL + rebuild secret =
+	// Tone.js synthesis path. We need a Renderer instance for the
+	// chromedp orchestration (CaptureURL). For other insert types
+	// (riser/drone/impact/texture) the Renderer is unused.
+	if spec.Type == "counterMelody" && spec.BaseURL != "" && spec.RebuildSecret != "" {
+		ar, err := audiorender.New(audiorender.Config{
+			CacheDir:      os.TempDir(),
+			BaseURL:       spec.BaseURL,
+			MaxConcurrent: 1,
+			RenderMode:    "offline",
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "renderer init: %v\n", err)
+			return 1
+		}
+		spec.RendererInstance = ar
+	}
 	if err := audiorender.RenderInsert(context.Background(), *ffmpegPath, spec, *outPath); err != nil {
 		fmt.Fprintf(os.Stderr, "render-insert: %v\n", err)
 		return 1

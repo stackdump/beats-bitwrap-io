@@ -37,6 +37,7 @@ import {
     uploadShare, fetchShare, onShareClick,
 } from './lib/share/url.js';
 import { initRenderMode } from './lib/share/render-mode.js';
+import { isInsertRenderMode, initInsertRenderMode } from './lib/share/insert-render.js';
 import { recordSeen } from './lib/share/history.js';
 import { loadUploadedProject, serializeProject, downloadProject } from './lib/project/serialize.js';
 import {
@@ -278,6 +279,13 @@ class PetriNote extends HTMLElement {
         // ?render=1 — headless capture mode for the server-side audio
         // renderer. No-op when the param is absent.
         initRenderMode(this);
+        // ?insert=counterMelody — page-side insert renderer that
+        // builds a Tone.Offline graph from a notes payload fetched
+        // via /api/insert-notes. Doesn't read el._project, so it
+        // runs even when no share is loaded.
+        if (isInsertRenderMode()) {
+            initInsertRenderMode();
+        }
     }
 
     _bindGlobalWheel() {

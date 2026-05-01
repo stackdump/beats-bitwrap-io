@@ -20,12 +20,17 @@ package audiorender
 // same source envelope bytes → byte-identical WAV.
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -142,8 +147,112 @@ func renderCounterMelody(ctx context.Context, ffmpegPath string, spec InsertSpec
 		notes[i].Frequency = 440.0 * math.Pow(2.0, float64(notes[i].Note-69)/12.0)
 	}
 
+	// Synthesis path. Two options:
+	//
+	// 1. Tone.js OfflineAudioContext (PR-4.3.2). Preserves the
+	//    timbre of the studio's instruments — a counter-melody on
+	//    `supersaw` actually sounds like supersaw rather than a
+	//    plain sine. Requires a running BaseURL (a local authoring
+	//    server with /api/insert-notes + /lib/share/insert-render.js
+	//    + chromedp). The worker passes BaseURL via a "_baseURL"
+	//    field on the spec.
+	//
+	// 2. ffmpeg additive sine (fallback). Pure DSP, no chromedp,
+	//    no external deps. Audibly plain but unambiguously a melody.
+	//
+	// Path selection: Tone.js when spec._baseURL + spec._chromePath
+	// + spec._rebuildSecret are all set; otherwise the ffmpeg path.
+	if spec.BaseURL != "" && spec.RebuildSecret != "" {
+		return synthesizeNotesViaTone(ctx, spec, notes, tickIntervalSec, dst)
+	}
 	return synthesizeNotes(ctx, ffmpegPath, notes, tickIntervalSec, spec.DurationSec, dst)
 }
+
+// synthesizeNotesViaTone POSTs the note list to the local server's
+// /api/insert-notes endpoint, spawns chromedp at
+// /?insert=counterMelody&notesId=…, and writes the captured WAV
+// blob to dst. Mirrors the share-render chromedp path but with a
+// different page-side module (insert-render.js).
+func synthesizeNotesViaTone(ctx context.Context, spec InsertSpec,
+	notes []noteEvent, tickSec float64, dst string) error {
+	// Build the JSON payload the page-side module fetches.
+	jsonNotes := make([]map[string]any, 0, len(notes))
+	for _, n := range notes {
+		jsonNotes = append(jsonNotes, map[string]any{
+			"tick":          n.StartTick,
+			"note":          n.Note,
+			"velocity":      n.Velocity,
+			"durationTicks": n.Duration,
+		})
+	}
+	durationMs := int64(spec.DurationSec * 1000)
+	tempoBpm := 60_000.0 / (tickSec * 1000.0 * float64(counterMelodyPPQ))
+	payload := map[string]any{
+		"notes":      jsonNotes,
+		"durationMs": durationMs,
+		"tempo":      int(math.Round(tempoBpm)),
+		"channel":    5,
+		"instrument": defaultInsertInstrument(spec.Instrument),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("audiorender/insert: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		spec.BaseURL+"/api/insert-notes", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("audiorender/insert: build req: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Rebuild-Secret", spec.RebuildSecret)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("audiorender/insert: post notes: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("audiorender/insert: post notes HTTP %d: %s",
+			resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("audiorender/insert: parse post resp: %w", err)
+	}
+	if out.ID == "" {
+		return errors.New("audiorender/insert: server returned empty id")
+	}
+	target := spec.BaseURL +
+		"/?insert=counterMelody&notesId=" + url.QueryEscape(out.ID) +
+		fmt.Sprintf("&durationMs=%d", durationMs)
+	if spec.RendererInstance == nil {
+		return errors.New("audiorender/insert: no renderer instance for chromedp dispatch")
+	}
+	wavBytes, err := spec.RendererInstance.CaptureURL(ctx, "insert-counterMelody", target)
+	if err != nil {
+		return fmt.Errorf("audiorender/insert: chromedp capture: %w", err)
+	}
+	// page-side returns base64-encoded WAV bytes via window.__renderBlob;
+	// CaptureURL has already done base64.StdEncoding.DecodeString. So
+	// wavBytes is the raw RIFF/WAV bytes — write straight to dst.
+	if err := os.WriteFile(dst, wavBytes, 0o644); err != nil {
+		return fmt.Errorf("audiorender/insert: write wav: %w", err)
+	}
+	return nil
+}
+
+func defaultInsertInstrument(provided string) string {
+	if provided != "" {
+		return provided
+	}
+	return "supersaw"
+}
+
+// dummy reference so base64 import doesn't get pruned by goimports
+// when the function later adds a code path that needs it.
+var _ = base64.StdEncoding
 
 // resolveSourceProject takes the source share envelope bytes and
 // returns a parsed pflow.Project ready for simulation. Two paths:

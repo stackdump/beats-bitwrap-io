@@ -374,6 +374,13 @@ def process_one(cid: str, args, secret: str) -> bool:
                     with open(sib_path, "wb") as f:
                         f.write(sib_env_bytes)
                     spec_to_render["sourceEnvelopePath"] = sib_path
+                    # PR-4.3.2: hand the local server's URL + rebuild
+                    # secret to the CLI so it can route counterMelody
+                    # through the Tone.js OfflineAudioContext path
+                    # instead of plain ffmpeg sines. The CLI falls
+                    # back to ffmpeg synthesis when these are empty.
+                    spec_to_render["_baseURL"] = args.local
+                    spec_to_render["_rebuildSecret"] = secret
                 wav = os.path.join(tmp, f"{key}.wav")
                 if not render_insert(args.binary, spec_to_render, wav):
                     return False
