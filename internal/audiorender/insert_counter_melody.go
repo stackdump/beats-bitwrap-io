@@ -64,8 +64,11 @@ func renderCounterMelody(ctx context.Context, ffmpegPath string, spec InsertSpec
 	if mode == "" {
 		mode = "answer"
 	}
-	if mode != "answer" {
-		return fmt.Errorf("audiorender/inserts: counterMelody mode %q not yet implemented (v1 ships answer only)", mode)
+	switch mode {
+	case "answer", "harmony", "shadow":
+		// supported
+	default:
+		return fmt.Errorf("audiorender/inserts: counterMelody mode %q not supported (use answer | harmony | shadow)", mode)
 	}
 
 	srcBytes, err := os.ReadFile(spec.SourceEnvelopePath)
@@ -99,7 +102,7 @@ func renderCounterMelody(ctx context.Context, ffmpegPath string, spec InsertSpec
 	// net within the share. Walking all music nets gives us the full
 	// rhythm + pitch picture, which is the right input for an answer
 	// line that complements the entire share, not one of its layers.
-	hits, pitchSet := simulateMusicNotes(proj, totalTicks)
+	hits, pitchSet, sourceNotes := simulateMusicNotes(proj, totalTicks)
 	if len(pitchSet) == 0 {
 		return errors.New("audiorender/inserts: source share has no music transitions to answer")
 	}
@@ -121,6 +124,10 @@ func renderCounterMelody(ctx context.Context, ffmpegPath string, spec InsertSpec
 	switch mode {
 	case "answer":
 		notes = answerMode(hits, pitchSet, register, density, rng)
+	case "harmony":
+		notes = harmonyMode(sourceNotes, register, density, rng)
+	case "shadow":
+		notes = shadowMode(sourceNotes, totalTicks, register, density, rng)
 	}
 	if len(notes) == 0 {
 		// Even with no rest opportunities, render a silent WAV at the
@@ -169,14 +176,28 @@ func resolveSourceProject(envBytes []byte) (*pflow.Project, error) {
 	return proj, nil
 }
 
+// sourceNote captures one MIDI firing collected during source
+// simulation. Used by harmony and shadow modes which transform
+// individual source notes rather than placing into rests.
+type sourceNote struct {
+	Tick     int
+	Note     int
+	Velocity int
+}
+
 // simulateMusicNotes walks every music net in proj for totalTicks
-// ticks, returning a per-tick boolean (true = some music net fired
-// with a MIDI binding) and the set of MIDI notes seen. Caller uses
-// the hits slice to compute the rest mask and the note set as the
-// pitch material for the answer line.
-func simulateMusicNotes(proj *pflow.Project, totalTicks int) ([]bool, []int) {
+// ticks, returning:
+//   - hits:        per-tick boolean, true when any music net fired a
+//                  transition with a MIDI binding;
+//   - pitchSet:    sorted unique MIDI notes observed across all hits
+//                  (used by answer mode for pitch material);
+//   - sourceNotes: ordered list of every MIDI firing with its tick,
+//                  used by harmony / shadow modes that transform the
+//                  source line directly.
+func simulateMusicNotes(proj *pflow.Project, totalTicks int) ([]bool, []int, []sourceNote) {
 	hits := make([]bool, totalTicks)
 	pitchSet := map[int]struct{}{}
+	var notes []sourceNote
 	// Sort net IDs for stable iteration.
 	netIDs := make([]string, 0, len(proj.Nets))
 	for id := range proj.Nets {
@@ -211,6 +232,13 @@ func simulateMusicNotes(proj *pflow.Project, totalTicks int) ([]bool, []int) {
 				if res != nil && res.Midi != nil && res.Midi.Note > 0 {
 					hits[tick] = true
 					pitchSet[res.Midi.Note] = struct{}{}
+					vel := res.Midi.Velocity
+					if vel <= 0 {
+						vel = 90
+					}
+					notes = append(notes, sourceNote{
+						Tick: tick, Note: res.Midi.Note, Velocity: vel,
+					})
 				}
 				break
 			}
@@ -226,7 +254,84 @@ func simulateMusicNotes(proj *pflow.Project, totalTicks int) ([]bool, []int) {
 		out = append(out, n)
 	}
 	sort.Ints(out)
-	return hits, out
+	return hits, out, notes
+}
+
+// harmonyMode emits a parallel-motion line: every source note
+// becomes srcNote ± interval. Density acts as a thinning gate
+// (1 − density of source notes are dropped, deterministically via
+// RNG). register chooses the major-3rd above (+4) or minor-3rd below
+// (−3) — both common, both broadly consonant, no key inference
+// required (chromatic). Result clamps to MIDI range, octave-shifting
+// if the interval pushes the harmony out of bounds.
+func harmonyMode(src []sourceNote, register string, density float64, rng *mulberry32) []noteEvent {
+	interval := 4 // major 3rd above
+	if register == "below" {
+		interval = -3 // minor 3rd below
+	}
+	var out []noteEvent
+	for _, n := range src {
+		if rng.float64() > density {
+			continue
+		}
+		pitch := n.Note + interval
+		for pitch < 24 {
+			pitch += 12
+		}
+		for pitch > 108 {
+			pitch -= 12
+		}
+		// Same-tick + short duration so the harmony reads as a
+		// chord rather than a delayed line. 4 ticks ≈ 1 quarter
+		// note at PPQ=4.
+		out = append(out, noteEvent{
+			StartTick: n.Tick,
+			Note:      pitch,
+			Velocity:  n.Velocity,
+			Duration:  4,
+		})
+	}
+	return out
+}
+
+// shadowMode emits sparse 16th-late echoes of the source line. Each
+// source note has probability density of triggering an echo on the
+// next tick (1/16 note at PPQ=4) at half velocity, transposed by
+// register. Subliminal dub-flavoured layer; useful at low density to
+// thicken without obscuring.
+func shadowMode(src []sourceNote, totalTicks int, register string, density float64, rng *mulberry32) []noteEvent {
+	transpose := 12
+	if register == "below" {
+		transpose = -12
+	}
+	var out []noteEvent
+	for _, n := range src {
+		if rng.float64() > density {
+			continue
+		}
+		echoTick := n.Tick + 1
+		if echoTick >= totalTicks {
+			continue
+		}
+		pitch := n.Note + transpose
+		for pitch < 24 {
+			pitch += 12
+		}
+		for pitch > 108 {
+			pitch -= 12
+		}
+		velocity := n.Velocity / 2
+		if velocity < 30 {
+			velocity = 30
+		}
+		out = append(out, noteEvent{
+			StartTick: echoTick,
+			Note:      pitch,
+			Velocity:  velocity,
+			Duration:  3,
+		})
+	}
+	return out
 }
 
 // answerMode finds rest runs in the source's rhythm and places

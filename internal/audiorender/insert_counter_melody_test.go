@@ -179,22 +179,122 @@ func TestRenderCounterMelody_RequiresSourcePath(t *testing.T) {
 	}
 }
 
-// TestRenderCounterMelody_UnsupportedMode: harmony / shadow modes
-// should error cleanly until PR-4.3.1+ implements them.
-func TestRenderCounterMelody_UnsupportedMode(t *testing.T) {
+// TestRenderCounterMelody_UnknownModeRejected: any mode outside
+// answer/harmony/shadow must error cleanly with a clear message.
+func TestRenderCounterMelody_UnknownModeRejected(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "src.json")
 	_ = os.WriteFile(envPath, []byte(`{"genre":"techno","seed":1,"tempo":124}`), 0o644)
-	for _, mode := range []string{"harmony", "shadow"} {
-		spec := InsertSpec{
-			Type:               "counterMelody",
-			DurationSec:        2.0,
-			Mode:               mode,
-			Of:                 "x",
-			SourceEnvelopePath: envPath,
+	spec := InsertSpec{
+		Type:               "counterMelody",
+		DurationSec:        2.0,
+		Mode:               "trance-out",
+		Of:                 "x",
+		SourceEnvelopePath: envPath,
+	}
+	if err := RenderInsert(context.Background(), "", spec, filepath.Join(dir, "x.wav")); err == nil {
+		t.Fatalf("expected error on unknown mode")
+	}
+}
+
+// TestHarmonyMode_ParallelMotion: every harmony note is interval
+// away from a source note (4 above or 3 below in v1).
+func TestHarmonyMode_ParallelMotion(t *testing.T) {
+	src := []sourceNote{
+		{Tick: 0, Note: 60, Velocity: 90},
+		{Tick: 4, Note: 64, Velocity: 90},
+		{Tick: 8, Note: 67, Velocity: 90},
+	}
+	rng := &mulberry32{state: 1}
+	out := harmonyMode(src, "above", 1.0, rng)
+	if len(out) != len(src) {
+		t.Fatalf("density=1.0 should keep all notes; got %d, want %d", len(out), len(src))
+	}
+	for i, n := range out {
+		want := src[i].Note + 4 // major 3rd above
+		if n.Note != want {
+			t.Fatalf("harmony[%d] note = %d, want %d (src %d + 4)", i, n.Note, want, src[i].Note)
 		}
-		if err := RenderInsert(context.Background(), "", spec, filepath.Join(dir, "x.wav")); err == nil {
-			t.Fatalf("expected error on mode=%q (not implemented in v1)", mode)
+		if n.StartTick != src[i].Tick {
+			t.Fatalf("harmony[%d] tick should match source: got %d, want %d", i, n.StartTick, src[i].Tick)
 		}
+	}
+}
+
+// TestHarmonyMode_BelowMinorThird: register="below" emits a minor
+// 3rd below (-3 semis).
+func TestHarmonyMode_BelowMinorThird(t *testing.T) {
+	src := []sourceNote{{Tick: 0, Note: 60, Velocity: 90}}
+	rng := &mulberry32{state: 1}
+	out := harmonyMode(src, "below", 1.0, rng)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 harmony note; got %d", len(out))
+	}
+	if out[0].Note != 57 {
+		t.Fatalf("below: got %d, want 57 (60 - 3)", out[0].Note)
+	}
+}
+
+// TestShadowMode_LateEchoes: each shadow note is exactly one tick
+// after its source, at half velocity.
+func TestShadowMode_LateEchoes(t *testing.T) {
+	src := []sourceNote{
+		{Tick: 0, Note: 60, Velocity: 100},
+		{Tick: 4, Note: 64, Velocity: 100},
+	}
+	rng := &mulberry32{state: 1}
+	out := shadowMode(src, 32, "above", 1.0, rng)
+	if len(out) != len(src) {
+		t.Fatalf("density=1.0 should echo every source note; got %d, want %d", len(out), len(src))
+	}
+	for i, n := range out {
+		if n.StartTick != src[i].Tick+1 {
+			t.Fatalf("shadow[%d] tick = %d, want %d (src + 1)", i, n.StartTick, src[i].Tick+1)
+		}
+		if n.Note != src[i].Note+12 {
+			t.Fatalf("shadow[%d] note = %d, want %d (above register)", i, n.Note, src[i].Note+12)
+		}
+		// Half velocity floor is 30, so velocity 50 is fine.
+		if n.Velocity > 60 {
+			t.Fatalf("shadow[%d] velocity = %d should be ≤ half source", i, n.Velocity)
+		}
+	}
+}
+
+// TestShadowMode_DropsLastTickEchoes: an echo that would land past
+// totalTicks is silently dropped (no note past the end).
+func TestShadowMode_DropsLastTickEchoes(t *testing.T) {
+	src := []sourceNote{{Tick: 31, Note: 60, Velocity: 100}}
+	rng := &mulberry32{state: 1}
+	out := shadowMode(src, 32, "above", 1.0, rng)
+	if len(out) != 0 {
+		t.Fatalf("echo past totalTicks should be dropped; got %d", len(out))
+	}
+}
+
+// TestRenderCounterMelody_HarmonyEndToEnd: harmony mode produces a
+// non-trivial WAV when a source share has music transitions.
+func TestRenderCounterMelody_HarmonyEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "src.json")
+	_ = os.WriteFile(envPath, []byte(`{"@type":"BeatsShare","v":1,"genre":"techno","seed":12345,"tempo":124}`), 0o644)
+	dst := filepath.Join(dir, "harmony.wav")
+	spec := InsertSpec{
+		Type:               "counterMelody",
+		DurationSec:        2.0,
+		Mode:               "harmony",
+		Of:                 "trackA",
+		Density:            0.6,
+		SourceEnvelopePath: envPath,
+		Seed:               42,
+	}
+	if err := RenderInsert(context.Background(), "", spec, dst); err != nil {
+		t.Fatalf("RenderInsert harmony: %v", err)
+	}
+	if info, _ := os.Stat(dst); info == nil || info.Size() < 200_000 {
+		t.Fatalf("harmony WAV suspiciously small")
 	}
 }
