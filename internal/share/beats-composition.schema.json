@@ -44,8 +44,9 @@
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
           "description": "Optional id so other tracks can reference this one (e.g. counterMelody.of). When omitted, sibling tracks fall back to numeric index."
         },
-        "in":      { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
-        "len":     { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
+        "in":        { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
+        "len":       { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
+        "srcOffset": { "type": ["integer", "null"], "minimum": 0, "maximum": 4096, "description": "Bar offset INTO the source render where the trimmed slice begins. Default 0 (start of source). Lets composition sections play different parts of the source's own structure — e.g. set srcOffset to where the source's chorus starts so a 'chorus' track in the composition uses chorus material." },
         "fadeIn":  { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-in duration in seconds. Default 0." },
         "fadeOut": { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-out duration in seconds. Default 0." },
         "soloRoles": {

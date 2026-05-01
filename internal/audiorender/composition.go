@@ -54,6 +54,14 @@ type CompositionTrackSpec struct {
 	SourceCID  string
 	InBars     int
 	LenBars    int
+	// SrcOffsetBars: PR-2.1. Bar offset INTO the source render
+	// where this slice begins (default 0 = start of source). Lets
+	// composition sections play different parts of the same source
+	// share's structure — e.g. a synthwave share has its own
+	// intro/verse/chorus arrangement, and the composition can pick
+	// the chorus by setting srcOffset to where the chorus starts in
+	// the source.
+	SrcOffsetBars int
 	FadeInSec  float64
 	FadeOutSec float64
 	// PR-2 per-track operations. Zero values are no-ops.
@@ -265,9 +273,14 @@ func assembleTimeline(
 				log.Printf("audiorender/composition: ffmpeg lacks rubberband filter; skipping transposeSemis=%d for track %s", t.TransposeSemis, t.SourceCID)
 			}
 		}
-		// Slice + reset PTS so atrim's offset doesn't bleed into the
-		// downstream filters' time math.
-		chain += fmt.Sprintf("atrim=0:%.6f,asetpts=PTS-STARTPTS", lenSec)
+		// PR-2.1: srcOffset shifts the trim window into the source
+		// render so different composition sections can play different
+		// parts of the share's own structure. Default 0 = start of
+		// source (legacy behaviour). atrim's start/end are absolute
+		// seconds; asetpts then re-zeros the trimmed result.
+		offsetSec := float64(t.SrcOffsetBars) * barSec
+		chain += fmt.Sprintf("atrim=%.6f:%.6f,asetpts=PTS-STARTPTS",
+			offsetSec, offsetSec+lenSec)
 		if t.FadeInSec > 0 {
 			chain += fmt.Sprintf(",afade=t=in:st=0:d=%.6f", t.FadeInSec)
 		}

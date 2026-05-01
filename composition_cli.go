@@ -117,10 +117,11 @@ func runRenderCompositionCLI(args []string) int {
 			Source struct {
 				CID string `json:"cid"`
 			} `json:"source"`
-			In      int     `json:"in"`
-			Len     int     `json:"len"`
-			FadeIn  float64 `json:"fadeIn"`
-			FadeOut float64 `json:"fadeOut"`
+			In        int     `json:"in"`
+			Len       int     `json:"len"`
+			SrcOffset int     `json:"srcOffset"`
+			FadeIn    float64 `json:"fadeIn"`
+			FadeOut   float64 `json:"fadeOut"`
 			// PR-2 per-track ops. SoloRoles + Mute are passed
 			// through to the ingredient render and don't affect
 			// the assembler chain. Transpose / TempoMatch / Gain
@@ -179,6 +180,7 @@ func runRenderCompositionCLI(args []string) int {
 			SourceCID:      t.Source.CID,
 			InBars:         t.In,
 			LenBars:        t.Len,
+			SrcOffsetBars:  t.SrcOffset,
 			FadeInSec:      t.FadeIn,
 			FadeOutSec:     t.FadeOut,
 			SoloRoles:      t.SoloRoles,
