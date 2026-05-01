@@ -1,6 +1,26 @@
 # BeatsComposition roadmap
 
-Plumbing PR (PR-1) is shipped: `/c/{cid}` envelope store, `audio-master/{cid}.{ext}` cache, ffmpeg assembler (`atrim` / `afade` / `adelay` / `amix` → `loudnorm` → fan-out wav/flac/mp3/webm), off-host worker (`scripts/process-composition-queue.py`), auto-enqueue on PUT, `render-composition` CLI subcommand, end-to-end smoke verified (3 techno ingredients → 38.7 s master, all 4 formats).
+## Status snapshot
+
+| PR | Title | Status |
+|---|---|---|
+| PR-1 | Envelope + render pipeline (`/c/{cid}`, `/audio-master/`, fan-out) | ✅ shipped |
+| PR-2 | Per-track ops (soloRoles/mute/transposeSemis/tempoMatch/gain + variant cache) | ✅ shipped |
+| PR-3 | Master FX chain (highpass/compress/eq/limiter/stereoWiden + 4 presets) | ✅ shipped |
+| PR-4.1 | Generative inserts: riser | ✅ shipped |
+| PR-4.2 | Generative inserts: drone / impact / texture | ✅ shipped |
+| PR-4.3 | counterMelody insert (answer mode) | ✅ shipped |
+| PR-4.3.1 | counterMelody harmony + shadow modes | ✅ shipped |
+| PR-4.3.2 | counterMelody Tone.js OfflineAudioContext synth (timbre fidelity) | 🔜 |
+| PR-5.1 | Minimal Compose page (form-based) | ✅ shipped |
+| PR-5.2 | Compose page bar-grid timeline visualisation | ✅ shipped |
+| PR-5.3 | Compose page drag-drop interactivity + client-side preview | 🔜 |
+| PR-6 | Feed surface for compositions (cards / RSS / `?type=` filter) | ✅ shipped |
+| PR-7.1 | Composition cover art (`/composition-card/{cid}.svg`) | ✅ shipped |
+| PR-7.2 | "→ Compose" link on share cards (`/compose.html?seed=…`) | ✅ shipped |
+| PR-7.3 | Compositions of compositions (recursive ingredients) | 🔜 |
+| PR-7.4 | Stems output (per-soloRoles group emitted alongside master) | 🔜 |
+| PR-7.5 | Live composition mode (WS-driven re-render on edit) | 🔜 |
 
 This file sequences the deferred work. Each PR is sized to land + verify independently. Schema fields are additive — old envelopes always render; new envelopes degrade gracefully on older worker binaries by ignoring unknown fields.
 
