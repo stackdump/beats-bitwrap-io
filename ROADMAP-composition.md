@@ -11,7 +11,7 @@
 | PR-4.2 | Generative inserts: drone / impact / texture | ✅ shipped |
 | PR-4.3 | counterMelody insert (answer mode) | ✅ shipped |
 | PR-4.3.1 | counterMelody harmony + shadow modes | ✅ shipped |
-| PR-4.3.2 | counterMelody Tone.js OfflineAudioContext synth (timbre fidelity) | 🔜 |
+| PR-4.3.2 | counterMelody Tone.js OfflineAudioContext synth (timbre fidelity) | ✅ shipped |
 | PR-5.1 | Minimal Compose page (form-based) | ✅ shipped |
 | PR-5.2 | Compose page bar-grid timeline visualisation | ✅ shipped |
 | PR-5.3 | Compose page drag-drop interactivity + client-side preview | 🔜 |
