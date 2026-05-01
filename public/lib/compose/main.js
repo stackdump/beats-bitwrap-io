@@ -363,6 +363,22 @@ function showStatus(kind, msg) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// preloadFromUrl: if /compose.html was opened with ?seed={cid},
+// fetch that share's metadata from /api/feed and pre-populate the
+// timeline with it as the first track. Lets the "→ Compose" button
+// on feed cards open this page already partway through authoring.
+async function preloadFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const seed = params.get('seed');
+    if (!seed || !seed.startsWith('z')) return;
+    // Wait until the feed has loaded so we can find the share's
+    // canonical name.
+    await loadFeed();
+    const item = state.feed.find((d) => d.cid === seed)
+        || { cid: seed, name: '', genre: '' };
+    addCidTrack(item);
+}
+
 // Wire up.
 $('add-insert').onclick = () => {
     const type = $('add-insert-type').value;
@@ -374,4 +390,10 @@ $('btn-preview').onclick = previewEnvelope;
 $('btn-seal').onclick = sealAndRender;
 $('btn-listen').onclick = listen;
 
-loadFeed();
+// preloadFromUrl handles ?seed=… pre-population AND calls loadFeed
+// internally; if there's no seed, fall back to a plain feed load.
+if (location.search.includes('seed=')) {
+    preloadFromUrl();
+} else {
+    loadFeed();
+}

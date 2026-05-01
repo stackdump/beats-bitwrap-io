@@ -382,7 +382,13 @@
     backdrop-filter: blur(2px);
     padding: 0;
   }
-  .card-actions button:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  .card-actions button:hover, .card-actions a.card-compose:hover { background: #1a2a3a; color: #fff; border-color: #4a5a7a; }
+  .card-actions a.card-compose {
+    background: rgba(0,0,0,0.7); color: #9ad; border: 1px solid #2a3a4a;
+    border-radius: 4px; width: 36px; height: 36px; font-size: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    text-decoration: none; backdrop-filter: blur(2px);
+  }
   .card-add[data-added="true"] { background: #1a3a2a; border-color: #2a5a3a; color: #aea; }
   .card-bm[data-bm="true"] { background: #3a2a08; border-color: #6a4a18; color: #fc6; }
   .card-play[data-state="playing"] { background: #1a2a3a; color: #67e8f9; border-color: #2a4a6a; }
@@ -2317,6 +2323,7 @@ const renderCard = (t) => {
       <button class="card-bm" data-cid="${t.cid}" title="Bookmark — saves to your local history with the bookmarked tag">★</button>
       <button class="card-add" data-cid="${t.cid}" title="Add to playlist">+</button>
       <button class="card-rebuild" data-cid="${t.cid}" title="Mark this track for re-render by an off-host worker">⟳</button>
+      ${t.contentType === 'BeatsComposition' ? '' : `<a class="card-compose" href="/compose.html?seed=${encodeURIComponent(t.cid)}" title="Open in the Compose page with this share as the first track">⎘</a>`}
     </div>
     <button class="card-view" data-cid="${t.cid}" title="View card" aria-label="View card"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8 C 4 3.5, 12 3.5, 14.5 8 C 12 12.5, 4 12.5, 1.5 8 Z"/><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"/></svg></button>
   `;
