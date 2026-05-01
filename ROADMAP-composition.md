@@ -21,6 +21,7 @@
 | PR-7.3 | Compositions of compositions (recursive ingredients) | ✅ shipped |
 | PR-7.4 | Stems output (per-group emitted alongside master) | ✅ shipped |
 | PR-7.5 | Live composition mode (WS-driven re-render on edit) | 🔜 (deferred — niche, large) |
+| PR-2.1 | `srcOffset` field on composition tracks (cohesion fix) | 🔜 |
 
 This file sequences the deferred work. Each PR is sized to land + verify independently. Schema fields are additive — old envelopes always render; new envelopes degrade gracefully on older worker binaries by ignoring unknown fields.
 
