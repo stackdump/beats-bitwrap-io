@@ -32,16 +32,11 @@
       "required": ["source", "in", "len"],
       "properties": {
         "source": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["cid"],
-          "properties": {
-            "cid": {
-              "type": "string",
-              "pattern": "^z[1-9A-HJ-NP-Za-km-z]{1,128}$",
-              "description": "CID of an existing BeatsShare envelope at /o/{cid}."
-            }
-          }
+          "oneOf": [
+            { "$ref": "#/$defs/SourceCID" },
+            { "$ref": "#/$defs/SourceGenerate" }
+          ],
+          "description": "Either a reference to an existing share (cid) or a generative insert spec (generate). Mutually exclusive — exactly one shape per track."
         },
         "in":      { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
         "len":     { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
@@ -77,6 +72,60 @@
           "minimum": -40,
           "maximum": 12,
           "description": "Per-track volume trim in dB applied before the bus mix. Default 0."
+        }
+      }
+    },
+    "SourceCID": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cid"],
+      "properties": {
+        "cid": {
+          "type": "string",
+          "pattern": "^z[1-9A-HJ-NP-Za-km-z]{1,128}$",
+          "description": "CID of an existing BeatsShare envelope at /o/{cid}."
+        }
+      }
+    },
+    "SourceGenerate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generate"],
+      "properties": {
+        "generate": { "$ref": "#/$defs/InsertSpec" }
+      }
+    },
+    "InsertSpec": {
+      "oneOf": [
+        { "$ref": "#/$defs/RiserSpec" }
+      ],
+      "description": "Generative insert. Discriminated by the `type` field. v1 supports `riser`; later versions extend with drone/impact/texture/counterMelody (see ROADMAP-composition.md PR-4.2+)."
+    },
+    "RiserSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":  { "const": "riser" },
+        "shape": {
+          "type": ["string", "null"],
+          "enum": ["white-noise", "pink-noise", null],
+          "description": "Source spectrum for the sweep. Default 'white-noise'."
+        },
+        "fStart": {
+          "type": ["number", "null"],
+          "minimum": 20, "maximum": 20000,
+          "description": "Start cutoff Hz of the high-pass sweep. Default 80."
+        },
+        "fEnd": {
+          "type": ["number", "null"],
+          "minimum": 20, "maximum": 20000,
+          "description": "End cutoff Hz of the high-pass sweep — the riser climbs to this frequency over its full duration. Default 8000."
+        },
+        "level": {
+          "type": ["number", "null"],
+          "minimum": -40, "maximum": 0,
+          "description": "Peak dB of the riser at the end of its build. Default -6."
         }
       }
     },

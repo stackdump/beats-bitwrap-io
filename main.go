@@ -67,6 +67,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "render-composition" {
 		os.Exit(runRenderCompositionCLI(os.Args[2:]))
 	}
+	// `beats-bitwrap-io render-insert` — generative-insert renderer
+	// (riser/drone/impact/texture). See insert_cli.go.
+	if len(os.Args) > 1 && os.Args[1] == "render-insert" {
+		os.Exit(runRenderInsertCLI(os.Args[2:]))
+	}
 
 	// --- Flags shared across production + authoring modes ---
 	addr := flag.String("addr", ":8089", "listen address")
