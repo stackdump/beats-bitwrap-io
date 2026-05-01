@@ -207,14 +207,25 @@ def render_composition(binary: str, env_path: str, ingredients_path: str, out_di
 
 
 def upload_master(remote: str, cid: str, ext: str, path: str, secret: str) -> bool:
-    with open(path, "rb") as f:
-        body = f.read()
-    code, _ = http("PUT", f"{remote}/audio-master/{cid}.{ext}",
-                   body=body,
-                   headers={"X-Rebuild-Secret": secret,
-                            "Content-Type": "application/octet-stream"},
-                   timeout=300)
-    if code not in (200, 201):
+    """PUT a master file via curl. Python's urllib.request races
+    Go's http.Server on multi-MB PUTs (BrokenPipe before headers
+    finish writing — reproducible at ~3 MB+ on darwin/Python 3.12).
+    curl handles the same upload reliably, so we shell out."""
+    cmd = [
+        "curl", "-sS", "-X", "PUT",
+        "-H", f"X-Rebuild-Secret: {secret}",
+        "-H", "Content-Type: application/octet-stream",
+        "--data-binary", f"@{path}",
+        "-w", "%{http_code}",
+        "-o", "/dev/null",
+        f"{remote}/audio-master/{cid}.{ext}",
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=600)
+    if r.returncode != 0:
+        print(f"  ! upload {cid}.{ext} curl exit={r.returncode}: {r.stderr.decode().strip()}", file=sys.stderr)
+        return False
+    code = r.stdout.decode().strip()
+    if code not in ("200", "201"):
         print(f"  ! upload {cid}.{ext} HTTP {code}", file=sys.stderr)
         return False
     return True
@@ -248,6 +259,17 @@ def process_one(cid: str, args, secret: str) -> bool:
     # renderer needs. Mirrors the assembler's barSec computation.
     bar_sec = (4.0 * 60.0) / master_bpm if master_bpm > 0 else 0.5
 
+    # First pass: build id → source.cid map so counterMelody specs
+    # can resolve `of: "trackA"` to the sibling's source share. Only
+    # tracks with both an id AND a cid source are eligible — generate
+    # sources can't be answered (would require recursion).
+    track_id_to_cid: dict[str, str] = {}
+    for t in tracks:
+        tid = t.get("id")
+        src_cid = (t.get("source") or {}).get("cid")
+        if tid and src_cid:
+            track_id_to_cid[tid] = src_cid
+
     # Source BPM cache for cid-source tempo-match ratios.
     source_bpm: dict[str, int] = {}
     # Cached envelope bytes for cid sources so we don't re-fetch.
@@ -279,13 +301,36 @@ def process_one(cid: str, args, secret: str) -> bool:
             source_resolution.setdefault(key, ("cid", ing_cid, query))
         elif "generate" in src:
             spec = dict(src["generate"])
-            # The spec's CID-stable form omits durationSec (it's
-            # derived from the track's bar length). For dedup keying
-            # we include it so two tracks of different lengths get
-            # distinct WAVs. The CLI receives the same merged form.
+            # counterMelody needs the sibling's source share resolved
+            # before render-insert runs. Pre-fetch the sibling
+            # envelope here so the seal-on-render loop below has it
+            # cached; the actual file path injection happens once we
+            # have a tempdir.
+            if spec.get("type") == "counterMelody":
+                sibling_id = spec.get("of")
+                if not sibling_id:
+                    print(f"  ! counterMelody track missing `of`", file=sys.stderr)
+                    return False
+                sibling_cid = track_id_to_cid.get(sibling_id)
+                if not sibling_cid:
+                    print(f"  ! counterMelody.of={sibling_id!r} does not match any sibling track id with a cid source", file=sys.stderr)
+                    return False
+                if sibling_cid not in cid_envelopes:
+                    sib_env_bytes = fetch_envelope(args.remote, "/o", sibling_cid)
+                    if not sib_env_bytes:
+                        return False
+                    cid_envelopes[sibling_cid] = sib_env_bytes
+                # Stash the sibling CID on the spec so the second
+                # pass can locate the cached bytes; the field is
+                # stripped before hashing the spec for the cache key.
+                spec["_siblingCid"] = sibling_cid
             spec_with_duration = dict(spec)
             spec_with_duration["durationSec"] = float(t.get("len", 1)) * bar_sec
-            key = generate_source_key(spec_with_duration)
+            # Don't include the worker-private _siblingCid hint in
+            # the cache key — it's a path resolved at render time,
+            # not part of the canonical spec.
+            spec_for_key = {k: v for k, v in spec_with_duration.items() if not k.startswith("_")}
+            key = generate_source_key(spec_for_key)
             track_source_keys[i] = key
             source_resolution.setdefault(key, ("gen", spec_with_duration))
         else:
@@ -314,8 +359,23 @@ def process_one(cid: str, args, secret: str) -> bool:
                 ingredient_paths[key] = wav
             elif kind == "gen":
                 _, spec = info
+                # counterMelody specs need the sibling's source share
+                # written to a tmp file so the Go renderer can read
+                # it. Strip the worker-private _siblingCid hint and
+                # replace with sourceEnvelopePath for the CLI.
+                spec_to_render = {k: v for k, v in spec.items() if not k.startswith("_")}
+                if spec.get("type") == "counterMelody":
+                    sibling_cid = spec.get("_siblingCid")
+                    sib_env_bytes = cid_envelopes.get(sibling_cid)
+                    if not sib_env_bytes:
+                        print(f"  ! counterMelody sibling envelope missing for {sibling_cid}", file=sys.stderr)
+                        return False
+                    sib_path = os.path.join(tmp, f"src-{sibling_cid[:14]}.json")
+                    with open(sib_path, "wb") as f:
+                        f.write(sib_env_bytes)
+                    spec_to_render["sourceEnvelopePath"] = sib_path
                 wav = os.path.join(tmp, f"{key}.wav")
-                if not render_insert(args.binary, spec, wav):
+                if not render_insert(args.binary, spec_to_render, wav):
                     return False
                 ingredient_paths[key] = wav
                 print(f"    ↳ generated {spec.get('type')} ({spec.get('durationSec'):.2f}s) → {key}")

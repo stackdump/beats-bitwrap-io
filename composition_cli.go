@@ -113,6 +113,7 @@ func runRenderCompositionCLI(args []string) int {
 	var raw struct {
 		Tempo  int `json:"tempo"`
 		Tracks []struct {
+			ID     string `json:"id"`
 			Source struct {
 				CID string `json:"cid"`
 			} `json:"source"`

@@ -46,6 +46,15 @@ type InsertSpec struct {
 	RootHz  float64 `json:"rootHz,omitempty"`
 	Variant string  `json:"variant,omitempty"`
 	Kind    string  `json:"kind,omitempty"`
+
+	// counterMelody params.
+	Of                 string  `json:"of,omitempty"`                 // sibling track id
+	Mode               string  `json:"mode,omitempty"`               // answer | harmony | shadow
+	Density            float64 `json:"density,omitempty"`            // 0..1
+	Register           string  `json:"register,omitempty"`           // above | below
+	Seed               int64   `json:"seed,omitempty"`               // optional explicit seed
+	Instrument         string  `json:"instrument,omitempty"`         // optional instrument id (PR-4.3.2 Tone.js path)
+	SourceEnvelopePath string  `json:"sourceEnvelopePath,omitempty"` // worker writes the resolved source share JSON here
 }
 
 // RenderInsert dispatches on InsertSpec.Type and writes a WAV at dst
@@ -64,6 +73,8 @@ func RenderInsert(ctx context.Context, ffmpegPath string, spec InsertSpec, dst s
 		return renderImpact(ctx, ffmpegPath, spec, dst)
 	case "texture":
 		return renderTexture(ctx, ffmpegPath, spec, dst)
+	case "counterMelody":
+		return renderCounterMelody(ctx, ffmpegPath, spec, dst)
 	}
 	return fmt.Errorf("audiorender/inserts: unknown insert type %q", spec.Type)
 }

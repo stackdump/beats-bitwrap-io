@@ -38,6 +38,12 @@
           ],
           "description": "Either a reference to an existing share (cid) or a generative insert spec (generate). Mutually exclusive — exactly one shape per track."
         },
+        "id": {
+          "type": ["string", "null"],
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+          "description": "Optional id so other tracks can reference this one (e.g. counterMelody.of). When omitted, sibling tracks fall back to numeric index."
+        },
         "in":      { "type": "integer", "minimum": 0, "maximum": 4096, "description": "Bar offset on the master timeline where this slice begins." },
         "len":     { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Number of bars to take from the ingredient." },
         "fadeIn":  { "type": ["number", "null"], "minimum": 0, "maximum": 60, "description": "Fade-in duration in seconds. Default 0." },
@@ -100,7 +106,8 @@
         { "$ref": "#/$defs/RiserSpec" },
         { "$ref": "#/$defs/DroneSpec" },
         { "$ref": "#/$defs/ImpactSpec" },
-        { "$ref": "#/$defs/TextureSpec" }
+        { "$ref": "#/$defs/TextureSpec" },
+        { "$ref": "#/$defs/CounterMelodySpec" }
       ],
       "description": "Generative insert. Discriminated by the `type` field. PR-4.1+4.2 ship riser, drone, impact, texture (pure-DSP); counterMelody arrives in PR-4.3 with a chromedp+Tone.js render path."
     },
@@ -184,6 +191,20 @@
           "minimum": -60, "maximum": 0,
           "description": "Peak dB. Default -30 (texture is intentionally subliminal)."
         }
+      }
+    },
+    "CounterMelodySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "of"],
+      "properties": {
+        "type":     { "const": "counterMelody" },
+        "of":       { "type": "string", "maxLength": 64, "description": "id of a sibling track in tracks[]. The source share referenced by that track is the one this counter-melody answers." },
+        "mode":     { "type": ["string", "null"], "enum": ["answer", "harmony", "shadow", null], "description": "answer (PR-4.3) | harmony (PR-4.3.1) | shadow (PR-4.3.2). Default answer." },
+        "density":  { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "0..1 — how often the counter-melody speaks. Default 0.5." },
+        "register": { "type": ["string", "null"], "enum": ["above", "below", null], "description": "Octave offset relative to the source's pitch material. Default above (+12 semitones)." },
+        "seed":     { "type": ["integer", "null"], "description": "Optional explicit RNG seed. When omitted, the seed derives from a hash of the canonical spec + source share bytes — same composition + same source → same counter-melody." },
+        "instrument": { "type": ["string", "null"], "maxLength": 64, "description": "Optional instrument id for the Tone.js render path (PR-4.3.2). Ignored by the v1 ffmpeg-sine synthesis." }
       }
     },
     "Master": {
