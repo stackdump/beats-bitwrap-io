@@ -1605,6 +1605,7 @@ input[type="range"][data-default] {
    visible even when the tile also has .running / .queued / .firing. */
 .pn-macro-btn.pn-macro-stacked {
     box-shadow: 0 0 0 2px #f0a020 inset;
+    position: relative;
 }
 .pn-macro-btn.pn-macro-stacked::after {
     content: '★';
