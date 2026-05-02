@@ -25,6 +25,19 @@
 
 This file sequences the deferred work. Each PR is sized to land + verify independently. Schema fields are additive — old envelopes always render; new envelopes degrade gracefully on older worker binaries by ignoring unknown fields.
 
+## Design principle: arrange makes songs, compose mixes them
+
+Surfaced from the EDM-track and synthwave-mix experiments: BeatsComposition is the **wrong** layer to construct a song from scratch. Slicing a share with `srcOffset` + `soloRoles` across multiple composition tracks fragments the natural cohesion the share's own arranger already produced (verse → chorus → bridge as a planned progression).
+
+Use the right tool:
+
+| Layer | What it does | Use for |
+|---|---|---|
+| **BeatsShare arrange** (`structure: extended` / `feelCurve` / `macroCurve` / `sections` / variants) | Song-as-a-whole. The composer plans a coherent verse/chorus/bridge arrangement with instrument introduction over time. | Making a track sound like a track. |
+| **BeatsComposition** | Mixes / layers existing tracks + adds atmospheric inserts (drone, riser, counterMelody) + applies a master FX chain. | DJ sets, remixes ("build on this share"), adding a counter-melody to someone else's share, tape rolloff on a stem, A/B/C transitions. |
+
+Concrete implication for the Compose UI (PR-5.x): the default "new composition" flow shouldn't encourage authors to build a song by chopping one share into 8-bar sections. It should encourage either (a) reaching for an existing well-arranged share and lightly wrapping it (master chain + fade), or (b) combining multiple shares as ingredients in a DJ-style mix. The "advanced / wacky" mode (per the nudge-don't-gatekeep principle) keeps the chop-it-up workflow available, but it isn't the default suggestion.
+
 ## Design principle: nudge, don't gatekeep
 
 The Compose UI, presets, and example envelopes should **direct users toward tasteful arrangements** (drone as intro pad, drums-don't-overlap, fade-out at the end) — but the schema and renderer must continue to **allow the wacky stuff**. A 50-bar drone running flat under everything is "wrong" by pop-arrangement rules but landed as an interesting listen during the Neon Highway development. Drone music IS a genre. Beat-mismatched layers ARE a deliberate technique. Don't validate them out.
