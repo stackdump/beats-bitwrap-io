@@ -975,11 +975,18 @@ export function autoDjFireMacros(el) {
     const enabled = new Set([...poolBoxes].map(cb => cb.value));
 
     el._disabledMacros = el._disabledMacros || loadDisabledMacros(el);
+    const transitionEnabled = enabled.has('Transition');
     const candidates = enabled.size === 0 ? [] : MACROS.filter(m => {
         if (m.kind === 'compound') return false;
         if (el._disabledMacros.has(m.id)) return false;
         if (m.kind === 'one-shot') return enabled.has('Beats');
-        return enabled.has(m.group);
+        if (enabled.has(m.group)) return true;
+        // Transition pool is its own axis (curated FX/Tempo IDs) so it
+        // contributes candidates regardless of group-pool checkboxes —
+        // otherwise enabling only Transition produces zero candidates
+        // and the cadence silently skips every fire.
+        if (transitionEnabled && TRANSITION_MACRO_IDS.has(m.id)) return true;
+        return false;
     });
 
     if (candidates.length === 0) {

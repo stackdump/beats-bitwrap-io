@@ -501,7 +501,7 @@ export function buildUI(el) {
                 <label><input type="checkbox" class="pn-autodj-pool" value="Feel">Feel</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Tempo">Tempo</label>
                 <label><input type="checkbox" class="pn-autodj-pool" value="Beats">Beats</label>
-                <label title="Only fires on regen boundaries — curated sweeps/washes/risers for track transitions"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
+                <label title="Curated sweeps/washes/risers — fires both on the rate cadence and on regen boundaries when enabled"><input type="checkbox" class="pn-autodj-pool" value="Transition" checked>Transition</label>
             </fieldset>
             <label class="pn-autodj-field">
                 <span>Stack</span>
