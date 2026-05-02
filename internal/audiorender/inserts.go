@@ -128,15 +128,13 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	}
 	fStart := spec.FStart
 	if fStart <= 0 {
-		fStart = 200
+		fStart = 150
 	}
 	fEnd := spec.FEnd
 	if fEnd <= 0 {
 		fEnd = 8000
 	}
 	if fEnd <= fStart {
-		// Sweep must rise; a flat or descending sweep wouldn't be a
-		// riser. Coerce to one octave above fStart.
 		fEnd = fStart * 2
 	}
 	level := spec.Level
@@ -144,37 +142,38 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 		level = -6
 	}
 
-	// Build the sendcmd sweep table. 32 steps logarithmically
-	// distributed in frequency over the full duration. Commands
-	// target the highpass filter by its explicit name `@swp` —
-	// without the alias asendcmd silently fails to route the
-	// frequency-change commands and the cutoff stays at fStart
-	// for the whole duration (riser sounds like static white
-	// noise getting louder, not actually rising).
-	const steps = 32
-	cmds := make([]string, 0, steps+1)
-	for i := 0; i <= steps; i++ {
-		ratio := float64(i) / float64(steps)
-		t := ratio * spec.DurationSec
-		f := fStart * math.Pow(fEnd/fStart, ratio)
-		cmds = append(cmds, fmt.Sprintf("%.4f @swp f %.0f", t, f))
-	}
-	sweepExpr := strings.Join(cmds, "; ")
-
-	src := fmt.Sprintf("anoisesrc=color=%s:duration=%.6f:amplitude=1.0", color, spec.DurationSec)
-	// Quarter-sine volume curve (curve=qsin) ramps soft → hard:
-	// barely audible at the start, full level at the end. Combined
-	// with the sweep, this gives the classic "tension build"
-	// silhouette. afade ends slightly before the duration boundary
-	// so the riser tail doesn't get trimmed by atrim downstream.
+	// True log-frequency chirp via aevalsrc. The standard log-sweep
+	// formula:
+	//   instantaneous freq: f(t) = fStart * (fEnd/fStart)^(t/T)
+	//   phase:              ∫ 2π·f(t) dt
+	//                     = 2π · fStart · T / ln(k) · (k^(t/T) - 1)
+	// where k = fEnd/fStart and T = duration.
+	//
+	// Synthesised as a pure sine wave that rises in pitch — the
+	// classic EDM "whistle" riser. Distinct from filtered noise:
+	// a single tonal sweep instead of a wide spectrum that
+	// brightens. We sum noise on top later if the author wants
+	// thickness; v1 ships pure tone so the rise is unambiguous.
+	T := spec.DurationSec
+	k := fEnd / fStart
+	logK := math.Log(k)
+	// aevalsrc: 2*PI is supported as PI * 2; ffmpeg has a built-in
+	// `PI` constant. Time variable is `t`.
+	chirp := fmt.Sprintf(
+		"sin(2*PI*%.6f*%.6f/%.6f*(pow(%.6f,t/%.6f)-1))",
+		fStart, T, logK, k, T)
+	src := fmt.Sprintf("aevalsrc=exprs='%s':duration=%.6f:sample_rate=48000",
+		chirp, spec.DurationSec)
+	_ = color // shape is informational only for the chirp variant; pure tone, no noise color
+	// Volume curve: quarter-sine (curve=qsin) ramps soft → hard so
+	// the riser climaxes at its frequency peak — barely audible at
+	// the start, full level at the end.
 	fadeDur := spec.DurationSec * 0.95
 	if fadeDur < 0.1 {
 		fadeDur = spec.DurationSec
 	}
 	filters := strings.Join([]string{
 		fmt.Sprintf("afade=t=in:st=0:d=%.6f:curve=qsin", fadeDur),
-		fmt.Sprintf("asendcmd=c='%s'", sweepExpr),
-		fmt.Sprintf("highpass@swp=f=%.0f", fStart),
 		fmt.Sprintf("volume=%.2fdB", level),
 		"aformat=channel_layouts=stereo",
 	}, ",")
