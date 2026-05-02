@@ -23,6 +23,31 @@ func baseURL() string {
 	return "http://localhost:8080"
 }
 
+// validCID gates user-supplied CIDs before they're interpolated into
+// URLs. Matches the existing CIDv1 / base58btc / dag-json shape used
+// by the share store (leading 'z' multibase prefix + 40-90 base58
+// characters). Rejects path-traversal sequences and other junk so the
+// MCP tools can't be used as a probe vector against the target host.
+func validCID(s string) bool {
+	if len(s) < 40 || len(s) > 90 {
+		return false
+	}
+	if s[0] != 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // apiCall makes a request to the petri-note HTTP server.
 func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 	return apiCallTo("", method, path, body)
@@ -504,6 +529,9 @@ func handleRebuildMark(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	if cid == "" {
 		return mcp.NewToolResultError("cid is required"), nil
 	}
+	if !validCID(cid) {
+		return mcp.NewToolResultError("invalid cid format"), nil
+	}
 	_, err := apiCallTo(hostArg(req), "POST", "/api/rebuild-mark", map[string]string{"cid": cid})
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -528,6 +556,9 @@ func handleRebuildClear(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	cid, _ := req.GetArguments()["cid"].(string)
 	if cid == "" {
 		return mcp.NewToolResultError("cid is required"), nil
+	}
+	if !validCID(cid) {
+		return mcp.NewToolResultError("invalid cid format"), nil
 	}
 	_, err := apiCallTo(hostArg(req), "POST", "/api/rebuild-clear", map[string]string{"cid": cid})
 	if err != nil {
@@ -583,6 +614,9 @@ func handleArchiveLookup(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	cid, _ := req.GetArguments()["cid"].(string)
 	if cid == "" {
 		return mcp.NewToolResultError("cid is required"), nil
+	}
+	if !validCID(cid) {
+		return mcp.NewToolResultError("invalid cid format"), nil
 	}
 	resp, err := apiCallTo(hostArg(req), "GET", "/api/archive-lookup?cid="+cid, nil)
 	if err != nil {
@@ -642,8 +676,13 @@ func handleCollectionStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 		AudioSize int64  `json:"audio_size_bytes,omitempty"`
 	}
 	rows := make([]row, 0, len(cids))
-	var queuedN, audioN, envN int
+	var queuedN, audioN, envN, invalidN int
 	for _, cid := range cids {
+		if !validCID(cid) {
+			rows = append(rows, row{CID: cid})
+			invalidN++
+			continue
+		}
 		r := row{CID: cid, Queued: queued[cid]}
 		if r.Queued {
 			queuedN++
@@ -681,9 +720,15 @@ func handleCollectionStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 		}
 		rows = append(rows, r)
 	}
-	out := fmt.Sprintf("host: %s\ntotal: %d  envelope: %d  audio: %d  queued: %d\n\n",
-		base, len(cids), envN, audioN, queuedN)
+	out := fmt.Sprintf("host: %s\ntotal: %d  envelope: %d  audio: %d  queued: %d  invalid: %d\n\n",
+		base, len(cids), envN, audioN, queuedN, invalidN)
 	for _, r := range rows {
+		// Reject malformed CIDs up front — they were never sent to the
+		// server in the first place, so flag them distinctly.
+		if !validCID(r.CID) {
+			out += fmt.Sprintf("  XXX  %s  (invalid CID)\n", r.CID)
+			continue
+		}
 		flags := ""
 		if r.Envelope {
 			flags += "E"
@@ -706,7 +751,7 @@ func handleCollectionStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 		}
 		out += fmt.Sprintf("  %s  %s%s\n", flags, r.CID, size)
 	}
-	out += "\nlegend: E=envelope sealed  A=audio rendered  Q=in rebuild queue\n"
+	out += "\nlegend: E=envelope sealed  A=audio rendered  Q=in rebuild queue  XXX=invalid CID\n"
 	return mcp.NewToolResultText(out), nil
 }
 
