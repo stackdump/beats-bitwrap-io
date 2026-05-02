@@ -69,11 +69,10 @@ export function applyAutoDjState(el, state) {
         if (node.type === 'checkbox') node.checked = !!val;
         else if (val != null) node.value = val;
     };
-    set('pn-autodj-enable',       state.run);
-    set('pn-autodj-animate-only', state.animateOnly);
-    set('pn-autodj-rate',         state.rate);
-    set('pn-autodj-regen',        state.regen);
-    set('pn-autodj-stack',        state.stack);
+    set('pn-autodj-enable', state.run);
+    set('pn-autodj-rate',   state.rate);
+    set('pn-autodj-regen',  state.regen);
+    set('pn-autodj-stack',  state.stack);
     if (state.pools) {
         for (const cb of panel.querySelectorAll('.pn-autodj-pool')) {
             if (cb.value in state.pools) cb.checked = !!state.pools[cb.value];

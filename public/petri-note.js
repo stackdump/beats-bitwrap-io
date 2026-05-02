@@ -1004,14 +1004,6 @@ class PetriNote extends HTMLElement {
                 cb.dispatchEvent(new Event('change', { bubbles: true }));
                 return;
             }
-            case 'a': {
-                const cb = this.querySelector('.pn-autodj-animate-only');
-                if (!cb) return;
-                e.preventDefault();
-                cb.checked = !cb.checked;
-                cb.dispatchEvent(new Event('change', { bubbles: true }));
-                return;
-            }
             case 'p': e.preventDefault(); this.querySelector('.pn-macro-panic')?.click(); return;
             case 'b': e.preventDefault(); this.querySelector('.pn-fx-bypass')?.click(); return;
             case 'r': e.preventDefault(); this.querySelector('.pn-fx-reset')?.click(); return;

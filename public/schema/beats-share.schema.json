@@ -189,7 +189,7 @@
       "additionalProperties": true,
       "properties": {
         "run":         { "type": "boolean" },
-        "animateOnly": { "type": "boolean" },
+        "animateOnly": { "type": "boolean", "deprecated": true, "description": "Deprecated as of v2.4 — accepted but ignored. Was a UI-only toggle that spun the Auto-DJ ring without firing macros; left in schema so old sealed CIDs validate." },
         "rate":        { "type": "integer" },
         "regen":       { "type": "integer" },
         "stack":       { "type": "integer" },

@@ -479,10 +479,6 @@ export function buildUI(el) {
                 <input type="checkbox" class="pn-autodj-enable">
                 <span>Run</span>
             </label>
-            <label class="pn-autodj-toggle" title="Spin the ring on cadence without firing any macros">
-                <input type="checkbox" class="pn-autodj-animate-only">
-                <span>Animate only</span>
-            </label>
             <label class="pn-autodj-field">
                 <span>Every</span>
                 <select class="pn-autodj-rate">

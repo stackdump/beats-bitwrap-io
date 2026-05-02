@@ -504,7 +504,7 @@ func generateArrangeStructure(genreName, size string, roles []string, rng *rand.
 func expandArrangeVariantsOpts(proj *pflow.Project, tmpl *SongTemplate, roles []string, rng *rand.Rand, opts ArrangeOpts) {
 	deltas := opts.VelocityDeltas
 	if deltas == nil {
-		deltas = map[string]int{"A": 0, "B": 15, "C": -15}
+		deltas = map[string]int{"A": 0, "B": 15, "C": -15, "D": -10}
 	}
 	expandArrangeVariants(proj, tmpl, roles, rng, deltas)
 }

@@ -740,7 +740,7 @@ export function arrangeWithOpts(proj, genre, size, opts = {}) {
     }
     if (opts.maxVariants > 0) capVariantLetters(tmpl, opts.maxVariants);
 
-    const deltas = opts.velocityDeltas || { A: 0, B: 15, C: -15 };
+    const deltas = opts.velocityDeltas || { A: 0, B: 15, C: -15, D: -10 };
     expandArrangeVariants(proj, tmpl, musicRoles, rng, deltas);
 
     const allNets = sortedMusicNetIDs(proj);

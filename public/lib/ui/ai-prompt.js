@@ -29,7 +29,7 @@ Optional overrides (omit defaults to keep the CID stable):
   "tracks":    { trackId → {mix?, instrument?, instrumentSet?[]} }
   "fx":        { master-vol?, reverb-wet?, delay-wet?, filter-cutoff?, ... }
   "feel":      { engaged: bool, sliders: { chill?, drive?, ambient?, euphoric? } }
-  "autoDj":    { run?, animateOnly?, rate?, regen?, stack?, showAutoDj?, pools? }
+  "autoDj":    { run?, rate?, regen?, stack?, showAutoDj?, pools? }
   "hits":      { hit1–hit4 → {bars?, pitch?, pair?} }
   "ui":        { playbackMode? "single"|"repeat"|"shuffle", showFx?, showMacros?, showOneShots? }
   "loop":      { startTick, endTick }

@@ -798,11 +798,10 @@ export function saveAutoDjSettings(el) {
         }
         const state = {
             showAutoDj: !!el._showAutoDj,
-            run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
-            animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
-            rate:        panel.querySelector('.pn-autodj-rate')?.value,
-            regen:       panel.querySelector('.pn-autodj-regen')?.value,
-            stack:       panel.querySelector('.pn-autodj-stack')?.value,
+            run:        !!panel.querySelector('.pn-autodj-enable')?.checked,
+            rate:       panel.querySelector('.pn-autodj-rate')?.value,
+            regen:      panel.querySelector('.pn-autodj-regen')?.value,
+            stack:      panel.querySelector('.pn-autodj-stack')?.value,
             pools,
         };
         localStorage.setItem('pn-autodj-settings', JSON.stringify(state));
@@ -828,9 +827,8 @@ export function restoreAutoDjSettings(el, autoDjBtn, panel) {
         if (node.type === 'checkbox') node.checked = !!val;
         else if (val != null) node.value = val;
     };
-    set('pn-autodj-enable',        state.run);
-    set('pn-autodj-animate-only',  state.animateOnly);
-    set('pn-autodj-rate',          state.rate);
+    set('pn-autodj-enable', state.run);
+    set('pn-autodj-rate',   state.rate);
     set('pn-autodj-regen',         state.regen);
     set('pn-autodj-stack',         state.stack);
     if (state.pools) {
@@ -955,15 +953,7 @@ export function injectTransitionNet(el, project) {
 
 export function autoDjFireMacros(el) {
     const stack = parseInt(el.querySelector('.pn-autodj-stack')?.value, 10) || 1;
-    const animateOnly = !!el.querySelector('.pn-autodj-animate-only')?.checked;
     const statusEl = el.querySelector('.pn-autodj-status');
-
-    // Animate-only: skip macro selection entirely, just spin the ring.
-    if (animateOnly) {
-        autoDjSpin(el, stack);
-        if (statusEl) statusEl.textContent = `(animate only)`;
-        return;
-    }
 
     // Don't pile up — if any macro is still running or queued, skip.
     if (el._runningMacro || (el._macroQueue && el._macroQueue.length > 0)) {

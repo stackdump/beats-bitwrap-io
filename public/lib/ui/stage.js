@@ -1939,7 +1939,7 @@ function openHelp(overlay) {
             <ul>
                 <li><kbd>Space</kbd> play / stop · <kbd>M</kbd> close Stage · <kbd>Esc</kbd> close modal or Stage</li>
                 <li><kbd>G</kbd> generate · <kbd>S</kbd> shuffle instruments · <kbd>F</kbd> Feel pad</li>
-                <li><kbd>J</kbd> Auto-DJ run · <kbd>A</kbd> Auto-DJ animate-only · <kbd>P</kbd> panic (cancel macros)</li>
+                <li><kbd>J</kbd> Auto-DJ run · <kbd>P</kbd> panic (cancel macros)</li>
                 <li><kbd>B</kbd> FX bypass · <kbd>R</kbd> FX reset · <kbd>T</kbd> tap tempo · <kbd>,</kbd> / <kbd>.</kbd> BPM ∓1</li>
                 <li><kbd>1</kbd>–<kbd>4</kbd> toggle hit tracks · <kbd>[</kbd> / <kbd>]</kbd> prev / next track</li>
                 <li><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> nudge hovered slider (works on any control under the cursor)</li>

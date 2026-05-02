@@ -39,12 +39,11 @@ export function collectAutoDjState(el) {
         return Number.isFinite(n) ? n : fallback;
     };
     return {
-        showAutoDj:  !!el._showAutoDj,
-        run:         !!panel.querySelector('.pn-autodj-enable')?.checked,
-        animateOnly: !!panel.querySelector('.pn-autodj-animate-only')?.checked,
-        rate:        intOr(panel.querySelector('.pn-autodj-rate'),  2),
-        regen:       intOr(panel.querySelector('.pn-autodj-regen'), 0),
-        stack:       intOr(panel.querySelector('.pn-autodj-stack'), 1),
+        showAutoDj: !!el._showAutoDj,
+        run:        !!panel.querySelector('.pn-autodj-enable')?.checked,
+        rate:       intOr(panel.querySelector('.pn-autodj-rate'),  2),
+        regen:      intOr(panel.querySelector('.pn-autodj-regen'), 0),
+        stack:      intOr(panel.querySelector('.pn-autodj-stack'), 1),
         pools,
     };
 }
