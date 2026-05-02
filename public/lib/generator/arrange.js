@@ -158,6 +158,39 @@ const ARCHETYPES = {
     outro:        { kick: true, hihat: true, melody: true },
 };
 
+// Per-family overrides for ARCHETYPES — sparse map. Mirrors
+// sectionArchetypesByFamily in structure.go.
+const ARCHETYPES_BY_FAMILY = {
+    edm: {
+        intro:     { kick: true, hihat: true },
+        breakdown: { hihat: true, bass: true },
+    },
+    song: {
+        'pre-chorus': { kick: true, snare: true, bass: true, arp: true },
+        outro:        { kick: true, hihat: true, bass: true, melody: true },
+    },
+    jazz: {
+        intro:  { hihat: true, bass: true },
+        verse:  { hihat: true, bass: true, melody: true },
+        chorus: { hihat: true, bass: true, melody: true, harmony: true },
+        solo:   { hihat: true, bass: true, melody: true },
+    },
+    chill: {
+        intro:     { bass: true },
+        verse:     { hihat: true, bass: true, melody: true },
+        chorus:    { hihat: true, bass: true, melody: true, harmony: true, arp: true },
+        bridge:    { bass: true, melody: true },
+        breakdown: { melody: true },
+        outro:     { melody: true },
+    },
+};
+
+function archetypeFor(family, name) {
+    const fam = ARCHETYPES_BY_FAMILY[family];
+    if (fam && fam[name]) return fam[name];
+    return ARCHETYPES[name] || {};
+}
+
 const NO_VARIANT_ROLES = { snare: true };
 
 function defaultPhrases(name) {
@@ -269,7 +302,7 @@ function generateArrangeStructure(genre, size, roles, rng) {
 
     const sections = blueprint.map(name => {
         const active = {};
-        const archetype = ARCHETYPES[name] || {};
+        const archetype = archetypeFor(family, name);
         for (const k of Object.keys(archetype)) {
             if (roleSet.has(k)) active[k] = true;
         }

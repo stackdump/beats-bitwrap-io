@@ -79,7 +79,9 @@ func sectionWithPhrases(name string, steps int, active map[string]bool) Section 
 	return Section{Name: name, Steps: steps, Active: active, Phrases: phrases}
 }
 
-// sectionArchetypes defines the active roles for each section type.
+// sectionArchetypes defines the default active roles for each section
+// type. Per-family overrides live in sectionArchetypesByFamily — use
+// archetypeFor(family, name) to resolve them.
 var sectionArchetypes = map[string]map[string]bool{
 	"intro":      {"kick": true, "hihat": true, "bass": true},
 	"verse":      {"kick": true, "snare": true, "hihat": true, "bass": true},
@@ -91,6 +93,56 @@ var sectionArchetypes = map[string]map[string]bool{
 	"bridge":     {"bass": true, "melody": true, "harmony": true},
 	"solo":       {"kick": true, "hihat": true, "bass": true, "melody": true},
 	"outro":      {"kick": true, "hihat": true, "melody": true},
+}
+
+// sectionArchetypesByFamily holds sparse per-family overrides for the
+// default archetype map above. A family that doesn't override a section
+// inherits the default. Used to make jazz "verse" actually sound like
+// jazz (no four-on-the-floor) and ambient "chorus" actually sound like
+// ambient (no kick/snare/clap).
+var sectionArchetypesByFamily = map[structureFamily]map[string]map[string]bool{
+	familyEDM: {
+		// EDM intros are typically rhythm-only; bass arrives later
+		// with the buildup. Breakdowns drop the melodic layer to
+		// leave just the rhythmic skeleton + low end.
+		"intro":     {"kick": true, "hihat": true},
+		"breakdown": {"hihat": true, "bass": true},
+	},
+	familySong: {
+		// Pre-chorus drops hihat to build tension (the cymbal lifts
+		// when the chorus kicks back in). Outro keeps bass for shape.
+		"pre-chorus": {"kick": true, "snare": true, "bass": true, "arp": true},
+		"outro":      {"kick": true, "hihat": true, "bass": true, "melody": true},
+	},
+	familyJazz: {
+		// Jazz drops the four-on-floor kick + backbeat snare in
+		// favour of ride-cymbal (hihat) + walking bass + melody.
+		"intro":  {"hihat": true, "bass": true},
+		"verse":  {"hihat": true, "bass": true, "melody": true},
+		"chorus": {"hihat": true, "bass": true, "melody": true, "harmony": true},
+		"solo":   {"hihat": true, "bass": true, "melody": true},
+	},
+	familyChill: {
+		// Ambient/lofi: minimize percussion. Intro is pad-only,
+		// breakdowns / outros fade to a single melodic layer.
+		"intro":      {"bass": true},
+		"verse":      {"hihat": true, "bass": true, "melody": true},
+		"chorus":     {"hihat": true, "bass": true, "melody": true, "harmony": true, "arp": true},
+		"bridge":     {"bass": true, "melody": true},
+		"breakdown":  {"melody": true},
+		"outro":      {"melody": true},
+	},
+}
+
+// archetypeFor resolves the active-role set for a section, applying any
+// family-specific override over the default archetype map.
+func archetypeFor(family structureFamily, sectionName string) map[string]bool {
+	if overrides, ok := sectionArchetypesByFamily[family]; ok {
+		if a, ok := overrides[sectionName]; ok {
+			return a
+		}
+	}
+	return sectionArchetypes[sectionName]
 }
 
 // sectionStep returns the step count for a section at a given template size.
@@ -310,10 +362,8 @@ func GenerateStructure(genreName, size string, rng *rand.Rand) *SongTemplate {
 	sections := make([]Section, len(blueprint))
 	for i, name := range blueprint {
 		active := make(map[string]bool)
-		if archetype, ok := sectionArchetypes[name]; ok {
-			for k, v := range archetype {
-				active[k] = v
-			}
+		for k, v := range archetypeFor(family, name) {
+			active[k] = v
 		}
 		steps := sectionSteps(name, size)
 		sections[i] = sectionWithPhrases(name, steps, active)

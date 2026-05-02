@@ -22,6 +22,39 @@ const sectionArchetypes = {
     'outro':      { kick: true, hihat: true, melody: true },
 };
 
+// Per-family overrides — sparse map; mirrors Go sectionArchetypesByFamily.
+// Family override → fall back to sectionArchetypes default.
+const sectionArchetypesByFamily = {
+    0 /* familyEDM */: {
+        'intro':     { kick: true, hihat: true },
+        'breakdown': { hihat: true, bass: true },
+    },
+    1 /* familySong */: {
+        'pre-chorus': { kick: true, snare: true, bass: true, arp: true },
+        'outro':      { kick: true, hihat: true, bass: true, melody: true },
+    },
+    2 /* familyJazz */: {
+        'intro':  { hihat: true, bass: true },
+        'verse':  { hihat: true, bass: true, melody: true },
+        'chorus': { hihat: true, bass: true, melody: true, harmony: true },
+        'solo':   { hihat: true, bass: true, melody: true },
+    },
+    3 /* familyChill */: {
+        'intro':     { bass: true },
+        'verse':     { hihat: true, bass: true, melody: true },
+        'chorus':    { hihat: true, bass: true, melody: true, harmony: true, arp: true },
+        'bridge':    { bass: true, melody: true },
+        'breakdown': { melody: true },
+        'outro':     { melody: true },
+    },
+};
+
+function archetypeFor(family, name) {
+    const fam = sectionArchetypesByFamily[family];
+    if (fam && fam[name]) return fam[name];
+    return sectionArchetypes[name];
+}
+
 // --- Drum roles and no-variant roles ---
 
 const drumRoles = { kick: true, snare: true, hihat: true, clap: true };
@@ -292,7 +325,7 @@ export function generateStructure(genreName, size, rng) {
 
     const sections = blueprint.map(name => {
         const active = {};
-        const archetype = sectionArchetypes[name];
+        const archetype = archetypeFor(family, name);
         if (archetype) {
             for (const k of Object.keys(archetype)) {
                 active[k] = archetype[k];

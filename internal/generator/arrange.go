@@ -457,13 +457,13 @@ func generateArrangeStructure(genreName, size string, roles []string, rng *rand.
 
 	sections := make([]Section, len(blueprint))
 	for i, name := range blueprint {
-		// Start from archetype, intersect with actual roles
+		// Start from archetype (with family override applied),
+		// intersect with actual roles
+		archetype := archetypeFor(family, name)
 		active := make(map[string]bool)
-		if archetype, ok := sectionArchetypes[name]; ok {
-			for k := range archetype {
-				if roleSet[k] {
-					active[k] = true
-				}
+		for k := range archetype {
+			if roleSet[k] {
+				active[k] = true
 			}
 		}
 		// For custom roles not in archetypes, use section-based heuristics
@@ -471,7 +471,7 @@ func generateArrangeStructure(genreName, size string, roles []string, rng *rand.
 			if active[r] {
 				continue // already included
 			}
-			if _, isArchetype := sectionArchetypes[name][r]; isArchetype {
+			if _, isArchetype := archetype[r]; isArchetype {
 				continue // archetype says no
 			}
 			// Custom role: include based on section energy
