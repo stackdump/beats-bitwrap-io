@@ -145,14 +145,19 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	}
 
 	// Build the sendcmd sweep table. 32 steps logarithmically
-	// distributed in frequency over the full duration.
+	// distributed in frequency over the full duration. Commands
+	// target the highpass filter by its explicit name `@swp` —
+	// without the alias asendcmd silently fails to route the
+	// frequency-change commands and the cutoff stays at fStart
+	// for the whole duration (riser sounds like static white
+	// noise getting louder, not actually rising).
 	const steps = 32
 	cmds := make([]string, 0, steps+1)
 	for i := 0; i <= steps; i++ {
 		ratio := float64(i) / float64(steps)
 		t := ratio * spec.DurationSec
 		f := fStart * math.Pow(fEnd/fStart, ratio)
-		cmds = append(cmds, fmt.Sprintf("%.4f highpass f %.0f", t, f))
+		cmds = append(cmds, fmt.Sprintf("%.4f @swp f %.0f", t, f))
 	}
 	sweepExpr := strings.Join(cmds, "; ")
 
@@ -169,7 +174,7 @@ func renderRiser(ctx context.Context, ffmpegPath string, spec InsertSpec, dst st
 	filters := strings.Join([]string{
 		fmt.Sprintf("afade=t=in:st=0:d=%.6f:curve=qsin", fadeDur),
 		fmt.Sprintf("asendcmd=c='%s'", sweepExpr),
-		fmt.Sprintf("highpass=f=%.0f", fStart),
+		fmt.Sprintf("highpass@swp=f=%.0f", fStart),
 		fmt.Sprintf("volume=%.2fdB", level),
 		"aformat=channel_layouts=stereo",
 	}, ",")
