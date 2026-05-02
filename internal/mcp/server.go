@@ -25,6 +25,13 @@ func baseURL() string {
 
 // apiCall makes a request to the petri-note HTTP server.
 func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
+	return apiCallTo("", method, path, body)
+}
+
+// apiCallTo makes a request to a specific host (or the default when empty).
+// Used by the rebuild/archive tools so a single MCP session can manage
+// both a local authoring server and the remote production host.
+func apiCallTo(host, method, path string, body interface{}) (json.RawMessage, error) {
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -34,7 +41,10 @@ func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 		reqBody = bytes.NewReader(data)
 	}
 
-	base := baseURL()
+	base := host
+	if base == "" {
+		base = baseURL()
+	}
 	req, err := http.NewRequest(method, base+path, reqBody)
 	if err != nil {
 		return nil, err
@@ -45,7 +55,7 @@ func apiCall(method, path string, body interface{}) (json.RawMessage, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("petri-note server not reachable at %s: %v", base, err)
+		return nil, fmt.Errorf("server not reachable at %s: %v", base, err)
 	}
 	defer resp.Body.Close()
 
@@ -76,8 +86,25 @@ func Serve() error {
 	s.AddTool(muteTrackTool(), handleMuteTrack)
 	s.AddTool(setInstrumentTool(), handleSetInstrument)
 	s.AddTool(midiRoutingTool(), handleMidiRouting)
+	s.AddTool(rebuildQueueTool(), handleRebuildQueue)
+	s.AddTool(rebuildMarkTool(), handleRebuildMark)
+	s.AddTool(rebuildClearTool(), handleRebuildClear)
+	s.AddTool(archiveMissingTool(), handleArchiveMissing)
+	s.AddTool(archiveLookupTool(), handleArchiveLookup)
+	s.AddTool(collectionStatusTool(), handleCollectionStatus)
 
 	return server.ServeStdio(s)
+}
+
+// hostArg returns the host override for a tool call, or the empty string
+// (so apiCallTo falls back to BEATS_BTW_URL). Trims trailing slashes so
+// "https://beats.bitwrap.io/" and "https://beats.bitwrap.io" both work.
+func hostArg(req mcp.CallToolRequest) string {
+	h, _ := req.GetArguments()["host"].(string)
+	for len(h) > 0 && h[len(h)-1] == '/' {
+		h = h[:len(h)-1]
+	}
+	return h
 }
 
 // === Tool definitions ===
@@ -424,6 +451,262 @@ func handleMidiRouting(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 			out += fmt.Sprintf("  %s → %s\n", netId, port)
 		}
 	}
+	return mcp.NewToolResultText(out), nil
+}
+
+// === Rebuild-queue + archive tools ===
+
+func rebuildQueueTool() mcp.Tool {
+	return mcp.NewTool("rebuild_queue",
+		mcp.WithDescription("List CIDs currently flagged for audio re-render. The off-host worker (scripts/process-rebuild-queue.py) drains this queue. Returns at most `limit` entries (default 50, max 500)."),
+		mcp.WithString("host",
+			mcp.Description("Override target host (e.g. 'https://beats.bitwrap.io'). Defaults to BEATS_BTW_URL."),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Max CIDs to return (1-500, default 50)."),
+		),
+	)
+}
+
+func handleRebuildQueue(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	path := "/api/rebuild-queue"
+	if v, ok := req.GetArguments()["limit"].(float64); ok && v > 0 {
+		path = fmt.Sprintf("%s?limit=%d", path, int(v))
+	}
+	resp, err := apiCallTo(hostArg(req), "GET", path, nil)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var cids []string
+	json.Unmarshal(resp, &cids)
+	out := fmt.Sprintf("queue depth: %d\n", len(cids))
+	for _, c := range cids {
+		out += "  " + c + "\n"
+	}
+	return mcp.NewToolResultText(out), nil
+}
+
+func rebuildMarkTool() mcp.Tool {
+	return mcp.NewTool("rebuild_mark",
+		mcp.WithDescription("Flag a share CID for audio re-render. Worker picks it up on the next sweep. Idempotent — duplicate marks are silently coalesced server-side."),
+		mcp.WithString("cid",
+			mcp.Required(),
+			mcp.Description("Share CID (z…) to mark for rebuild."),
+		),
+		mcp.WithString("host",
+			mcp.Description("Override target host."),
+		),
+	)
+}
+
+func handleRebuildMark(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cid, _ := req.GetArguments()["cid"].(string)
+	if cid == "" {
+		return mcp.NewToolResultError("cid is required"), nil
+	}
+	_, err := apiCallTo(hostArg(req), "POST", "/api/rebuild-mark", map[string]string{"cid": cid})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText("marked: " + cid), nil
+}
+
+func rebuildClearTool() mcp.Tool {
+	return mcp.NewTool("rebuild_clear",
+		mcp.WithDescription("Drop a CID from the rebuild queue without re-rendering. Useful for stuck rows or canceling a mark."),
+		mcp.WithString("cid",
+			mcp.Required(),
+			mcp.Description("Share CID to clear."),
+		),
+		mcp.WithString("host",
+			mcp.Description("Override target host."),
+		),
+	)
+}
+
+func handleRebuildClear(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cid, _ := req.GetArguments()["cid"].(string)
+	if cid == "" {
+		return mcp.NewToolResultError("cid is required"), nil
+	}
+	_, err := apiCallTo(hostArg(req), "POST", "/api/rebuild-clear", map[string]string{"cid": cid})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText("cleared: " + cid), nil
+}
+
+func archiveMissingTool() mcp.Tool {
+	return mcp.NewTool("archive_missing",
+		mcp.WithDescription("List CIDs in the share store that have no cached audio render. Drives the archive sweep — pair with rebuild_mark to enqueue them."),
+		mcp.WithNumber("limit",
+			mcp.Description("Max CIDs to return (default 100)."),
+		),
+		mcp.WithString("host",
+			mcp.Description("Override target host."),
+		),
+	)
+}
+
+func handleArchiveMissing(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	path := "/api/archive-missing"
+	if v, ok := req.GetArguments()["limit"].(float64); ok && v > 0 {
+		path = fmt.Sprintf("%s?limit=%d", path, int(v))
+	}
+	resp, err := apiCallTo(hostArg(req), "GET", path, nil)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var cids []string
+	json.Unmarshal(resp, &cids)
+	out := fmt.Sprintf("missing renders: %d\n", len(cids))
+	for _, c := range cids {
+		out += "  " + c + "\n"
+	}
+	return mcp.NewToolResultText(out), nil
+}
+
+func archiveLookupTool() mcp.Tool {
+	return mcp.NewTool("archive_lookup",
+		mcp.WithDescription("Report whether a CID is live in the share store and which persisted snapshots contain it."),
+		mcp.WithString("cid",
+			mcp.Required(),
+			mcp.Description("Share CID to look up."),
+		),
+		mcp.WithString("host",
+			mcp.Description("Override target host."),
+		),
+	)
+}
+
+func handleArchiveLookup(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cid, _ := req.GetArguments()["cid"].(string)
+	if cid == "" {
+		return mcp.NewToolResultError("cid is required"), nil
+	}
+	resp, err := apiCallTo(hostArg(req), "GET", "/api/archive-lookup?cid="+cid, nil)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var buf bytes.Buffer
+	json.Indent(&buf, resp, "", "  ")
+	return mcp.NewToolResultText(buf.String()), nil
+}
+
+func collectionStatusTool() mcp.Tool {
+	return mcp.NewTool("collection_status",
+		mcp.WithDescription("Report rebuild + render coverage for a list of CIDs (a 'collection'). For each CID: in queue? has cached audio? envelope present? Useful when seeding a batch and wanting to know which still need work."),
+		mcp.WithArray("cids",
+			mcp.Required(),
+			mcp.Description("List of share CIDs to check."),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("host",
+			mcp.Description("Override target host."),
+		),
+	)
+}
+
+func handleCollectionStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	raw, _ := req.GetArguments()["cids"].([]interface{})
+	cids := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			cids = append(cids, s)
+		}
+	}
+	if len(cids) == 0 {
+		return mcp.NewToolResultError("cids is required"), nil
+	}
+	host := hostArg(req)
+	queueResp, err := apiCallTo(host, "GET", "/api/rebuild-queue?limit=500", nil)
+	if err != nil {
+		return mcp.NewToolResultError("rebuild-queue: " + err.Error()), nil
+	}
+	var queueList []string
+	json.Unmarshal(queueResp, &queueList)
+	queued := map[string]bool{}
+	for _, c := range queueList {
+		queued[c] = true
+	}
+
+	base := host
+	if base == "" {
+		base = baseURL()
+	}
+	type row struct {
+		CID       string `json:"cid"`
+		Envelope  bool   `json:"envelope"`
+		Audio     bool   `json:"audio"`
+		Queued    bool   `json:"queued"`
+		AudioSize int64  `json:"audio_size_bytes,omitempty"`
+	}
+	rows := make([]row, 0, len(cids))
+	var queuedN, audioN, envN int
+	for _, cid := range cids {
+		r := row{CID: cid, Queued: queued[cid]}
+		if r.Queued {
+			queuedN++
+		}
+		// envelope: GET /o/{cid} (the share-store handler doesn't accept
+		// HEAD). Envelopes are tiny (~1-2 KB) so the body cost is fine.
+		if envReq, _ := http.NewRequest("GET", base+"/o/"+cid, nil); envReq != nil {
+			if resp, err := http.DefaultClient.Do(envReq); err == nil {
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode < 400 {
+					r.Envelope = true
+					envN++
+				}
+			}
+		}
+		// audio: GET /audio/{cid}.webm with Range: bytes=0-0 so we only
+		// pull a single byte. Content-Range carries the full file size.
+		if audReq, _ := http.NewRequest("GET", base+"/audio/"+cid+".webm", nil); audReq != nil {
+			audReq.Header.Set("Range", "bytes=0-0")
+			if resp, err := http.DefaultClient.Do(audReq); err == nil {
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode < 400 {
+					r.Audio = true
+					audioN++
+					// Content-Range: bytes 0-0/12345  → 12345
+					if cr := resp.Header.Get("Content-Range"); cr != "" {
+						if i := bytes.LastIndexByte([]byte(cr), '/'); i >= 0 {
+							fmt.Sscanf(cr[i+1:], "%d", &r.AudioSize)
+						}
+					}
+				}
+			}
+		}
+		rows = append(rows, r)
+	}
+	out := fmt.Sprintf("host: %s\ntotal: %d  envelope: %d  audio: %d  queued: %d\n\n",
+		base, len(cids), envN, audioN, queuedN)
+	for _, r := range rows {
+		flags := ""
+		if r.Envelope {
+			flags += "E"
+		} else {
+			flags += "-"
+		}
+		if r.Audio {
+			flags += "A"
+		} else {
+			flags += "-"
+		}
+		if r.Queued {
+			flags += "Q"
+		} else {
+			flags += "-"
+		}
+		size := ""
+		if r.AudioSize > 0 {
+			size = fmt.Sprintf("  %d B", r.AudioSize)
+		}
+		out += fmt.Sprintf("  %s  %s%s\n", flags, r.CID, size)
+	}
+	out += "\nlegend: E=envelope sealed  A=audio rendered  Q=in rebuild queue\n"
 	return mcp.NewToolResultText(out), nil
 }
 
