@@ -149,9 +149,25 @@ func ArrangeWithOpts(proj *pflow.Project, genre, size string, opts ArrangeOpts) 
 	// Collect all net IDs after variant expansion (also sorted).
 	allNets := sortedMusicNetIDs(proj)
 
-	// Build control nets and get initial mutes
+	// Build control nets and get initial mutes. Preserve any pre-existing
+	// initialMutes (e.g. envelope-baked stinger mutes) — section-derived
+	// mutes augment them, not replace.
 	initialMutes := SongStructure(proj, tmpl, allNets)
-	proj.InitialMutes = initialMutes
+	seen := make(map[string]bool, len(proj.InitialMutes)+len(initialMutes))
+	merged := make([]string, 0, len(proj.InitialMutes)+len(initialMutes))
+	for _, id := range proj.InitialMutes {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	for _, id := range initialMutes {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	proj.InitialMutes = merged
 
 	applyArrangeOverlays(proj, tmpl, allNets, opts)
 }
@@ -466,13 +482,20 @@ func generateArrangeStructure(genreName, size string, roles []string, rng *rand.
 				active[k] = true
 			}
 		}
-		// For custom roles not in archetypes, use section-based heuristics
+		// For custom roles not in archetypes, use section-based heuristics.
+		// Stinger nets (hitN) are deliberately excluded — they're one-shot
+		// accents, not section-driven tracks. Auto-activating them here
+		// would cause struct-hitN control nets to fire unmute-track at
+		// section boundaries, overriding any envelope-baked stinger mute.
 		for _, r := range roles {
 			if active[r] {
 				continue // already included
 			}
 			if _, isArchetype := archetype[r]; isArchetype {
 				continue // archetype says no
+			}
+			if pflow.IsStingerNet(r, nil) {
+				continue
 			}
 			// Custom role: include based on section energy
 			switch name {

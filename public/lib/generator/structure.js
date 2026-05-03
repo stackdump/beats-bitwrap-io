@@ -665,6 +665,17 @@ export function songStructure(proj, template, musicNets) {
                 }
             }
         } else if (!slotRoles.has(netId)) {
+            // Stingers are one-shot accents and must never be driven by
+            // section structure — skip the control net entirely and
+            // keep them muted from the start.
+            if (nb?.track?.group === 'stinger' || /^hit\d+$/.test(netId)) {
+                if (!isRoleActive(structure[0], netRoles[netId])) {
+                    initialMutes.push(netId);
+                } else {
+                    initialMutes.push(netId); // always muted regardless
+                }
+                continue;
+            }
             // Non-variant net — use section-boundary control
             const ctrl = linearControlNet(netId, template, totalSteps);
             proj.nets[`struct-${netId}`] = ctrl;

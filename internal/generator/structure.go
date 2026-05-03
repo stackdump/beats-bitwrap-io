@@ -496,6 +496,13 @@ func SongStructure(proj *pflow.Project, template *SongTemplate, musicNets []stri
 				}
 			}
 		} else if !slotRoles[netId] {
+			// Stingers are one-shot accents and must never be driven by
+			// section structure — skip the control net entirely and
+			// keep them muted from the start.
+			if pflow.IsStingerNet(netId, nb) {
+				initialMutes = append(initialMutes, netId)
+				continue
+			}
 			// Non-variant net — use original section-boundary control
 			ctrl := linearControlNet(netId, template, totalSteps, staggerOf[netId])
 			proj.Nets[fmt.Sprintf("struct-%s", netId)] = ctrl

@@ -57,7 +57,17 @@ DEFAULT_DISABLED_MACROS = [
     "drop", "breakdown", "solo-drums", "cut", "beat-repeat", "double-drop",
     # Tempo group
     "half-time", "tape-stop", "tempo-anchor",
+    # FX group — long hold tails that smear into the next section
+    "cathedral", "reverb-wash",
+    # Pitch group — vinyl brake is disruptive
+    "vinyl-brake",
 ]
+
+# Auto-DJ pool overrides baked into the envelope. UI default is
+# {Mute, FX, Pan, Shape, Transition} = checked; everything else off.
+# We additionally enable Pitch so the Pitch macros (minus vinyl-brake
+# above) join the rotation. Pools not listed inherit the UI default.
+DEFAULT_AUTO_DJ_POOLS = {"Pitch": True}
 
 
 # Deterministic per-genre seeds — keeps re-runs idempotent (same CIDs).
@@ -111,11 +121,14 @@ class Throttle:
 
 
 def process_track(local: str, upload: str, genre: str, seed: int,
-                  disabled_macros: list[str], no_auto_dj: bool,
+                  disabled_macros: list[str], auto_dj_run: bool | None,
                   generate_lock: threading.Lock,
                   seal_throttle: Throttle, audio_throttle: Throttle,
                   dry_run: bool, rebuild_secret: str = "",
-                  official: bool = False) -> dict | None:
+                  official: bool = False,
+                  structure: str = "",
+                  arrange_seed: int | None = None,
+                  mute_groups: list[str] | None = None) -> dict | None:
     if dry_run:
         print(f"  [dry] {genre:<10} seed={seed:<6}")
         return {"genre": genre, "seed": seed, "cid": None, "ok": True}
@@ -126,8 +139,19 @@ def process_track(local: str, upload: str, genre: str, seed: int,
     payload_share = {"mirror": [upload]}
     if disabled_macros:
         payload_share["macrosDisabled"] = disabled_macros
-    if no_auto_dj:
-        payload_share["autoDj"] = {"run": False}
+    if auto_dj_run is not None:
+        autodj: dict = {"run": auto_dj_run}
+        if auto_dj_run and DEFAULT_AUTO_DJ_POOLS:
+            autodj["pools"] = dict(DEFAULT_AUTO_DJ_POOLS)
+        payload_share["autoDj"] = autodj
+    if structure and structure != "loop":
+        payload_share["structure"] = structure
+        # Default arrangeSeed to the per-track seed so the arrangement is
+        # deterministic across re-runs (same envelope CID).
+        payload_share["arrangeSeed"] = (arrange_seed
+                                        if arrange_seed is not None else seed)
+    if mute_groups:
+        payload_share["muteGroups"] = mute_groups
     # Operator provenance: stamp source=official into the envelope so
     # the feed UI can render an "Official" badge. Server validates the
     # rebuild-secret header before honoring this — without it, the
@@ -197,8 +221,11 @@ def main():
                     help="Don't bake macrosDisabled into envelopes")
     ap.add_argument("--enable-macro", action="append", default=[],
                     help="Allow this macro id (remove from disabled list). Repeatable.")
-    ap.add_argument("--no-auto-dj-off", action="store_true",
-                    help="Don't bake autoDj.run=false (default: bakes it)")
+    ap.add_argument("--auto-dj", choices=["on", "off", "skip"], default="on",
+                    help="Bake autoDj.run into the envelope. on (default) "
+                         "engages Auto-DJ during render + on listener load; "
+                         "off forces it disengaged; skip omits the field "
+                         "entirely so the listener's preference wins.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--rebuild-secret", default="",
                     help="X-Rebuild-Secret to bypass first-write-wins on the audio "
@@ -209,7 +236,17 @@ def main():
     ap.add_argument("--official", action="store_true",
                     help="Stamp source=official on the envelope so the feed UI "
                          "shows an Official badge. Requires --rebuild-secret.")
+    ap.add_argument("--structure", default="",
+                    help="Arrangement directive baked into the envelope "
+                         "(loop|ab|drop|build|jam|minimal|standard|extended). "
+                         "Empty = no structure (raw loop). arrangeSeed defaults "
+                         "to the per-track seed for deterministic re-runs.")
+    ap.add_argument("--mute-group", action="append", default=["stinger"],
+                    help="Mute every net matching this group in the seeded "
+                         "envelope (default: stinger). Repeatable. Pass "
+                         "--mute-group '' once to clear the default.")
     args = ap.parse_args()
+    args.mute_group = [g for g in args.mute_group if g]
     if args.rebuild_secret == "-":
         args.rebuild_secret = sys.stdin.readline().strip()
     if args.official and not args.rebuild_secret:
@@ -229,8 +266,18 @@ def main():
     print(f"Workers: {args.workers}")
     if disabled:
         print(f"Disabled macros: {', '.join(disabled)}")
-    if not args.no_auto_dj_off:
+    auto_dj_run = {"on": True, "off": False, "skip": None}[args.auto_dj]
+    if auto_dj_run is True:
+        extras = f", pools+={list(DEFAULT_AUTO_DJ_POOLS)}" if DEFAULT_AUTO_DJ_POOLS else ""
+        print(f"Auto-DJ: baked on (autoDj.run=true{extras})")
+    elif auto_dj_run is False:
         print("Auto-DJ: baked off (autoDj.run=false)")
+    else:
+        print("Auto-DJ: not baked (listener default wins)")
+    if args.structure:
+        print(f"Structure: {args.structure} (arrangeSeed = per-track seed)")
+    if args.mute_group:
+        print(f"Mute groups: {', '.join(args.mute_group)}")
     print()
 
     # /api/generate touches in-memory state on the local server, so it
@@ -252,9 +299,10 @@ def main():
         futs = [
             pool.submit(process_track,
                         args.local_host, args.upload_host, g, s,
-                        disabled, not args.no_auto_dj_off,
+                        disabled, auto_dj_run,
                         generate_lock, seal_throttle, audio_throttle,
-                        args.dry_run, args.rebuild_secret, args.official)
+                        args.dry_run, args.rebuild_secret, args.official,
+                        args.structure, None, args.mute_group)
             for (g, s) in plan
         ]
         for fut in concurrent.futures.as_completed(futs):

@@ -307,9 +307,15 @@ function generateArrangeStructure(genre, size, roles, rng) {
             if (roleSet.has(k)) active[k] = true;
         }
         // Custom roles (not in archetypes) active in named sections.
+        // Stinger nets (hitN / track.group=stinger) are deliberately
+        // excluded — they're one-shot accents, not section-driven
+        // tracks. Auto-activating them here would cause struct-hitN
+        // control nets to fire unmute-track at section boundaries,
+        // overriding any envelope-baked stinger mute.
         for (const r of roles) {
             if (active[r] !== undefined) continue;
             if (archetype[r]) continue;
+            if (/^hit\d+$/.test(r)) continue;
             if (!['intro', 'outro'].includes(name)) active[r] = true;
         }
         return sectionWithPhrases(name, sectionSteps(name, size), active);
@@ -551,6 +557,13 @@ function songStructure(proj, tmpl, musicNets) {
                 }
             }
         } else if (!slotRoles.has(id)) {
+            // Stingers are one-shot accents and must never be driven by
+            // section structure — skip the control net entirely and
+            // keep them muted from the start.
+            if (isStingerNet(id, nb)) {
+                initialMutes.push(id);
+                continue;
+            }
             proj.nets[`struct-${id}`] = linearControlNet(id, tmpl, totalSteps, staggerOf.get(id) || 0);
             if (!tmpl.sections[0].active[id]) initialMutes.push(id);
         }
@@ -745,7 +758,11 @@ export function arrangeWithOpts(proj, genre, size, opts = {}) {
 
     const allNets = sortedMusicNetIDs(proj);
     const initialMutes = songStructure(proj, tmpl, allNets);
-    proj.initialMutes = initialMutes;
+    // Preserve any pre-existing initialMutes (e.g. envelope-baked stinger
+    // mutes) — section-derived mutes augment them, not replace.
+    const seen = new Set(proj.initialMutes || []);
+    for (const id of initialMutes) seen.add(id);
+    proj.initialMutes = [...seen];
 
     applyArrangeOverlays(proj, tmpl, allNets, opts);
 }

@@ -817,6 +817,12 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 			// false} to ensure the listener / renderer never engages.
 			MacrosDisabled []string       `json:"macrosDisabled"`
 			AutoDj         map[string]any `json:"autoDj"`
+			// Mute-by-group resolver: any group name listed here
+			// (currently only "stinger" is recognized) is expanded to
+			// the matching net IDs and merged into envelope.initialMutes.
+			// Lets seed/render pipelines bake stinger silence without
+			// having to enumerate the project nets client-side.
+			MuteGroups []string `json:"muteGroups"`
 			// Source claim: only "official" is accepted, only when the
 			// request carries a valid X-Rebuild-Secret. Anything else
 			// (including a wrong secret) is silently dropped.
@@ -843,29 +849,43 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 		if len(req.AutoDj) > 0 {
 			envelope["autoDj"] = req.AutoDj
 		}
-		// Source claim. Validate the rebuild-secret here at the route
-		// level — sealDirect bypasses the HTTP layer that the share
-		// store uses to gate this normally. Drop the field silently
-		// if the secret is wrong (don't 401 — a bad-faith user can't
-		// distinguish "secret rejected" from "field never read").
-		if req.Source == "official" &&
-			rebuildSecret != "" &&
-			constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
-			envelope["source"] = "official"
-			// Stamp signer + signature so "official" is verifiable.
-			// SignEnvelope mutates in-place, computing the pre-sig
-			// CID and signing it with the operator key. After this
-			// call the envelope's CanonicalCID will incorporate the
-			// signature bytes; any third party who fetches /o/{cid}
-			// can independently verify against /api/operator-pubkey.
-			if err := operatorKey.SignEnvelope(envelope); err != nil {
-				http.Error(w, "operator sign: "+err.Error(),
-					http.StatusInternalServerError)
-				return
+		// Mute-by-group: expand requested groups to net IDs (only
+		// "stinger" is recognized today) and merge with whatever
+		// initialMutes already came off the project. Done before
+		// signing so the signature commits to the expanded mutes.
+		if len(req.MuteGroups) > 0 {
+			parsed := pflow.ParseProject(project)
+			seen := map[string]bool{}
+			var merged []any
+			if existing, ok := envelope["initialMutes"].([]any); ok {
+				for _, v := range existing {
+					if s, ok := v.(string); ok && !seen[s] {
+						seen[s] = true
+						merged = append(merged, s)
+					}
+				}
+			}
+			wantStinger := false
+			for _, g := range req.MuteGroups {
+				if g == "stinger" {
+					wantStinger = true
+				}
+			}
+			if wantStinger && parsed != nil {
+				for id, nb := range parsed.Nets {
+					if pflow.IsStingerNet(id, nb) && !seen[id] {
+						seen[id] = true
+						merged = append(merged, id)
+					}
+				}
+			}
+			if len(merged) > 0 {
+				envelope["initialMutes"] = merged
 			}
 		}
 		// Optional arrangement directive — carried in the envelope so the
 		// client can re-expand the track deterministically on load.
+		// Add BEFORE signing so the signature commits to these fields.
 		if req.Structure != "" && req.Structure != "loop" {
 			envelope["structure"] = req.Structure
 			if req.ArrangeSeed != nil {
@@ -891,6 +911,30 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 			}
 			if len(req.MacroCurve) > 0 {
 				envelope["macroCurve"] = req.MacroCurve
+			}
+		}
+		// Source claim. Validate the rebuild-secret here at the route
+		// level — sealDirect bypasses the HTTP layer that the share
+		// store uses to gate this normally. Drop the field silently
+		// if the secret is wrong (don't 401 — a bad-faith user can't
+		// distinguish "secret rejected" from "field never read").
+		// Signing must happen AFTER all envelope fields are stamped so
+		// the signature commits to them; any field added post-sign
+		// would invalidate provenance verification.
+		if req.Source == "official" &&
+			rebuildSecret != "" &&
+			constantTimeEq(r.Header.Get("X-Rebuild-Secret"), rebuildSecret) {
+			envelope["source"] = "official"
+			// Stamp signer + signature so "official" is verifiable.
+			// SignEnvelope mutates in-place, computing the pre-sig
+			// CID and signing it with the operator key. After this
+			// call the envelope's CanonicalCID will incorporate the
+			// signature bytes; any third party who fetches /o/{cid}
+			// can independently verify against /api/operator-pubkey.
+			if err := operatorKey.SignEnvelope(envelope); err != nil {
+				http.Error(w, "operator sign: "+err.Error(),
+					http.StatusInternalServerError)
+				return
 			}
 		}
 		cid, canonical, err := share.CanonicalCID(envelope)

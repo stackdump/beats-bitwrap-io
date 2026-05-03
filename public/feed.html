@@ -991,7 +991,7 @@
 <header>
   <h1><a href="/">beats.bitwrap.io</a> · feed</h1>
   <div class="filters">
-    <input type="search" id="search" placeholder="search by name or seed…" autocomplete="off" data-lpignore="true" data-1p-ignore data-form-type="other">
+    <input type="search" id="search" name="track-search" placeholder="search by name or seed…" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" role="searchbox">
     <label>genre
       <select id="genre">
         <option value="">all</option>
@@ -1006,12 +1006,14 @@
         <option value="__custom" disabled>───────────</option>
       </select>
     </label>
-    <input type="text" id="signer-address" placeholder="0x… or ed25519 hex" title="Specific signer address to filter by (case-insensitive). Click any badge on a card to populate." autocomplete="off" data-lpignore="true" data-1p-ignore data-form-type="other" style="font-family:ui-monospace,monospace;font-size:11px;width:140px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden">
+    <input type="search" id="signer-address" name="signer-filter" placeholder="0x… or ed25519 hex" title="Specific signer address to filter by (case-insensitive). Click any badge on a card to populate." autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" role="searchbox" style="font-family:ui-monospace,monospace;font-size:11px;width:140px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden">
     <button class="pn-toggle-pl" id="toggle-fav" data-on="false" title="Show only bookmarked tracks">★ favorites</button>
     <button class="pn-toggle-pl" id="toggle-view" title="Toggle between card grid and compact list view">list</button>
     <button class="pn-toggle-pl" id="toggle-pl" title="Toggle playlist sidebar">playlist</button>
     <button class="pn-toggle-pl" id="toggle-help" title="Help (?)">?</button>
+    <button class="pn-toggle-pl" id="toggle-wake" title="Keep screen awake during playback (screen wake lock)" aria-pressed="false"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
     <a href="/" class="rss" title="Open the studio — generate a new track">studio →</a>
+    <a href="https://github.com/stackdump/beats-bitwrap-io" class="rss" target="_blank" rel="noopener" title="Source &amp; docs on GitHub">github ↗</a>
   </div>
 </header>
 <div class="layout" id="layout">
@@ -2044,7 +2046,7 @@ nextBtn.addEventListener('click', () => {
   else if (repeatMode === 'all') playIndex(0);
 });
 audioEl.addEventListener('play',  () => { setPlayIcon(true);  requestWake(); syncCardPlayButtons(); syncFab(); });
-audioEl.addEventListener('pause', () => { setPlayIcon(false); releaseWake(); savePlaybackState(); syncCardPlayButtons(); syncFab(); });
+audioEl.addEventListener('pause', () => { setPlayIcon(false); if (!wakePinned) releaseWake(); savePlaybackState(); syncCardPlayButtons(); syncFab(); });
 
 // ----- Shuffle / repeat modes -----
 const SHUFFLE_KEY = 'pn-playlist-shuffle';
@@ -2106,7 +2108,7 @@ const nextIndex = () => {
 
 audioEl.addEventListener('ended', () => {
   const nxt = nextIndex();
-  if (nxt < 0) { setPlayIcon(false); releaseWake(); return; }
+  if (nxt < 0) { setPlayIcon(false); if (!wakePinned) releaseWake(); return; }
   // repeat=one is handled by the native audioEl.loop flag below
   // (gapless — browsers wrap internally without firing 'ended').
   // This branch only kicks for repeat=all + shuffle, both of which
@@ -2139,19 +2141,51 @@ audioEl.addEventListener('timeupdate', () => {
 // on pause/end. Re-acquired on visibility return because the OS
 // drops the lock when the tab goes hidden.
 let wakeLock = null;
+// User-pinned: when true, hold the lock through pauses + re-acquire on
+// visibility return regardless of playback state. When false (default),
+// auto-track playback (lock during play, release on pause).
+let wakePinned = false;
+const wakeBtn = document.getElementById('toggle-wake');
+const supportsWake = 'wakeLock' in navigator;
+if (wakeBtn && !supportsWake) {
+  wakeBtn.disabled = true;
+  wakeBtn.title = 'Wake lock not supported in this browser';
+}
+const syncWakeBtn = () => {
+  if (!wakeBtn) return;
+  const on = !!wakeLock || wakePinned;
+  wakeBtn.classList.toggle('active', on);
+  wakeBtn.dataset.on = String(on);
+  wakeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+};
 const requestWake = async () => {
-  if (!('wakeLock' in navigator)) return;
+  if (!supportsWake) return;
   if (wakeLock) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener?.('release', () => {
+      wakeLock = null;
+      syncWakeBtn();
+    });
+  } catch {}
+  syncWakeBtn();
 };
 const releaseWake = async () => {
   if (!wakeLock) return;
   try { await wakeLock.release(); } catch {}
   wakeLock = null;
+  syncWakeBtn();
 };
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !audioEl.paused) requestWake();
+wakeBtn?.addEventListener('click', async () => {
+  wakePinned = !wakePinned;
+  if (wakePinned) await requestWake();
+  else if (audioEl.paused) await releaseWake();
+  syncWakeBtn();
 });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && (wakePinned || !audioEl.paused)) requestWake();
+});
+syncWakeBtn();
 
 const renderPlaylist = () => {
   plCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
