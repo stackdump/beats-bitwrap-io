@@ -1411,7 +1411,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 					}
 				}
 			}
-			const maxAudioPutBytes = 5 * 1024 * 1024 // 5 MiB
+			const maxAudioPutBytes = 6 * 1024 * 1024 // 6 MiB
 			r.Body = http.MaxBytesReader(w, r.Body, maxAudioPutBytes+1)
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
