@@ -2156,8 +2156,12 @@ if (wakeBtn && !supportsWake) {
 const syncWakeBtn = () => {
   if (!wakeBtn) return;
   const on = !!wakeLock || wakePinned;
-  wakeBtn.classList.toggle('active', on);
+  // .filters .pn-toggle-pl uses [data-active="true"] for the
+  // pressed-state styling — keep data-on / .active in sync too so
+  // anyone scripting against this button gets a consistent answer.
+  wakeBtn.dataset.active = String(on);
   wakeBtn.dataset.on = String(on);
+  wakeBtn.classList.toggle('active', on);
   wakeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
 };
 const requestWake = async () => {
