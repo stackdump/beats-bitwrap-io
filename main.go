@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"beats-bitwrap-io/internal/audiorender"
+	"beats-bitwrap-io/internal/deploy"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
 	mcpserver "beats-bitwrap-io/internal/mcp"
@@ -212,6 +213,7 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write([]byte(version))
 	})
+	deploy.Register(mux)
 	mux.Handle("/o/", shareStore)
 	mux.Handle("/c/", compositionStore)
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
