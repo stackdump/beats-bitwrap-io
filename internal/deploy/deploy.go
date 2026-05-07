@@ -212,7 +212,18 @@ func handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 	w.Write(out)
 }
 
-// runDeploySync runs git pull + make build in the project dir.
+// runDeploySync fetches origin, verifies the HEAD commit signature against
+// the trusted allowed_signers file, and only then fast-forwards + builds.
+//
+// Verifying *before* the fast-forward means a bad signature aborts cleanly
+// with no working-tree changes — recovery is "push a properly signed
+// commit", no manual rollback needed.
+//
+// Prerequisite on the deploy host: $HOME/.config/git/allowed_signers must
+// contain the trusted signing key, and git must be configured with
+//   gpg.format=ssh
+//   gpg.ssh.allowedSignersFile=~/.config/git/allowed_signers
+// Without that config, verify-commit fails closed and no deploy proceeds.
 func runDeploySync() (string, error) {
 	var buf strings.Builder
 	projectDir := filepath.Join(workspaceRoot(), projectDirName())
@@ -230,7 +241,13 @@ func runDeploySync() (string, error) {
 		return nil
 	}
 
-	if err := run("git pull", "git", "pull", "--ff-only"); err != nil {
+	if err := run("git fetch", "git", "fetch", "origin", "main"); err != nil {
+		return buf.String(), err
+	}
+	if err := run("verify signature", "git", "verify-commit", "origin/main"); err != nil {
+		return buf.String(), fmt.Errorf("refusing to deploy unsigned/untrusted HEAD: %w", err)
+	}
+	if err := run("fast-forward", "git", "merge", "--ff-only", "origin/main"); err != nil {
 		return buf.String(), err
 	}
 	if err := run("make build", "make", "build"); err != nil {
