@@ -208,6 +208,7 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
