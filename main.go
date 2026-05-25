@@ -585,9 +585,36 @@ func main() {
 
 		// MIDI routing introspection.
 		mux.HandleFunc("/api/midi-routing", midiRoutingHandler(midiOut, midiMulti, midiFanOut))
+
+		// HTTP (Streamable HTTP) MCP transport at /mcp — a remote Claude
+		// client can drive this authoring server without the stdio
+		// subprocess. Proxy tools loop back to this server's own address.
+		// Only mounted under -authoring (the control tools target /api/*).
+		mcpBase := "http://127.0.0.1" + *addr
+		if (*addr)[0] != ':' {
+			mcpBase = "http://" + *addr
+		}
+		mcpserver.RegisterHTTP(mux, mcpBase)
+		log.Printf("MCP HTTP endpoint at /mcp (transport: streamable-http)")
 	} else {
 		// Production mode: the share routes above + root handler are it.
 		mux.Handle("/", rootHandler)
+
+		// Public MCP endpoint at /mcp: stateless generate_share / list_genres
+		// / get_song. No sequencer control (none exists without -authoring).
+		// generate_share PUTs to this host's own /o/{cid}; ?cid= links use the
+		// public origin.
+		mcpLoop := "http://127.0.0.1" + *addr
+		if (*addr)[0] != ':' {
+			mcpLoop = "http://" + *addr
+		}
+		mcpPub := *audioPublicURL
+		if mcpPub == "" {
+			mcpPub = "https://beats.bitwrap.io"
+		}
+		mcpserver.RegisterHTTPPublic(mux, mcpLoop, mcpPub)
+		log.Printf("MCP HTTP endpoint at /mcp (public: generate_share, list_genres, get_song)")
+
 		// Warn if any authoring-mode flag was passed without -authoring.
 		if *midiPort != "" || *midiPerNet || *midiFanout != "" {
 			log.Printf("WARN: -midi/-midi-per-net/-midi-fanout ignored; pass -authoring to enable.")

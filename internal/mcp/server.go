@@ -11,12 +11,38 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// baseOverride, when set via SetBaseURL, takes precedence over the
+// BEATS_BTW_URL env var. Used when the MCP server runs in-process inside the
+// web server (HTTP /mcp transport) so its proxy tools loop back to the
+// server's own listen address rather than the stdio default of :8080.
+var baseOverride string
+
+// SetBaseURL points the proxy tools at a specific host. Call before NewServer.
+func SetBaseURL(s string) { baseOverride = s }
+
+// publicBase is the origin used to build shareable ?cid= links returned by
+// generate_share — distinct from baseURL() (where tools PUT/loop back). In an
+// embedded prod server the loopback is 127.0.0.1 but links must point at the
+// public host.
+var publicBase = "https://beats.bitwrap.io"
+
+// SetPublicURL sets the origin used in shareable links. Call before NewServer.
+func SetPublicURL(s string) {
+	if s != "" {
+		publicBase = strings.TrimRight(s, "/")
+	}
+}
+
 func baseURL() string {
+	if baseOverride != "" {
+		return baseOverride
+	}
 	if v := os.Getenv("BEATS_BTW_URL"); v != "" {
 		return v
 	}
@@ -91,8 +117,31 @@ func apiCallTo(host, method, path string, body interface{}) (json.RawMessage, er
 	return json.RawMessage(respBody), nil
 }
 
-// Serve starts the MCP server on stdio.
-func Serve() error {
+// apiCallRaw sends pre-serialized bytes verbatim (no re-marshaling). Used to
+// PUT canonical share-envelope JSON to /o/{cid} so the server re-verifies the
+// exact bytes the CID was computed over.
+func apiCallRaw(method, path string, body []byte) (json.RawMessage, error) {
+	req, err := http.NewRequest(method, baseURL()+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("server not reachable at %s: %v", baseURL(), err)
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(rb))
+	}
+	return json.RawMessage(rb), nil
+}
+
+// NewServer builds the MCP server with every tool registered. Shared by the
+// stdio transport (Serve) and the HTTP transport (RegisterHTTP) so both expose
+// an identical tool set.
+func NewServer() *server.MCPServer {
 	s := server.NewMCPServer(
 		"beats-btw",
 		"0.1.0",
@@ -117,8 +166,14 @@ func Serve() error {
 	s.AddTool(archiveMissingTool(), handleArchiveMissing)
 	s.AddTool(archiveLookupTool(), handleArchiveLookup)
 	s.AddTool(collectionStatusTool(), handleCollectionStatus)
+	s.AddTool(generateShareTool(), handleGenerateShare)
 
-	return server.ServeStdio(s)
+	return s
+}
+
+// Serve starts the MCP server on stdio.
+func Serve() error {
+	return server.ServeStdio(NewServer())
 }
 
 // hostArg returns the host override for a tool call, or the empty string

@@ -177,7 +177,7 @@ Same binary that serves `beats.bitwrap.io` runs locally as a **full authoring en
 - **Share + mirror** — `/api/project-share` seals the loaded project as share-v1 with raw nets + optional mirror PUTs in one call. `/api/mirror-cid` replays a sealed CID to remote hosts.
 - `/ws` — same protocol as the in-page worker; a browser pointed at `data-backend="ws"` drives audio through the Go sequencer.
 - Server-side MIDI output via `gitlab.com/gomidi/midi/v2` — CoreMIDI / ALSA / virtual port.
-- `./beats-bitwrap-io mcp` — stdio MCP server with 11 tools (`generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`).
+- `./beats-bitwrap-io mcp` — stdio MCP server (full toolset: `generate`, `transport`, `tempo`, `get_project`, `load_project`, `list_genres`, `list_instruments`, `shuffle_instruments`, `mute_track`, `set_instrument`, `get_midi_routing`, rebuild/archive tools, `generate_share`). The same toolset is also served over HTTP at `/mcp` under `-authoring`; production serves a curated public subset there. See "Wire Claude Code to the MCP server".
 
 ### Start the server
 
@@ -203,11 +203,27 @@ Without `-authoring` the same binary runs production config (static + share stor
 
 ### Wire Claude Code to the MCP server
 
+Two transports expose the **same** tool builder (`mcp.NewServer`):
+
+**stdio** (subprocess):
 ```bash
 claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
-
 Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running. Override with `BEATS_BTW_URL=http://localhost:<port>`.
+
+**HTTP / Streamable HTTP** (`internal/mcp/http.go`, mirrors petri-pilot's `/mcp` pattern) — a remote client drives a running server without a subprocess:
+```bash
+claude mcp add --transport http beats-btw http://localhost:8089/mcp   # authoring: full toolset
+```
+- **`-authoring` server** mounts the **full** toolset at `/mcp` (`RegisterHTTP`); proxy tools loop back to the server's own address.
+- **Production** (no `-authoring`) mounts a **curated, stateless public subset** at `/mcp` (`RegisterHTTPPublic`): `generate_share`, `list_genres`, `get_song` — no sequencer control (none exists server-side in prod). `generate_share` builds a share-v1 envelope in-process, computes the CID (`share.CanonicalCID`), seals via public `PUT /o/{cid}`, and returns the `?cid=` URL. A guard test (`internal/mcp/public_test.go`) keeps control tools out of the public set.
+- `GET /mcp` in a browser returns a landing page (tool list + the `claude mcp add` command); transport uses POST.
+
+**nginx for prod** — `/mcp` needs streaming, so proxy it explicitly (same gotcha as `/schema`):
+```nginx
+location = /mcp  { proxy_pass http://127.0.0.1:8089; proxy_buffering off; }
+location /mcp/   { proxy_pass http://127.0.0.1:8089; proxy_buffering off; }
+```
 
 ### Drive a track hand-to-hand
 
