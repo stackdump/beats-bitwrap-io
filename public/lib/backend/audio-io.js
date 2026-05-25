@@ -7,6 +7,7 @@
 // first arg; petri-note.js keeps one-line class-method wrappers.
 
 import { toneEngine } from '../../audio/tone-engine.js';
+import { apcSync } from './apc-mini-mk2.js';
 
 // --- Init + MIDI input ---
 
@@ -28,6 +29,10 @@ export async function connectMidiInputs(el) {
                 }
             }
             detectAndStorePreset(el);
+            // APC mini mk2: install its zero-config layout + LED feedback
+            // before persisting, so the default layout is what gets saved
+            // for the device. No-op (and cheap) for any other controller.
+            apcSync(el);
             saveBindingsForDevice(el);
             el._renderMidiPanel?.();
         };
@@ -492,18 +497,37 @@ export function toggleMute(el, netId) {
     debouncedRenderMixer(el);
 }
 
-export function toggleMuteGroup(el, riffGroup) {
-    const netIds = [];
-    for (const [id, net] of Object.entries(el._project.nets)) {
-        if (net.riffGroup === riffGroup) netIds.push(id);
+// Members of a mute target, resolved with the same precedence setMuteGroup
+// uses: riffGroup → section (track.group) → direct netId. Lets a single
+// {type:'mute', target} binding cover all three (a pad bound to a riff
+// variant, a whole mixer section, or one net).
+function muteTargetMembers(el, target) {
+    const nets = el?._project?.nets;
+    if (!nets) return [];
+    const byRiff = [];
+    for (const [id, net] of Object.entries(nets)) {
+        if (net.riffGroup === target) byRiff.push(id);
     }
-    if (netIds.length === 0) return;
+    if (byRiff.length) return byRiff;
+    const bySection = [];
+    for (const [id, net] of Object.entries(nets)) {
+        if (net?.track?.group === target) bySection.push(id);
+    }
+    if (bySection.length) return bySection;
+    return nets[target] ? [target] : [];
+}
 
-    const allMuted = netIds.every(nid => el._mutedNets.has(nid));
-    const muted = !allMuted;
-
-    // Let the server handle riff group logic (only unmutes the active slot).
-    el._sendWs({ type: 'mute-group', riffGroup, muted });
+export function toggleMuteGroup(el, target) {
+    const members = muteTargetMembers(el, target);
+    if (members.length === 0) return;
+    const muted = el._mutedNets || new Set();
+    const manual = el._manualMutedNets || new Set();
+    const allMuted = members.every(id => muted.has(id) || manual.has(id));
+    // Delegate routing (mute-group vs per-net) to setMuteGroup, which mirrors
+    // this precedence — preserves the riffGroup mute-group path byte-for-byte
+    // (server only unmutes the active slot) while adding section + single-net
+    // toggles that previously no-op'd here.
+    setMuteGroup(el, target, !allMuted);
 }
 
 // Explicit mute setter. Handles three target shapes so the same
