@@ -63,6 +63,9 @@ func generateShareTool() mcp.Tool {
 		mcp.WithNumber("humanize",
 			mcp.Description("Humanize amount 0-100 (default: genre-specific)."),
 		),
+		mcp.WithBoolean("render",
+			mcp.Description("Also queue an audio render: marks the CID in the rebuild queue so an off-host render farm bakes the downloadable .webm. The ?cid= link plays in-browser regardless — this only pre-renders the file. Default false."),
+		),
 	)
 }
 
@@ -117,9 +120,22 @@ func handleGenerateShare(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	url := publicBase + "/?cid=" + cid
+
+	// Optional: queue an audio render. Best-effort — a failure here (e.g. the
+	// host isn't running with -rebuild-queue) must not fail the seal, since the
+	// link already plays in-browser without a .webm.
+	renderNote := ""
+	if render, _ := args["render"].(bool); render {
+		if _, err := apiCall("POST", "/api/rebuild-mark", map[string]any{"cid": cid}); err != nil {
+			renderNote = "\nAudio render NOT queued (" + err.Error() + ") — the link still plays in-browser."
+		} else {
+			renderNote = "\nQueued for audio render — an off-host render farm will bake the .webm."
+		}
+	}
+
 	return mcp.NewToolResultText(fmt.Sprintf(
-		"Sealed %s (seed %d) → %s\nCID: %s\nOpen the URL to play; it regenerates the exact track client-side.",
-		genre, seed, url, cid,
+		"Sealed %s (seed %d) → %s\nCID: %s\nOpen the URL to play; it regenerates the exact track client-side.%s",
+		genre, seed, url, cid, renderNote,
 	)), nil
 }
 
