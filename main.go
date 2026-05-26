@@ -36,6 +36,7 @@ import (
 	mcpserver "beats-bitwrap-io/internal/mcp"
 	"beats-bitwrap-io/internal/midiout"
 	"beats-bitwrap-io/internal/pflow"
+	"beats-bitwrap-io/internal/rebuildbus"
 	"beats-bitwrap-io/internal/routes"
 	"beats-bitwrap-io/internal/sequencer"
 	"beats-bitwrap-io/internal/share"
@@ -456,9 +457,14 @@ func main() {
 		mux.HandleFunc("/feed.rss", rssFeedHandler(idx, publicURL))
 		mux.HandleFunc("/api/features", featuresHandler(*rebuildQueueEnabled))
 		if *rebuildQueueEnabled {
-			mux.HandleFunc("/api/rebuild-mark", rebuildMarkHandler(idx, shareStore))
+			// In-process pub/sub: rebuild-mark publishes the CID, the
+			// secret-gated SSE endpoint fans it out to subscribed workers so
+			// the render farm learns about work without polling.
+			rebuildBus := rebuildbus.New()
+			mux.HandleFunc("/api/rebuild-mark", rebuildMarkHandler(idx, shareStore, rebuildBus))
 			mux.HandleFunc("/api/rebuild-queue", rebuildQueueHandler(idx))
 			mux.HandleFunc("/api/rebuild-clear", rebuildClearHandler(idx, shareStore))
+			mux.HandleFunc("/api/rebuild-events", rebuildEventsHandler(rebuildBus, rebuildSecret))
 			mux.HandleFunc("/api/composition-mark", compositionMarkHandler(idx, compositionStore))
 			mux.HandleFunc("/api/composition-queue", compositionQueueHandler(idx))
 			mux.HandleFunc("/api/composition-clear", compositionClearHandler(idx, compositionStore))
@@ -2803,7 +2809,7 @@ func errStr(err error) string {
 // Per-IP rate limit (reuses the share-store limiter) is the only
 // abuse mitigation — the worker simply ignores duplicates and a
 // successful re-render is idempotent on the audio side.
-func rebuildMarkHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
+func rebuildMarkHandler(idx *index.DB, store *share.Store, bus *rebuildbus.Bus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -2838,8 +2844,82 @@ func rebuildMarkHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 			http.Error(w, "mark failed", http.StatusInternalServerError)
 			return
 		}
+		// Notify any subscribed render-farm workers (best-effort; the queue
+		// is durable, so a missed event only costs latency).
+		if bus != nil {
+			bus.Publish(req.CID)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "cid": req.CID})
+	}
+}
+
+// rebuildEventsHandler serves the rebuild queue's SSE push channel at
+// GET /api/rebuild-events. Secret-gated (X-Rebuild-Secret) since it holds a
+// long-lived connection and only the render farm needs it. Emits
+// `event: rebuild\ndata: <cid>` per mark, with a periodic comment heartbeat
+// so idle connections (and nginx) stay alive.
+func rebuildEventsHandler(bus *rebuildbus.Bus, secret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if secret == "" || !constantTimeEq(r.Header.Get("X-Rebuild-Secret"), secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		ch, cancel, ok := bus.Subscribe()
+		if !ok {
+			http.Error(w, "too many subscribers", http.StatusServiceUnavailable)
+			return
+		}
+		defer cancel()
+
+		// Disable any server write deadline for this long-lived stream;
+		// liveness is handled by the heartbeat + request-context cancellation.
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Time{})
+
+		h := w.Header()
+		h.Set("Content-Type", "text/event-stream")
+		h.Set("Cache-Control", "no-cache")
+		h.Set("Connection", "keep-alive")
+		h.Set("X-Accel-Buffering", "no") // belt-and-suspenders vs proxy buffering
+		w.WriteHeader(http.StatusOK)
+
+		write := func(s string) bool {
+			if _, err := fmt.Fprint(w, s); err != nil {
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+		if !write("event: ready\ndata: connected\n\n") {
+			return
+		}
+
+		ping := time.NewTicker(25 * time.Second)
+		defer ping.Stop()
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case cid, open := <-ch:
+				if !open {
+					return
+				}
+				if !write("event: rebuild\ndata: " + cid + "\n\n") {
+					return
+				}
+			case <-ping.C:
+				if !write(": ping\n\n") {
+					return
+				}
+			}
+		}
 	}
 }
 
