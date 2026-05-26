@@ -229,6 +229,60 @@ def process_one(cid: str, local: str, remote: str, min_bytes: int,
     return True
 
 
+def drain_queue(args, rebuild_secret) -> int:
+    """Render everything currently in the remote queue. Idempotent."""
+    queue = fetch_queue(args.remote)
+    if not queue:
+        return 0
+    print(f"queue: {len(queue)} CIDs")
+    for cid in queue:
+        process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
+    return len(queue)
+
+
+def subscribe_loop(args, rebuild_secret):
+    """Push mode: subscribe to the remote's SSE rebuild-events stream and drain
+    on each event, instead of polling. Robust by construction — the durable
+    queue is the source of truth:
+      - drain on every (re)connect (catches anything marked while away)
+      - drain on each `data: <cid>` event (re-fetch handles bursts/missed events)
+      - slow full-drain backstop in case an event was dropped
+      - reconnect with capped backoff on any disconnect
+    """
+    if not rebuild_secret:
+        print("! --subscribe requires --secret or BEATS_REBUILD_SECRET", file=sys.stderr)
+        sys.exit(2)
+    url = f"{args.remote}/api/rebuild-events"
+    backstop = max(60.0, args.interval * 10)  # safety-net full drain cadence
+    backoff = 1.0
+    while True:
+        drain_queue(args, rebuild_secret)
+        last_drain = time.time()
+        try:
+            req = urllib.request.Request(url, method="GET", headers={
+                "X-Rebuild-Secret": rebuild_secret,
+                "Accept": "text/event-stream",
+            })
+            print(f"subscribe: connecting {url}")
+            # Read timeout = backstop: server heartbeats (~25s) keep reads
+            # flowing; a silent connection trips the timeout and reconnects.
+            with urllib.request.urlopen(req, timeout=backstop) as resp:
+                backoff = 1.0  # reset after a successful connect
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    now = time.time()
+                    if line.startswith("data: z"):          # a CID event
+                        drain_queue(args, rebuild_secret)
+                        last_drain = now
+                    elif now - last_drain >= backstop:       # backstop on a heartbeat tick
+                        drain_queue(args, rebuild_secret)
+                        last_drain = now
+        except Exception as e:
+            print(f"subscribe: disconnected ({e}); retry in {backoff:.0f}s", file=sys.stderr)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30.0)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -240,8 +294,14 @@ def main():
                     help="Reject local renders smaller than this (default 50 kB)")
     ap.add_argument("--watch", action="store_true",
                     help="Poll the queue forever instead of one-shot")
+    ap.add_argument("--subscribe", action="store_true",
+                    help="Push mode: subscribe to the remote's SSE rebuild-events "
+                         "stream (GET /api/rebuild-events) and render on each event "
+                         "instead of polling. Requires --secret/BEATS_REBUILD_SECRET. "
+                         "Drains on connect and keeps a slow full-drain backstop.")
     ap.add_argument("--interval", type=float, default=30.0,
-                    help="Seconds between polls in --watch mode (default 30)")
+                    help="Seconds between polls in --watch mode; x10 = backstop drain "
+                         "cadence in --subscribe mode (default 30)")
     ap.add_argument("--secret",
                     help="X-Rebuild-Secret header value (overrides BEATS_REBUILD_SECRET env). "
                          "Reads from data/.rebuild-secret on the server.")
@@ -298,6 +358,10 @@ def main():
 
     if args.restore:
         restore_snapshot(args.remote, args.restore, rebuild_secret)
+        return
+
+    if args.subscribe:
+        subscribe_loop(args, rebuild_secret)
         return
 
     while True:

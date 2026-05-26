@@ -294,9 +294,10 @@ Listeners flag a feed card with broken/stuck audio via the ⟳ button — the se
 
 Routes (all open: anyone can mark, read, clear — abuse cost bounded by worker render budget and `X-Rebuild-Secret` gating on actual writes):
 
-- `POST /api/rebuild-mark {cid}` — adds to queue (rate-limited).
+- `POST /api/rebuild-mark {cid}` — adds to queue (rate-limited). Also publishes the CID to the SSE bus.
 - `GET  /api/rebuild-queue?limit=N` — JSON array of pending CIDs.
 - `POST /api/rebuild-clear {cid}` — removes a row (worker calls after upload).
+- `GET  /api/rebuild-events` — **SSE push**, `X-Rebuild-Secret`-gated. Emits `event: rebuild\ndata: <cid>` per mark (+ heartbeat). Lets the worker react instantly instead of polling; `internal/rebuildbus` is the in-process pub/sub, best-effort over the durable queue. nginx must proxy it with `proxy_buffering off` (the handler also sets `X-Accel-Buffering: no`).
 - `GET  /api/features` — `{rebuildQueue, genreColors}`. Frontend feature-detects ⟳ visibility.
 
 Worker (run on a MacBook with chromedp / Chrome):
@@ -306,8 +307,10 @@ ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret"
 ./beats-bitwrap-io -authoring -audio-render -audio-auto-enqueue=false \
     -audio-concurrent 2 -audio-max-duration 6m -audio-render-timeout 15m \
     -addr :18090 -data /tmp/beats-worker-data
-BEATS_REBUILD_SECRET=$(...) ./scripts/process-rebuild-queue.py --watch
+BEATS_REBUILD_SECRET=$(...) ./scripts/process-rebuild-queue.py --subscribe   # SSE push (or --watch to poll)
 ```
+
+`--subscribe` opens the SSE stream and renders on each pushed event (near-instant), gated by `X-Rebuild-Secret`; it drains on every (re)connect and keeps a slow full-drain backstop, so it degrades to ~polling if the stream drops. `--watch` is the plain 30s poll fallback. The off-host render farm is configured in `valoper-stackdump-com` (see its `RENDER-FARM.md`).
 
 The worker sends `X-Rebuild-Secret` on every PUT `/audio/{cid}.webm`, bypassing rate-limit / faster-than-realtime / first-write-wins checks — that last one is what lets it replace stuck audio without SSH-deleting the bad file.
 
