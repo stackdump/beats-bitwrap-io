@@ -71,9 +71,11 @@ DEFAULT_AUTO_DJ_POOLS = {"Pitch": True}
 
 
 # Deterministic per-genre seeds — keeps re-runs idempotent (same CIDs).
-def seeds_for(genre: str, n: int) -> list[int]:
+# offset shifts the whole window so the same per-genre scale yields a
+# disjoint, brand-new set of seeds (and thus CIDs) for a fresh batch.
+def seeds_for(genre: str, n: int, offset: int = 0) -> list[int]:
     base = sum(ord(c) for c in genre) * 1000
-    return [base + i for i in range(n)]
+    return [base + offset + i for i in range(n)]
 
 
 def http(method: str, url: str, body: bytes | None = None,
@@ -214,6 +216,10 @@ def main():
                     help="Prod host to receive envelopes + .webm")
     ap.add_argument("--per-genre", type=int, default=3,
                     help="Tracks per genre (default 3)")
+    ap.add_argument("--seed-offset", type=int, default=0,
+                    help="Shift the deterministic seed window by this amount so "
+                         "the same per-genre scale produces a disjoint, brand-new "
+                         "set of tracks/CIDs (default 0 = the canonical window).")
     ap.add_argument("--genres", nargs="+", help="Subset of genres (default: all 19)")
     ap.add_argument("--workers", type=int, default=4,
                     help="Concurrent track jobs (match -audio-concurrent)")
@@ -253,14 +259,15 @@ def main():
         ap.error("--official requires --rebuild-secret")
 
     genres = args.genres or GENRES
-    plan = [(g, s) for g in genres for s in seeds_for(g, args.per_genre)]
+    plan = [(g, s) for g in genres for s in seeds_for(g, args.per_genre, args.seed_offset)]
 
     if args.no_disable:
         disabled = []
     else:
         disabled = [m for m in DEFAULT_DISABLED_MACROS if m not in args.enable_macro]
 
-    print(f"Plan:    {len(plan)} tracks ({len(genres)} genres × {args.per_genre})")
+    print(f"Plan:    {len(plan)} tracks ({len(genres)} genres × {args.per_genre})"
+          + (f", seed-offset={args.seed_offset}" if args.seed_offset else ""))
     print(f"Local:   {args.local_host}")
     print(f"Upload:  {args.upload_host}")
     print(f"Workers: {args.workers}")
