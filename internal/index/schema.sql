@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS tracks (
 
 CREATE INDEX IF NOT EXISTS tracks_recent ON tracks(rendered_at DESC);
 CREATE INDEX IF NOT EXISTS tracks_genre  ON tracks(genre, rendered_at DESC);
-CREATE INDEX IF NOT EXISTS tracks_audio_prov ON tracks(audio_provenance, rendered_at);
+-- tracks_audio_prov index is created in index.go's post-schema
+-- migration block, after the ALTER that adds the column. Putting it
+-- here would break startup on existing DBs where CREATE TABLE
+-- IF NOT EXISTS no-ops and the column doesn't yet exist.
 
 -- rebuild_queue: opt-in. Listeners click ⟳ on a feed card to mark
 -- its CID for a fresh audio render by an off-host worker

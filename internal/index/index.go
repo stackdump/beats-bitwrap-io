@@ -46,6 +46,16 @@ func Open(path string) (*DB, error) {
 	} {
 		_, _ = s.Exec(alter)
 	}
+	// Indexes that reference post-schema columns must run after the
+	// ALTERs above. CREATE INDEX IF NOT EXISTS in schema.sql is
+	// idempotent but evaluates column refs at create time, so it would
+	// fail on existing DBs where CREATE TABLE IF NOT EXISTS no-ops.
+	if _, err := s.Exec(
+		`CREATE INDEX IF NOT EXISTS tracks_audio_prov ON tracks(audio_provenance, rendered_at)`,
+	); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("index: create tracks_audio_prov: %w", err)
+	}
 	return &DB{sql: s}, nil
 }
 
