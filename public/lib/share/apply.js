@@ -181,4 +181,16 @@ export function applyShareOverrides(el, ov) {
             if (counter) counter.textContent = `${[...ov.note].length} / 280`;
         }
     }
+    // Snapshot the post-apply FX slider state as the share's "authored"
+    // FX. The browser-record path (lib/share/client-render.js) reads
+    // this to compensate the recording branch so uploaded audio matches
+    // the share's authored master-vol regardless of any user tweaks
+    // made after load. Snapshot includes default values for FX the
+    // envelope didn't override, which is correct: the render farm also
+    // boots a fresh page with those defaults.
+    const fxState = {};
+    el.querySelectorAll('.pn-fx-slider').forEach(s => {
+        fxState[s.dataset.fx] = parseInt(s.value, 10);
+    });
+    el._authoredFxState = fxState;
 }

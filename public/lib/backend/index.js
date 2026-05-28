@@ -485,6 +485,7 @@ export function handleWsMessage(el, msg) {
                             drumBreak: overlay.drumBreak,
                             feelCurve: overlay.feelCurve,
                             macroCurve: overlay.macroCurve,
+                            counterMelody: overlay.counterMelody,
                         });
                         console.log('[overlay] post-arrange netCount', Object.keys(el._project.nets).length);
                         el._sendWs({ type: 'project-load', project: el._project });

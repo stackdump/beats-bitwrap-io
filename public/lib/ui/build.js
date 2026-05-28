@@ -150,6 +150,10 @@ function applyArrangeFromPanel(el, panel) {
     const drumBreak = parseInt(panel.querySelector('.pn-arrange-drumbreak').value, 10) || 0;
     const feelPreset = panel.querySelector('.pn-arrange-feelcurve').value;
     const macroPreset = panel.querySelector('.pn-arrange-macrocurve').value;
+    const counterMode = panel.querySelector('.pn-arrange-counter-mode')?.value || '';
+    const counterSection = panel.querySelector('.pn-arrange-counter-section')?.value || '';
+    const counterRegister = panel.querySelector('.pn-arrange-counter-register')?.value || 'above';
+    const counterDensity = parseFloat(panel.querySelector('.pn-arrange-counter-density')?.value || '0.5');
 
     // Overlay mode only works when the loaded project already has a
     // structure (from composer generate or a prior arrange). Otherwise
@@ -165,6 +169,14 @@ function applyArrangeFromPanel(el, panel) {
     if (drumBreak > 0)     body.drumBreak = drumBreak;
     if (feelPreset && FEEL_PRESETS[feelPreset])   body.feelCurve  = FEEL_PRESETS[feelPreset];
     if (macroPreset && MACRO_PRESETS[macroPreset]) body.macroCurve = MACRO_PRESETS[macroPreset];
+    if (counterMode && counterSection) {
+        body.counterMelody = [{
+            section: counterSection,
+            mode: counterMode,
+            density: counterDensity,
+            register: counterRegister,
+        }];
+    }
 
     if (status) status.textContent = '…applying';
     // Run the arrange via the in-process JS port — no HTTP round-trip
@@ -179,6 +191,7 @@ function applyArrangeFromPanel(el, panel) {
                 drumBreak: body.drumBreak,
                 feelCurve: body.feelCurve,
                 macroCurve: body.macroCurve,
+                counterMelody: body.counterMelody,
             });
             proj.name = el._project?.name || proj.name;
             el._sendWs({ type: 'project-load', project: proj });
@@ -559,6 +572,32 @@ export function buildUI(el) {
                     <option value="downtempo">Downtempo</option>
                 </select>
             </label>
+            <fieldset class="pn-autodj-pools pn-arrange-counter" title="Generated counter-melody that plays only during a named section. Deterministic (no AI).">
+                <legend>Counter-melody</legend>
+                <label><span>Mode</span>
+                    <select class="pn-arrange-counter-mode">
+                        <option value="" selected>off</option>
+                        <option value="answer">answer</option>
+                        <option value="harmony">harmony</option>
+                        <option value="shadow">shadow</option>
+                    </select>
+                </label>
+                <label><span>Section</span>
+                    <select class="pn-arrange-counter-section">
+                        ${['intro','verse','chorus','drop','bridge','outro']
+                            .map(v => `<option value="${v}"${v==='chorus'?' selected':''}>${v}</option>`).join('')}
+                    </select>
+                </label>
+                <label><span>Register</span>
+                    <select class="pn-arrange-counter-register">
+                        <option value="above" selected>above</option>
+                        <option value="below">below</option>
+                    </select>
+                </label>
+                <label><span>Density</span>
+                    <input type="range" class="pn-arrange-counter-density" min="0" max="1" step="0.05" value="0.5">
+                </label>
+            </fieldset>
             <button class="pn-arrange-apply" title="Apply the selected arrangement as an overlay on the current track">Arrange ⟳</button>
             <span class="pn-arrange-status">idle</span>
         </div>

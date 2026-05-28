@@ -18,6 +18,12 @@
 import { ringLayout } from './euclidean.js';
 import { createRng } from './core.js';
 import { NetBundle } from '../pflow.js';
+import {
+    PPQ as COUNTER_PPQ,
+    seedFromBytes as counterSeedFromBytes,
+    generateCounterMelody,
+    buildMusicNet as buildCounterMelodyNet,
+} from './countermelody.js';
 
 // --- Blueprint + archetype tables (mirrors structure.go) ---------------
 
@@ -712,6 +718,111 @@ function applyArrangeOverlays(proj, tmpl, allNets, opts) {
 
     if (opts.feelCurve  && opts.feelCurve.length  > 0) injectFeelCurve(proj, tmpl, opts.feelCurve);
     if (opts.macroCurve && opts.macroCurve.length > 0) injectMacroCurve(proj, tmpl, opts.macroCurve);
+    if (opts.counterMelody && opts.counterMelody.length > 0) {
+        injectCounterMelody(proj, tmpl, opts.counterMelody, opts.seed || 0);
+    }
+}
+
+// --- counterMelody arrange directive ----------------------------------
+//
+// First arrange directive that synthesizes a music net (rather than a
+// control net): per entry it builds a generated melody net via
+// countermelody.buildMusicNet, then injects a gate control net that
+// mutes the counter outside its target section.
+//
+// Determinism: each entry's seed derives from (baseSeed, idx, entry
+// fields) via fnv32a, identical hash inputs to the Go side.
+//
+// Defaults match the composition-layer insert: mode=answer,
+// density=0.5, register=above, instrument from counterMelodyDefaultInstrument.
+export function injectCounterMelody(proj, tmpl, entries, baseSeed) {
+    const starts = [];
+    let totalSteps = 0;
+    for (const sec of tmpl.sections) {
+        starts.push({ tick: totalSteps, name: sec.name });
+        totalSteps += sec.steps;
+    }
+    if (!totalSteps) return;
+
+    const tempo = (proj.tempo && proj.tempo > 0) ? proj.tempo : 120;
+    const msPerTick = 60000 / (tempo * COUNTER_PPQ);
+
+    proj.initialMutes = proj.initialMutes || [];
+
+    entries.forEach((entry, idx) => {
+        const sectionExists = starts.some(s => s.name === entry.section);
+        if (!sectionExists) return;
+
+        const seed = counterSeedFromBytes(
+            `counter-melody:${baseSeed}:${idx}`,
+            entry.section || '',
+            entry.mode || '',
+            (entry.density || 0).toFixed(6),
+            entry.register || '',
+            entry.of || '',
+            entry.instrument || '',
+        );
+
+        const notes = generateCounterMelody(proj, {
+            mode:        entry.mode,
+            density:     entry.density,
+            register:    entry.register,
+            seed,
+            totalTicks:  totalSteps,
+            sourceNetID: entry.of,
+        });
+        // null → no source material; empty → mode found nothing to add.
+        if (!notes || notes.length === 0) return;
+
+        const instrument = entry.instrument || counterMelodyDefaultInstrument(entry.register);
+        const channel = nextFreeCounterChannel(proj);
+
+        const nb = buildCounterMelodyNet(notes, {
+            totalTicks:      totalSteps,
+            channel,
+            instrument,
+            group:           'harmony',
+            defaultVelocity: 90,
+            msPerTick,
+        });
+        if (!nb) return;
+
+        const netID = `counter-melody-${idx}`;
+        proj.nets[netID] = nb;
+        proj.initialMutes.push(netID);
+        injectCounterMelodyGate(proj, starts, totalSteps, netID, entry.section, idx);
+    });
+}
+
+function injectCounterMelodyGate(proj, starts, totalSteps, counterNetID, targetSection, idx) {
+    const ctrlAt = {};
+    for (const s of starts) {
+        const action = s.name === targetSection ? 'unmute-track' : 'mute-track';
+        ctrlAt[s.tick] = { action, targetNet: counterNetID, targetNote: 0 };
+    }
+    proj.nets[`gate-counter-melody-${idx}`] = buildControlBundle(totalSteps, {
+        ctrlAt,
+        placePrefix: `gp${idx}_`,
+        transPrefix: `gt${idx}_`,
+    });
+}
+
+function counterMelodyDefaultInstrument(register) {
+    return register === 'below' ? 'sub-bass' : 'electric-piano';
+}
+
+function nextFreeCounterChannel(proj) {
+    const ids = Object.keys(proj.nets || {}).sort();
+    let maxCh = 0;
+    for (const id of ids) {
+        const nb = proj.nets[id];
+        if (!nb || nb.role === 'control') continue;
+        const ch = (nb.track && nb.track.channel) | 0;
+        if (ch > maxCh) maxCh = ch;
+    }
+    let next = maxCh + 1;
+    if (next === 16) next = 17;
+    return next;
 }
 
 // --- Canonical entry point --------------------------------------------

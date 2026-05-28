@@ -74,6 +74,27 @@ def fetch_archive_missing(remote: str, limit: int = 200) -> tuple[list[str], dic
         return [], {}
 
 
+def fetch_audio_suspect(remote: str, limit: int = 50, grace_mins: int = 30,
+                        include_unknown: bool = False) -> list[str]:
+    """Return CIDs whose latest /audio/{cid}.webm was uploaded by a
+    browser (audio_provenance='browser') and is older than the grace
+    window. Drives the --converge sweep: re-render each and PUT back
+    with X-Rebuild-Secret so the feed converges to canonical
+    render-farm output."""
+    qp = f"?limit={limit}&graceMins={grace_mins}"
+    if include_unknown:
+        qp += "&includeUnknown=1"
+    code, body = http("GET", f"{remote}/api/audio-suspect{qp}", timeout=30)
+    if code != 200:
+        print(f"  ! audio-suspect HTTP {code}", file=sys.stderr)
+        return []
+    try:
+        payload = json.loads(body)
+        return payload.get("cids", [])
+    except json.JSONDecodeError:
+        return []
+
+
 def post_rebuild_clear(remote: str, cid: str) -> None:
     """Best-effort clear; archive mode skips this since archive CIDs
     were never enqueued, so there's no row to drop."""
@@ -311,6 +332,24 @@ def main():
                          "--watch to keep the catalogue caught up as new shares arrive.")
     ap.add_argument("--archive-limit", type=int, default=200,
                     help="Page size for /api/archive-missing in --archive mode (default 200)")
+    ap.add_argument("--converge", action="store_true",
+                    help="Converge mode: re-render any /audio/{cid}.webm uploaded by "
+                         "a browser (audio_provenance='browser') so the feed converges "
+                         "to canonical render-farm output. Sweeps /api/audio-suspect. "
+                         "Use with --watch (own cadence via --converge-interval, default "
+                         "1800s = 30 min). Renders PUT with X-Rebuild-Secret so the "
+                         "browser-uploaded .webm gets overwritten.")
+    ap.add_argument("--converge-limit", type=int, default=20,
+                    help="Page size for /api/audio-suspect (default 20)")
+    ap.add_argument("--converge-grace-mins", type=int, default=30,
+                    help="Skip browser-uploaded audio younger than this many minutes "
+                         "(default 30). Avoids racing fresh uploads.")
+    ap.add_argument("--converge-include-unknown", action="store_true",
+                    help="Also re-render legacy (pre-migration) audio whose provenance "
+                         "is unknown. Default: skip — only re-render audio explicitly "
+                         "tagged 'browser'.")
+    ap.add_argument("--converge-interval", type=float, default=1800.0,
+                    help="Seconds between converge sweeps in --watch mode (default 1800s).")
     ap.add_argument("--delete", metavar="CID", action="append", default=[],
                     help="Cascade-delete this CID (envelope + audio + index + queue) "
                          "via /api/archive-delete. Requires --secret or BEATS_REBUILD_SECRET. "
@@ -364,7 +403,28 @@ def main():
         subscribe_loop(args, rebuild_secret)
         return
 
+    # Converge mode runs on its own cadence (default 30 min vs the
+    # rebuild-queue's 30 s). Tracks when the next sweep is due.
+    next_converge_at = 0.0  # 0 = run immediately on first loop
+
     while True:
+        now = time.time()
+        if args.converge and now >= next_converge_at:
+            if not rebuild_secret:
+                print("! --converge requires --secret or BEATS_REBUILD_SECRET to overwrite "
+                      "browser-uploaded audio", file=sys.stderr)
+                sys.exit(2)
+            cids = fetch_audio_suspect(args.remote, args.converge_limit,
+                                        args.converge_grace_mins,
+                                        args.converge_include_unknown)
+            if cids:
+                print(f"converge: {len(cids)} suspect (browser-uploaded) CIDs")
+                for cid in cids:
+                    process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
+            else:
+                print(f"converge: nothing suspect ({args.remote})")
+            next_converge_at = time.time() + args.converge_interval
+
         if args.archive:
             cids, stats = fetch_archive_missing(args.remote, args.archive_limit)
             if stats:
@@ -374,7 +434,7 @@ def main():
                 print(f"collection fully archived ({args.remote})")
             for cid in cids:
                 process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
-        else:
+        elif not args.converge:
             queue = fetch_queue(args.remote)
             if not queue:
                 print(f"queue empty ({args.remote})")

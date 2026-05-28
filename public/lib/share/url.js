@@ -151,6 +151,7 @@ export function shareFromPayload(payload, cid) {
         sections: Array.isArray(payload.sections) ? payload.sections : null,
         feelCurve: Array.isArray(payload.feelCurve) ? payload.feelCurve : null,
         macroCurve: Array.isArray(payload.macroCurve) ? payload.macroCurve : null,
+        counterMelody: Array.isArray(payload.counterMelody) ? payload.counterMelody : null,
         // CID is threaded through so hand-authored payloads without
         // an explicit `name` can derive a deterministic one from it.
         cid: cid || null,

@@ -331,6 +331,13 @@ func main() {
 			if err := idx.RecordRender(cid, raw, bytes); err != nil {
 				log.Printf("index: record %s: %v", cid, err)
 			}
+			// Server-side renders are canonical by definition. The
+			// browser-PUT path overrides this with 'browser' after
+			// calling onIngest, so the final tag reflects who actually
+			// wrote the bytes.
+			if err := idx.RecordAudioProvenance(cid, "renderfarm"); err != nil {
+				log.Printf("audio: tag provenance %s=renderfarm: %v", cid, err)
+			}
 		}
 		mode := strings.ToLower(strings.TrimSpace(*audioRenderMode))
 		if mode != "" && mode != "realtime" && mode != "offline" {
@@ -404,7 +411,12 @@ func main() {
 		// index. Walk the cache and project them in. Bounded at 30s
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
-		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret))
+		tagAudioProvenance := func(cid, source string) {
+			if err := idx.RecordAudioProvenance(cid, source); err != nil {
+				log.Printf("audio: tag provenance %s=%s: %v", cid, source, err)
+			}
+		}
+		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret, tagAudioProvenance))
 		// onMasterIngest projects newly-rendered compositions into the
 		// SQLite tracks index so /api/feed and /feed.rss surface them
 		// alongside BeatsShare renders. Reads the composition envelope
@@ -469,7 +481,8 @@ func main() {
 			mux.HandleFunc("/api/composition-queue", compositionQueueHandler(idx))
 			mux.HandleFunc("/api/composition-clear", compositionClearHandler(idx, compositionStore))
 			mux.HandleFunc("/api/composition-status/", compositionStatusHandler(ar, idx, compositionStore))
-			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear}, /api/composition-{mark,queue,clear,status})")
+			mux.HandleFunc("/api/audio-suspect", audioSuspectHandler(idx))
+			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear}, /api/composition-{mark,queue,clear,status}, /api/audio-suspect)")
 		}
 		// /api/archive-missing — every CID that's in the share store but
 		// not in the rendered-audio index. Lets an offline worker drive
@@ -847,6 +860,7 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 			Sections       []any          `json:"sections"`
 			FeelCurve      []any          `json:"feelCurve"`
 			MacroCurve     []any          `json:"macroCurve"`
+			CounterMelody  []any          `json:"counterMelody"`
 			// Optional bake-in preferences. macrosDisabled is applied
 			// by the frontend when Auto-DJ runs (skips the listed macro
 			// ids). autoDj is the engagement override — pass {"run":
@@ -947,6 +961,9 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 			}
 			if len(req.MacroCurve) > 0 {
 				envelope["macroCurve"] = req.MacroCurve
+			}
+			if len(req.CounterMelody) > 0 {
+				envelope["counterMelody"] = req.CounterMelody
 			}
 		}
 		// Source claim. Validate the rebuild-secret here at the route
@@ -1376,7 +1393,7 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
-func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string) http.Handler {
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source string)) http.Handler {
 	// httpErrorNoStore writes an error response with explicit no-store
 	// caching so browsers and intermediaries don't poison themselves
 	// with a transient 404/500 from this route. Without it, a probe
@@ -1482,6 +1499,18 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 			// envelope into the SQLite index.
 			if wrote && onIngest != nil {
 				onIngest(cid)
+			}
+			// Tag provenance: 'renderfarm' if the worker authenticated
+			// with X-Rebuild-Secret, 'browser' otherwise. The
+			// --converge worker mode (process-rebuild-queue.py) polls
+			// /api/audio-suspect for 'browser' rows and re-renders so
+			// the feed converges to canonical render-farm output.
+			if wrote && tagProvenance != nil {
+				source := "browser"
+				if authed {
+					source = "renderfarm"
+				}
+				tagProvenance(cid, source)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
@@ -2943,6 +2972,51 @@ func rebuildQueueHandler(idx *index.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(cids)
+	}
+}
+
+// audioSuspectHandler returns CIDs whose /audio/{cid}.webm was
+// uploaded by a browser (audio_provenance='browser') and is older
+// than the grace window. Drives the --converge worker mode in
+// scripts/process-rebuild-queue.py — the worker polls this, re-renders
+// each CID canonically, and PUTs back with X-Rebuild-Secret.
+// Public read-only — same trust model as /api/archive-missing.
+// Query params:
+//   limit=N         (default 20, max 200) — page size.
+//   graceMins=M     (default 30) — skip CIDs uploaded in the last M minutes.
+//   includeUnknown=1 — also return rows with audio_provenance='' (pre-migration).
+func audioSuspectHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 20
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		graceMins := 30
+		if v := r.URL.Query().Get("graceMins"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				graceMins = n
+			}
+		}
+		includeUnknown := r.URL.Query().Get("includeUnknown") == "1"
+		olderThanMs := time.Now().Add(-time.Duration(graceMins) * time.Minute).UnixMilli()
+		cids, err := idx.SuspectAudioCIDs(limit, olderThanMs, includeUnknown)
+		if err != nil {
+			log.Printf("audio-suspect: %v", err)
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cids":           cids,
+			"graceMins":      graceMins,
+			"includeUnknown": includeUnknown,
+		})
 	}
 }
 

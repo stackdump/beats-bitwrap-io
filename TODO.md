@@ -45,12 +45,11 @@ budget. `public/audio/tone-engine.js:1604` now bumps `maxPolyphony` to
 notes still drop when 256 simultaneous onsets pile up.
 
 - [x] **Bump ceiling.** 64 → 256 in `tone-engine.js:1604` + `:1655`.
-- [ ] **Voice stealing in `playNote()`**. Track `(note, releaseTime)`
-      per channel; when at capacity, cancel the oldest release and
-      retrigger. ~30 LOC.
-- [ ] **Arrangement-aware release on mute**. When a `mute-track`
-      control fires, cancel in-flight notes on that channel.
-      Addresses root cause; muted tracks also get real silence.
+- **Rejected: voice stealing in `playNote()` + arrangement-aware
+  release on `mute-track`.** Both were considered as root-cause fixes;
+  the 256 ceiling proved sufficient in practice and was chosen instead.
+  Don't re-pitch unless listener-audible drops resurface at the current
+  ceiling.
 
 Documented in CLAUDE.md under "Arrange-on-load and the polyphony ceiling".
 
@@ -67,24 +66,55 @@ Documented in CLAUDE.md under "Arrange-on-load and the polyphony ceiling".
 - **`silence` directive** — inject a full mute across all music nets
   for N bars at a named section (complementary to drumBreak).
 
-## Audio upload auth + competitive rendering market
+## Audio upload divergence — shipped + remaining
 
-The `/audio/{cid}.webm` PUT endpoint is currently first-write-wins
-with only the share-store rate limit gating it: anyone can claim a
-CID's audio slot before a real renderer gets there, and once claimed
-the bytes are sticky (we just hit this with the 110-byte stub race
-during the 2026-04-26 feed seed — recovery required SSH-deleting the
-broken files server-side before a fresh PUT was accepted).
+The near-term ask in the original TODO entry — gating canonical writes
+behind a shared-secret + an admin override for bad bytes — landed in
+several pieces:
 
-Near-term: gate PUT /audio with a signed-token / shared-secret header
-so only authorised renderers (the local worker, a future rebuild-queue
-worker pool) can write, plus an admin override to overwrite bad bytes
-without SSH.
+- [x] **`X-Rebuild-Secret` on PUT /audio** bypasses rate-limit,
+  faster-than-realtime, AND first-write-wins. Lets the rebuild-queue
+  worker overwrite stuck audio without SSH (resolved the 2026-04-26
+  stub-race recovery path).
+- [x] **`audio_provenance` column on `tracks`** (`browser` /
+  `renderfarm` / `''`). Tagged at every PUT — browser uploads vs
+  authenticated worker writes are now distinguishable.
+- [x] **`GET /api/audio-suspect`** returns browser-uploaded CIDs older
+  than a configurable grace window.
+- [x] **`scripts/process-rebuild-queue.py --converge`** worker mode
+  polls the suspect endpoint and re-renders, so the feed eventually
+  converges to canonical render-farm output regardless of who
+  originally uploaded.
+- [x] **Master-vol compensation on the browser-record branch**
+  (`client-render.js`). Browser-uploaded `.webm`s now match the share's
+  authored `fx.master-vol` instead of the user's live slider position,
+  so most browser uploads are byte-comparable to render-farm output
+  before the converge sweep ever runs. Speaker monitor unaffected.
 
-Long-term ambition: turn this into a **competitive submission +
-reward delegation** market. A CID is a content-addressed contract for
-"give me audio of this track"; multiple renderers can submit candidate
-.webms (with bond / signature), listeners vote on which they prefer
+### Still open at this layer
+
+- **Per-channel mixer vol divergence.** The master-vol compensation
+  fix only covers the master. Per-channel vols (kick/bass/lead/etc.)
+  still capture the user's live state in browser uploads — the
+  converge sweep is the backstop. Same gain-node mechanism would
+  generalize: hook each `.pn-mixer-vol` slider, insert per-channel
+  compensation on the recording branch. Defer until the converge
+  sweep's suspect-count metrics show it actually matters.
+- **Other FX state divergence** (reverb wet, delay feedback, filter
+  cutoffs). Same story — converge sweep is the backstop. Lower
+  priority; users rarely tweak send-effect wetness mid-listen.
+- **Metrics / observability.** No dashboard for suspect-count, converge
+  cadence, or worker liveness. Today you query
+  `sqlite3 index.db 'SELECT audio_provenance, COUNT(*) FROM tracks
+  GROUP BY 1'` by hand. A `/api/audio-stats` endpoint would be a small
+  addition once the converge sweep is in production long enough to
+  produce interesting numbers.
+
+### Long-term ambition: competitive rendering market
+
+Original vision retained: turn `/audio/{cid}.webm` into a content-
+addressed marketplace where multiple renderers submit candidate
+`.webms` (with bond / signature), listeners vote on which they prefer
 (the existing EIP-191 vote infra is a starting point), and the winning
 renderer earns delegation rewards. Different renderers can offer
 *augmented* variants — mastered for headphones, lo-fi tape sim,
@@ -92,8 +122,13 @@ binaural spatial mix, stem separation — addressed under the same CID
 via a variant qualifier (e.g. `/audio/{cid}.webm?v=mastered`). The CID
 stays canonical; the audio surface becomes a marketplace.
 
-Pre-work before this is worth designing in detail:
-- per-renderer identity (DID / wallet address)
+The provenance plumbing above is a foundation: `audio_provenance`
+generalizes to a per-renderer identity column, the suspect endpoint
+generalizes to a candidate-listing endpoint. Pre-work before designing
+in detail:
+
+- per-renderer identity (DID / wallet address) — replaces the binary
+  `browser`/`renderfarm` tag with a richer source field
 - variant addressing scheme + canonical-URL discovery
 - dispute / replacement protocol (slashing for fraud or silence)
 - listener vote → reward distribution path

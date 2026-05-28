@@ -88,6 +88,105 @@ func TestFeedCursorPagination(t *testing.T) {
 	}
 }
 
+// TestAudioProvenanceAndSuspect: records browser + renderfarm + untagged
+// rows, asserts SuspectAudioCIDs filters by provenance, grace window,
+// and includeUnknown.
+func TestAudioProvenanceAndSuspect(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "i.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	payload := []byte(`{"@type":"BeatsShare","v":1,"genre":"techno","seed":1,"tempo":124}`)
+	mustRecord := func(cid string, at int64) {
+		t.Helper()
+		if err := db.RecordRenderAt(cid, payload, 1000, at); err != nil {
+			t.Fatalf("record %s: %v", cid, err)
+		}
+	}
+
+	// Layout:
+	//   zold-browser    (browser, 1 hour old)        → suspect
+	//   znew-browser    (browser, 5 min old)         → grace
+	//   zfarm           (renderfarm)                 → canonical
+	//   zlegacy         (no provenance set)          → unknown
+	now := time.Now().UnixMilli()
+	mustRecord("zold-browser", now-60*60*1000)
+	mustRecord("znew-browser", now-5*60*1000)
+	mustRecord("zfarm", now-30*60*1000)
+	mustRecord("zlegacy", now-2*60*60*1000)
+
+	if err := db.RecordAudioProvenance("zold-browser", "browser"); err != nil {
+		t.Fatalf("tag zold-browser: %v", err)
+	}
+	if err := db.RecordAudioProvenance("znew-browser", "browser"); err != nil {
+		t.Fatalf("tag znew-browser: %v", err)
+	}
+	if err := db.RecordAudioProvenance("zfarm", "renderfarm"); err != nil {
+		t.Fatalf("tag zfarm: %v", err)
+	}
+	// zlegacy intentionally untagged.
+
+	// Default: only browser, with a 30 min grace window.
+	graceCutoff := now - 30*60*1000
+	suspects, err := db.SuspectAudioCIDs(50, graceCutoff, false)
+	if err != nil {
+		t.Fatalf("suspect: %v", err)
+	}
+	if got := joinSorted(suspects); got != "zold-browser" {
+		t.Fatalf("default suspects = %q, want zold-browser only", got)
+	}
+
+	// includeUnknown=true: legacy also surfaces.
+	suspects, _ = db.SuspectAudioCIDs(50, graceCutoff, true)
+	if got := joinSorted(suspects); got != "zlegacy,zold-browser" {
+		t.Fatalf("with-unknown suspects = %q, want zlegacy,zold-browser", got)
+	}
+
+	// Grace=0: now znew-browser also surfaces.
+	suspects, _ = db.SuspectAudioCIDs(50, now, false)
+	if got := joinSorted(suspects); got != "znew-browser,zold-browser" {
+		t.Fatalf("no-grace suspects = %q, want both browser rows", got)
+	}
+
+	// Limit honored.
+	suspects, _ = db.SuspectAudioCIDs(1, now, false)
+	if len(suspects) != 1 {
+		t.Fatalf("limit=1 returned %d", len(suspects))
+	}
+
+	// Re-tag zold-browser as renderfarm: drops off the suspect list.
+	if err := db.RecordAudioProvenance("zold-browser", "renderfarm"); err != nil {
+		t.Fatalf("retag: %v", err)
+	}
+	suspects, _ = db.SuspectAudioCIDs(50, graceCutoff, false)
+	if len(suspects) != 0 {
+		t.Fatalf("after retag, expected empty suspect list; got %v", suspects)
+	}
+}
+
+// joinSorted returns a stable comma-joined string for assertion.
+func joinSorted(ss []string) string {
+	cp := append([]string(nil), ss...)
+	// tiny sort-3 cheap, avoid sort import for one-liner
+	for i := range cp {
+		for j := i + 1; j < len(cp); j++ {
+			if cp[j] < cp[i] {
+				cp[i], cp[j] = cp[j], cp[i]
+			}
+		}
+	}
+	out := ""
+	for i, s := range cp {
+		if i > 0 {
+			out += ","
+		}
+		out += s
+	}
+	return out
+}
+
 // itoa avoids the strconv import for a one-liner test helper.
 func itoa(n int64) string {
 	if n == 0 {

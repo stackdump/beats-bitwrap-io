@@ -160,11 +160,12 @@ The share envelope carries an optional `structure` directive (values: `loop`, `a
 - `sections` — author-supplied section blueprint replacing built-in pick: `{name, steps, active: [roles]}`.
 - `feelCurve` — `[{section, x, y}]`. Injects a `feel-curve` control net firing `set-feel` at section starts; the client's `control-fired` handler calls `_applyFeel([x,y])`.
 - `macroCurve` — `[{section, macro, bars}]`. Injects `macro-curve` firing `fire-macro` at section starts. Any macro id in `catalog.js` is valid.
+- `counterMelody` — `[{section, mode, density, register, of?, instrument?}]`. **First arrange directive that synthesizes a music net** rather than a control net. Per entry: generates a counter line via `internal/generator/countermelody` (rule-based; no ML, no model — answer fills rest runs, harmony emits parallel 3rds, shadow emits 16th-late echoes), injects a `counter-melody-N` music net + a `gate-counter-melody-N` control net that mutes the counter outside the target section. Channel allocated as `max(existing music channel)+1` (skips 16). Default instrument: `electric-piano` for `register: above`, `sub-bass` for `register: below`. Note: dense `harmony` on a long-tail instrument can pressure the 256-voice/channel ceiling.
 - **Overlay mode** — when the loaded project already has `structure`, pass `overlayOnly: true` to skip blueprint pick + variant expansion and only layer on curves/fades/break. The Arrange tab's apply button uses overlay automatically when possible.
 
 Pattern for adding the next directive: schema field → embedded schema sync (`internal/share/beats-share.schema.json`) → envelope passthrough in `main.go::buildShareEnvelope` → `ArrangeOpts` field in Go (`internal/generator/arrange.go`) → JS port field in `public/lib/generator/arrange.js` → `/api/arrange` body in `internal/routes/routes.go` → client reader in `shareFromPayload` → boot-path wiring in `petri-note.js` + `backend/index.js`.
 
-**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on dense arrangements (`Max polyphony exceeded. Note dropped.`). Remaining fixes (TODO.md): voice stealing in `playNote()`; arrangement-aware release on mute (cancel in-flight notes when `mute-track` fires).
+**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on dense arrangements (`Max polyphony exceeded. Note dropped.`). Voice stealing in `playNote()` and arrangement-aware release on mute were considered and rejected — the 256 ceiling is the chosen path (TODO.md).
 
 ## Running locally for hand-authored tracks
 
@@ -298,7 +299,10 @@ Routes (all open: anyone can mark, read, clear — abuse cost bounded by worker 
 - `GET  /api/rebuild-queue?limit=N` — JSON array of pending CIDs.
 - `POST /api/rebuild-clear {cid}` — removes a row (worker calls after upload).
 - `GET  /api/rebuild-events` — **SSE push**, `X-Rebuild-Secret`-gated. Emits `event: rebuild\ndata: <cid>` per mark (+ heartbeat). Lets the worker react instantly instead of polling; `internal/rebuildbus` is the in-process pub/sub, best-effort over the durable queue. nginx must proxy it with `proxy_buffering off` (the handler also sets `X-Accel-Buffering: no`).
+- `GET  /api/audio-suspect?limit=N&graceMins=M&includeUnknown=1` — CIDs whose latest `/audio/{cid}.webm` was uploaded by a browser (`audio_provenance='browser'`) and is older than the grace window. Drives the `--converge` worker mode. Public read-only; the worker re-renders + PUTs with `X-Rebuild-Secret` to overwrite. `includeUnknown=1` also returns pre-migration rows with `audio_provenance=''`.
 - `GET  /api/features` — `{rebuildQueue, genreColors}`. Frontend feature-detects ⟳ visibility.
+
+**Audio provenance.** Every `PUT /audio/{cid}.webm` is tagged on the `tracks` table's `audio_provenance` column: `'renderfarm'` when the request carries `X-Rebuild-Secret`, `'browser'` otherwise. Server-side chromedp renders also tag `'renderfarm'`. The `--converge` worker sweep finds `'browser'`-tagged rows and re-renders them so the feed eventually converges to render-farm canonical output (the browser's "Download audio" still captures live mixer state — that's intentional for personal exports, but the feed shouldn't reflect a user's tweaks). Pre-migration rows have `audio_provenance=''` and are skipped by default; pass `--converge-include-unknown` to backfill them too.
 
 Worker (run on a MacBook with chromedp / Chrome):
 
@@ -311,6 +315,8 @@ BEATS_REBUILD_SECRET=$(...) ./scripts/process-rebuild-queue.py --subscribe   # S
 ```
 
 `--subscribe` opens the SSE stream and renders on each pushed event (near-instant), gated by `X-Rebuild-Secret`; it drains on every (re)connect and keeps a slow full-drain backstop, so it degrades to ~polling if the stream drops. `--watch` is the plain 30s poll fallback. The off-host render farm is configured in `valoper-stackdump-com` (see its `RENDER-FARM.md`).
+
+`--converge` sweeps `/api/audio-suspect` on its own cadence (`--converge-interval`, default 1800s / 30 min) and re-renders any browser-uploaded audio so the feed converges to canonical render-farm output. Composes with `--watch` (so a single worker process can drain the rebuild queue every 30 s AND run the converge sweep every 30 min). Requires `--secret` so PUTs carry `X-Rebuild-Secret` and overwrite the existing browser upload.
 
 The worker sends `X-Rebuild-Secret` on every PUT `/audio/{cid}.webm`, bypassing rate-limit / faster-than-realtime / first-write-wins checks — that last one is what lets it replace stuck audio without SSH-deleting the bad file.
 

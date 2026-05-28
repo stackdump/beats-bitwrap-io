@@ -25,11 +25,20 @@ CREATE TABLE IF NOT EXISTS tracks (
     -- legacy rows; 'BeatsComposition' for rendered composition
     -- masters (assembled from one or more BeatsShare ingredients).
     -- Lets feed surfaces filter or render compositions distinctly.
-    content_type   TEXT NOT NULL DEFAULT 'BeatsShare'
+    content_type   TEXT NOT NULL DEFAULT 'BeatsShare',
+    -- Who uploaded the most recent /audio/{cid}.webm.
+    --   ''           — unknown (pre-migration row, or no audio yet)
+    --   'browser'    — PUT without X-Rebuild-Secret (user's live mix)
+    --   'renderfarm' — PUT with X-Rebuild-Secret (canonical render)
+    -- The --converge worker mode polls /api/audio-suspect for
+    -- 'browser' rows and re-renders so the feed converges to the
+    -- render-farm canonical mix over time.
+    audio_provenance TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS tracks_recent ON tracks(rendered_at DESC);
 CREATE INDEX IF NOT EXISTS tracks_genre  ON tracks(genre, rendered_at DESC);
+CREATE INDEX IF NOT EXISTS tracks_audio_prov ON tracks(audio_provenance, rendered_at);
 
 -- rebuild_queue: opt-in. Listeners click ⟳ on a feed card to mark
 -- its CID for a fresh audio render by an off-host worker

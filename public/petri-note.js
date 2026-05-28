@@ -1472,7 +1472,7 @@ class PetriNote extends HTMLElement {
             // produced a project. The server's seq will hold the just-
             // generated project, so the overlay runs against it and the
             // broadcast pushes the updated nets back to the worker.
-            const hasOverlay = share.fadeIn || share.drumBreak || share.feelCurve || share.macroCurve;
+            const hasOverlay = share.fadeIn || share.drumBreak || share.feelCurve || share.macroCurve || share.counterMelody;
             if (hasOverlay) {
                 this._pendingOverlay = {
                     genre: share.genre || 'wrapped',
@@ -1481,6 +1481,7 @@ class PetriNote extends HTMLElement {
                     drumBreak: share.drumBreak || undefined,
                     feelCurve: share.feelCurve || undefined,
                     macroCurve: share.macroCurve || undefined,
+                    counterMelody: share.counterMelody || undefined,
                 };
             }
             return;

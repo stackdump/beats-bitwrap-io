@@ -165,9 +165,10 @@ func (s *Server) handleArrange(w http.ResponseWriter, r *http.Request) {
 		FadeIn         []string                   `json:"fadeIn"`
 		DrumBreak      int                        `json:"drumBreak"`
 		Sections       []generator.AuthorSection  `json:"sections"`
-		FeelCurve      []generator.FeelPoint      `json:"feelCurve"`
-		MacroCurve     []generator.MacroPoint     `json:"macroCurve"`
-		OverlayOnly    bool                       `json:"overlay"`
+		FeelCurve      []generator.FeelPoint          `json:"feelCurve"`
+		MacroCurve     []generator.MacroPoint         `json:"macroCurve"`
+		CounterMelody  []generator.CounterMelodyEntry `json:"counterMelody"`
+		OverlayOnly    bool                           `json:"overlay"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -196,6 +197,7 @@ func (s *Server) handleArrange(w http.ResponseWriter, r *http.Request) {
 		Sections:       req.Sections,
 		FeelCurve:      req.FeelCurve,
 		MacroCurve:     req.MacroCurve,
+		CounterMelody:  req.CounterMelody,
 		OverlayOnly:    req.OverlayOnly,
 	}
 	if req.Seed != nil {

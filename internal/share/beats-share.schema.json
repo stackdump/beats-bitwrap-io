@@ -89,6 +89,12 @@
         }
       }
     },
+    "counterMelody": {
+      "type": ["array", "null"],
+      "description": "Inject a generated counter-melody music net that plays during named sections. First arrange directive that synthesizes a music net (not just a control net). Each entry: {section, mode answer|harmony|shadow, density 0..1, register above|below, optional source net ID, optional instrument key}.",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/CounterMelodyEntry" }
+    },
     "traits":   { "type": ["object", "null"] },
     "tracks": {
       "type": ["object", "null"],
@@ -157,6 +163,19 @@
     }
   },
   "$defs": {
+    "CounterMelodyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section"],
+      "properties": {
+        "section":    { "type": "string", "maxLength": 32 },
+        "mode":       { "type": "string", "enum": ["answer", "harmony", "shadow"] },
+        "density":    { "type": "number", "minimum": 0, "maximum": 1 },
+        "register":   { "type": "string", "enum": ["above", "below"] },
+        "of":         { "type": "string", "maxLength": 64 },
+        "instrument": { "type": "string", "maxLength": 64 }
+      }
+    },
     "TrackOverride": {
       "type": "object",
       "additionalProperties": true,

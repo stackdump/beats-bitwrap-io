@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,10 +38,11 @@ func Open(path string) (*DB, error) {
 	// explicit add. Failures swallowed — "duplicate column" is normal
 	// on every startup after the first.
 	for _, alter := range []string{
-		`ALTER TABLE tracks ADD COLUMN source         TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE tracks ADD COLUMN signer_type    TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE tracks ADD COLUMN signer_address TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE tracks ADD COLUMN content_type   TEXT NOT NULL DEFAULT 'BeatsShare'`,
+		`ALTER TABLE tracks ADD COLUMN source           TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN signer_type      TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN signer_address   TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tracks ADD COLUMN content_type     TEXT NOT NULL DEFAULT 'BeatsShare'`,
+		`ALTER TABLE tracks ADD COLUMN audio_provenance TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = s.Exec(alter)
 	}
@@ -115,6 +117,66 @@ func (d *DB) RecordRenderAt(cid string, payloadBytes []byte, bytes, renderedAt i
 		return fmt.Errorf("index: insert: %w", err)
 	}
 	return nil
+}
+
+// RecordAudioProvenance tags the most recent /audio/{cid}.webm upload
+// with its source: "browser" (PUT without X-Rebuild-Secret) or
+// "renderfarm" (PUT with the secret). The --converge worker mode
+// (scripts/process-rebuild-queue.py) polls SuspectAudioCIDs for
+// 'browser' rows and re-renders so the feed converges to render-farm
+// canonical output over time.
+//
+// Idempotent — overwrites whatever was there. Re-renders flip 'browser'
+// rows to 'renderfarm', dropping them from the suspect list.
+func (d *DB) RecordAudioProvenance(cid, source string) error {
+	if cid == "" {
+		return errors.New("index: empty cid")
+	}
+	_, err := d.sql.Exec(
+		`UPDATE tracks SET audio_provenance = ? WHERE cid = ?`,
+		source, cid,
+	)
+	if err != nil {
+		return fmt.Errorf("index: record audio provenance: %w", err)
+	}
+	return nil
+}
+
+// SuspectAudioCIDs returns CIDs whose latest /audio/{cid}.webm was
+// uploaded by a browser (audio_provenance = 'browser') and is older
+// than olderThanMs (a grace window — avoids racing fresh uploads).
+//
+// When includeUnknown is true, rows with audio_provenance = '' (pre-
+// migration or never tagged) are also returned. Default: false.
+//
+// Results ordered by rendered_at ASC so the oldest suspects converge
+// first. Caller clamps limit; this function trusts it.
+func (d *DB) SuspectAudioCIDs(limit int, olderThanMs int64, includeUnknown bool) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	where := `audio_provenance = 'browser'`
+	if includeUnknown {
+		where = `audio_provenance IN ('browser', '')`
+	}
+	rows, err := d.sql.Query(
+		`SELECT cid FROM tracks WHERE `+where+` AND rendered_at <= ?
+		   ORDER BY rendered_at ASC LIMIT ?`,
+		olderThanMs, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("index: suspect query: %w", err)
+	}
+	defer rows.Close()
+	cids := make([]string, 0, limit)
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, fmt.Errorf("index: suspect scan: %w", err)
+		}
+		cids = append(cids, cid)
+	}
+	return cids, rows.Err()
 }
 
 // Latest returns the CID with the most-recent rendered_at, or "" if

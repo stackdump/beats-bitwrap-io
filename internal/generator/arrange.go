@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"beats-bitwrap-io/internal/generator/countermelody"
 	"beats-bitwrap-io/internal/pflow"
 
 	"github.com/pflow-xyz/go-pflow/petri"
@@ -73,6 +74,14 @@ type ArrangeOpts struct {
 	// as feel-curve but dispatching fire-macro.
 	MacroCurve []MacroPoint
 
+	// CounterMelody injects one or more generated music nets that play
+	// during named sections. Each entry produces a new music net plus a
+	// gate control net that mutes the counter outside its target section.
+	// This is the first arrange directive that synthesizes a music net
+	// (rather than a control net) — see injectCounterMelody for the
+	// channel-allocation + gating logic.
+	CounterMelody []CounterMelodyEntry
+
 	// OverlayOnly skips blueprint pick + variant expansion + section
 	// control-net generation, using the project's existing `Structure`
 	// field as the section map. Only runs the overlay passes
@@ -106,6 +115,21 @@ type MacroPoint struct {
 	Section string  `json:"section"`
 	Macro   string  `json:"macro"`
 	Bars    float64 `json:"bars,omitempty"`
+}
+
+// CounterMelodyEntry is one entry in a CounterMelody array — names the
+// target section, mode (answer/harmony/shadow), density [0,1],
+// register (above/below), and optional source-net-ID + instrument
+// override. Empty Of walks every music net (matches the
+// composition-layer insert default). Empty Instrument picks a curated
+// counter voice based on Register.
+type CounterMelodyEntry struct {
+	Section    string  `json:"section"`
+	Mode       string  `json:"mode,omitempty"`
+	Density    float64 `json:"density,omitempty"`
+	Register   string  `json:"register,omitempty"`
+	Of         string  `json:"of,omitempty"`
+	Instrument string  `json:"instrument,omitempty"`
 }
 
 // ArrangeWithOpts is the canonical entry point — other forms wrap it.
@@ -229,6 +253,10 @@ func applyArrangeOverlays(proj *pflow.Project, tmpl *SongTemplate, allNets []str
 
 	if len(opts.MacroCurve) > 0 {
 		injectMacroCurve(proj, tmpl, opts.MacroCurve)
+	}
+
+	if len(opts.CounterMelody) > 0 {
+		injectCounterMelody(proj, tmpl, opts.CounterMelody, opts.Seed)
 	}
 }
 
@@ -843,4 +871,190 @@ func Chorus(proj *pflow.Project, genre Genre, rng *rand.Rand) {
 			proj.Nets["harmony"].Track.Instrument = instruments[rng.Intn(len(instruments))]
 		}
 	}
+}
+
+// injectCounterMelody is the share-layer counter-melody directive.
+// First arrange directive that synthesizes a music net (rather than a
+// control net): per entry it builds a generated melody net via
+// countermelody.BuildMusicNet, then injects a gate control net that
+// mutes the counter outside its target section.
+//
+// Determinism: each entry's seed derives from (opts.Seed, entry
+// position, entry JSON). Same envelope → same generated counter.
+//
+// Channel allocation: scans existing music nets for max(channel)+1,
+// skipping the reserved control channel (16). Deterministic given
+// sorted iteration of proj.Nets.
+//
+// Defaults: mode=answer, density=0.5, register=above, instrument
+// inherits from countermelodyDefaultInstrument(register).
+func injectCounterMelody(proj *pflow.Project, tmpl *SongTemplate, entries []CounterMelodyEntry, baseSeed int64) {
+	// Map section name → start tick. Multiple sections with the same
+	// name (e.g. chorus repeating) all gate the counter — we record
+	// every occurrence's start tick by walking tmpl.Sections in order.
+	starts := make([]counterSectionStart, 0, len(tmpl.Sections))
+	totalSteps := 0
+	for _, sec := range tmpl.Sections {
+		starts = append(starts, counterSectionStart{tick: totalSteps, name: sec.Name})
+		totalSteps += sec.Steps
+	}
+	if totalSteps == 0 {
+		return
+	}
+
+	// Compute ms-per-tick from project tempo for MIDI duration.
+	tempo := proj.Tempo
+	if tempo <= 0 {
+		tempo = 120
+	}
+	msPerTick := 60_000.0 / (tempo * float64(countermelody.PPQ))
+
+	for idx, entry := range entries {
+		// Skip entries whose target section doesn't exist in this arrangement.
+		sectionExists := false
+		for _, s := range starts {
+			if s.name == entry.Section {
+				sectionExists = true
+				break
+			}
+		}
+		if !sectionExists {
+			continue
+		}
+
+		// Derive a deterministic per-entry seed by hashing fixed-order
+		// fields. Don't use json.Marshal here: matching Go's struct
+		// marshalling byte-for-byte from JS would require canonicalizing
+		// the JSON, and this is simpler.
+		seed := countermelody.SeedFromBytes(
+			[]byte(fmt.Sprintf("counter-melody:%d:%d", baseSeed, idx)),
+			[]byte(entry.Section),
+			[]byte(entry.Mode),
+			[]byte(fmt.Sprintf("%.6f", entry.Density)),
+			[]byte(entry.Register),
+			[]byte(entry.Of),
+			[]byte(entry.Instrument),
+		)
+
+		notes := countermelody.GenerateCounterMelody(proj, countermelody.Opts{
+			Mode:        entry.Mode,
+			Density:     entry.Density,
+			Register:    entry.Register,
+			Seed:        seed,
+			TotalTicks:  totalSteps,
+			SourceNetID: entry.Of,
+		})
+		// nil → no source material; empty → mode found nothing to add.
+		// Both skip net injection (no audible counter), but neither errors.
+		if len(notes) == 0 {
+			continue
+		}
+
+		instrument := entry.Instrument
+		if instrument == "" {
+			instrument = counterMelodyDefaultInstrument(entry.Register)
+		}
+		channel := nextFreeCounterChannel(proj)
+
+		nb := countermelody.BuildMusicNet(notes, countermelody.NetOpts{
+			TotalTicks:      totalSteps,
+			Channel:         channel,
+			Instrument:      instrument,
+			Group:           "harmony",
+			DefaultVelocity: 90,
+			MsPerTick:       msPerTick,
+		})
+		if nb == nil {
+			continue
+		}
+		netID := fmt.Sprintf("counter-melody-%d", idx)
+		proj.Nets[netID] = nb
+
+		// Gate net: counter starts muted, unmutes at each occurrence of
+		// the target section, re-mutes at the start of any other section.
+		// First section's mute fires at tick 0 — together with the
+		// InitialMutes entry, the counter is silent until the target.
+		proj.InitialMutes = append(proj.InitialMutes, netID)
+		injectCounterMelodyGate(proj, starts, totalSteps, netID, entry.Section, idx)
+	}
+}
+
+// counterSectionStart is a section's (start-tick, name) pair used by
+// injectCounterMelody / injectCounterMelodyGate.
+type counterSectionStart struct {
+	tick int
+	name string
+}
+
+// injectCounterMelodyGate builds a linear-chain control net of length
+// totalSteps. Each section's start tick carries either mute-track (off
+// target) or unmute-track (on target) targeting the counter net.
+func injectCounterMelodyGate(proj *pflow.Project, starts []counterSectionStart, totalSteps int, counterNetID, targetSection string, idx int) {
+	net := petri.NewPetriNet()
+	bindings := make(map[string]*pflow.MidiBinding)
+	controlBindings := make(map[string]*pflow.ControlBinding)
+
+	for i := 0; i < totalSteps; i++ {
+		var initial any
+		if i == 0 {
+			initial = []float64{1}
+		}
+		net.AddPlace(fmt.Sprintf("p%d", i), initial, nil, 0, 0, nil)
+		net.AddTransition(fmt.Sprintf("t%d", i), "", 0, 0, nil)
+		net.AddArc(fmt.Sprintf("p%d", i), fmt.Sprintf("t%d", i), []float64{1}, false)
+		next := (i + 1) % totalSteps
+		net.AddArc(fmt.Sprintf("t%d", i), fmt.Sprintf("p%d", next), []float64{1}, false)
+	}
+
+	for _, s := range starts {
+		action := "mute-track"
+		if s.name == targetSection {
+			action = "unmute-track"
+		}
+		controlBindings[fmt.Sprintf("t%d", s.tick)] = &pflow.ControlBinding{
+			Action:    action,
+			TargetNet: counterNetID,
+		}
+	}
+
+	nb := pflow.NewNetBundle(net, pflow.Track{Channel: 16}, bindings)
+	nb.Role = "control"
+	nb.ControlBindings = controlBindings
+	proj.Nets[fmt.Sprintf("gate-counter-melody-%d", idx)] = nb
+}
+
+// counterMelodyDefaultInstrument picks a curated counter voice. Both
+// keys are confirmed present in public/audio/tone-engine.js's
+// INSTRUMENT_CONFIGS.
+func counterMelodyDefaultInstrument(register string) string {
+	if register == "below" {
+		return "sub-bass"
+	}
+	return "electric-piano"
+}
+
+// nextFreeCounterChannel scans music nets for max(channel)+1,
+// skipping the reserved control channel (16). Deterministic given
+// sorted iteration of proj.Nets.
+func nextFreeCounterChannel(proj *pflow.Project) int {
+	ids := make([]string, 0, len(proj.Nets))
+	for id := range proj.Nets {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	maxCh := 0
+	for _, id := range ids {
+		nb := proj.Nets[id]
+		if nb == nil || nb.Role == "control" {
+			continue
+		}
+		if nb.Track.Channel > maxCh {
+			maxCh = nb.Track.Channel
+		}
+	}
+	next := maxCh + 1
+	if next == 16 {
+		next = 17
+	}
+	return next
 }

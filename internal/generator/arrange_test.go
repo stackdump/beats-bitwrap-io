@@ -97,6 +97,107 @@ func TestArrangeSeeded_Deterministic(t *testing.T) {
 	}
 }
 
+// TestArrangeWithCounterMelody_Deterministic: arrange with a
+// counterMelody entry, three runs must produce byte-identical output.
+// Guards the per-entry seed derivation (baseSeed, idx, entry JSON) and
+// the channel-allocation order.
+func TestArrangeWithCounterMelody_Deterministic(t *testing.T) {
+	opts := ArrangeOpts{
+		Seed: 42,
+		CounterMelody: []CounterMelodyEntry{
+			{Section: "chorus", Mode: "answer", Density: 0.5, Register: "above"},
+		},
+	}
+	hashes := make([][]byte, 3)
+	for i := range 3 {
+		proj := fixtureProject(t)
+		ArrangeWithOpts(proj, "wrapped", "extended", opts)
+		b, err := json.Marshal(proj.ToJSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hashes[i] = b
+	}
+	for i := 1; i < len(hashes); i++ {
+		if string(hashes[0]) != string(hashes[i]) {
+			t.Fatalf("ArrangeWithOpts(counterMelody) non-deterministic: run 0 (%d bytes) != run %d (%d bytes)",
+				len(hashes[0]), i, len(hashes[i]))
+		}
+	}
+}
+
+// TestInjectCounterMelody_StructuralShape: when the kernel produces
+// notes, the music net and gate net are injected with the expected
+// role / channel / group / initial-mute behavior. When the target
+// section doesn't exist in the template, nothing is injected.
+func TestInjectCounterMelody_StructuralShape(t *testing.T) {
+	proj := fixtureProject(t)
+	tmpl := &SongTemplate{Sections: []Section{
+		{Name: "verse", Steps: 32},
+		{Name: "chorus", Steps: 32},
+		{Name: "verse", Steps: 32},
+	}}
+	// Harmony mode operates on every source note (no rest-run requirement),
+	// so density=1.0 guarantees the fixture project produces notes — the
+	// structural assertions can run.
+	entries := []CounterMelodyEntry{
+		{Section: "chorus", Mode: "harmony", Density: 1.0, Register: "above"},
+	}
+	injectCounterMelody(proj, tmpl, entries, 42)
+
+	nb := proj.Nets["counter-melody-0"]
+	if nb == nil {
+		t.Fatalf("expected counter-melody-0 to be injected; got nil")
+	}
+	if nb.Role != "music" {
+		t.Errorf("counter net role = %q, want music", nb.Role)
+	}
+	if nb.Track.Group != "harmony" {
+		t.Errorf("counter net group = %q, want harmony", nb.Track.Group)
+	}
+	if nb.Track.Instrument != "electric-piano" {
+		t.Errorf("counter net instrument = %q, want electric-piano (above default)", nb.Track.Instrument)
+	}
+	// fixture's bass channel = 2, so counter should be ≥ 3 and ≠ 16
+	if nb.Track.Channel < 3 || nb.Track.Channel == 16 {
+		t.Errorf("counter channel = %d, want ≥ 3 and ≠ 16", nb.Track.Channel)
+	}
+
+	gate := proj.Nets["gate-counter-melody-0"]
+	if gate == nil {
+		t.Fatalf("expected gate-counter-melody-0; got nil")
+	}
+	if gate.Role != "control" {
+		t.Errorf("gate role = %q, want control", gate.Role)
+	}
+	// Three sections, three boundaries, three control bindings.
+	if got := len(gate.ControlBindings); got != 3 {
+		t.Errorf("gate should have 3 mute/unmute bindings, got %d", got)
+	}
+
+	// Counter should be in InitialMutes (starts silent, target gates it on)
+	found := false
+	for _, id := range proj.InitialMutes {
+		if id == "counter-melody-0" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("counter-melody-0 should be in InitialMutes")
+	}
+
+	// Entry with non-existent section: no injection
+	proj2 := fixtureProject(t)
+	entries2 := []CounterMelodyEntry{
+		{Section: "bridge-that-doesnt-exist", Mode: "answer"},
+	}
+	injectCounterMelody(proj2, tmpl, entries2, 42)
+	if proj2.Nets["counter-melody-0"] != nil {
+		t.Errorf("entry with missing section should not inject a net")
+	}
+}
+
 // TestArrange_ClonePreservesGroup: the variant expander deep-copies via
 // cloneBundle; the clone must keep the source's track.group so the
 // mixer sections still line up post-arrange.

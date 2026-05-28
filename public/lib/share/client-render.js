@@ -6,6 +6,18 @@
 // matches: the audio-grid scheduler in lib/backend/index.js locks every
 // onset to the AudioContext clock regardless of CPU pressure.
 //
+// Master-vol compensation. The recording branch is compensated to
+// match the share's authored `fx.master-vol`, NOT the user's live
+// slider position. The render-farm canonical output uses the authored
+// value; this keeps browser uploads audibly comparable to render-farm
+// .webms for the same CID. The user's speaker monitor stays at their
+// live setting — only the recording branch sees the compensation gain.
+// Authored value comes from `el._authoredFxState['master-vol']`, stashed
+// by `apply.js::applyShareOverrides` right after the share boots.
+// When the user moves the master-vol slider during recording, the
+// compensation gain ramps to absorb the change so the recording stays
+// at the authored level throughout.
+//
 // Caller responsibilities:
 //   - The petri-note element must already have a project loaded
 //     (`el._project` populated, `el._totalSteps` ≥ 0).
@@ -16,6 +28,19 @@
 const PPQ = 4;            // mirrors sequencer-worker.js
 const TAIL_MS = 1500;     // capture reverb / release tail past last tick
 const LOOP_FALLBACK_TICKS = 1024; // ~64 bars @ PPQ 4 — same as render-mode.js
+
+// Mirror of public/lib/ui/build.js:1373 — the master-vol slider's
+// canonical 0..100 → -60..0 dB mapping. Lifted into a helper so the
+// compensation math below stays in lockstep with the live engine path.
+function volToDb(value) {
+    const v = Number(value);
+    if (!Number.isFinite(v) || v <= 0) return -60;
+    return -60 + (Math.min(v, 100) / 100) * 60;
+}
+
+function dbToLinear(db) {
+    return Math.pow(10, db / 20);
+}
 
 export function pickMimeType() {
     if (typeof MediaRecorder === 'undefined') return '';
@@ -58,7 +83,37 @@ export async function renderToBlob(el, opts = {}) {
     const rawCtx = Tone.getContext().rawContext;
 
     const recDest = rawCtx.createMediaStreamDestination();
-    Tone.getDestination().connect(recDest);
+
+    // Master-vol compensation. Insert a GainNode between Tone's master
+    // output and recDest so the recording branch is offset to the
+    // share's authored master-vol level. Speakers are unaffected
+    // because the Tone.getDestination() → speaker chain is independent
+    // of this new branch. See the top-of-file comment block for the
+    // contract.
+    const userSlider = el.querySelector('.pn-fx-slider[data-fx="master-vol"]');
+    const authoredVol = el._authoredFxState?.['master-vol'];
+    const compGain = rawCtx.createGain();
+    const recalc = () => {
+        // Defensive: when authored state is missing (legacy boot path,
+        // hand-authored project with no share envelope), fall back to
+        // no compensation rather than throwing.
+        if (authoredVol == null || !userSlider) return 1.0;
+        const userVol = parseInt(userSlider.value, 10);
+        if (!Number.isFinite(userVol)) return 1.0;
+        return dbToLinear(volToDb(authoredVol) - volToDb(userVol));
+    };
+    compGain.gain.value = recalc();
+    Tone.getDestination().connect(compGain);
+    compGain.connect(recDest);
+
+    // Live tracking: while recording is in progress, slider movements
+    // re-target the compensation so the recording stays at the
+    // authored level. The 5 ms setTargetAtTime time-constant absorbs
+    // sharp drags without an audible click.
+    const onSliderInput = () => {
+        compGain.gain.setTargetAtTime(recalc(), rawCtx.currentTime, 0.005);
+    };
+    if (userSlider) userSlider.addEventListener('input', onSliderInput);
 
     const mimeType = pickMimeType();
     const recorder = new MediaRecorder(recDest.stream, mimeType ? { mimeType } : undefined);
@@ -94,6 +149,11 @@ export async function renderToBlob(el, opts = {}) {
     await stopped;
 
     if (el._playing) el._togglePlay();
+
+    // Tear down the compensation branch: stop tracking slider input
+    // and disconnect the gain node so it gets GC'd.
+    if (userSlider) userSlider.removeEventListener('input', onSliderInput);
+    try { compGain.disconnect(); } catch {}
 
     const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
     return { blob, mimeType: recorder.mimeType || mimeType || '', durationMs, totalSteps };
