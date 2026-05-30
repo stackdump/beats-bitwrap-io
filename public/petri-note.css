@@ -991,6 +991,7 @@ input[type="range"][data-default] {
 .pn-macros-panel    { order: 2; }
 .pn-oneshots-panel  { order: 3; }
 .pn-autodj-panel    { order: 4; }
+.pn-device-panel    { order: 5; }
 
 .pn-effects-toggle {
     display: flex;
@@ -1107,7 +1108,8 @@ input[type="range"][data-default] {
 }
 
 .pn-note-btn,
-.pn-midi-btn {
+.pn-midi-btn,
+.pn-device-btn {
     background: transparent;
     border: 1px solid #0f3460;
     color: #4a90d9;
@@ -1118,12 +1120,14 @@ input[type="range"][data-default] {
     font-weight: bold;
 }
 .pn-note-btn:hover,
-.pn-midi-btn:hover {
+.pn-midi-btn:hover,
+.pn-device-btn:hover {
     border-color: #e94560;
     color: #e94560;
 }
 .pn-note-btn.active,
-.pn-midi-btn.active {
+.pn-midi-btn.active,
+.pn-device-btn.active {
     background: #0f3460;
     color: #e94560;
 }
@@ -3558,4 +3562,401 @@ a.pn-stage-btn:hover { color: #fff; }
     font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+}
+
+/* === Device map (APC mini mk2 layout) ============================= */
+.pn-device-panel {
+    flex-direction: column;
+    padding: 12px 14px 14px;
+    background: #0a1628;
+    border-bottom: 1px solid #0f3460;
+    color: #ccc;
+    font-size: 11px;
+}
+.pn-device-empty {
+    padding: 20px;
+    text-align: center;
+    color: #888;
+    line-height: 1.6;
+}
+.pn-device-wrap { display: flex; flex-direction: column; gap: 8px; }
+.pn-device-header {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #4a90d9;
+}
+.pn-device-body {
+    display: grid;
+    grid-template-columns: auto auto auto;
+    gap: 10px;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+.pn-dm-center { width: 414px; }
+.pn-dm-grid, .pn-dm-tracks { width: 100%; }
+.pn-dm-faders {
+    display: grid;
+    grid-template-columns: repeat(9, 36px);
+    gap: 4px;
+}
+.pn-dm-fader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.pn-dm-fader-track {
+    position: relative;
+    width: 8px;
+    height: 110px;
+    background: #07101c;
+    border: 1px solid #1a2c4a;
+    border-radius: 3px;
+}
+.pn-dm-fader-thumb {
+    position: absolute;
+    left: -5px;
+    width: 18px;
+    height: 5px;
+    background: #4a90d9;
+    border-radius: 2px;
+    bottom: 0;
+    transition: bottom 80ms linear;
+}
+.pn-dm-fader-label {
+    font-size: 10px;
+    color: #9ab;
+    text-align: center;
+    line-height: 1.1;
+    max-width: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pn-dm-center {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 4px;
+}
+.pn-dm-tracks {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+}
+.pn-dm-track {
+    aspect-ratio: 3 / 1;
+    background: #1a0a0a;
+    border: 1px solid #2a1414;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.pn-dm-track.pn-dm-on    { background: #ff2d2d; border-color: #ff5050; }
+.pn-dm-track.pn-dm-blink { background: #ff2d2d; border-color: #ff5050; animation: pn-dm-blink 600ms infinite; }
+.pn-dm-track.pn-dm-off   { opacity: 0.4; }
+.pn-dm-track-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.7);
+    padding: 0 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.pn-dm-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 3px;
+}
+.pn-dm-pad {
+    aspect-ratio: 1 / 1;
+    background: transparent;
+    border: 1px solid #1a2c4a;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    opacity: 0.6;
+    transition: opacity 120ms linear, box-shadow 80ms linear, transform 80ms ease;
+}
+.pn-dm-pad.pn-dm-bound  { opacity: 0.85; }
+.pn-dm-pad.pn-dm-bright { opacity: 1; box-shadow: 0 0 8px 1px rgba(255,255,255,0.6); transform: scale(1.04); }
+.pn-dm-pad-label {
+    font-size: 8.5px;
+    font-weight: 600;
+    line-height: 1.05;
+    color: #000;
+    text-shadow: 0 0 2px rgba(255,255,255,0.6);
+    padding: 0 2px;
+    text-align: center;
+    white-space: normal;
+    overflow: hidden;
+    word-break: break-word;
+    max-width: 100%;
+}
+.pn-dm-scenes {
+    display: grid;
+    grid-template-rows: repeat(8, 1fr);
+    gap: 4px;
+}
+.pn-dm-scene {
+    width: 64px;
+    background: #0a1a0a;
+    border: 1px solid #143614;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.4;
+}
+.pn-dm-scene.pn-dm-on    { background: #19c34d; border-color: #2ce066; opacity: 1; }
+.pn-dm-scene.pn-dm-blink { background: #19c34d; border-color: #2ce066; opacity: 1; animation: pn-dm-blink 600ms infinite; }
+.pn-dm-scene-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.7);
+    text-align: center;
+    padding: 0 2px;
+}
+.pn-device-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 10px;
+    color: #889;
+    padding-top: 4px;
+    border-top: 1px solid #0f3460;
+}
+.pn-device-legend i.pn-dm-sw {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+    border: 1px solid rgba(255,255,255,0.15);
+}
+@keyframes pn-dm-blink {
+    0%, 49%   { opacity: 1; }
+    50%, 100% { opacity: 0.3; }
+}
+
+/* Side-by-side: MPK on the left, APC on the right. */
+.pn-device-side-by-side {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.pn-device-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* === MPK Mini Mk II ============================================== */
+.pn-mpk-body {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+.pn-dm-mpk-top {
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+}
+.pn-dm-knobs {
+    display: grid;
+    grid-template-columns: repeat(8, 36px);
+    gap: 4px;
+}
+.pn-dm-knob {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.pn-dm-knob-dial {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    background: radial-gradient(circle at 30% 30%, #2a3850, #07101c 70%);
+    border: 1px solid #1a2c4a;
+    border-radius: 50%;
+    transition: box-shadow 80ms linear;
+}
+.pn-dm-knob.pn-dm-knob-active .pn-dm-knob-dial {
+    box-shadow: 0 0 8px 1px rgba(74,144,217,0.7);
+    border-color: #4a90d9;
+}
+.pn-dm-knob-mark {
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    width: 2px;
+    height: 9px;
+    background: #4a90d9;
+    transform: translateX(-50%);
+    border-radius: 1px;
+}
+.pn-dm-knob-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9ab;
+}
+.pn-dm-knob-bind {
+    font-size: 9px;
+    color: #678;
+    max-width: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pn-dm-mpk-pads {
+    display: grid;
+    grid-template-columns: repeat(4, 38px);
+    grid-template-rows: repeat(2, 38px);
+    gap: 4px;
+}
+.pn-dm-mpk-pad {
+    background: #1a1410;
+    border: 1px solid #2a2418;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: box-shadow 80ms linear, background 80ms linear;
+}
+.pn-dm-mpk-pad.pn-dm-mpk-pad-active {
+    background: #ff8c00;
+    box-shadow: 0 0 10px 1px rgba(255,140,0,0.8);
+}
+.pn-dm-mpk-pad-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #a98;
+    padding: 0 2px;
+    text-align: center;
+    line-height: 1.05;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.pn-dm-mpk-pad.pn-dm-mpk-pad-active .pn-dm-mpk-pad-label { color: #000; }
+.pn-dm-mpk-pad { flex-direction: column; gap: 1px; }
+.pn-dm-mpk-pad-note {
+    font-size: 8px;
+    color: #67583e;
+    font-family: ui-monospace, monospace;
+}
+.pn-dm-mpk-pad.pn-dm-mpk-pad-active .pn-dm-mpk-pad-note { color: #000; }
+
+/* Xpose row under the MPK column */
+.pn-dm-xpose-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: #07101c;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+}
+.pn-dm-xpose-label {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #4a90d9;
+    margin-right: 4px;
+}
+.pn-dm-xpose-row button {
+    background: transparent;
+    color: #9ab;
+    border: 1px solid #1a2c4a;
+    border-radius: 3px;
+    padding: 2px 7px;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+}
+.pn-dm-xpose-row button:hover {
+    border-color: #4a90d9;
+    color: #4a90d9;
+}
+.pn-dm-xpose-val {
+    min-width: 32px;
+    text-align: center;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #ccc;
+    font-weight: 600;
+}
+.pn-dm-xpose-listen.on {
+    background: #0f3460;
+    color: #e94560;
+    border-color: #e94560;
+}
+.pn-dm-keys {
+    position: relative;
+    width: 100%;
+    height: 80px;
+}
+.pn-dm-keys-whites {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 1px;
+}
+.pn-dm-keys-blacks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.pn-dm-key {
+    transition: background 60ms linear, box-shadow 60ms linear;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+.pn-dm-key-w {
+    flex: 1;
+    background: #f0ead8;
+    border: 1px solid #1a1410;
+    border-radius: 0 0 3px 3px;
+}
+.pn-dm-key-w.pn-dm-key-active {
+    background: #4a90d9;
+    box-shadow: inset 0 -3px 0 0 #2c70b8;
+}
+.pn-dm-key-b {
+    position: absolute;
+    top: 0;
+    width: calc(100% / 15 * 0.6);
+    height: 60%;
+    background: #1a1410;
+    border: 1px solid #000;
+    border-radius: 0 0 2px 2px;
+    pointer-events: auto;
+    z-index: 1;
+}
+.pn-dm-key-b.pn-dm-key-active {
+    background: #2c70b8;
+    box-shadow: inset 0 -3px 0 0 #4a90d9;
+}
+.pn-dm-key-label {
+    font-size: 9px;
+    color: #678;
+    padding-bottom: 2px;
+    font-weight: 600;
 }

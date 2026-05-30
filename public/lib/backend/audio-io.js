@@ -169,6 +169,12 @@ export function handleMidiMessage(el, event) {
     }
     const [status, data1, data2] = event.data;
     const type = status & 0xF0;
+    // Activity timestamps for the Device map's live flash. Cheap (Map.set)
+    // and no-op if the panel isn't open. Keyed by kind so notes and CCs
+    // don't collide.
+    el._midiActivity ||= new Map();
+    if (type === 0x90 && data2 > 0) el._midiActivity.set(`note:${data1}`, performance.now());
+    if (type === 0xB0)              el._midiActivity.set(`cc:${data1}`,   performance.now());
     if (type === 0xB0) return handleMidiCC(el, data1, data2);
     if (type === 0x90 && data2 > 0) return handleMidiNoteOn(el, data1);
     // Pitch Bend (0xE0) drives the live Xpose pill when MIDI input

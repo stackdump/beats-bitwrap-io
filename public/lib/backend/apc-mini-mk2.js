@@ -80,6 +80,36 @@ const GROUP_COLOR = {
 // macroId → group, built once.
 const MACRO_GROUP = new Map(MACROS.map(m => [m.id, m.group]));
 
+// Pad layout — explicit grid (8 cols × 8 rows, bottom-up: PAD_LAYOUT[0]
+// is bottom-left, PAD_LAYOUT[63] is top-right). null = leave unbound so
+// the LED stays dark and the pad is a no-op. Goals: each group fits on
+// one row without wrapping; Hits on top row only; empty rows as visual
+// breathing room; vertical ordering from "destructive" at the bottom
+// (mute / FX) through "sound-shaping" in the middle (pan / shape /
+// pitch / tempo) to "emotional + temporal" up top (feel / hits). Built
+// for the APC mini mk2's 8x8 grid; changing this shifts the physical
+// layout but not the catalog order (so the Macros panel in the page UI
+// stays grouped + ordered by catalog.js as before).
+const _ = null;
+const PAD_LAYOUT = [
+    // Row 0 (bottom) — Mute (6) + 2 empty
+    'drop', 'breakdown', 'solo-drums', 'cut', 'beat-repeat', 'double-drop', _, _,
+    // Row 1 — FX-A (5 of 10 cyan): sweeps + ambient builds
+    'sweep-lp', 'sweep-hp', 'reverb-wash', 'delay-throw', 'riser', _, _, _,
+    // Row 2 — FX-B (5 of 10 cyan): washes + filter
+    'build-crush', 'phaser-drone', 'cathedral', 'dub-delay', 'filter-res', _, _, _,
+    // Row 3 — Pan (4) + Mono (Shape, but stereo-adjacent so it lives here)
+    'ping-pong', 'hard-left', 'hard-right', 'auto-pan', 'mono', _, _, _,
+    // Row 4 — Pitch (4) + Tempo (3) + 1 empty
+    'octave-up', 'octave-down', 'pitch-bend', 'vinyl-brake', 'half-time', 'tape-stop', 'tempo-anchor', _,
+    // Row 5 — Feel (7) + 1 empty
+    'feel-chill', 'feel-drive', 'feel-ambient', 'feel-euphoric', 'feel-build', 'feel-wind-down', 'feel-reset', _,
+    // Row 6 — empty buffer
+    _, _, _, _, _, _, _, _,
+    // Row 7 (top) — Hits (4) + Tighten/Loosen/Pulse (3) + 1 empty
+    'hit1', 'hit2', 'hit3', 'hit4', 'tighten', 'loosen', 'pulse', _,
+];
+
 // Section precedence (mirrors the mixer's section ordering) — the row of red
 // track buttons reflects whichever of these the loaded track actually uses.
 const SECTION_ORDER = [
@@ -136,10 +166,11 @@ function installLayout(el) {
     });
 
     el._padBindings = new Map();
-    // Grid pads → macros, in catalog order (groups cluster naturally).
-    MACROS.forEach((m, i) => {
+    // Grid pads → macros, per PAD_LAYOUT (see comment above). Empty
+    // slots are skipped so the LED stays dark and the pad is a no-op.
+    PAD_LAYOUT.forEach((macroId, i) => {
         const note = PAD_LO + i;
-        if (note <= PAD_HI) el._padBindings.set(note, m.id);
+        if (macroId && note <= PAD_HI) el._padBindings.set(note, macroId);
     });
     // Scene-launch buttons → global actions.
     SCENE_ACTIONS.forEach((selector, i) => {

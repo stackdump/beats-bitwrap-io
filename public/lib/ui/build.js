@@ -16,6 +16,7 @@ import { isStingerTrack } from './mixer.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 import { sanitizeNote, liveScrubNote } from '../note/note.js';
 import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.js';
+import { renderDeviceMap, startDeviceLoop, stopDeviceLoop } from './device-map.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -408,6 +409,7 @@ export function buildUI(el) {
             <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
             <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
             <button class="pn-midi-btn ${el._showMidi ? 'active' : ''}" title="MIDI — input bindings, live transpose, pad / CC learn">MIDI</button>
+            <button class="pn-device-btn ${el._showDevice ? 'active' : ''}" title="Device — visual layout of your APC mini mk2 with labels and live LED state">Device</button>
             <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
             <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
             <button class="pn-macro-panic" title="Cancel all queued/running macros and animations">Panic</button>
@@ -642,6 +644,7 @@ export function buildUI(el) {
                 <span class="pn-midi-bindings pn-midi-pad-list">none — hover a macro then press a pad / key</span>
             </div>
         </div>
+        <div class="pn-device-panel" style="display:${el._showDevice ? 'flex' : 'none'}"></div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
@@ -973,6 +976,23 @@ export function buildUI(el) {
             midiBtn.classList.toggle('active', el._showMidi);
             if (el._showMidi) renderMidi();
         });
+        // Device panel — visual APC mini mk2 layout with labels + live LED
+        // mirror. Cheap when closed (the refresh loop early-exits on
+        // display:none, and we tear it down on toggle-off so it's $0 when
+        // unused).
+        const deviceBtn   = fx.querySelector('.pn-device-btn');
+        const devicePanel = fx.querySelector('.pn-device-panel');
+        if (deviceBtn && devicePanel) {
+            el._renderDeviceMap = () => renderDeviceMap(el);
+            deviceBtn.addEventListener('click', () => {
+                el._showDevice = !el._showDevice;
+                devicePanel.style.display = el._showDevice ? 'flex' : 'none';
+                deviceBtn.classList.toggle('active', el._showDevice);
+                if (el._showDevice) { renderDeviceMap(el); startDeviceLoop(el); }
+                else stopDeviceLoop(el);
+            });
+            if (el._showDevice) { renderDeviceMap(el); startDeviceLoop(el); }
+        }
         padResetBtn.addEventListener('click', () => {
             el._padBindings?.clear();
             el._savePadBindings?.();
