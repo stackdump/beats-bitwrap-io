@@ -10,7 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
+	"strings"
+	"time"
 
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/share"
@@ -64,7 +67,7 @@ func generateShareTool() mcp.Tool {
 			mcp.Description("Humanize amount 0-100 (default: genre-specific)."),
 		),
 		mcp.WithBoolean("render",
-			mcp.Description("Also queue an audio render: marks the CID in the rebuild queue so an off-host render farm bakes the downloadable .webm. The ?cid= link plays in-browser regardless — this only pre-renders the file. Default false."),
+			mcp.Description("Predictably produce the downloadable .webm. Mirrors the envelope to the publish host (default https://beats.bitwrap.io, override via BEATS_MIRROR_HOST), synchronously renders on the local authoring server, then PUTs the .webm to the publish host with X-Rebuild-Secret (env BEATS_REBUILD_SECRET — required when render=true). Returns when the publish host serves the file. Default false (envelope-only)."),
 		),
 	)
 }
@@ -121,22 +124,76 @@ func handleGenerateShare(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 
 	url := publicBase + "/?cid=" + cid
 
-	// Optional: queue an audio render. Best-effort — a failure here (e.g. the
-	// host isn't running with -rebuild-queue) must not fail the seal, since the
-	// link already plays in-browser without a .webm.
+	// Optional: render the .webm and publish it to the mirror host. Foreground
+	// for a brief budget (cached renders + mirror finish inline), background
+	// after. Cold renders run at 1x wall-clock and never fit a tool-call
+	// timeout, so we promise the URL instead of dying. The render always
+	// completes on the server either way. Budget kept under the parent
+	// http.Server WriteTimeout (15s) so the response isn't killed mid-select.
+	// A failure inside this block notes the error but never fails the seal
+	// (the URL already plays in-browser without a .webm).
 	renderNote := ""
 	if render, _ := args["render"].(bool); render {
-		if _, err := apiCall("POST", "/api/rebuild-mark", map[string]any{"cid": cid}); err != nil {
-			renderNote = "\nAudio render NOT queued (" + err.Error() + ") — the link still plays in-browser."
-		} else {
-			renderNote = "\nQueued for audio render — an off-host render farm will bake the .webm."
-		}
+		renderNote = startRenderAndMirror(cid, canonical, 10*time.Second)
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf(
 		"Sealed %s (seed %d) → %s\nCID: %s\nOpen the URL to play; it regenerates the exact track client-side.%s",
 		genre, seed, url, cid, renderNote,
 	)), nil
+}
+
+// startRenderAndMirror kicks off the render+mirror chain in a goroutine and
+// races it against `budget`. If the chain finishes in time, the foreground
+// note is returned. Otherwise the goroutine keeps running to completion and
+// the caller is told what URL to poll. Callers that need stricter "render is
+// definitely on prod when I return" semantics can just re-invoke (CIDs are
+// idempotent — the second call returns from cache once prod is warm).
+func startRenderAndMirror(cid string, canonical []byte, budget time.Duration) string {
+	mirror := strings.TrimRight(os.Getenv("BEATS_MIRROR_HOST"), "/")
+	if mirror == "" {
+		mirror = publicBase
+	}
+	secret := strings.TrimSpace(os.Getenv("BEATS_REBUILD_SECRET"))
+	if secret == "" {
+		return "\nRender skipped: BEATS_REBUILD_SECRET not set (required for audio PUT to " + mirror + ")."
+	}
+	done := make(chan string, 1)
+	go func() { done <- renderAndMirror(cid, canonical, mirror, secret) }()
+	select {
+	case msg := <-done:
+		return msg
+	case <-time.After(budget):
+		return fmt.Sprintf(
+			"\nRender in progress on local; mirror PUT will follow. Re-check %s/audio/%s.webm in a few minutes (realtime renders ≈ track length).",
+			mirror, cid,
+		)
+	}
+}
+
+// renderAndMirror does the actual chain: mirror envelope → trigger sync
+// render on local → PUT .webm to publish host. Returns a human-readable note.
+// Never panics — failures degrade to text so the seal still surfaces.
+func renderAndMirror(cid string, canonical []byte, mirror, secret string) string {
+	// 1. Mirror envelope (public PUT, server re-verifies CID). Idempotent —
+	//    same bytes return 200 without a second disk write.
+	if _, err := apiCallRawTo(mirror, "PUT", "/o/"+cid, canonical, "application/json", nil, 30); err != nil {
+		return "\nRender failed at envelope mirror to " + mirror + ": " + err.Error()
+	}
+	// 2. Trigger local render. The local /audio/{cid}.webm GET blocks for
+	//    the realtime render on first request and returns the bytes when
+	//    ready. Long timeout — cold renders run at 1x wall-clock.
+	body, _, err := fetchRaw("", "/audio/"+cid+".webm", 900)
+	if err != nil {
+		return "\nRender failed on local render of /audio/" + cid + ".webm: " + err.Error()
+	}
+	// 3. Mirror .webm with X-Rebuild-Secret so the PUT bypasses
+	//    rate-limit / faster-than-realtime / first-write-wins checks.
+	if _, err := apiCallRawTo(mirror, "PUT", "/audio/"+cid+".webm", body, "audio/webm",
+		map[string]string{"X-Rebuild-Secret": secret}, 120); err != nil {
+		return "\nLocal render OK (" + fmt.Sprintf("%d bytes", len(body)) + ") but mirror PUT to " + mirror + " failed: " + err.Error()
+	}
+	return fmt.Sprintf("\nRendered + mirrored: %s/audio/%s.webm (%d bytes).", mirror, cid, len(body))
 }
 
 // --- list_genres (in-process) --------------------------------------------

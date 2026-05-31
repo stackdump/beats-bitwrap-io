@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -121,14 +122,35 @@ func apiCallTo(host, method, path string, body interface{}) (json.RawMessage, er
 // PUT canonical share-envelope JSON to /o/{cid} so the server re-verifies the
 // exact bytes the CID was computed over.
 func apiCallRaw(method, path string, body []byte) (json.RawMessage, error) {
-	req, err := http.NewRequest(method, baseURL()+path, bytes.NewReader(body))
+	return apiCallRawTo("", method, path, body, "application/json", nil, 0)
+}
+
+// apiCallRawTo is apiCallRaw with explicit host, content-type, and headers.
+// host="" falls back to baseURL(); timeoutS=0 uses the default client timeout.
+// Headers are added after Content-Type so callers can include e.g.
+// X-Rebuild-Secret for authenticated audio PUTs.
+func apiCallRawTo(host, method, path string, body []byte, contentType string, headers map[string]string, timeoutS int) (json.RawMessage, error) {
+	base := host
+	if base == "" {
+		base = baseURL()
+	}
+	req, err := http.NewRequest(method, base+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := http.DefaultClient
+	if timeoutS > 0 {
+		client = &http.Client{Timeout: time.Duration(timeoutS) * time.Second}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("server not reachable at %s: %v", baseURL(), err)
+		return nil, fmt.Errorf("server not reachable at %s: %v", base, err)
 	}
 	defer resp.Body.Close()
 	rb, _ := io.ReadAll(resp.Body)
@@ -136,6 +158,33 @@ func apiCallRaw(method, path string, body []byte) (json.RawMessage, error) {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(rb))
 	}
 	return json.RawMessage(rb), nil
+}
+
+// fetchRaw GETs raw bytes from host+path with an optional long timeout — used
+// to trigger a synchronous render of /audio/{cid}.webm. Returns body + content
+// type so the caller can re-emit them on a mirror PUT.
+func fetchRaw(host, path string, timeoutS int) ([]byte, string, error) {
+	base := host
+	if base == "" {
+		base = baseURL()
+	}
+	client := http.DefaultClient
+	if timeoutS > 0 {
+		client = &http.Client{Timeout: time.Duration(timeoutS) * time.Second}
+	}
+	resp, err := client.Get(base + path)
+	if err != nil {
+		return nil, "", fmt.Errorf("GET %s: %v", base+path, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read %s: %v", base+path, err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, "", fmt.Errorf("HTTP %d on GET %s: %s", resp.StatusCode, base+path, string(body))
+	}
+	return body, resp.Header.Get("Content-Type"), nil
 }
 
 // NewServer builds the MCP server with every tool registered. Shared by the
