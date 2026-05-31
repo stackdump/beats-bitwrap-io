@@ -171,6 +171,20 @@ func resolveCardTitle(userTitle string, p sharePayload) string {
 	return stripGenrePrefix(sanitizeTitle(generator.NameForSeed(p.Genre, p.Seed)), p.Genre)
 }
 
+// effectiveTempo returns the BPM to show on the card / meta tags. Minimal
+// envelopes omit `tempo` to keep CIDs stable (defaults regenerate from the
+// genre preset on load), so the raw value can be 0; fall back to the genre
+// default in that case. Final 120 is a last-resort for unknown genres.
+func effectiveTempo(p sharePayload) int {
+	if p.Tempo > 0 {
+		return p.Tempo
+	}
+	if g, ok := generator.Genres[p.Genre]; ok && g.BPM > 0 {
+		return int(g.BPM)
+	}
+	return 120
+}
+
 func stripGenrePrefix(name, genre string) string {
 	if genre == "" {
 		return name
@@ -280,7 +294,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 			title = userTitle + " · beats.bitwrap.io"
 		}
 		desc := fmt.Sprintf("%s · %d BPM · seed %d · swing %d · humanize %d",
-			genreCap, p.Tempo, p.Seed, p.Swing, p.Humanize)
+			genreCap, effectiveTempo(p), p.Seed, p.Swing, p.Humanize)
 
 		// The JSON-LD <script> block re-exposes the full stored payload
 		// — not just the summary fields above — so consumers that parse
@@ -292,7 +306,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 			http.Error(w, "projection render error", http.StatusInternalServerError)
 			return
 		}
-		imgAlt := fmt.Sprintf("%s track card · %d BPM · seed %d", genreCap, p.Tempo, p.Seed)
+		imgAlt := fmt.Sprintf("%s track card · %d BPM · seed %d", genreCap, effectiveTempo(p), p.Seed)
 		if userTitle != "" {
 			imgAlt = userTitle + " — " + imgAlt
 		}
@@ -660,7 +674,7 @@ func HandleShareCard(store *Store) http.Handler {
 			Color:      colorForGenre(p.Genre),
 			Title:      userTitle,
 			HasTitle:   userTitle != "",
-			Tempo:      p.Tempo,
+			Tempo:      effectiveTempo(p),
 			Seed:       p.Seed,
 			Key:        keyLabel(p.RootNote, p.ScaleName),
 			Mode:       barLabel(p.Bars, p.Structure),

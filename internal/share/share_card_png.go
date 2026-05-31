@@ -127,10 +127,10 @@ func renderShareCardPNG(p sharePayload, userTitle, qrTarget string) ([]byte, err
 
 	// Tempo / seed / key·bars strip.
 	drawText(dc, false, 24, 70, 290, 0.53, 0.53, 0.53, "TEMPO")
-	drawText(dc, true, 52, 70, 340, 0.93, 0.93, 0.93, fmt.Sprintf("%d", p.Tempo))
+	drawText(dc, true, 52, 70, 340, 0.93, 0.93, 0.93, fmt.Sprintf("%d", effectiveTempo(p)))
 	face, _ := loadFace(true, 52)
 	dc.SetFontFace(face)
-	tempoW, _ := dc.MeasureString(fmt.Sprintf("%d", p.Tempo))
+	tempoW, _ := dc.MeasureString(fmt.Sprintf("%d", effectiveTempo(p)))
 	drawText(dc, false, 24, 70+tempoW, 340, 0.53, 0.53, 0.53, " BPM")
 
 	drawText(dc, false, 16, 70, 410, 0.53, 0.53, 0.53, "SEED")
