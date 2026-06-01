@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -67,7 +68,10 @@ func generateShareTool() mcp.Tool {
 			mcp.Description("Humanize amount 0-100 (default: genre-specific)."),
 		),
 		mcp.WithBoolean("render",
-			mcp.Description("Predictably produce the downloadable .webm. Mirrors the envelope to the publish host (default https://beats.bitwrap.io, override via BEATS_MIRROR_HOST), synchronously renders on the local authoring server, then PUTs the .webm to the publish host with X-Rebuild-Secret (env BEATS_REBUILD_SECRET — required when render=true). Returns when the publish host serves the file. Default false (envelope-only)."),
+			mcp.Description("Produce the downloadable .webm. With BEATS_REBUILD_SECRET set (authoring backend): mirrors the envelope to the publish host, synchronously renders on the local authoring server, then PUTs the .webm to the publish host with X-Rebuild-Secret. Without the secret (public MCP, anonymous user): queues the CID on the publish host's render farm via POST /api/rebuild-mark — the worker bakes it asynchronously. Either way the link plays in-browser via Tone.js regeneration without the .webm. Default false (envelope-only, no farm load)."),
+		),
+		mcp.WithBoolean("wait",
+			mcp.Description("With render=true, block until the .webm is published on the mirror host (HEAD /audio/{cid}.webm returns 200) or 5 minutes elapse — whichever comes first. Useful when the caller wants a guaranteed-playable audio file in the response rather than a queued promise. Ignored when render=false or when the sync render+mirror path is in use (that path already waits). Default false."),
 		),
 	)
 }
@@ -134,7 +138,8 @@ func handleGenerateShare(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	// (the URL already plays in-browser without a .webm).
 	renderNote := ""
 	if render, _ := args["render"].(bool); render {
-		renderNote = startRenderAndMirror(cid, canonical, 10*time.Second)
+		wait, _ := args["wait"].(bool)
+		renderNote = startRenderAndMirror(cid, canonical, 10*time.Second, wait)
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf(
@@ -146,20 +151,57 @@ func handleGenerateShare(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 // startRenderAndMirror kicks off the render+mirror chain in a goroutine and
 // races it against `budget`. If the chain finishes in time, the foreground
 // note is returned. Otherwise the goroutine keeps running to completion and
-// the caller is told what URL to poll. Callers that need stricter "render is
-// definitely on prod when I return" semantics can just re-invoke (CIDs are
-// idempotent — the second call returns from cache once prod is warm).
-func startRenderAndMirror(cid string, canonical []byte, budget time.Duration) string {
+// the caller is told what URL to poll. Without BEATS_REBUILD_SECRET — which
+// is the public-MCP case (anonymous user, no authoring backend) — it falls
+// back to the publicly-open POST /api/rebuild-mark, letting the publish
+// host's render farm bake the .webm asynchronously. Callers that need
+// stricter "render is definitely on prod when I return" semantics can just
+// re-invoke (CIDs are idempotent — the second call returns from cache once
+// prod is warm).
+func startRenderAndMirror(cid string, canonical []byte, budget time.Duration, wait bool) string {
 	mirror := strings.TrimRight(os.Getenv("BEATS_MIRROR_HOST"), "/")
 	if mirror == "" {
 		mirror = publicBase
 	}
+	// Mirror the envelope to the publish host first. Required for both paths:
+	// the queue-mark fallback rejects CIDs not in the publish-host share store,
+	// and the sync render+mirror path expects the envelope to be reachable on
+	// the URL it will eventually return. Idempotent (server re-verifies CID,
+	// re-PUT of identical bytes is a 200 no-op). When the MCP is in-process on
+	// the publish host itself, baseURL() and mirror loop back to the same store
+	// — the seal earlier in handleGenerateShare already populated it, and this
+	// is a cheap idempotent re-PUT.
+	if _, err := apiCallRawTo(mirror, "PUT", "/o/"+cid, canonical, "application/json", nil, 30); err != nil {
+		return "\nEnvelope mirror to " + mirror + " failed (" + err.Error() + ") — the link still plays in-browser."
+	}
+
 	secret := strings.TrimSpace(os.Getenv("BEATS_REBUILD_SECRET"))
 	if secret == "" {
-		return "\nRender skipped: BEATS_REBUILD_SECRET not set (required for audio PUT to " + mirror + ")."
+		// Public-MCP fallback: queue the CID for the publish host's render
+		// farm. Best-effort — a failure here (host has no -rebuild-queue,
+		// network blip) is noted but never fails the seal.
+		if _, err := apiCallTo(mirror, "POST", "/api/rebuild-mark",
+			map[string]any{"cid": cid}); err != nil {
+			return "\nAudio render NOT queued (" + err.Error() + ") — the link still plays in-browser."
+		}
+		if wait {
+			audioURL := fmt.Sprintf("%s/audio/%s.webm", mirror, cid)
+			if waited, ok := waitForAudio(mirror, cid, 5*time.Minute); ok {
+				return fmt.Sprintf("\nRendered by farm in %s — playable at %s.", waited.Round(time.Second), audioURL)
+			} else {
+				return fmt.Sprintf(
+					"\nQueued for audio render on %s; still rendering after 5 min — check %s shortly (the link plays in-browser regardless).",
+					mirror, audioURL,
+				)
+			}
+		}
+		return fmt.Sprintf(
+			"\nQueued for audio render on %s — the publish host's render farm will bake %s/audio/%s.webm (typically minutes; the link plays in-browser regardless).",
+			mirror, mirror, cid,
+		)
 	}
 	done := make(chan string, 1)
-	go func() { done <- renderAndMirror(cid, canonical, mirror, secret) }()
+	go func() { done <- renderAndMirror(cid, mirror, secret) }()
 	select {
 	case msg := <-done:
 		return msg
@@ -171,24 +213,44 @@ func startRenderAndMirror(cid string, canonical []byte, budget time.Duration) st
 	}
 }
 
-// renderAndMirror does the actual chain: mirror envelope → trigger sync
-// render on local → PUT .webm to publish host. Returns a human-readable note.
-// Never panics — failures degrade to text so the seal still surfaces.
-func renderAndMirror(cid string, canonical []byte, mirror, secret string) string {
-	// 1. Mirror envelope (public PUT, server re-verifies CID). Idempotent —
-	//    same bytes return 200 without a second disk write.
-	if _, err := apiCallRawTo(mirror, "PUT", "/o/"+cid, canonical, "application/json", nil, 30); err != nil {
-		return "\nRender failed at envelope mirror to " + mirror + ": " + err.Error()
+// waitForAudio HEAD-polls {mirror}/audio/{cid}.webm every 5s until 200 or
+// the timeout elapses. Returns (elapsed, true) on success, (timeout, false)
+// on timeout. Cheap probe — server's HEAD path is cache-only and never
+// triggers a render itself, so a tight poll loop doesn't burn the farm.
+func waitForAudio(mirror, cid string, timeout time.Duration) (time.Duration, bool) {
+	deadline := time.Now().Add(timeout)
+	url := mirror + "/audio/" + cid + ".webm"
+	client := &http.Client{Timeout: 10 * time.Second}
+	start := time.Now()
+	for {
+		req, _ := http.NewRequest(http.MethodHead, url, nil)
+		if resp, err := client.Do(req); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return time.Since(start), true
+			}
+		}
+		if time.Now().After(deadline) {
+			return timeout, false
+		}
+		time.Sleep(5 * time.Second)
 	}
-	// 2. Trigger local render. The local /audio/{cid}.webm GET blocks for
-	//    the realtime render on first request and returns the bytes when
-	//    ready. Long timeout — cold renders run at 1x wall-clock.
+}
+
+// renderAndMirror is the sync-path tail: trigger local render → PUT .webm
+// to the publish host. The envelope mirror is handled by the caller because
+// both branches (sync + queue-fallback) need it. Returns a human-readable
+// note. Never panics — failures degrade to text so the seal still surfaces.
+func renderAndMirror(cid, mirror, secret string) string {
+	// Trigger local render. The local /audio/{cid}.webm GET blocks for the
+	// realtime render on first request and returns the bytes when ready.
+	// Long timeout — cold renders run at 1x wall-clock.
 	body, _, err := fetchRaw("", "/audio/"+cid+".webm", 900)
 	if err != nil {
 		return "\nRender failed on local render of /audio/" + cid + ".webm: " + err.Error()
 	}
-	// 3. Mirror .webm with X-Rebuild-Secret so the PUT bypasses
-	//    rate-limit / faster-than-realtime / first-write-wins checks.
+	// Mirror .webm with X-Rebuild-Secret so the PUT bypasses rate-limit /
+	// faster-than-realtime / first-write-wins checks.
 	if _, err := apiCallRawTo(mirror, "PUT", "/audio/"+cid+".webm", body, "audio/webm",
 		map[string]string{"X-Rebuild-Secret": secret}, 120); err != nil {
 		return "\nLocal render OK (" + fmt.Sprintf("%d bytes", len(body)) + ") but mirror PUT to " + mirror + " failed: " + err.Error()

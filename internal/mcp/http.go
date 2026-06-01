@@ -15,6 +15,7 @@ import (
 	"html"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -57,9 +58,24 @@ func mount(mux *http.ServeMux, s *server.MCPServer) {
 			landing(w, r)
 			return
 		}
+		clearDeadlines(w)
 		httpSrv.ServeHTTP(w, r)
 	})
-	mux.Handle("/mcp/", httpSrv)
+	mux.Handle("/mcp/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clearDeadlines(w)
+		httpSrv.ServeHTTP(w, r)
+	}))
+}
+
+// clearDeadlines drops the parent http.Server's read/write deadlines for this
+// request so tool handlers that long-poll (e.g. generate_share with wait=true
+// waiting on an off-host render farm) aren't killed by the 15s WriteTimeout.
+// Mirrors the same trick the /audio/{cid}.webm handler uses for cold renders.
+func clearDeadlines(w http.ResponseWriter) {
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{})
+		_ = rc.SetReadDeadline(time.Time{})
+	}
 }
 
 func landingPageHandler(s *server.MCPServer) http.HandlerFunc {

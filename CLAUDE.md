@@ -220,7 +220,14 @@ claude mcp add --transport http beats-btw http://localhost:8089/mcp   # authorin
 - **Production** (no `-authoring`) mounts a **curated, stateless public subset** at `/mcp` (`RegisterHTTPPublic`): `generate_share`, `list_genres`, `get_song` — no sequencer control (none exists server-side in prod). `generate_share` builds a share-v1 envelope in-process, computes the CID (`share.CanonicalCID`), seals via public `PUT /o/{cid}`, and returns the `?cid=` URL. A guard test (`internal/mcp/public_test.go`) keeps control tools out of the public set.
 - `GET /mcp` in a browser returns a landing page (tool list + the `claude mcp add` command); transport uses POST.
 
-**`generate_share` with `render: true`** — predictable audio path. The handler (1) mirrors the envelope to `BEATS_MIRROR_HOST` (defaults to `https://beats.bitwrap.io`), (2) GETs the local server's `/audio/{cid}.webm` which synchronously renders the .webm, (3) PUTs the bytes to `{mirror}/audio/{cid}.webm` with `X-Rebuild-Secret`. Returns when the publish host serves the file — no waiting on the off-host render farm. Requires `BEATS_REBUILD_SECRET` in the MCP server's environment (the same value as the publish host's `data/.rebuild-secret`); without it, the tool seals the envelope but skips the render with a note. Without `render: true`, behaviour is unchanged (envelope-only seal).
+**`generate_share` with `render: true`** — two paths depending on whether the MCP backend has the publish host's rebuild secret.
+
+- **Authoring backend** (`BEATS_REBUILD_SECRET` set, `-audio-render` on the local server): synchronous render+mirror chain. (1) PUT envelope to `BEATS_MIRROR_HOST` (defaults to `https://beats.bitwrap.io`), (2) GET local `/audio/{cid}.webm` which blocks for the realtime render, (3) PUT the bytes to `{mirror}/audio/{cid}.webm` with `X-Rebuild-Secret`. Foreground-for-10s-then-background — short cached renders return inline, cold renders return immediately with an ETA and complete in a goroutine.
+- **Public MCP** (no secret — anonymous user, or `https://beats.bitwrap.io/mcp` itself): falls back to the publicly-open `POST /api/rebuild-mark`. The CID is queued and the publish host's off-host render farm bakes the .webm asynchronously. No authoring backend needed.
+
+Either way the link plays in-browser via Tone.js regeneration without a .webm. Without `render: true`, behaviour is envelope-only seal (no farm load).
+
+The fallback path supports `wait: true` — block (up to 5 min) until the farm publishes the .webm. The MCP `/mcp` route clears the parent http.Server's 15s WriteTimeout via `http.NewResponseController`, so a long-poll handler isn't killed mid-wait. Client-side timeouts still apply; if the client gives up, the render completes anyway and a re-invocation is idempotent.
 
 **nginx for prod** — `/mcp` needs streaming, so proxy it explicitly (same gotcha as `/schema`):
 ```nginx
