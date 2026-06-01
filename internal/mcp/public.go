@@ -73,7 +73,7 @@ func generateShareTool() mcp.Tool {
 			mcp.Description("Produce the downloadable .webm. With BEATS_REBUILD_SECRET set (authoring backend): mirrors the envelope to the publish host, synchronously renders on the local authoring server, then PUTs the .webm to the publish host with X-Rebuild-Secret. Without the secret (public MCP, anonymous user): queues the CID on the publish host's render farm via POST /api/rebuild-mark — the worker bakes it asynchronously. Either way the link plays in-browser via Tone.js regeneration without the .webm. Default false (envelope-only, no farm load)."),
 		),
 		mcp.WithBoolean("wait",
-			mcp.Description("With render=true, block until the .webm is published on the mirror host (HEAD /audio/{cid}.webm returns 200) or 5 minutes elapse — whichever comes first. Useful when the caller wants a guaranteed-playable audio file in the response rather than a queued promise. Ignored when render=false or when the sync render+mirror path is in use (that path already waits). Default false."),
+			mcp.Description("With render=true, block up to ~50s waiting for the farm to publish the .webm. Capped well under typical MCP client timeouts so the call resolves cleanly: if the render finishes in time you get the audio URL inline, otherwise you get the CID + a polling hint and the render keeps going (poll get_render_status). Ignored when render=false or when the sync render+mirror path is in use. Default false."),
 		),
 	)
 }
@@ -187,15 +187,20 @@ func startRenderAndMirror(cid string, canonical []byte, budget time.Duration, wa
 			return "\nAudio render NOT queued (" + err.Error() + ") — the link still plays in-browser."
 		}
 		if wait {
+			// 50s cap — well under typical MCP client transport timeouts
+			// (Claude.ai ≈ 60s, Claude Code ≈ 60-120s). The design-doc
+			// warning applies: longer holds risk the client killing the
+			// call and surfacing a generic error that swallows the CID.
+			// For waits beyond this, callers poll get_render_status —
+			// that's the primitive built for the long path.
 			audioURL := fmt.Sprintf("%s/audio/%s.webm", mirror, cid)
-			if waited, ok := waitForAudio(mirror, cid, 5*time.Minute); ok {
+			if waited, ok := waitForAudio(mirror, cid, 50*time.Second); ok {
 				return fmt.Sprintf("\nRendered by farm in %s — playable at %s.", waited.Round(time.Second), audioURL)
-			} else {
-				return fmt.Sprintf(
-					"\nQueued for audio render on %s; still rendering after 5 min — check %s shortly (the link plays in-browser regardless).",
-					mirror, audioURL,
-				)
 			}
+			return fmt.Sprintf(
+				"\nQueued and waited 50s; render farm hasn't finished yet. Poll get_render_status(%q) until state=\"ready\" (typically resolves within 1-3 min). The link plays in-browser regardless.",
+				cid,
+			)
 		}
 		return fmt.Sprintf(
 			"\nQueued for audio render on %s — the publish host's render farm will bake %s/audio/%s.webm (typically minutes; the link plays in-browser regardless).",
