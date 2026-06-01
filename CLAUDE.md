@@ -229,6 +229,26 @@ Either way the link plays in-browser via Tone.js regeneration without a .webm. W
 
 The fallback path supports `wait: true` — block (up to 5 min) until the farm publishes the .webm. The MCP `/mcp` route clears the parent http.Server's 15s WriteTimeout via `http.NewResponseController`, so a long-poll handler isn't killed mid-wait. Client-side timeouts still apply; if the client gives up, the render completes anyway and a re-invocation is idempotent.
 
+**`get_render_status(cid)`** — pure-function status lookup for any CID. Returns one of: `ready` (HEAD on `/audio/{cid}.webm` is 200, includes `url` + `bytes`), `queued` (CID is in the publish host's rebuild queue), `missing` (envelope not on publish host), or `unmarked` (envelope present but no .webm and not in queue — call generate_share again to re-queue). Cheap probe — HEAD requests only, no rendering side effects. The polling primitive for clients that don't want to hold a `wait: true` call open.
+
+**Render-completion webhook** — when `BEATS_RENDER_WEBHOOK_URL` is set in the server's environment, every successful audio bake (server-side render OR authenticated worker PUT) fires a signed `render.complete` POST to that URL. Browser-PUT uploads do NOT fire (those are user self-renders, not bakes). Payload shape (`internal/share/render_event.go`):
+
+```json
+{
+  "event": "render.complete",
+  "cid": "z4EBG9j…",
+  "url": "https://beats.bitwrap.io/audio/z4EBG9j….webm",
+  "bytes": 1843200,
+  "source": "renderfarm",      // or "server"
+  "renderedAt": "2026-06-01T00:00:00Z",
+  "text": "🎧 baked z4EBG9j… → …",   // Slack-friendly, ignored by other receivers
+  "signer": {"type": "ed25519", "address": "<operator pubkey hex>"},
+  "signature": "<hex of ed25519 over canonical JSON (signature stripped)>"
+}
+```
+
+Signed with the operator key (`data/.operator-key`), same canonical-JSON-strip-then-sign as `SignManifest`. Verification: fetch the operator pubkey at `/api/operator-pubkey`, re-canonicalize the event with `signature` removed, ed25519 verify. `BEATS_PUBLIC_URL` controls the origin baked into the URL — set to `https://beats.bitwrap.io` in prod.
+
 **nginx for prod** — `/mcp` needs streaming, so proxy it explicitly (same gotcha as `/schema`):
 ```nginx
 location = /mcp  { proxy_pass http://127.0.0.1:8089; proxy_buffering off; }

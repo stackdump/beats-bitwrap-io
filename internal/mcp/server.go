@@ -216,6 +216,7 @@ func NewServer() *server.MCPServer {
 	s.AddTool(archiveLookupTool(), handleArchiveLookup)
 	s.AddTool(collectionStatusTool(), handleCollectionStatus)
 	s.AddTool(generateShareTool(), handleGenerateShare)
+	s.AddTool(getRenderStatusTool(), handleGetRenderStatus)
 
 	return s
 }

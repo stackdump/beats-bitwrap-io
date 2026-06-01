@@ -190,6 +190,43 @@ func main() {
 		filepath.Join(*dataDir, ".operator-key"),
 		operatorKey.PublicKeyHex()[:16])
 
+	// Render-completion webhook. When set, every successful audio bake
+	// (server-render or authenticated worker PUT) POSTs a signed
+	// render.complete event to this URL. Slack-compatible — the payload
+	// carries `text` for Slack receivers + structured fields for others.
+	// Empty disables; consumers can still poll get_render_status.
+	renderWebhookURL := strings.TrimSpace(os.Getenv("BEATS_RENDER_WEBHOOK_URL"))
+	if renderWebhookURL != "" {
+		log.Printf("Render webhook: POST render.complete events to %s", renderWebhookURL)
+	}
+	// publicBaseURL is the origin to bake into webhook URLs (e.g.
+	// https://beats.bitwrap.io/audio/{cid}.webm). Falls back to the listen
+	// address when unset, but production must set this.
+	publicBaseURL := strings.TrimRight(os.Getenv("BEATS_PUBLIC_URL"), "/")
+	if publicBaseURL == "" {
+		publicBaseURL = "http://localhost" + *addr
+	}
+	notifyRenderComplete := func(cid string, bytes int64, source share.RenderEventSource) {
+		if renderWebhookURL == "" {
+			return
+		}
+		audioURL := fmt.Sprintf("%s/audio/%s.webm", publicBaseURL, cid)
+		event := share.BuildRenderEvent(cid, audioURL, bytes, source, time.Now())
+		if err := share.SignRenderEvent(event, operatorKey); err != nil {
+			log.Printf("render webhook sign %s: %v", cid, err)
+			// Drop signature fields and continue — better an unsigned
+			// notification than none. Both `signer` and `signature` are
+			// stamped by SignManifest only on success; partial-write
+			// would leave a half-signed object. Re-build from scratch.
+			event = share.BuildRenderEvent(cid, audioURL, bytes, source, time.Now())
+		}
+		go func() {
+			if err := share.PostRenderEvent(renderWebhookURL, event); err != nil {
+				log.Printf("render webhook %s: %v", cid, err)
+			}
+		}()
+	}
+
 	share.GoogleAnalyticsID = os.Getenv("GOOGLE_ANALYTICS_ID")
 	if share.GoogleAnalyticsID != "" {
 		log.Printf("Google Analytics: %s", share.GoogleAnalyticsID)
@@ -338,6 +375,10 @@ func main() {
 			if err := idx.RecordAudioProvenance(cid, "renderfarm"); err != nil {
 				log.Printf("audio: tag provenance %s=renderfarm: %v", cid, err)
 			}
+			// Server-render path: this closure only runs for in-process
+			// renders (renderer.OnRenderComplete). The PUT path calls a
+			// separate onAudioReady with the right source.
+			notifyRenderComplete(cid, bytes, share.RenderSourceServer)
 		}
 		mode := strings.ToLower(strings.TrimSpace(*audioRenderMode))
 		if mode != "" && mode != "realtime" && mode != "offline" {
@@ -416,7 +457,7 @@ func main() {
 				log.Printf("audio: tag provenance %s=%s: %v", cid, source, err)
 			}
 		}
-		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret, tagAudioProvenance))
+		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret, tagAudioProvenance, notifyRenderComplete))
 		// onMasterIngest projects newly-rendered compositions into the
 		// SQLite tracks index so /api/feed and /feed.rss surface them
 		// alongside BeatsShare renders. Reads the composition envelope
@@ -1393,7 +1434,7 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
-func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source string)) http.Handler {
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source string), onAudioReady func(cid string, bytes int64, source share.RenderEventSource)) http.Handler {
 	// httpErrorNoStore writes an error response with explicit no-store
 	// caching so browsers and intermediaries don't poison themselves
 	// with a transient 404/500 from this route. Without it, a probe
@@ -1511,6 +1552,13 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 					source = "renderfarm"
 				}
 				tagProvenance(cid, source)
+			}
+			// Fire render.complete webhook ONLY for authenticated worker
+			// PUTs (the bake-landed event). Browser uploads are user
+			// self-renders and don't fire — see render_event.go for the
+			// semantic distinction.
+			if wrote && authed && onAudioReady != nil {
+				onAudioReady(cid, int64(len(body)), share.RenderSourceFarm)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")

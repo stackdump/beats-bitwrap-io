@@ -18,7 +18,7 @@ func TestPublicServerToolset(t *testing.T) {
 	}
 	sort.Strings(got)
 
-	want := []string{"generate_share", "get_song", "list_genres"}
+	want := []string{"generate_share", "get_render_status", "get_song", "list_genres"}
 	if len(got) != len(want) {
 		t.Fatalf("public tool set = %v, want %v", got, want)
 	}

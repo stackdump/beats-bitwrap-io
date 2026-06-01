@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ func NewPublicServer() *server.MCPServer {
 	s.AddTool(generateShareTool(), handleGenerateShare)
 	s.AddTool(listGenresTool(), handleListGenresLocal)
 	s.AddTool(getSongTool(), handleGetSong)
+	s.AddTool(getRenderStatusTool(), handleGetRenderStatus)
 	return s
 }
 
@@ -302,4 +304,80 @@ func handleGetSong(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultText(string(resp)), nil
+}
+
+// --- get_render_status ---------------------------------------------------
+
+func getRenderStatusTool() mcp.Tool {
+	return mcp.NewTool("get_render_status",
+		mcp.WithDescription("Report bake state for a CID on the publish host: \"ready\" (the .webm is served), \"queued\" (in the render-farm queue), \"missing\" (envelope not yet mirrored), or \"unmarked\" (envelope present but never queued, or render farm cleared it without uploading). Pure function of the CID + publish host state — no rendering side effects. Useful for polling after generate_share(render=true) without wait=true, or for verifying earlier work."),
+		mcp.WithString("cid",
+			mcp.Required(),
+			mcp.Description("Content-address from a beats share URL."),
+		),
+	)
+}
+
+func handleGetRenderStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cid, _ := req.GetArguments()["cid"].(string)
+	if !validCID(cid) {
+		return mcp.NewToolResultError("invalid cid"), nil
+	}
+	mirror := strings.TrimRight(os.Getenv("BEATS_MIRROR_HOST"), "/")
+	if mirror == "" {
+		mirror = publicBase
+	}
+	out := map[string]any{"cid": cid}
+
+	// Audio readiness (HEAD — does not trigger a render).
+	headReq, _ := http.NewRequest(http.MethodHead, mirror+"/audio/"+cid+".webm", nil)
+	headClient := &http.Client{Timeout: 10 * time.Second}
+	if resp, err := headClient.Do(headReq); err == nil {
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			out["state"] = "ready"
+			out["url"] = mirror + "/audio/" + cid + ".webm"
+			if cl := resp.Header.Get("Content-Length"); cl != "" {
+				if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+					out["bytes"] = n
+				}
+			}
+			return jsonResult(out)
+		}
+	}
+	// Envelope presence — the share store rejects HEAD with 405, so use GET
+	// (envelope bytes are ~100-200B on minimal shares). 404 → missing.
+	if resp, err := headClient.Get(mirror + "/o/" + cid); err == nil {
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			out["state"] = "missing"
+			out["hint"] = "envelope not on publish host — seal it first with generate_share."
+			return jsonResult(out)
+		}
+	}
+	// Queue lookup — endpoint is best-effort (404 on a host without
+	// -rebuild-queue). Failure → fall through to "unmarked" rather than
+	// fabricating queue state we don't have.
+	if resp, err := apiCallTo(mirror, "GET", "/api/rebuild-queue?limit=500", nil); err == nil {
+		var list []string
+		if json.Unmarshal(resp, &list) == nil {
+			for _, c := range list {
+				if c == cid {
+					out["state"] = "queued"
+					return jsonResult(out)
+				}
+			}
+		}
+	}
+	out["state"] = "unmarked"
+	out["hint"] = "envelope present but no .webm served and not in the rebuild queue. Call generate_share(genre, seed, render=true) again to re-queue, or mark the CID via POST /api/rebuild-mark."
+	return jsonResult(out)
+}
+
+func jsonResult(out map[string]any) (*mcp.CallToolResult, error) {
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(string(b)), nil
 }
