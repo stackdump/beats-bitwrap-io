@@ -2,7 +2,7 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test-audio seed-collection-extended
+.PHONY: build run dev clean docs test-audio test-cohesion-parity seed-collection-extended
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
@@ -43,6 +43,18 @@ public/docs/control-category-og.png: docs/control-category-og.png
 
 clean:
 	rm -f $(BINARY)
+
+# Cohesion v2 — Go↔JS motif parity check. Asserts that
+# public/lib/generator/theme.js::buildTrackTheme('techno', 42) produces the
+# same MotifCell as internal/generator/theme.go::BuildTrackTheme. If this
+# drifts, shared `cohesion: "v2"` envelopes play different motifs on
+# Go-served audio (authoring) vs JS-served audio (prod static-host).
+# Both halves of the contract:
+#   - Go side: `go test ./internal/generator/ -run TestPinnedMotifVectorTechnoSeed42`
+#   - JS side: this target (requires `node` >= 14 with ESM support).
+test-cohesion-parity:
+	@go test ./internal/generator/ -run TestPinnedMotifVectorTechnoSeed42 -count=1
+	@node scripts/test-cohesion-parity.mjs
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and

@@ -132,6 +132,13 @@ type Project struct {
 	// carried here so load-modify-seal round-trips preserve whatever the
 	// frontend authored. Keys match FxSettings in petri-note.schema.json.
 	FX map[string]any
+	// Cohesion picks the generator pipeline version. Empty = legacy
+	// (v1, per-role independent generation). "v2" = motif + groove-lock
+	// + section profiles. Stamped on Compose when the override is
+	// honored; carried through ToJSON so the share envelope can preserve
+	// it on round-trip. Absent in canonical envelope bytes keeps every
+	// pre-cohesion CID byte-identical (see internal/share/canonical.go).
+	Cohesion string
 }
 
 // NewNetBundle creates a NetBundle from a go-pflow PetriNet.
@@ -635,6 +642,10 @@ func (p *Project) ToJSON() map[string]interface{} {
 
 	if len(p.FX) > 0 {
 		result["fx"] = p.FX
+	}
+
+	if p.Cohesion != "" {
+		result["cohesion"] = p.Cohesion
 	}
 
 	if len(p.Structure) > 0 {

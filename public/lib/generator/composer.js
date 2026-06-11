@@ -16,10 +16,19 @@ import { euclidean, euclideanMelodic } from './euclidean.js';
 import { markovMelody } from './markov.js';
 import { drumRiff, melodyRiff } from './riffs.js';
 import { ghostNoteHihat, walkingBassLine, callResponseMelody, applyModalInterchange, drumFillNet, chorus } from './variety.js';
-import { fadeIn, fadeOut, drumBreak } from './arrange.js';
-import { generateStructure, songStructure, extractSlotIndex } from './structure.js';
+import { fadeIn, fadeOut, drumBreak, injectFeelCurve, injectMacroCurve } from './arrange.js';
+import { parseNetBundle } from '../pflow.js';
+import { generateStructure, songStructure, extractSlotIndex, defaultPhrases } from './structure.js';
 import { genrePhrases } from './theory.js';
 import { shuffleInstruments } from './shuffle.js';
+// Cohesion v2 primitives — see theme.js / groove.js for the full design
+// and the parity contract with internal/generator/theme.go.
+import {
+    buildTrackTheme, cohesionGenreSupported, renderMotif, MotifMode,
+    motifNet, maskedRing, activeRolesFromProfile, kickHitMask,
+    chordBassRing, chordPadNet,
+} from './theme.js';
+import { grooveLock } from './groove.js';
 
 // Scale helper functions matching Go's func(int) []int pattern
 const MixolydianScale = (root) => scaleNotes(root, Mixolydian, 2);
@@ -361,7 +370,10 @@ export function generateTrackName(genre, seedOrRng) {
 const drumRoles = { kick: true, snare: true, hihat: true, clap: true };
 
 // --- expandVariants ---
-function expandVariants(proj, tmpl, genre, rng, tensionCurve) {
+// When `theme` is non-null (cohesion v2), melodic slot nets are rendered
+// from the track motif via the section's MotifMode, and bass slots are
+// grooveLock'd to the kick mask. Mirrors expandVariants in composer.go.
+function expandVariants(proj, tmpl, genre, rng, tensionCurve, theme) {
     const { tensionForVariant } = (() => {
         // Inline import to avoid circular dependency
         return { tensionForVariant: (variant) => {
@@ -526,11 +538,43 @@ function expandVariants(proj, tmpl, genre, rng, tensionCurve) {
                         durationVariation: genre.durationVariation,
                     };
 
-                    const nb = melodyRiff(letter, params);
-                    nb.riffGroup = role;
-                    nb.riffVariant = letter;
-                    nb.track = { ...baseBundle.track };
-                    proj.nets[slotNetId] = nb;
+                    if (theme) {
+                        // Cohesion v2 — bass groove-locks to kick;
+                        // melody/arp render the motif per section's
+                        // MotifMode. Mirrors composer.go expandVariants
+                        // v2 branch.
+                        const prof = theme.energy[sec.name] || { roles: {} };
+                        const roleProf = prof.roles[role] || {};
+                        const mode = roleProf.motifMode;
+                        const harmonicOffset = (theme.harmonic && theme.harmonic[sec.name]) || 0;
+                        let nb;
+                        if (role === 'bass') {
+                            // Slice 2: groove-locked rhythm + chord-root
+                            // walk + per-section register shift.
+                            const kMask = kickHitMask(genre);
+                            const bMask = grooveLock(kMask, theme.groove, rng);
+                            nb = chordBassRing(theme.plan, bMask, scale, params, roleProf.registerShift || 0);
+                        } else if (role === 'melody' || role === 'arp') {
+                            if (mode === MotifMode.Ignore || mode === undefined) {
+                                nb = melodyRiff(letter, params);
+                            } else {
+                                const cell = renderMotif(theme.motif, mode, harmonicOffset);
+                                nb = motifNet(cell, scale, params);
+                            }
+                        } else {
+                            nb = melodyRiff(letter, params);
+                        }
+                        nb.riffGroup = role;
+                        nb.riffVariant = letter;
+                        nb.track = { ...baseBundle.track };
+                        proj.nets[slotNetId] = nb;
+                    } else {
+                        const nb = melodyRiff(letter, params);
+                        nb.riffGroup = role;
+                        nb.riffVariant = letter;
+                        nb.track = { ...baseBundle.track };
+                        proj.nets[slotNetId] = nb;
+                    }
                 }
             }
         }
@@ -574,6 +618,20 @@ export function compose(genreName, overrides = {}) {
     let gn = genre.ghostNotes || 0;
     if (typeof overrides['ghost-notes'] === 'number') gn = overrides['ghost-notes'];
 
+    // Cohesion engine selection. Defaults to "v2" (harmonic motion +
+    // phrase-grammar motif); explicit overrides.cohesion wins — "v1"
+    // restores the legacy per-role generator. Old sealed envelopes pin
+    // "v1" at the boot path (lib/share/url.js) so existing ?cid= links
+    // keep their original sound. `theme` stays null for the v1 path so
+    // every later branch can `if (theme) { … }`. See theme.js for the
+    // recall grammar and the JS↔Go parity contract.
+    const cohesion = (typeof overrides.cohesion === 'string' && overrides.cohesion)
+        ? overrides.cohesion
+        : 'v2';
+    const theme = (cohesion === 'v2' && cohesionGenreSupported(genreName))
+        ? buildTrackTheme(genreName, seed)
+        : null;
+
     const proj = {
         name: generateTrackName(genre.name, seed),
         tempo: bpm,
@@ -592,6 +650,7 @@ export function compose(genreName, overrides = {}) {
         initialMutes: [],
         structure: [],
     };
+    if (theme) proj.cohesion = 'v2';
 
     // === Drums ===
     const dSeed = drumSeed(genreName);
@@ -641,7 +700,15 @@ export function compose(genreName, overrides = {}) {
         chords: chordProg, durationVariation: genre.durationVariation,
         syncopation: sync,
     };
-    if (wb) {
+    if (theme) {
+        // Cohesion v2 slice 2: bass rhythm stays grooveLock(kickMask) but
+        // pitch walks the chord roots — mask repeats per bar across the
+        // chord cycle, each bar pitched at its chord root. Mirrors
+        // composer.go v2 bass path.
+        const kMask = kickHitMask(genre);
+        const bMask = grooveLock(kMask, theme.groove, rng);
+        proj.nets.bass = chordBassRing(theme.plan, bMask, bassScale, bassParams);
+    } else if (wb) {
         proj.nets.bass = walkingBassLine(bassParams).bundle;
     } else {
         proj.nets.bass = markovMelody(bassParams).bundle;
@@ -656,7 +723,22 @@ export function compose(genreName, overrides = {}) {
         chords: chordProg, durationVariation: genre.durationVariation,
         syncopation: sync,
     };
-    if (cr) {
+    if (theme) {
+        // Cohesion v2: melody plays the canonical motif at the melody
+        // root. The hook the listener should be able to hum back.
+        proj.nets.melody = motifNet(theme.motif, melodyParams.scale, melodyParams);
+
+        // Slice 2: harmony pad voicing the ChordPlan — sustained triads
+        // changing each bar, bar-length duration computed from BPM so
+        // the strummed notes overlap into a held chord. Mirrors
+        // composer.go.
+        const barMs = Math.floor(4.0 * 60000.0 / bpm * 0.95);
+        const pad = chordPadNet(theme.plan, genre.scale(genre.rootNote), {
+            channel: 7, velocity: 68, duration: barMs,
+        });
+        pad.track.instrument = (genreName === 'synthwave') ? 'warm-pad' : 'dark-pad';
+        proj.nets.harmony = pad;
+    } else if (cr) {
         proj.nets.melody = callResponseMelody(melodyParams).bundle;
     } else {
         proj.nets.melody = markovMelody(melodyParams).bundle;
@@ -741,6 +823,35 @@ export function compose(genreName, overrides = {}) {
     if (typeof structName === 'string' && structName) {
         const tmpl = generateStructure(genreName, structName, rng);
         if (tmpl) {
+            // Cohesion v2: override Section.active from SectionProfile so
+            // per-section content rules (kick muted in breakdown,
+            // melody-only-in-drops, …) take effect. The existing
+            // songStructure() consumes Section.active to build mute/
+            // unmute control nets, so flipping the map gives us per-
+            // section drum drops without touching control-net synthesis.
+            if (theme) {
+                for (const sec of tmpl.sections) {
+                    const prof = theme.energy[sec.name];
+                    if (prof && prof.roles && Object.keys(prof.roles).length) {
+                        sec.active = activeRolesFromProfile(prof);
+                        // Rebuild Phrases for the new role set so
+                        // expandVariants doesn't emit slots for roles
+                        // no longer active in this section. "harmony"
+                        // is also excluded — the chord pad is a single
+                        // track-wide net driven by mute/unmute (variant
+                        // slots would replace it with Markov clones and
+                        // destroy the chord voicing).
+                        const pattern = defaultPhrases(sec.name);
+                        const newPhrases = {};
+                        for (const role of Object.keys(sec.active)) {
+                            if (role === 'snare' || role === 'harmony') continue;
+                            newPhrases[role] = pattern;
+                        }
+                        sec.phrases = newPhrases;
+                    }
+                }
+            }
+
             // Apply genre-specific phrase patterns
             if (genre.theory) {
                 for (const sec of tmpl.sections) {
@@ -752,7 +863,13 @@ export function compose(genreName, overrides = {}) {
                 }
             }
 
-            expandVariants(proj, tmpl, genre, rng, tc);
+            // Cohesion v2: force-enable drum fills regardless of the
+            // per-genre flag — the 1-bar fill at each section boundary
+            // gives the listener a beat of anticipation before the
+            // drop/chorus instead of an abrupt content swap.
+            if (theme) df = true;
+
+            expandVariants(proj, tmpl, genre, rng, tc, theme);
 
             // Drum fills
             if (df) {
@@ -772,6 +889,44 @@ export function compose(genreName, overrides = {}) {
             // Song mode: bar count = sum of section steps / 16.
             const totalSteps = (proj.structure || []).reduce((s, sec) => s + (sec?.steps || 0), 0);
             if (totalSteps > 0) proj.bars = Math.max(1, Math.round(totalSteps / 16));
+
+            // Cohesion v2 — auto-inject a feel-curve from the
+            // SectionProfile (energy, filterOpen). The Feel puck snaps
+            // per section so drops open the filter, breakdowns close
+            // it. Reuses the existing feel-curve control net dispatch.
+            if (theme) {
+                const feelPoints = [];
+                for (const sec of tmpl.sections) {
+                    const prof = theme.energy[sec.name];
+                    if (prof) feelPoints.push({ section: sec.name, x: prof.energy, y: prof.filterOpen });
+                }
+                if (feelPoints.length) {
+                    injectFeelCurve(proj, tmpl, feelPoints);
+                    // injectFeelCurve adds a plain-object net via
+                    // buildControlBundle — fine for the /api/arrange path
+                    // (which routes through parseProject in the worker)
+                    // but the 'generate' worker message hits queueProject
+                    // WITHOUT parsing, so the bundle needs to be a real
+                    // NetBundle instance before it's posted. Wrap.
+                    if (proj.nets['feel-curve']) {
+                        proj.nets['feel-curve'] = parseNetBundle(proj.nets['feel-curve']);
+                    }
+                }
+            }
+
+            // Envelope-level macroCurve: inject SYNCHRONOUSLY here (same
+            // as feelCurve) so the macro-curve control net is part of the
+            // first project-sync instead of racing the render via the
+            // async overlay path. Threaded through params by
+            // shareFromPayload. Not gated on theme — valid in v1 too.
+            const mc = overrides.macroCurve;
+            if (Array.isArray(mc) && mc.length) {
+                injectMacroCurve(proj, tmpl, mc);
+                if (proj.nets['macro-curve']) {
+                    proj.nets['macro-curve'] = parseNetBundle(proj.nets['macro-curve']);
+                }
+            }
+
             addStingerTracks(proj, rng.nextInt63());
             ensureGroupAndInstrumentSet(proj);
             return proj;

@@ -117,6 +117,21 @@ export function shareFromPayload(payload, cid) {
     const params = {};
     if (typeof payload.seed === 'number') params.seed = payload.seed;
     if (payload.structure) params.structure = payload.structure;
+    if (payload.cohesion === 'v1' || payload.cohesion === 'v2') {
+        params.cohesion = payload.cohesion;
+    } else {
+        // Sealed envelopes without the field predate cohesion v2. Pin
+        // legacy explicitly — fresh generates now default to v2, and
+        // without this pin every old ?cid= link would regenerate with a
+        // different sound than when it was sealed.
+        params.cohesion = 'v1';
+    }
+    // macroCurve is threaded into params (not just the top-level overlay
+    // field) so the composer path applies it SYNCHRONOUSLY inside
+    // compose() — same as the auto feel-curve. The old overlay path
+    // (_pendingOverlay → dynamic arrange import) raced the render's
+    // transport start and the macros often never landed in the audio.
+    if (Array.isArray(payload.macroCurve)) params.macroCurve = payload.macroCurve;
     if (payload.traits && typeof payload.traits === 'object') Object.assign(params, payload.traits);
     const overrides = {};
     if (payload.tracks) overrides.tracks = payload.tracks;

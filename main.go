@@ -1737,6 +1737,13 @@ func buildShareEnvelope(project map[string]any) map[string]any {
 	if im, ok := project["initialMutes"].([]any); ok {
 		envelope["initialMutes"] = im
 	}
+	// Cohesion v2 — opt-in generator pipeline. Absent in envelope = v1.
+	// Carried as a top-level field (not under traits) so the share schema
+	// can validate the enum and the boot path can read it without
+	// touching the generator-params traits namespace.
+	if c, ok := project["cohesion"].(string); ok && c != "" {
+		envelope["cohesion"] = c
+	}
 	return envelope
 }
 
@@ -1979,6 +1986,12 @@ func featuresHandler(rebuildQueue bool) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"rebuildQueue": rebuildQueue,
 			"genreColors":  share.GenreColors(),
+			// Server's generator-pipeline default ("v1"|"v2", from
+			// BEATS_COHESION_DEFAULT). The studio reads this at boot so
+			// the env knob governs client-side composes too — without
+			// it, the browser worker would default to v2 regardless of
+			// server config. See generator.DefaultCohesion.
+			"cohesionDefault": generator.DefaultCohesion,
 		})
 	}
 }

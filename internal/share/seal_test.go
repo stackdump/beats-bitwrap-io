@@ -73,6 +73,43 @@ func TestCanonicalJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// Cohesion v2 added an optional `cohesion` field to the share schema. The
+// contract is: absent field = CID byte-identical to pre-cohesion envelopes;
+// present field = different CID (so v1 and v2 shares don't collide). This
+// test pins the contract so a future refactor can't silently break either
+// half.
+func TestCohesionFieldDoesNotAffectAbsentCid(t *testing.T) {
+	var v1 any
+	if err := json.Unmarshal([]byte(fixturePayload), &v1); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	cidWithoutCohesion, _, err := canonicalCid(v1)
+	if err != nil {
+		t.Fatalf("canonicalCid v1: %v", err)
+	}
+
+	// Same payload + cohesion="v2".
+	var v2 any
+	if err := json.Unmarshal([]byte(fixturePayload), &v2); err != nil {
+		t.Fatalf("unmarshal fixture v2: %v", err)
+	}
+	v2.(map[string]any)["cohesion"] = "v2"
+	cidWithCohesion, _, err := canonicalCid(v2)
+	if err != nil {
+		t.Fatalf("canonicalCid v2: %v", err)
+	}
+
+	if cidWithoutCohesion == cidWithCohesion {
+		t.Fatalf("expected different CIDs for absent vs present cohesion field, both got %s",
+			cidWithoutCohesion)
+	}
+	// And the cohesion-absent CID must still match the bare-bytes hash —
+	// pins the "legacy envelope reproduces byte-identically" guarantee.
+	if got := computeCid([]byte(fixturePayload)); got != cidWithoutCohesion {
+		t.Fatalf("legacy CID drift: canonicalCid=%s computeCid=%s", cidWithoutCohesion, got)
+	}
+}
+
 // End-to-end happy path: PUT stores, GET returns the same bytes, a
 // second PUT is idempotent, the file lands in the expected YYYY/MM
 // bucket, and curBytes is accounted correctly.

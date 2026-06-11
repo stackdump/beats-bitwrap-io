@@ -20,6 +20,7 @@ import {
 } from './lib/audio/oneshots.js';
 import { GENRE_INSTRUMENTS } from './lib/generator/genre-instruments.js';
 import { generateTrackName, compose } from './lib/generator/composer.js';
+import { cohesionGenreSupported } from './lib/generator/theme.js';
 import { createRng } from './lib/generator/core.js';
 import { arrangeWithOpts as jsArrangeWithOpts } from './lib/generator/arrange.js';
 import {
@@ -247,6 +248,20 @@ class PetriNote extends HTMLElement {
             }
         } catch {}
         this._firstLoad = true;
+        // Server-side generator default ("v1"|"v2") — lets the operator's
+        // BEATS_COHESION_DEFAULT env knob govern client-side composes too.
+        // Fire-and-forget: until (or unless) it resolves, doGenerate falls
+        // back to 'v2'. The boot placeholder compose below runs before
+        // this lands and always uses v2 — acceptable, it's a throwaway
+        // replaced by the first real generate or share load.
+        fetch('/api/features')
+            .then(r => r.ok ? r.json() : null)
+            .then(f => {
+                if (f && (f.cohesionDefault === 'v1' || f.cohesionDefault === 'v2')) {
+                    this._cohesionServerDefault = f.cohesionDefault;
+                }
+            })
+            .catch(() => {});
         this._loadProject();
         this._buildUI();
         this._setupEventListeners();
@@ -785,6 +800,22 @@ class PetriNote extends HTMLElement {
             const params = { ...(this._traitOverrides || {}) };
             const structure = this.querySelector('.pn-structure-select').value;
             if (structure) params.structure = structure;
+            // Cohesion engine: v2 is the default for supported genres.
+            // `?cohesion=v1` (or v2) overrides per session. The resolved
+            // value is stamped into params explicitly so the share
+            // envelope carries it — absent-in-envelope means legacy v1
+            // on replay (see lib/share/url.js::shareFromPayload), so a
+            // silently-defaulted v2 share would flip sound on reopen if
+            // we didn't stamp.
+            const cohesion = this._cohesion || new URLSearchParams(location.search).get('cohesion');
+            if (cohesion === 'v1' || cohesion === 'v2') {
+                params.cohesion = cohesion;
+                this._cohesion = cohesion;
+            } else if (cohesionGenreSupported(genre)) {
+                // No explicit choice: use the server's configured default
+                // (fetched from /api/features at boot), else v2.
+                params.cohesion = this._cohesionServerDefault || 'v2';
+            }
             // Always tag the generation with a concrete seed so the current
             // track is reproducible via Share. Without this, compose() falls
             // back to Date.now() and the seed is effectively unknown.
@@ -1472,7 +1503,11 @@ class PetriNote extends HTMLElement {
             // produced a project. The server's seq will hold the just-
             // generated project, so the overlay runs against it and the
             // broadcast pushes the updated nets back to the worker.
-            const hasOverlay = share.fadeIn || share.drumBreak || share.feelCurve || share.macroCurve || share.counterMelody;
+            // macroCurve is NOT in this overlay set — it's threaded into
+            // params (shareFromPayload) and applied synchronously inside
+            // compose(), so it lands in the first project-sync instead of
+            // racing the render via the async overlay import.
+            const hasOverlay = share.fadeIn || share.drumBreak || share.feelCurve || share.counterMelody;
             if (hasOverlay) {
                 this._pendingOverlay = {
                     genre: share.genre || 'wrapped',
@@ -1480,7 +1515,6 @@ class PetriNote extends HTMLElement {
                     fadeIn: share.fadeIn || undefined,
                     drumBreak: share.drumBreak || undefined,
                     feelCurve: share.feelCurve || undefined,
-                    macroCurve: share.macroCurve || undefined,
                     counterMelody: share.counterMelody || undefined,
                 };
             }

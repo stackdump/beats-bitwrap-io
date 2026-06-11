@@ -488,6 +488,21 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		ghostNotes = v
 	}
 
+	// Cohesion engine selection. Defaults to DefaultCohesion ("v2" unless
+	// BEATS_COHESION_DEFAULT overrides); explicit params.cohesion wins.
+	// "v1" / unsupported genre = legacy per-role independent generation.
+	// theme stays nil for the v1 path so every later branch can
+	// `if theme != nil { ... }` without a string compare. See theme.go
+	// for the recall grammar and energy.go for the profile tables.
+	cohesion := DefaultCohesion
+	if v, ok := overrides["cohesion"].(string); ok && v != "" {
+		cohesion = v
+	}
+	var theme *TrackTheme
+	if cohesion == "v2" && cohesionGenreSupported(genreName) {
+		theme = BuildTrackTheme(genreName, seed)
+	}
+
 	// Bars: default to the kick pattern length expressed in bars (loop
 	// mode). Song mode replaces this further down with the structure
 	// total. Mirrors public/lib/generator/composer.js.
@@ -505,6 +520,9 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		ScaleName: genre.ScaleName,
 		Bars:      defaultBars,
 		Nets:      make(map[string]*pflow.NetBundle),
+	}
+	if theme != nil {
+		proj.Cohesion = "v2"
 	}
 
 	// === Drums (deterministic seed from genre for consistent patterns) ===
@@ -599,7 +617,15 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		Syncopation:       syncopation,
 	}
 
-	if walkingBass {
+	if theme != nil {
+		// Cohesion v2 slice 2: bass rhythm stays GrooveLock(kickMask)
+		// but pitch now walks the chord roots — the mask repeats per
+		// bar across the full chord cycle, and each bar's hits play
+		// that bar's chord root. Harmonic motion in the low end.
+		kickMask := KickHitMask(genre)
+		barMask := GrooveLock(kickMask, theme.Groove, rng)
+		proj.Nets["bass"] = chordBassRing(theme.Plan, barMask, bassScale, bassParams)
+	} else if walkingBass {
 		bass := WalkingBassLine(bassParams)
 		proj.Nets["bass"] = bass.Bundle
 	} else {
@@ -622,7 +648,32 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		Syncopation:       syncopation,
 	}
 
-	if callResponse {
+	if theme != nil {
+		// Cohesion v2: melody plays the canonical motif at the melody
+		// root. This is the recurring hook the listener should be able
+		// to hum back. In structure mode the per-section expansion
+		// further transforms the motif (Fragment/Augmented) so the
+		// hook recurs in recognizable variations.
+		melodyBundle := MotifNet(theme.Motif, melodyParams.Scale, melodyParams)
+		proj.Nets["melody"] = melodyBundle
+
+		// Slice 2: harmony pad voicing the ChordPlan. Sustained triads
+		// changing each bar — the harmonic bed. Bar-length duration is
+		// computed from BPM so the strummed notes overlap into a held
+		// chord regardless of tempo.
+		barMs := int(4.0 * 60000.0 / bpm * 0.95)
+		padInstrument := "dark-pad"
+		if genreName == "synthwave" {
+			padInstrument = "warm-pad"
+		}
+		pad := ChordPadNet(theme.Plan, genre.Scale(genre.RootNote), Params{
+			Channel:  7,
+			Velocity: 68,
+			Duration: barMs,
+		})
+		pad.Track.Instrument = padInstrument
+		proj.Nets["harmony"] = pad
+	} else if callResponse {
 		melody := CallResponseMelody(melodyParams)
 		proj.Nets["melody"] = melody.Bundle
 	} else {
@@ -736,6 +787,39 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 		// Generate a randomized structure appropriate for the genre
 		tmpl := GenerateStructure(genreName, structName, rng)
 		if tmpl != nil {
+			// Cohesion v2: override Section.Active from SectionProfile
+			// so per-section content rules (kick muted in breakdown,
+			// melody-only-in-drops, etc.) take effect. The downstream
+			// SongStructure already builds mute/unmute control nets
+			// from Section.Active — flipping the map gives us per-
+			// section drum drops "for free" without touching the
+			// control-net synthesis.
+			if theme != nil {
+				for i := range tmpl.Sections {
+					sec := &tmpl.Sections[i]
+					if prof, ok := theme.Energy[sec.Name]; ok && len(prof.Roles) > 0 {
+						sec.Active = activeRolesFromProfile(prof)
+						// Rebuild Phrases for the new role set so
+						// expandVariants doesn't emit slots for
+						// roles that are no longer active in this
+						// section. "harmony" is also excluded —
+						// the chord pad is a single track-wide net
+						// driven by mute/unmute control (variant
+						// slots would replace the pad with Markov
+						// clones and destroy the chord voicing).
+						pattern := DefaultPhrases(sec.Name)
+						newPhrases := map[string][]string{}
+						for role := range sec.Active {
+							if noVariantRoles[role] || role == "harmony" {
+								continue
+							}
+							newPhrases[role] = pattern
+						}
+						sec.Phrases = newPhrases
+					}
+				}
+			}
+
 			// Apply genre-specific phrase patterns before expanding variants
 			if genre.Theory != nil {
 				for i := range tmpl.Sections {
@@ -746,8 +830,18 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 				}
 			}
 
+			// Cohesion v2 — force-enable drum fills regardless of the
+			// per-genre flag. Without fills the boundary into the drop
+			// (or chorus, in song-family) lands flat: bass+melody come
+			// in but there's no anticipation moment. The 1-bar fill at
+			// each section boundary gives the listener a beat of
+			// "something is changing" before the change actually hits.
+			if theme != nil {
+				drumFills = true
+			}
+
 			// Expand music nets into riff variants (with tension curve support)
-			expandVariants(proj, tmpl, genre, rng, tensionCurve)
+			expandVariants(proj, tmpl, genre, rng, tensionCurve, theme)
 
 			// Add drum fills at section boundaries
 			if drumFills {
@@ -774,6 +868,43 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 			}
 			initialMutes := SongStructure(proj, tmpl, musicNets)
 			proj.InitialMutes = initialMutes
+
+			// Cohesion v2: auto-inject a FeelCurve derived from the
+			// SectionProfile energy + filter-open values. The Feel puck
+			// physically moves through the track without the user
+			// authoring it — drops snap puck X high (filter open,
+			// brighter mix), breakdowns snap X low. Reuses the existing
+			// feel-curve control-net dispatch (arrange.go) so no new
+			// runtime machinery is needed.
+			if theme != nil {
+				var feelPoints []FeelPoint
+				for _, sec := range tmpl.Sections {
+					if prof, ok := theme.Energy[sec.Name]; ok {
+						feelPoints = append(feelPoints, FeelPoint{
+							Section: sec.Name,
+							X:       prof.Energy,
+							Y:       prof.FilterOpen,
+						})
+					}
+				}
+				if len(feelPoints) > 0 {
+					injectFeelCurve(proj, tmpl, feelPoints)
+				}
+			}
+
+			// Envelope-level macroCurve: inject SYNCHRONOUSLY here so the
+			// macro-curve control net is part of the first project-sync.
+			// Previously this rode the async overlay path (_pendingOverlay
+			// → dynamic arrange import), which races the render's transport
+			// start — the macros often never landed in the captured audio.
+			// Injecting inline (same as feelCurve above) makes it
+			// deterministic and removes the /api/arrange dependency on
+			// production. Not gated on theme — macroCurve is an explicit
+			// user directive valid in v1 too.
+			if mc := parseMacroCurve(overrides["macroCurve"]); len(mc) > 0 {
+				injectMacroCurve(proj, tmpl, mc)
+			}
+
 			AddStingerTracks(proj, rng.Int63())
 			return proj
 		}
@@ -814,7 +945,11 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 // while the letter (A/B/C) controls tension parameters (density, velocity, register).
 // This produces unique patterns at every phrase position in the song.
 // When tensionCurve is true, variant params are scaled by section energy.
-func expandVariants(proj *pflow.Project, tmpl *SongTemplate, genre Genre, rng *rand.Rand, tensionCurve bool) {
+// When theme is non-nil (cohesion v2), melodic slot nets are rendered from
+// the track motif via the section's SectionProfile.MotifMode, and bass
+// slots are GrooveLock-locked to the kick mask — so the hook recurs across
+// sections instead of being independently Markov-generated each phrase.
+func expandVariants(proj *pflow.Project, tmpl *SongTemplate, genre Genre, rng *rand.Rand, tensionCurve bool, theme *TrackTheme) {
 	// Count total slots per role and build SlotMap
 	tmpl.SlotMap = make(map[string][][]int)
 
@@ -998,11 +1133,48 @@ func expandVariants(proj *pflow.Project, tmpl *SongTemplate, genre Genre, rng *r
 						DurationVariation: genre.DurationVariation,
 					}
 
-					nb := MelodyRiff(letter, params)
-					nb.RiffGroup = role
-					nb.RiffVariant = letter
-					nb.Track = baseBundle.Track
-					proj.Nets[slotNetId] = nb
+					if theme != nil {
+						// Cohesion v2 path: motif-aware melody / arp,
+						// groove-lock bass. Same letter across slots no
+						// longer means "regenerate from a salted Markov
+						// walk" — it means "play the canonical motif
+						// rendered through this section's MotifMode".
+						// That's the recurring-hook fix.
+						prof := theme.Energy[sec.Name]
+						roleProf := prof.Roles[role]
+						mode := roleProf.MotifMode
+						harmonicOffset := theme.HarmonicMap[sec.Name]
+						var nb *pflow.NetBundle
+						switch role {
+						case "bass":
+							// Bass: GrooveLock rhythm, chord-root walk
+							// (slice 2), RegisterShift per section
+							// (breakdown floats it up an octave).
+							kickMask := KickHitMask(genre)
+							barMask := GrooveLock(kickMask, theme.Groove, rng)
+							nb = chordBassRingShifted(theme.Plan, barMask, scale, params, roleProf.RegisterShift)
+						case "melody", "arp":
+							if mode == MotifIgnore {
+								// Section explicitly opts out — fall through to v1 path.
+								nb = MelodyRiff(letter, params)
+							} else {
+								cell := RenderMotif(theme.Motif, mode, harmonicOffset)
+								nb = MotifNet(cell, scale, params)
+							}
+						default:
+							nb = MelodyRiff(letter, params)
+						}
+						nb.RiffGroup = role
+						nb.RiffVariant = letter
+						nb.Track = baseBundle.Track
+						proj.Nets[slotNetId] = nb
+					} else {
+						nb := MelodyRiff(letter, params)
+						nb.RiffGroup = role
+						nb.RiffVariant = letter
+						nb.Track = baseBundle.Track
+						proj.Nets[slotNetId] = nb
+					}
 				}
 			}
 		}
@@ -1010,6 +1182,35 @@ func expandVariants(proj *pflow.Project, tmpl *SongTemplate, genre Genre, rng *r
 		// Remove the base net — it's been replaced by slot variants
 		delete(proj.Nets, role)
 	}
+}
+
+// parseMacroCurve coerces an overrides["macroCurve"] value (a JSON array
+// of {section, macro, bars}) into []MacroPoint. Tolerant of the float64
+// numbers that encoding/json produces. Returns nil for any non-array or
+// empty input so callers can guard with len() > 0.
+func parseMacroCurve(v interface{}) []MacroPoint {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	var out []MacroPoint
+	for _, raw := range arr {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		section, _ := m["section"].(string)
+		macro, _ := m["macro"].(string)
+		if section == "" || macro == "" {
+			continue
+		}
+		mp := MacroPoint{Section: section, Macro: macro}
+		if b, ok := m["bars"].(float64); ok {
+			mp.Bars = b
+		}
+		out = append(out, mp)
+	}
+	return out
 }
 
 func getBoolOverride(overrides map[string]interface{}, key string) bool {

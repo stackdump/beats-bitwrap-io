@@ -178,6 +178,14 @@ export function buildSharePayload(el) {
         bars,
         structure: params.structure || el.querySelector('.pn-structure-select')?.value || null,
     };
+    // Cohesion v2 — opt-in generator pipeline. Carried as a top-level
+    // envelope field (not under traits) so the share schema validates
+    // the enum and the boot path can route it without reading traits.
+    // Omitted when absent so legacy shares stay byte-identical.
+    const cohesion = params.cohesion || el._cohesion;
+    if (cohesion === 'v2' || cohesion === 'v1') {
+        payload.cohesion = cohesion;
+    }
     // Composer mints names like "techno · Crystal Ember" onto _project.name.
     // Sealing them into the envelope means the feed and player can show the
     // human label instead of "{genre} · {seed}". Skip pure "Untitled" /

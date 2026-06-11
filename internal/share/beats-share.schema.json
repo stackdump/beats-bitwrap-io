@@ -24,6 +24,11 @@
     "scaleName":{ "type": ["string", "null"], "maxLength": 32 },
     "bars":     { "type": ["integer", "null"], "minimum": 0, "maximum": 4096 },
     "structure":{ "type": ["string", "null"], "maxLength": 32 },
+    "cohesion": {
+      "description": "Generator pipeline version. 'v1' = legacy per-role independent generation (kick, snare, hihat, bass, melody composed independently). 'v2' = cohesion pipeline: TrackTheme (chord plan, phrase-grammar motif, groove template, energy curve) built first; chord pad voices the progression; bass rhythm locks to the kick mask and walks the chord roots; section content varies via SectionProfile; Feel puck auto-snaps per section. ABSENT in a sealed envelope = v1 — the boot path pins legacy so pre-cohesion ?cid= links keep their original sound. Fresh generates DEFAULT to v2 (for supported genres) and stamp the field explicitly; override per request with params.cohesion='v1' or server-wide with BEATS_COHESION_DEFAULT=v1. Existing CIDs (no field set) canonicalize byte-identically.",
+      "type": ["string", "null"],
+      "enum": [null, "v1", "v2"]
+    },
     "note":     {
       "type": ["string", "null"],
       "maxLength": 280,
