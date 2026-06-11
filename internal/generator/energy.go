@@ -305,11 +305,11 @@ var roleProfilesSong = map[string]map[string]RoleProfile{
 }
 
 // rolesTableFor selects the per-family role-profile table. Families with
-// no table (jazz, chill today) fall back to nil; cohesion v2 then
-// degrades to "bass-locked + auto-feel" without per-section motif
-// rendering — adequate but not the full demo. Adding a family means
-// authoring its table and adding the corresponding genres to
-// cohesionGenreSupported (theme.go).
+// an explicitly-authored table (EDM, song) get the hand-tuned density /
+// velocity / hits values. Families without one (jazz, chill) fall through
+// to synthesizeRoles, which derives a profile from the family archetype +
+// the section→motif-mode policy — so every genre gets full v2 (harmonic
+// motion + per-section motif recall), not just the tuned ones.
 func rolesTableFor(family structureFamily) map[string]map[string]RoleProfile {
 	switch family {
 	case familyEDM:
@@ -320,24 +320,70 @@ func rolesTableFor(family structureFamily) map[string]map[string]RoleProfile {
 	return nil
 }
 
+// motifModeForSection is the section→recall-grammar policy: which MotifMode
+// a melodic role takes in a given section. The explicit EDM/Song tables
+// encode this by hand; synthesizeRoles applies it uniformly to families
+// without a table. Drops/choruses state the hook plainly, breakdowns slow
+// it (augmented), bridges flip it (inverted), everything else teases
+// (fragment).
+func motifModeForSection(sectionName string) MotifMode {
+	switch sectionName {
+	case "drop", "chorus", "solo":
+		return MotifPlay
+	case "breakdown":
+		return MotifAugmented
+	case "bridge":
+		return MotifInverted
+	default: // intro, verse, buildup, pre-chorus, outro
+		return MotifFragment
+	}
+}
+
+// synthesizeRoles builds a section's RoleProfile map for a family without an
+// explicit table. Active roles come from the family archetype (jazz keeps
+// ride+walking-bass, chill stays pad-forward); melodic roles get the
+// section's motif mode; the chord pad is forced active so the harmonic bed
+// is always present. This is what lets jazz/bossa/ambient/lofi run the full
+// cohesion engine without hand-authoring two more tables.
+func synthesizeRoles(family structureFamily, sectionName string) map[string]RoleProfile {
+	out := map[string]RoleProfile{}
+	for role := range archetypeFor(family, sectionName) {
+		rp := RoleProfile{Active: true}
+		if role == "melody" || role == "arp" {
+			rp.MotifMode = motifModeForSection(sectionName)
+		}
+		out[role] = rp
+	}
+	if _, ok := out["harmony"]; !ok {
+		out["harmony"] = RoleProfile{Active: true}
+	}
+	return out
+}
+
 // energyProfilesFor returns the per-section SectionProfile map for a
-// (family, genre). Combines the family's Energy/FilterOpen base table with
-// the family's RoleProfile table. Genre-specific overrides will ride on
-// top of these defaults in a later slice (per-genre `SectionOverrides`
-// in GenreTheory) — for now the family table is the single tier.
+// (family, genre). Energy/FilterOpen come from the family base table; roles
+// come from the explicit per-family table when present, else from
+// synthesizeRoles. Every section ends up with a populated role map, so no
+// genre falls back to empty-section v1.
 func energyProfilesFor(family structureFamily, genreName string) map[string]SectionProfile {
 	base := energyTableFor(family)
 	roles := rolesTableFor(family)
 
 	out := make(map[string]SectionProfile, len(base))
 	for name, prof := range base {
-		filledRoles := map[string]RoleProfile{}
+		var filledRoles map[string]RoleProfile
 		if roles != nil {
 			if r, ok := roles[name]; ok {
+				filledRoles = make(map[string]RoleProfile, len(r))
 				for role, p := range r {
 					filledRoles[role] = p
 				}
 			}
+		}
+		if filledRoles == nil {
+			// No explicit entry (jazz/chill family, or a section the
+			// tuned table doesn't cover) — synthesize from the archetype.
+			filledRoles = synthesizeRoles(family, name)
 		}
 		out[name] = SectionProfile{
 			Roles:      filledRoles,

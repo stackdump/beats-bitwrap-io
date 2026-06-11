@@ -19,6 +19,7 @@ import { NetBundle } from '../pflow.js';
 import { ringLayout, bjorklund } from './euclidean.js';
 import { clampVelocity } from './core.js';
 import { GenreTheories } from './theory.js';
+import { archetypeFor } from './arrange.js';
 
 // MotifMode — the grammar of motif recall. Small enumerated palette.
 // Values mirror the Go iota order so cross-side serialization stays
@@ -87,7 +88,12 @@ export function buildTrackTheme(genreName, seed) {
 // below — without that, MotifMode defaults to Ignore everywhere and
 // melody slots fall back to Markov, which defeats the recall mechanism.
 export function cohesionGenreSupported(name) {
-    return name === 'techno' || name === 'synthwave' || name === 'trance';
+    // Supported when the genre has a chord progression to drive the
+    // harmonic engine. Role coverage is guaranteed for every family
+    // (explicit EDM/Song tables, synthesized jazz/chill), so any genre
+    // with chords gets full v2. Mirrors theme.go::cohesionGenreSupported.
+    const t = GenreTheories[name];
+    return !!(t && t.chordProgs && t.chordProgs.length > 0);
 }
 
 // RenderMotif applies a MotifMode + harmonic offset to a MotifCell. Pure
@@ -772,16 +778,47 @@ function rolesTableFor(family) {
     return null;
 }
 
+// motifModeForSection — section→recall-grammar policy. Mirrors
+// energy.go::motifModeForSection.
+function motifModeForSection(sectionName) {
+    switch (sectionName) {
+        case 'drop': case 'chorus': case 'solo': return MotifMode.Play;
+        case 'breakdown':                        return MotifMode.Augmented;
+        case 'bridge':                           return MotifMode.Inverted;
+        default:                                 return MotifMode.Fragment;
+    }
+}
+
+// synthesizeRoles — derive a section's RoleProfile map from the family
+// archetype for families without an explicit table (jazz/chill). Mirrors
+// energy.go::synthesizeRoles.
+function synthesizeRoles(family, sectionName) {
+    const out = {};
+    for (const role of Object.keys(archetypeFor(family, sectionName))) {
+        const rp = { active: true };
+        if (role === 'melody' || role === 'arp') {
+            rp.motifMode = motifModeForSection(sectionName);
+        }
+        out[role] = rp;
+    }
+    if (!out.harmony) out.harmony = { active: true };
+    return out;
+}
+
 export function energyProfilesFor(family, genreName) {
     const base = energyTableFor(family);
     const roles = rolesTableFor(family);
     const out = {};
     for (const name of Object.keys(base)) {
-        const filledRoles = {};
+        let filledRoles = null;
         if (roles && roles[name]) {
+            filledRoles = {};
             for (const [role, p] of Object.entries(roles[name])) {
                 filledRoles[role] = p;
             }
+        }
+        if (filledRoles === null) {
+            filledRoles = synthesizeRoles(family, name);
         }
         out[name] = {
             roles: filledRoles,

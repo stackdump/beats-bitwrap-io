@@ -106,17 +106,18 @@ var DefaultCohesion = func() string {
 	return "v2"
 }()
 
-// cohesionGenreSupported gates which genres opt into v2. Adding a genre
-// here requires the corresponding family's role-profile table to exist
-// in energy.go (roleProfilesEDM / roleProfilesSong / …) — without that,
-// MotifMode defaults to Ignore everywhere and the v2 melody slot falls
-// through to the v1 Markov path, which defeats the recall mechanism.
+// cohesionGenreSupported gates which genres opt into v2. A genre is
+// supported when it has a chord progression to drive the harmonic engine
+// (pad voicing, bass root walk, motif chord-tone targets). Role coverage is
+// guaranteed for every family — EDM/Song via explicit tables, jazz/chill
+// via synthesizeRoles — so any genre with chords now gets the full engine.
+// This auto-includes future genres the moment they get a ChordProg.
 func cohesionGenreSupported(name string) bool {
-	switch name {
-	case "techno", "synthwave", "trance":
-		return true
+	g, ok := Genres[name]
+	if !ok {
+		return false
 	}
-	return false
+	return g.Theory != nil && len(g.Theory.ChordProgs) > 0
 }
 
 // BuildTrackTheme derives the track-wide theme from (genre, seed). Pure

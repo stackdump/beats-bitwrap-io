@@ -191,7 +191,7 @@ const ARCHETYPES_BY_FAMILY = {
     },
 };
 
-function archetypeFor(family, name) {
+export function archetypeFor(family, name) {
     const fam = ARCHETYPES_BY_FAMILY[family];
     if (fam && fam[name]) return fam[name];
     return ARCHETYPES[name] || {};

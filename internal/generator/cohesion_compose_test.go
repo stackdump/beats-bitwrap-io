@@ -155,13 +155,35 @@ func TestComposeCohesionV2DropsKickInBreakdown(t *testing.T) {
 }
 
 func TestComposeCohesionV2IgnoredForUnsupportedGenre(t *testing.T) {
-	// Slice 0 only supports techno; other genres should silently fall
-	// through to v1 even with the flag set.
-	proj := Compose("ambient", map[string]interface{}{
+	// All 19 preset genres now support v2 (they all have chord progs).
+	// An unknown genre name isn't in the Genres map, so cohesion is not
+	// supported and Compose falls through to the techno-fallback preset
+	// WITHOUT a v2 stamp (cohesionGenreSupported keys on the requested
+	// name, which doesn't exist).
+	proj := Compose("not-a-real-genre", map[string]interface{}{
 		"seed":     float64(42),
 		"cohesion": "v2",
 	})
 	if proj.Cohesion != "" {
-		t.Fatalf("expected proj.Cohesion=\"\" for unsupported genre; got %q", proj.Cohesion)
+		t.Fatalf("expected proj.Cohesion=\"\" for unknown genre; got %q", proj.Cohesion)
+	}
+}
+
+func TestComposeCohesionV2AllPresetGenres(t *testing.T) {
+	// Every preset genre supports v2 now (harmonic engine + role coverage
+	// via explicit tables or synthesizeRoles). Each should stamp v2 and
+	// produce a harmony pad.
+	for g := range Genres {
+		proj := Compose(g, map[string]interface{}{
+			"seed":     float64(7),
+			"structure": "standard",
+			"cohesion": "v2",
+		})
+		if proj.Cohesion != "v2" {
+			t.Errorf("%s: expected v2 stamp, got %q", g, proj.Cohesion)
+		}
+		if proj.Nets["harmony"] == nil {
+			t.Errorf("%s: expected harmony pad", g)
+		}
 	}
 }
