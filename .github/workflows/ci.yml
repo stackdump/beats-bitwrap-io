@@ -26,6 +26,11 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: pflow-xyz/go-pflow
+          # Pinned so a green check means "beats works against a known
+          # go-pflow," not "against whatever main is this minute." Bump
+          # deliberately when adopting new go-pflow (keep in step with the
+          # ../go-pflow you build against locally).
+          ref: 49db35341b58526951d748936cf0750ce3bf21be
           path: go-pflow
 
       # internal/midiout pulls gomidi's rtmidi driver, which is cgo and
