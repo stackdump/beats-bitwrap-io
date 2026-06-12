@@ -281,6 +281,14 @@ export function maskedRing(mask, note, params) {
 // notedRing — like maskedRing but with per-step pitch. Mirrors
 // theme.go::NotedRing. Used by the chord-walking bass.
 export function notedRing(notes, mask, params) {
+    return notedRingDur(notes, mask, null, params);
+}
+
+// notedRingDur — notedRing with an optional per-step duration override: when
+// durs is non-null and durs[i] > 0, step i rings for durs[i] ms instead of
+// params.duration. Passing null durs reproduces notedRing byte-for-byte.
+// Mirrors theme.go::notedRingDur.
+export function notedRingDur(notes, mask, durs, params) {
     let m = mask, nt = notes;
     let n = m.length;
     if (n === 0) { n = 16; m = new Array(n).fill(false); nt = new Array(n).fill(0); }
@@ -305,11 +313,13 @@ export function notedRing(notes, mask, params) {
         nb.arcs.push({ source: `p${i}`, target: `t${i}`, weight: [1], inhibit: false });
         nb.arcs.push({ source: `t${i}`, target: `p${(i + 1) % n}`, weight: [1], inhibit: false });
         if (m[i] && i < nt.length) {
+            let dur = params.duration;
+            if (durs && i < durs.length && durs[i] > 0) dur = durs[i];
             nb.bindings[`t${i}`] = {
                 note: nt[i],
                 channel: params.channel,
                 velocity: clampVelocity(params.velocity),
-                duration: params.duration,
+                duration: dur,
             };
         }
     }
@@ -407,6 +417,95 @@ export function chordBassRing(plan, barMask, scale, params, registerShift = 0) {
         }
     }
     return notedRing(notes, mask, params);
+}
+
+// chordWalkingBassRing — a real walking bass: steady quarter notes (4/bar,
+// kick-independent) striding root→3rd→5th→chromatic-approach through the
+// chords. Mirrors theme.go::chordWalkingBassRing. Draw-free, so it doesn't
+// touch the shared RNG stream.
+export function chordWalkingBassRing(plan, scale, params, registerShift = 0) {
+    let barSteps = plan.stepsPerChord;
+    if (!barSteps || barSteps <= 0) barSteps = 16;
+    let bars = (plan.chords && plan.chords.length) || 0;
+    if (bars === 0) bars = 4;
+    const beats = 4;
+    let stride = Math.floor(barSteps / beats);
+    if (stride < 1) stride = 1;
+    const n = bars * barSteps;
+    const mask = new Array(n).fill(false);
+    const notes = new Array(n).fill(0);
+    for (let b = 0; b < bars; b++) {
+        const chord = chordAt(plan, b * plan.stepsPerChord);
+        const next = chordAt(plan, ((b + 1) % bars) * plan.stepsPerChord);
+        for (let beat = 0; beat < beats; beat++) {
+            const step = beat * stride;
+            if (step >= barSteps) break;
+            const idx = b * barSteps + step;
+            mask[idx] = true;
+            notes[idx] = walkingBassNote(beat, chord, next, scale, registerShift);
+        }
+    }
+    return notedRing(notes, mask, params);
+}
+
+// walkingBassNote — root / third / fifth / chromatic approach to the next
+// bar's root. Mirrors theme.go::walkingBassNote.
+function walkingBassNote(beat, chord, next, scale, shift) {
+    const root = degreeToMidi(clampDegree(chord.root), scale) + shift;
+    switch (beat) {
+        case 1:
+            return (chord.tones && chord.tones.length > 1)
+                ? degreeToMidi(clampDegree(chord.tones[1]), scale) + shift
+                : root;
+        case 2:
+            return (chord.tones && chord.tones.length > 2)
+                ? degreeToMidi(clampDegree(chord.tones[2]), scale) + shift
+                : root;
+        case 3: {
+            const nextRoot = degreeToMidi(clampDegree(next.root), scale) + shift;
+            return nextRoot < root ? nextRoot + 1 : nextRoot - 1;
+        }
+        default:
+            return root;
+    }
+}
+
+// chordBossaBassRing — bossa-nova ostinato: root on beat 1, chord fifth (voiced
+// below the root) on the "& of 2", two onsets per bar. The root sustains a
+// dotted quarter, the fifth a quarter (durations baked in ms from bpm, the
+// pad's bar-length idiom). Mirrors theme.go::chordBossaBassRing. Draw-free.
+export function chordBossaBassRing(plan, scale, params, registerShift = 0, bpm = 120) {
+    let barSteps = plan.stepsPerChord;
+    if (!barSteps || barSteps <= 0) barSteps = 16;
+    let bars = (plan.chords && plan.chords.length) || 0;
+    if (bars === 0) bars = 4;
+    let fifthStep = Math.floor(barSteps * 3 / 8); // the "& of 2"
+    if (fifthStep <= 0 || fifthStep >= barSteps) fifthStep = Math.floor(barSteps / 2);
+    let barMs = 2000;
+    if (bpm > 0) barMs = Math.floor(4.0 * 60000.0 / bpm * 0.95);
+    const rootDur = Math.floor(barMs * 3 / 8); // dotted quarter
+    const fifthDur = Math.floor(barMs / 4);    // quarter
+    const n = bars * barSteps;
+    const mask = new Array(n).fill(false);
+    const notes = new Array(n).fill(0);
+    const durs = new Array(n).fill(0);
+    for (let b = 0; b < bars; b++) {
+        const chord = chordAt(plan, b * plan.stepsPerChord);
+        const root = degreeToMidi(clampDegree(chord.root), scale) + registerShift;
+        let fifth = root;
+        if (chord.tones && chord.tones.length > 2) {
+            fifth = degreeToMidi(clampDegree(chord.tones[2]), scale) + registerShift;
+        }
+        while (fifth >= root) fifth -= 12; // voice the fifth below the root
+        const base = b * barSteps;
+        mask[base] = true;
+        notes[base] = root;
+        durs[base] = rootDur;
+        mask[base + fifthStep] = true;
+        notes[base + fifthStep] = fifth;
+        durs[base + fifthStep] = fifthDur;
+    }
+    return notedRingDur(notes, mask, durs, params);
 }
 
 // kickHitMask returns the kick's hit mask as a boolean array — mirrors
@@ -564,6 +663,8 @@ export const Groove = Object.freeze({
     Sidechained: 2,
     SyncoPocket: 3,
     Breakbeat:   4,
+    Walking:     5,
+    Bossa:       6,
 });
 
 export function defaultGrooveFor(genreName) {
@@ -573,6 +674,12 @@ export function defaultGrooveFor(genreName) {
         case 'dubstep': case 'trap':              return Groove.Sidechained;
         case 'reggae':                             return Groove.Offbeat;
         case 'dnb':                                return Groove.Breakbeat;
+        // Walking-bass genres: steady quarter-note line through the chord
+        // tones, kick-independent. (Ambient stays a drone on the default.)
+        case 'jazz': case 'blues': case 'lofi':   return Groove.Walking;
+        // Bossa has its own signature: the syncopated root / low-fifth
+        // ostinato, not a walking line.
+        case 'bossa':                              return Groove.Bossa;
         default:                                   return Groove.FourOnFloor;
     }
 }

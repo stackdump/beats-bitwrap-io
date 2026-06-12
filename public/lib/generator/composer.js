@@ -26,7 +26,7 @@ import { shuffleInstruments } from './shuffle.js';
 import {
     buildTrackTheme, cohesionGenreSupported, renderMotif, MotifMode,
     motifNet, maskedRing, activeRolesFromProfile, kickHitMask,
-    chordBassRing, chordPadNet,
+    chordBassRing, chordWalkingBassRing, chordBossaBassRing, chordPadNet, Groove,
 } from './theme.js';
 import { grooveLock } from './groove.js';
 
@@ -549,11 +549,21 @@ function expandVariants(proj, tmpl, genre, rng, tensionCurve, theme) {
                         const harmonicOffset = (theme.harmonic && theme.harmonic[sec.name]) || 0;
                         let nb;
                         if (role === 'bass') {
-                            // Slice 2: groove-locked rhythm + chord-root
-                            // walk + per-section register shift.
-                            const kMask = kickHitMask(genre);
-                            const bMask = grooveLock(kMask, theme.groove, rng);
-                            nb = chordBassRing(theme.plan, bMask, scale, params, roleProf.registerShift || 0);
+                            if (theme.groove === Groove.Walking) {
+                                // Jazz/blues/lofi: real walking bass —
+                                // steady quarters striding the chord tones,
+                                // kick-independent.
+                                nb = chordWalkingBassRing(theme.plan, scale, params, roleProf.registerShift || 0);
+                            } else if (theme.groove === Groove.Bossa) {
+                                // Bossa: root / low-fifth ostinato.
+                                nb = chordBossaBassRing(theme.plan, scale, params, roleProf.registerShift || 0, genre.bpm);
+                            } else {
+                                // Slice 2: groove-locked rhythm + chord-root
+                                // walk + per-section register shift.
+                                const kMask = kickHitMask(genre);
+                                const bMask = grooveLock(kMask, theme.groove, rng);
+                                nb = chordBassRing(theme.plan, bMask, scale, params, roleProf.registerShift || 0);
+                            }
                         } else if (role === 'melody' || role === 'arp') {
                             if (mode === MotifMode.Ignore || mode === undefined) {
                                 nb = melodyRiff(letter, params);
@@ -701,13 +711,24 @@ export function compose(genreName, overrides = {}) {
         syncopation: sync,
     };
     if (theme) {
-        // Cohesion v2 slice 2: bass rhythm stays grooveLock(kickMask) but
-        // pitch walks the chord roots — mask repeats per bar across the
-        // chord cycle, each bar pitched at its chord root. Mirrors
-        // composer.go v2 bass path.
-        const kMask = kickHitMask(genre);
-        const bMask = grooveLock(kMask, theme.groove, rng);
-        proj.nets.bass = chordBassRing(theme.plan, bMask, bassScale, bassParams);
+        if (theme.groove === Groove.Walking) {
+            // Jazz/blues/lofi: real walking bass — steady quarters striding
+            // root→3rd→5th→chromatic-approach through the chords, kick-
+            // independent. Mirrors composer.go v2 walking-bass path.
+            proj.nets.bass = chordWalkingBassRing(theme.plan, bassScale, bassParams, 0);
+        } else if (theme.groove === Groove.Bossa) {
+            // Bossa: syncopated root / low-fifth ostinato. Mirrors
+            // composer.go v2 bossa path.
+            proj.nets.bass = chordBossaBassRing(theme.plan, bassScale, bassParams, 0, genre.bpm);
+        } else {
+            // Cohesion v2 slice 2: bass rhythm stays grooveLock(kickMask) but
+            // pitch walks the chord roots — mask repeats per bar across the
+            // chord cycle, each bar pitched at its chord root. Mirrors
+            // composer.go v2 bass path.
+            const kMask = kickHitMask(genre);
+            const bMask = grooveLock(kMask, theme.groove, rng);
+            proj.nets.bass = chordBassRing(theme.plan, bMask, bassScale, bassParams);
+        }
     } else if (wb) {
         proj.nets.bass = walkingBassLine(bassParams).bundle;
     } else {

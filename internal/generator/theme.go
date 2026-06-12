@@ -546,6 +546,15 @@ func MaskedRing(mask []bool, note int, params Params) *pflow.NetBundle {
 // the chord roots while keeping the groove-locked rhythm: mask repeats the
 // kick-derived bar pattern, notes change at each chord boundary.
 func NotedRing(notes []int, mask []bool, params Params) *pflow.NetBundle {
+	return notedRingDur(notes, mask, nil, params)
+}
+
+// notedRingDur is NotedRing with an optional per-step duration override: when
+// durs is non-nil and durs[i] > 0, step i's note rings for durs[i] ms instead
+// of params.Duration. Lets the bossa ostinato hold its root as a dotted
+// quarter while the off-beat fifth stays short. Passing nil durs reproduces
+// NotedRing byte-for-byte, so existing callers (and their CIDs) are untouched.
+func notedRingDur(notes []int, mask []bool, durs []int, params Params) *pflow.NetBundle {
 	n := len(mask)
 	if n == 0 {
 		n = 16
@@ -572,11 +581,15 @@ func NotedRing(notes []int, mask []bool, params Params) *pflow.NetBundle {
 		net.AddArc(fmt.Sprintf("p%d", i), tLabel, 1.0, false)
 		net.AddArc(tLabel, fmt.Sprintf("p%d", (i+1)%n), 1.0, false)
 		if mask[i] && i < len(notes) {
+			dur := params.Duration
+			if i < len(durs) && durs[i] > 0 {
+				dur = durs[i]
+			}
 			bindings[tLabel] = &pflow.MidiBinding{
 				Note:     notes[i],
 				Channel:  params.Channel,
 				Velocity: clampVelocity(params.Velocity),
-				Duration: params.Duration,
+				Duration: dur,
 			}
 		}
 	}
@@ -676,6 +689,133 @@ func chordBassRingShifted(plan ChordPlan, barMask []bool, scale []int, params Pa
 		}
 	}
 	return NotedRing(notes, mask, params)
+}
+
+// chordWalkingBassRing builds a real walking bass: a steady quarter-note line
+// (four hits per bar, independent of the kick) whose pitch strides through the
+// active chord — root on beat 1, third on 2, fifth on 3, and a chromatic
+// approach note leaning into the next bar's root on beat 4. This is the idiom
+// jazz/blues/lofi want, in place of the kick-locked single-root pump that
+// chordBassRing produces. Walking basses play straight quarters by definition,
+// so "swing" lives in the drums/feel layer, not here.
+//
+// Draw-free — pitches are a pure function of the chord plan — so Go and JS
+// stay byte-aligned without perturbing the shared RNG stream.
+func chordWalkingBassRing(plan ChordPlan, scale []int, params Params, registerShift int) *pflow.NetBundle {
+	barSteps := plan.StepsPerChord
+	if barSteps <= 0 {
+		barSteps = 16
+	}
+	bars := len(plan.Chords)
+	if bars == 0 {
+		bars = 4
+	}
+	const beats = 4
+	stride := barSteps / beats
+	if stride < 1 {
+		stride = 1
+	}
+	n := bars * barSteps
+	mask := make([]bool, n)
+	notes := make([]int, n)
+	for b := 0; b < bars; b++ {
+		chord := plan.ChordAt(b * plan.StepsPerChord)
+		next := plan.ChordAt(((b + 1) % bars) * plan.StepsPerChord)
+		for beat := 0; beat < beats; beat++ {
+			step := beat * stride
+			if step >= barSteps {
+				break
+			}
+			idx := b*barSteps + step
+			mask[idx] = true
+			notes[idx] = walkingBassNote(beat, chord, next, scale, registerShift)
+		}
+	}
+	return NotedRing(notes, mask, params)
+}
+
+// walkingBassNote picks the MIDI pitch for one walking-bass beat: root, third,
+// fifth, then a half-step chromatic approach to the next bar's root (from below
+// when the line ascends or repeats, from above when it descends — the leading-
+// tone pull that makes a walk sound like a walk). Falls back to the root when a
+// chord doesn't carry a third/fifth tone. Deterministic for Go/JS parity.
+func walkingBassNote(beat int, chord, next ChordDegree, scale []int, shift int) int {
+	root := degreeToMidi(clampDegree(chord.Root), scale) + shift
+	switch beat {
+	case 1:
+		if len(chord.Tones) > 1 {
+			return degreeToMidi(clampDegree(chord.Tones[1]), scale) + shift
+		}
+		return root
+	case 2:
+		if len(chord.Tones) > 2 {
+			return degreeToMidi(clampDegree(chord.Tones[2]), scale) + shift
+		}
+		return root
+	case 3:
+		nextRoot := degreeToMidi(clampDegree(next.Root), scale) + shift
+		if nextRoot < root {
+			return nextRoot + 1
+		}
+		return nextRoot - 1
+	default:
+		return root
+	}
+}
+
+// chordBossaBassRing builds the bossa-nova bass ostinato: the chord root on
+// beat 1 and the chord's fifth — voiced below the root for the low bossa thump
+// — on the "& of 2". Two onsets per bar, repeated across the chord cycle. This
+// is the syncopated root/fifth pendulum that defines bossa, in place of the
+// walking line (or the old kick-locked root pump). Draw-free for Go/JS parity.
+//
+// Note durations are derived from bpm (the same bar-length idiom the harmony
+// pad uses): the root sustains a dotted quarter (1.5 beats) so it rings under
+// the off-beat fifth, which gets a plain quarter. Durations are fixed ms baked
+// at the genre's nominal tempo — see the go-pflow roadmap on beat-relative
+// duration encoding.
+func chordBossaBassRing(plan ChordPlan, scale []int, params Params, registerShift int, bpm float64) *pflow.NetBundle {
+	barSteps := plan.StepsPerChord
+	if barSteps <= 0 {
+		barSteps = 16
+	}
+	bars := len(plan.Chords)
+	if bars == 0 {
+		bars = 4
+	}
+	fifthStep := barSteps * 3 / 8 // the "& of 2"
+	if fifthStep <= 0 || fifthStep >= barSteps {
+		fifthStep = barSteps / 2
+	}
+	barMs := 2000
+	if bpm > 0 {
+		barMs = int(4.0 * 60000.0 / bpm * 0.95)
+	}
+	rootDur := barMs * 3 / 8 // dotted quarter
+	fifthDur := barMs / 4    // quarter
+	n := bars * barSteps
+	mask := make([]bool, n)
+	notes := make([]int, n)
+	durs := make([]int, n)
+	for b := 0; b < bars; b++ {
+		chord := plan.ChordAt(b * plan.StepsPerChord)
+		root := degreeToMidi(clampDegree(chord.Root), scale) + registerShift
+		fifth := root
+		if len(chord.Tones) > 2 {
+			fifth = degreeToMidi(clampDegree(chord.Tones[2]), scale) + registerShift
+		}
+		for fifth >= root { // voice the fifth below the root
+			fifth -= 12
+		}
+		base := b * barSteps
+		mask[base] = true
+		notes[base] = root
+		durs[base] = rootDur
+		mask[base+fifthStep] = true
+		notes[base+fifthStep] = fifth
+		durs[base+fifthStep] = fifthDur
+	}
+	return notedRingDur(notes, mask, durs, params)
 }
 
 // KickHitMask returns the kick's hit mask as a []bool, applying the same

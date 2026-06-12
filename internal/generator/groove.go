@@ -22,6 +22,8 @@ const (
 	GrooveSidechained                        // bass plays everywhere except kick hits
 	GrooveSyncoPocket                        // bass plays kick hits + offbeats of 2 and 4
 	GrooveBreakbeat                          // bass independent of kick
+	GrooveWalking                            // steady quarter-note walking pulse, kick-independent
+	GrooveBossa                              // bossa ostinato: root on 1, low fifth on the "& of 2"
 )
 
 // defaultGrooveFor picks the default groove template per genre. Slice 0 only
@@ -39,6 +41,15 @@ func defaultGrooveFor(genreName string, g Genre) GrooveTemplate {
 		return GrooveOffbeat
 	case "dnb":
 		return GrooveBreakbeat
+	case "jazz", "blues", "lofi":
+		// Walking-bass genres: the bass plays a steady quarter-note line
+		// that strides through the chord tones, independent of the kick.
+		// (Ambient stays on the default — a drone, not a walking line.)
+		return GrooveWalking
+	case "bossa":
+		// Bossa nova has its own bass signature — the syncopated root /
+		// low-fifth pendulum, not a walking line.
+		return GrooveBossa
 	}
 	return GrooveFourOnFloor
 }
@@ -98,6 +109,27 @@ func GrooveLock(kickMask []bool, template GrooveTemplate, rng *rand.Rand) []bool
 			pos := (i * n / hits) + rot
 			out[pos%n] = true
 		}
+	case GrooveWalking:
+		// Steady quarter notes (every n/4 steps), independent of the kick —
+		// the walking-bass pulse. chordWalkingBassRing adds the pitch motion;
+		// this case just gives the template a defined rhythm mask.
+		stride := n / 4
+		if stride < 1 {
+			stride = 1
+		}
+		for i := 0; i < n; i += stride {
+			out[i] = true
+		}
+	case GrooveBossa:
+		// Two onsets per bar: beat 1 and the "& of 2" (n*3/8). The pitch
+		// (root + low fifth) is supplied by chordBossaBassRing; this is just
+		// the rhythm mask.
+		out[0] = true
+		fifth := n * 3 / 8
+		if fifth <= 0 || fifth >= n {
+			fifth = n / 2
+		}
+		out[fifth] = true
 	}
 	return out
 }

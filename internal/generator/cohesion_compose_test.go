@@ -1,6 +1,9 @@
 package generator
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestComposeCohesionV2Stamped(t *testing.T) {
 	proj := Compose("techno", map[string]interface{}{
@@ -105,6 +108,88 @@ func TestComposeCohesionV2BassIsLockedToKick(t *testing.T) {
 	}
 	if len(pitches) < 2 {
 		t.Fatalf("bass should walk chord roots (>=2 distinct pitches); got %d", len(pitches))
+	}
+}
+
+func TestComposeCohesionV2JazzWalkingBass(t *testing.T) {
+	// Jazz uses the GrooveWalking template — the bass is a steady quarter-
+	// note line striding the chord tones, independent of the kick. (Contrast
+	// TestComposeCohesionV2BassIsLockedToKick, where techno's bass copies the
+	// kick mask.)
+	for _, g := range []string{"jazz", "blues", "lofi"} {
+		proj := Compose(g, map[string]interface{}{
+			"seed":     float64(42),
+			"cohesion": "v2",
+		})
+		bass := proj.Nets["bass"]
+		if bass == nil {
+			t.Fatalf("%s: bass net should be present", g)
+		}
+		// Four quarter notes per bar across the chord cycle — always a
+		// multiple of 4, and not the kick-derived count.
+		hits := len(bass.Bindings)
+		if hits < 8 || hits%4 != 0 {
+			t.Fatalf("%s: walking bass should play 4 quarters/bar (>=8, multiple of 4); got %d", g, hits)
+		}
+		// A walk moves through root/third/fifth + approach notes, so it must
+		// be richer than the single-root pump (>=3 distinct pitches).
+		pitches := map[int]bool{}
+		for _, b := range bass.Bindings {
+			pitches[b.Note] = true
+		}
+		if len(pitches) < 3 {
+			t.Fatalf("%s: walking bass should use >=3 distinct pitches; got %d", g, len(pitches))
+		}
+	}
+}
+
+func TestComposeCohesionV2BossaBass(t *testing.T) {
+	// Bossa uses the GrooveBossa template — not a walking line, but the
+	// signature ostinato: root on beat 1, the chord's fifth voiced below the
+	// root on the "& of 2" (step 6 of each 16-step bar).
+	proj := Compose("bossa", map[string]interface{}{
+		"seed":     float64(42),
+		"cohesion": "v2",
+	})
+	bass := proj.Nets["bass"]
+	if bass == nil {
+		t.Fatalf("bass net should be present")
+	}
+	byStep := map[int]int{}
+	durByStep := map[int]int{}
+	for k, b := range bass.Bindings {
+		idx, err := strconv.Atoi(k[1:])
+		if err != nil {
+			continue
+		}
+		byStep[idx] = b.Note
+		durByStep[idx] = b.Duration
+	}
+	// Two onsets per bar — sparse, and far fewer than a walking line's four.
+	if len(byStep) < 4 || len(byStep)%2 != 0 {
+		t.Fatalf("bossa bass should have 2 onsets/bar (even, >=4); got %d", len(byStep))
+	}
+	bars := 0
+	for step, root := range byStep {
+		if step%16 != 0 {
+			continue // only inspect bar downbeats
+		}
+		bars++
+		fifth, ok := byStep[step+6]
+		if !ok {
+			t.Fatalf("bossa bass: missing the '& of 2' onset at step %d", step+6)
+		}
+		if fifth >= root {
+			t.Fatalf("bossa bass: fifth (%d) should sit below the root (%d) at bar starting step %d", fifth, root, step)
+		}
+		// The root holds (dotted quarter) under the shorter off-beat fifth.
+		if durByStep[step] <= durByStep[step+6] {
+			t.Fatalf("bossa bass: root should sustain longer than the off-beat fifth (root dur=%d, fifth dur=%d)",
+				durByStep[step], durByStep[step+6])
+		}
+	}
+	if bars == 0 {
+		t.Fatalf("bossa bass: found no bar-downbeat roots")
 	}
 }
 

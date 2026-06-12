@@ -618,13 +618,24 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 	}
 
 	if theme != nil {
-		// Cohesion v2 slice 2: bass rhythm stays GrooveLock(kickMask)
-		// but pitch now walks the chord roots — the mask repeats per
-		// bar across the full chord cycle, and each bar's hits play
-		// that bar's chord root. Harmonic motion in the low end.
-		kickMask := KickHitMask(genre)
-		barMask := GrooveLock(kickMask, theme.Groove, rng)
-		proj.Nets["bass"] = chordBassRing(theme.Plan, barMask, bassScale, bassParams)
+		if theme.Groove == GrooveWalking {
+			// Jazz/blues/lofi: a real walking bass — steady quarter notes
+			// striding root→3rd→5th→chromatic-approach through the chords,
+			// independent of the kick. Replaces the kick-locked root pump
+			// these genres used to inherit from the FourOnFloor default.
+			proj.Nets["bass"] = chordWalkingBassRing(theme.Plan, bassScale, bassParams, 0)
+		} else if theme.Groove == GrooveBossa {
+			// Bossa: the syncopated root / low-fifth ostinato.
+			proj.Nets["bass"] = chordBossaBassRing(theme.Plan, bassScale, bassParams, 0, genre.BPM)
+		} else {
+			// Cohesion v2 slice 2: bass rhythm stays GrooveLock(kickMask)
+			// but pitch now walks the chord roots — the mask repeats per
+			// bar across the full chord cycle, and each bar's hits play
+			// that bar's chord root. Harmonic motion in the low end.
+			kickMask := KickHitMask(genre)
+			barMask := GrooveLock(kickMask, theme.Groove, rng)
+			proj.Nets["bass"] = chordBassRing(theme.Plan, barMask, bassScale, bassParams)
+		}
 	} else if walkingBass {
 		bass := WalkingBassLine(bassParams)
 		proj.Nets["bass"] = bass.Bundle
