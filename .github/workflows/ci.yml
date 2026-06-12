@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # go-pflow is consumed via a local `replace => ../go-pflow` in go.mod,
+  # so the job lays it out as a sibling checkout at this pinned commit.
+  # Single source of truth — bump here when adopting new go-pflow (keep in
+  # step with the ../go-pflow you build against locally).
+  GO_PFLOW_REF: 49db35341b58526951d748936cf0750ce3bf21be
+
 jobs:
   bazel:
     runs-on: ubuntu-latest
@@ -26,11 +33,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: pflow-xyz/go-pflow
-          # Pinned so a green check means "beats works against a known
-          # go-pflow," not "against whatever main is this minute." Bump
-          # deliberately when adopting new go-pflow (keep in step with the
-          # ../go-pflow you build against locally).
-          ref: 49db35341b58526951d748936cf0750ce3bf21be
+          ref: ${{ env.GO_PFLOW_REF }}
           path: go-pflow
 
       # internal/midiout pulls gomidi's rtmidi driver, which is cgo and
@@ -60,5 +63,8 @@ jobs:
       # --test_output=errors surfaces failing test logs inline.
       # Includes the Go package tests and the //scripts:cohesion_parity_test
       # nodejs_test that asserts JS/Go generator parity on the pinned fixture.
+      # NOTE: the headless macro->audio suite is intentionally NOT run here
+      # (browser/realtime-bound). Run it on demand with
+      # scripts/run-audio-tests.sh.
       - name: Test
         run: bazel test //... --test_output=errors
