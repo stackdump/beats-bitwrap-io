@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "countermelody",
+    srcs = [
+        "buildnet.go",
+        "countermelody.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/generator/countermelody",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/pflow",
+        "@com_github_pflow_xyz_go_pflow//petri",
+    ],
+)
+
+go_test(
+    name = "countermelody_test",
+    srcs = ["countermelody_test.go"],
+    embed = [":countermelody"],
+)
