@@ -51,6 +51,39 @@ jobs:
           disk-cache: true
           repository-cache: true
 
+      # Wire the shared bazel-remote cache (bazel.stackdump.com) the same way
+      # a dev machine does: write its basic-auth creds to ~/.netrc, which the
+      # `--config=remote` block in .bazelrc reads. Sets BAZEL_REMOTE for later
+      # steps. Security:
+      #   - push (trusted)        -> read + upload results (populates the cache)
+      #   - pull_request          -> read-only, so untrusted code can't poison it
+      #   - no secret (fork PR)   -> skip remote entirely; plain local build
+      # --remote_local_fallback in .bazelrc means a cache outage never fails CI.
+      - name: Configure Bazel remote cache
+        env:
+          CACHE_USER: ${{ secrets.BAZEL_REMOTE_CACHE_USERNAME }}
+          CACHE_PASSWORD: ${{ secrets.BAZEL_REMOTE_CACHE_PASSWORD }}
+        run: |
+          if [ -z "$CACHE_PASSWORD" ]; then
+            echo "No remote-cache secret available — building without --config=remote."
+            echo "BAZEL_REMOTE=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine bazel.stackdump.com
+          login $CACHE_USER
+          password $CACHE_PASSWORD
+          EOF
+          FLAGS="--config=remote"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FLAGS="$FLAGS --noremote_upload_local_results"
+            echo "pull_request build: remote cache is read-only."
+          else
+            echo "push build: remote cache read + write."
+          fi
+          echo "BAZEL_REMOTE=$FLAGS" >> "$GITHUB_ENV"
+
       # Fail if BUILD.bazel files have drifted from the Go sources —
       # i.e. someone added/removed a package or import without re-running
       # gazelle. -mode=diff prints the patch and exits non-zero on drift.
@@ -58,7 +91,7 @@ jobs:
         run: bazel run //:gazelle -- -mode=diff
 
       - name: Build
-        run: bazel build //...
+        run: bazel build //... $BAZEL_REMOTE
 
       # --test_output=errors surfaces failing test logs inline.
       # Includes the Go package tests and the //scripts:cohesion_parity_test
@@ -67,4 +100,4 @@ jobs:
       # (browser/realtime-bound). Run it on demand with
       # scripts/run-audio-tests.sh.
       - name: Test
-        run: bazel test //... --test_output=errors
+        run: bazel test //... --test_output=errors $BAZEL_REMOTE
