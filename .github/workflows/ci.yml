@@ -9,8 +9,24 @@ on:
 jobs:
   bazel:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: beats-bitwrap-io
     steps:
-      - uses: actions/checkout@v4
+      # beats consumes go-pflow via a local `replace => ../go-pflow` in
+      # go.mod, which Bazel's go_deps resolves as a filesystem path. CI
+      # must therefore lay both repos out as siblings under the workspace
+      # so `../go-pflow` resolves the same way it does on a dev machine.
+      - name: Checkout beats-bitwrap-io
+        uses: actions/checkout@v4
+        with:
+          path: beats-bitwrap-io
+
+      - name: Checkout go-pflow (sibling dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: pflow-xyz/go-pflow
+          path: go-pflow
 
       # Installs the Bazel version pinned in .bazelversion (via bazelisk)
       # and sets up repository/disk caching keyed on the lockfile so
