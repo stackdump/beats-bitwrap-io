@@ -28,6 +28,12 @@ jobs:
           repository: pflow-xyz/go-pflow
           path: go-pflow
 
+      # internal/midiout pulls gomidi's rtmidi driver, which is cgo and
+      # #includes <alsa/asoundlib.h>. Provide the ALSA dev headers so the
+      # rtmidi C++ source compiles under Bazel's GoCompilePkg.
+      - name: Install ALSA dev headers (rtmidi cgo dep)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       # Installs the Bazel version pinned in .bazelversion (via bazelisk)
       # and sets up repository/disk caching keyed on the lockfile so
       # external deps and build outputs persist across runs.
