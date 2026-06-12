@@ -18,12 +18,12 @@ jobs:
       # must therefore lay both repos out as siblings under the workspace
       # so `../go-pflow` resolves the same way it does on a dev machine.
       - name: Checkout beats-bitwrap-io
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: beats-bitwrap-io
 
       - name: Checkout go-pflow (sibling dependency)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pflow-xyz/go-pflow
           path: go-pflow
@@ -37,7 +37,7 @@ jobs:
       # Installs the Bazel version pinned in .bazelversion (via bazelisk)
       # and sets up repository/disk caching keyed on the lockfile so
       # external deps and build outputs persist across runs.
-      - uses: bazel-contrib/setup-bazel@0.15.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
           disk-cache: true

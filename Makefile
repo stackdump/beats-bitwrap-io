@@ -2,7 +2,8 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test-audio test-cohesion-parity seed-collection-extended
+.PHONY: build run dev clean docs test-audio test-cohesion-parity seed-collection-extended \
+        bazel-build bazel-test bazel-gazelle
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
@@ -12,6 +13,23 @@ run: build
 
 dev:
 	go run -ldflags "-X main.version=$(VERSION)" . -addr $(ADDR) -public public
+
+# --- Bazel (Bzlmod, hermetic — opt-in alongside `go build`) ---
+# `make build` deliberately stays on `go build`: it emits ./$(BINARY) at the
+# repo root, which test-audio / seed-collection-extended invoke directly.
+# These targets mirror what CI runs (.github/workflows/ci.yml) for local
+# parity. Requires go-pflow checked out as a sibling (../go-pflow) since
+# go.mod consumes it via a local replace.
+bazel-build:
+	bazel build //...
+
+bazel-test:
+	bazel test //... --test_output=errors
+
+# Regenerate BUILD.bazel files after adding/moving .go files or imports.
+# Preview without writing: `bazel run //:gazelle -- -mode=diff`.
+bazel-gazelle:
+	bazel run //:gazelle
 
 # Render the categorical-map SVG to PNG and mirror both into public/docs
 # so GitHub preview, the README embed, and the in-app "control category"
