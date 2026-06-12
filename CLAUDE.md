@@ -285,6 +285,27 @@ When smoke-testing with Playwright against local, pass `-public public` so lib/*
 /tmp/beats-local -addr :18090 -data /tmp/beats-local-data -public public
 ```
 
+### Bazel (Bzlmod, hermetic — opt-in alongside `go build`)
+
+beats also builds under pure-Bzlmod Bazel, mirroring [go-pflow](../go-pflow/CLAUDE.md#build-systems). `go.mod`/`go.sum` stay the source of truth (Gazelle's `go_deps` reads them), so `make build` / `go test ./...` keep working unchanged — Bazel is opt-in. Driven by bazelisk (pinned in `.bazelversion`); if missing: `go install github.com/bazelbuild/bazelisk@latest` and symlink it to `bazel`.
+
+```bash
+bazel build //...              # build everything (runs nogo: go vet + x/tools)
+bazel test //...               # all tests — 10 Go targets + the JS parity test
+bazel test //scripts:cohesion_parity_test   # just the Go<->JS parity check
+bazel run //:gazelle           # regenerate BUILD.bazel after adding/moving .go files
+bazel mod tidy                 # sync go_deps use_repo after editing go.mod
+```
+
+This is the ecosystem's **first cross-project Bazel graph** (go-pflow ROADMAP Phase 1). Decisions baked in:
+
+- **go-pflow via the local replace.** go.mod's `replace github.com/pflow-xyz/go-pflow => ../go-pflow` is consumed directly by Gazelle's `go_deps`, which stages `../go-pflow` as `@com_github_pflow_xyz_go_pflow`. No `bazel_dep`/`local_path_override` needed — go-pflow's own MODULE.bazel is irrelevant to beats' build. beats is the **root module**, so its `rules_go` (0.61.1) / Go SDK (1.26.0) govern the whole graph.
+- **Go SDK 1.26.** beats needs ≥ 1.26 (`chromedp/cdproto`); newer than go-pflow's standalone 1.24.10 pin, which is why beats carries its own newer `rules_go`.
+- **`purego` build tag** (`.bazelrc`) — gnark-crypto (pulled transitively via go-pflow) has asm with cross-package `#include`s that don't resolve in Bazel's sandbox. `go build`/the Makefile still use the asm fast path; only Bazel uses purego.
+- **Tests that read repo files** declare `data` (with `# keep`, so Gazelle preserves it): `//schema:test_schemas` + `//:example_projects` for `internal/pflow`, `//:category_doc_testdata` for `internal/share`. `repoRoot()` in `category_doc_test.go` honors `TEST_SRCDIR`/`TEST_WORKSPACE` under Bazel, falling back to the go.mod walk for plain `go test`.
+- **JS in the graph.** `//scripts:cohesion_parity_test` runs the vanilla-ESM parity check under a **hermetic Node toolchain** (`rules_nodejs`), via the tiny custom rule in `tools/nodejs_test.bzl` (rules_nodejs 6.x ships only the toolchain; aspect_rules_js is npm-lockfile oriented, the wrong fit for no-npm). So `bazel test //...` enforces Go↔JS state-root parity in one command.
+- After editing `go.mod` → `bazel mod tidy`; after adding/moving `.go` files → `bazel run //:gazelle`.
+
 ## Deployment
 
 ```bash

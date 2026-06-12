@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "index",
+    srcs = ["index.go"],
+    embedsrcs = ["schema.sql"],
+    importpath = "beats-bitwrap-io/internal/index",
+    visibility = ["//:__subpackages__"],
+    deps = ["@org_modernc_sqlite//:sqlite"],
+)
+
+go_test(
+    name = "index_test",
+    srcs = ["index_test.go"],
+    embed = [":index"],
+)

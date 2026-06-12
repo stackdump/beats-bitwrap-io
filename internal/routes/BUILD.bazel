@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "routes",
+    srcs = [
+        "eth.go",
+        "routes.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/routes",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/generator",
+        "//internal/pflow",
+        "//internal/sequencer",
+        "//internal/ws",
+        "@com_github_decred_dcrd_dcrec_secp256k1_v4//ecdsa",
+        "@org_golang_x_crypto//sha3",
+    ],
+)
+
+go_test(
+    name = "routes_test",
+    srcs = ["routes_test.go"],
+    embed = [":routes"],
+    deps = [
+        "//internal/sequencer",
+        "//internal/ws",
+    ],
+)

@@ -1,0 +1,25 @@
+# Bzlmod is the only dependency-resolution path (pure Bazel, no legacy WORKSPACE).
+common --enable_bzlmod
+common --noenable_workspace
+
+# Go builds are hermetic via rules_go's downloaded SDK; never fall back to host Go.
+build --incompatible_enable_proto_toolchain_resolution
+
+# gnark-crypto (pulled transitively via go-pflow) uses amd64/arm64 assembly with
+# relative cross-package #include directives that don't resolve in Bazel's
+# sandbox. The `purego` build tag selects its pure-Go field arithmetic
+# (gated behind //go:build !purego) — bit-identical, just slower. `go build`/
+# the Makefile still use the asm fast path; only Bazel uses purego.
+build --@io_bazel_rules_go//go/config:tags=purego
+
+# Quieter, more useful output.
+build --show_timestamps
+test --test_output=errors
+test --test_summary=terse
+
+# Keep building independent targets after a failure so we see the full picture.
+build --keep_going
+test --keep_going
+
+# Local cache so repeated builds are fast.
+build --disk_cache=~/.cache/bazel-disk/beats-bitwrap-io

@@ -1,0 +1,46 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "generator",
+    srcs = [
+        "arrange.go",
+        "composer.go",
+        "energy.go",
+        "euclidean.go",
+        "generator.go",
+        "groove.go",
+        "markov.go",
+        "riffs.go",
+        "shuffle.go",
+        "stingers.go",
+        "structure.go",
+        "theme.go",
+        "theory.go",
+        "threering.go",
+        "variety.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/generator",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/generator/countermelody",
+        "//internal/pflow",
+        "@com_github_pflow_xyz_go_pflow//petri",
+    ],
+)
+
+go_test(
+    name = "generator_test",
+    srcs = [
+        "arrange_test.go",
+        "blast_test.go",
+        "cohesion_compose_test.go",
+        "drum_consistency_test.go",
+        "euclidean_test.go",
+        "groove_test.go",
+        "stingers_test.go",
+        "theme_parity_test.go",
+        "theme_test.go",
+    ],
+    embed = [":generator"],
+    deps = ["//internal/pflow"],
+)

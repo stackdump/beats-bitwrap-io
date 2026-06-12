@@ -51,6 +51,13 @@ func TestCategoryDiagramInSync(t *testing.T) {
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
+	// Under `bazel test`, the repo tree isn't on disk — the source files this
+	// test reads are staged into runfiles via the target's `data` deps, rooted
+	// at $TEST_SRCDIR/$TEST_WORKSPACE. Prefer that when present; otherwise fall
+	// back to walking up for go.mod (plain `go test`).
+	if srcdir, ws := os.Getenv("TEST_SRCDIR"), os.Getenv("TEST_WORKSPACE"); srcdir != "" && ws != "" {
+		return filepath.Join(srcdir, ws)
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

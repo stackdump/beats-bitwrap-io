@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "midiout",
+    srcs = ["midiout.go"],
+    importpath = "beats-bitwrap-io/internal/midiout",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/pflow",
+        "@com_gitlab_gomidi_midi_v2//:midi",
+        "@com_gitlab_gomidi_midi_v2//drivers",
+        "@com_gitlab_gomidi_midi_v2//drivers/rtmididrv",
+    ],
+)

@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sequencer",
+    srcs = ["sequencer.go"],
+    importpath = "beats-bitwrap-io/internal/sequencer",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/generator",
+        "//internal/pflow",
+    ],
+)
+
+go_test(
+    name = "sequencer_test",
+    srcs = [
+        "sequencer_bench_test.go",
+        "sequencer_race_test.go",
+    ],
+    embed = [":sequencer"],
+    deps = [
+        "//internal/generator",
+        "//internal/pflow",
+    ],
+)

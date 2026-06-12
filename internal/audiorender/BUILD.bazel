@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "audiorender",
+    srcs = [
+        "cache.go",
+        "composition.go",
+        "insert_counter_melody.go",
+        "inserts.go",
+        "loudnorm.go",
+        "master_chain.go",
+        "master_presets.go",
+        "mastering.go",
+        "renderer.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/audiorender",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/generator",
+        "//internal/generator/countermelody",
+        "//internal/pflow",
+        "@com_github_chromedp_cdproto//log",
+        "@com_github_chromedp_cdproto//runtime",
+        "@com_github_chromedp_chromedp//:chromedp",
+    ],
+)
+
+go_test(
+    name = "audiorender_test",
+    srcs = [
+        "cache_test.go",
+        "composition_test.go",
+        "insert_counter_melody_test.go",
+        "inserts_test.go",
+        "master_chain_test.go",
+    ],
+    embed = [":audiorender"],
+)

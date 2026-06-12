@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ws",
+    srcs = [
+        "hub.go",
+        "protocol.go",
+        "sequencer.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/ws",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/pflow",
+        "@com_github_gorilla_websocket//:websocket",
+    ],
+)

@@ -1,0 +1,8 @@
+# Reference JSON schema + example fixtures consumed by internal/pflow tests at
+# runtime (via "../../schema/*.json"). Exposed as runfiles data so the tests
+# work under Bazel's sandbox.
+filegroup(
+    name = "test_schemas",
+    srcs = glob(["*.json"]),
+    visibility = ["//visibility:public"],
+)

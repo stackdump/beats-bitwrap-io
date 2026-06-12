@@ -1,0 +1,15 @@
+load("//tools:nodejs_test.bzl", "nodejs_test")
+
+# Go<->JS cohesion-v2 parity: runs the browser-side buildTrackTheme()/compose()
+# against the same pinned fixture the Go test asserts on. Pure ES modules — the
+# generator tree is staged as runfiles; the .mjs resolves "../public/lib/..."
+# relative to its own location, so no cwd assumptions.
+nodejs_test(
+    name = "cohesion_parity_test",
+    data = [
+        "test-cohesion-parity.mjs",
+        "//:js_generator_srcs",
+    ],
+    entry_point = "test-cohesion-parity.mjs",
+    visibility = ["//visibility:public"],
+)

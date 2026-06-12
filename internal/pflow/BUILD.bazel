@@ -1,0 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "pflow",
+    srcs = [
+        "adapter.go",
+        "analyze.go",
+        "cid.go",
+    ],
+    importpath = "beats-bitwrap-io/internal/pflow",
+    visibility = ["//:__subpackages__"],
+    deps = ["@com_github_pflow_xyz_go_pflow//petri"],
+)
+
+go_test(
+    name = "pflow_test",
+    srcs = [
+        "analyze_test.go",
+        "macro_schedule_test.go",
+        "schema_test.go",
+    ],
+    data = [
+        "//:example_projects",  # keep: analyze_test.go reads ../../examples/*.json at runtime
+        "//schema:test_schemas",  # keep: schema_test.go reads ../../schema/*.json at runtime
+    ],
+    embed = [":pflow"],
+    deps = ["@com_github_santhosh_tekuri_jsonschema_v6//:jsonschema"],
+)

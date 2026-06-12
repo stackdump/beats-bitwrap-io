@@ -1,0 +1,185 @@
+load("@bazel_gazelle//:def.bzl", "gazelle")
+load("@io_bazel_rules_go//go:def.bzl", "TOOLS_NOGO", "go_binary", "go_library", "nogo")
+
+# gazelle:prefix beats-bitwrap-io
+gazelle(name = "gazelle")
+
+# Static analysis run as part of every `bazel build` (go vet + x/tools passes).
+nogo(
+    name = "nogo",
+    visibility = ["//visibility:public"],
+    deps = TOOLS_NOGO,
+)
+
+# Source files (owned by the root package — no sub-BUILD) that
+# internal/share's TestCategoryDiagramInSync reads at runtime via repoRoot.
+# Staged into that test's runfiles as data. (beats-share.schema.json lives in
+# internal/share and is wired as data there.)
+filegroup(
+    name = "category_doc_testdata",
+    srcs = [
+        "docs/control-category.svg",
+        "public/audio/tone-engine.js",
+        "public/lib/audio/oneshots.js",
+        "public/lib/macros/catalog.js",
+        "public/lib/ui/build.js",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Example project JSON read at runtime by internal/pflow tests (via
+# "../../examples/*.json"). Root-package-owned (no sub-BUILD).
+filegroup(
+    name = "example_projects",
+    srcs = glob(["examples/*.json"]),
+    visibility = ["//visibility:public"],
+)
+
+# The browser-side ES-module generator tree — the JS half of the Go<->JS
+# parity contract. Consumed as data by the cohesion-parity nodejs_test.
+filegroup(
+    name = "js_generator_srcs",
+    srcs = glob(["public/lib/**/*.js"]),
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "beats-bitwrap-io_lib",
+    srcs = [
+        "composition_card.go",
+        "composition_cli.go",
+        "insert_cli.go",
+        "insert_notes_handler.go",
+        "main.go",
+        "metrics.go",
+    ],
+    embedsrcs = [
+        "public/archive.html",
+        "public/audio/tone-engine.js",
+        "public/compose.html",
+        "public/docs/audio-webm-anatomy.html",
+        "public/docs/audio-webm-anatomy.svg",
+        "public/docs/beat-hub-feel.png",
+        "public/docs/beat-hub-fx.png",
+        "public/docs/beat-hub-mute.png",
+        "public/docs/beat-hub-one-shot.png",
+        "public/docs/beat-hub-pan.png",
+        "public/docs/beat-hub-pitch.png",
+        "public/docs/beat-hub-shape.png",
+        "public/docs/beat-hub-tempo.png",
+        "public/docs/beat-hub.html",
+        "public/docs/beat-hub.png",
+        "public/docs/control-category-og.png",
+        "public/docs/control-category.html",
+        "public/docs/control-category.png",
+        "public/docs/control-category.svg",
+        "public/docs/macro-category-autodj.png",
+        "public/docs/macro-category-feel.png",
+        "public/docs/macro-category-fx.png",
+        "public/docs/macro-category-mute.png",
+        "public/docs/macro-category-one-shot.png",
+        "public/docs/macro-category-pan.png",
+        "public/docs/macro-category-pitch.png",
+        "public/docs/macro-category-shape.png",
+        "public/docs/macro-category-tempo.png",
+        "public/docs/macro-category.html",
+        "public/favicon.svg",
+        "public/feed.html",
+        "public/index.html",
+        "public/lib/audio/note-name.js",
+        "public/lib/audio/oneshots.js",
+        "public/lib/backend/apc-mini-mk2.js",
+        "public/lib/backend/audio-io.js",
+        "public/lib/backend/index.js",
+        "public/lib/backend/midi-presets.js",
+        "public/lib/compose/main.js",
+        "public/lib/feel/axes.js",
+        "public/lib/generator/arrange.js",
+        "public/lib/generator/composer.js",
+        "public/lib/generator/core.js",
+        "public/lib/generator/countermelody.js",
+        "public/lib/generator/euclidean.js",
+        "public/lib/generator/genre-instruments.js",
+        "public/lib/generator/groove.js",
+        "public/lib/generator/index.js",
+        "public/lib/generator/macros.js",
+        "public/lib/generator/markov.js",
+        "public/lib/generator/regenerate.js",
+        "public/lib/generator/riffs.js",
+        "public/lib/generator/shuffle.js",
+        "public/lib/generator/structure.js",
+        "public/lib/generator/theme.js",
+        "public/lib/generator/theory.js",
+        "public/lib/generator/threering.js",
+        "public/lib/generator/variety.js",
+        "public/lib/macros/catalog.js",
+        "public/lib/macros/effects.js",
+        "public/lib/macros/runtime.js",
+        "public/lib/macros/sched.js",
+        "public/lib/note/note.js",
+        "public/lib/pflow.js",
+        "public/lib/project/serialize.js",
+        "public/lib/project/sync.js",
+        "public/lib/share/apply.js",
+        "public/lib/share/card.js",
+        "public/lib/share/client-render.js",
+        "public/lib/share/codec.js",
+        "public/lib/share/collect.js",
+        "public/lib/share/history.js",
+        "public/lib/share/insert-render.js",
+        "public/lib/share/offline-render.js",
+        "public/lib/share/qr.js",
+        "public/lib/share/render-mode.js",
+        "public/lib/share/sign.js",
+        "public/lib/share/url.js",
+        "public/lib/test-hooks.js",
+        "public/lib/ui/ai-prompt.js",
+        "public/lib/ui/build.js",
+        "public/lib/ui/canvas.js",
+        "public/lib/ui/controllers.js",
+        "public/lib/ui/device-map.js",
+        "public/lib/ui/dialogs.js",
+        "public/lib/ui/mixer-sliders.js",
+        "public/lib/ui/mixer.js",
+        "public/lib/ui/slider-tip.js",
+        "public/lib/ui/stage.js",
+        "public/manifest.json",
+        "public/petri-note.css",
+        "public/petri-note.js",
+        "public/schema/beats-audio-analysis.context.jsonld",
+        "public/schema/beats-audio-analysis.schema.json",
+        "public/schema/beats-composition.context.jsonld",
+        "public/schema/beats-composition.schema.json",
+        "public/schema/beats-share.context.jsonld",
+        "public/schema/beats-share.schema.json",
+        "public/schema/index.json",
+        "public/schema/petri-note.schema.json",
+        "public/sequencer-worker.js",
+        "public/sw.js",
+        "public/vendor/NOTICE.md",
+        "public/vendor/qrcode.LICENSE",
+        "public/vendor/qrcode.js",
+    ],
+    importpath = "beats-bitwrap-io",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//internal/audiorender",
+        "//internal/deploy",
+        "//internal/generator",
+        "//internal/index",
+        "//internal/mcp",
+        "//internal/midiout",
+        "//internal/pflow",
+        "//internal/rebuildbus",
+        "//internal/routes",
+        "//internal/sequencer",
+        "//internal/share",
+        "//internal/ws",
+    ],
+)
+
+go_binary(
+    name = "beats-bitwrap-io",
+    embed = [":beats-bitwrap-io_lib"],
+    visibility = ["//visibility:public"],
+)

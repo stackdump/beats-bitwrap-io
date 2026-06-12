@@ -1,0 +1,64 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "share",
+    srcs = [
+        "canonical.go",
+        "duration.go",
+        "note.go",
+        "operator_key.go",
+        "render_event.go",
+        "schema_handler.go",
+        "seal.go",
+        "share_card_png.go",
+        "share_page.go",
+        "sigverify.go",
+        "types.go",
+    ],
+    embedsrcs = [
+        "beats-audio-analysis.context.jsonld",
+        "beats-audio-analysis.schema.json",
+        "beats-composition.context.jsonld",
+        "beats-composition.schema.json",
+        "beats-share.context.jsonld",
+        "beats-share.schema.json",
+        "snapshot-manifest.context.jsonld",
+    ],
+    importpath = "beats-bitwrap-io/internal/share",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/generator",
+        "@com_github_decred_dcrd_dcrec_secp256k1_v4//ecdsa",
+        "@com_github_fogleman_gg//:gg",
+        "@com_github_santhosh_tekuri_jsonschema_v5//:jsonschema",
+        "@com_github_skip2_go_qrcode//:go-qrcode",
+        "@org_golang_x_crypto//sha3",
+        "@org_golang_x_image//font",
+        "@org_golang_x_image//font/gofont/gobold",
+        "@org_golang_x_image//font/gofont/goregular",
+        "@org_golang_x_image//font/opentype",
+    ],
+)
+
+go_test(
+    name = "share_test",
+    srcs = [
+        "card_layout_smoketest_test.go",
+        "category_doc_test.go",
+        "composition_test.go",
+        "countermelody_envelope_test.go",
+        "duration_test.go",
+        "nets_validation_test.go",
+        "note_test.go",
+        "qr_test.go",
+        "seal_test.go",
+        "share_card_png_test.go",
+        "sigverify_test.go",
+    ],
+    data = [
+        "beats-share.schema.json",  # keep: read at runtime for control-action count, not just embedded
+        "//:category_doc_testdata",  # keep: TestCategoryDiagramInSync reads repo source files
+    ],
+    embed = [":share"],
+    deps = ["@com_github_skip2_go_qrcode//:go-qrcode"],
+)
