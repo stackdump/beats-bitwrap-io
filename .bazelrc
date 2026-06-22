@@ -26,8 +26,11 @@ build --disk_cache=~/.cache/bazel-disk/beats-bitwrap-io
 
 # Shared remote cache (opt-in: `bazel test --config=remote //...`). Auth is read
 # from ~/.netrc (machine bazel.stackdump.com) — NEVER commit credentials. Falls
-# back to a local build if the cache is unreachable. To make it the default on a
-# machine, add `build --config=remote` to a personal user.bazelrc.
+# back to a local build if the cache is unreachable. Read-only by default so a
+# non-sandboxed local-fallback result can never poison the shared cache; only
+# trusted CI pushes opt into uploads (CI appends --remote_upload_local_results).
+# To populate the cache from a trusted machine, add that flag to a personal
+# user.bazelrc (alongside `build --config=remote` to make it the default there).
 build:remote --remote_cache=https://bazel.stackdump.com
 build:remote --remote_local_fallback
-build:remote --remote_upload_local_results=true
+build:remote --noremote_upload_local_results
