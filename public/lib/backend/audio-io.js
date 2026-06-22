@@ -739,10 +739,23 @@ export function vizSpawnParticle(el, netId, midi) {
     if (el._vizHistory.length > 200) el._vizHistory.shift();
 }
 
+// Cap the timeline repaint at ~30fps. The whole canvas is cleared and
+// repainted every frame just to slide the rolling dots a couple of pixels,
+// and that paint/compositing cost — not the JS, which profiles at well under
+// 1ms/frame — is the bottleneck once cohesion v2's higher note density packs
+// the visible window with dots and drives more per-fire glow repaints. At
+// 60fps that paint load saturates the compositor on real GPUs (invisible
+// under headless_shell, which skips rasterization); halving the repaint rate
+// is imperceptible for the slow right-to-left scroll. Keep scheduling on rAF
+// so we stay vsync-aligned and pause when the tab is hidden.
+const VIZ_MIN_FRAME_MS = 1000 / 30;
 export function vizStartLoop(el) {
     if (el._vizRafId) return;
-    const loop = () => {
+    let lastDraw = 0;
+    const loop = (now) => {
         el._vizRafId = requestAnimationFrame(loop);
+        if (now - lastDraw < VIZ_MIN_FRAME_MS) return;
+        lastDraw = now;
         vizDrawFrame(el);
     };
     el._vizRafId = requestAnimationFrame(loop);

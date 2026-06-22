@@ -2165,7 +2165,11 @@ input[type="range"][data-default] {
 
 .pn-transition.firing .pn-transition-rect {
     background: #e94560;
-    box-shadow: 0 0 20px #e94560;
+    /* Tighter glow: a wide blur radius is re-rasterized on every fire, and
+       cohesion v2's higher fire rate turns that into a continuous paint cost
+       (paint-bound, invisible under headless but sluggish on real GPUs). 8px
+       reads the same at a glance for a fraction of the blurred area. */
+    box-shadow: 0 0 8px #e94560;
 }
 
 /* Persistent playhead — the last-fired transition stays lit until the
@@ -2173,7 +2177,7 @@ input[type="range"][data-default] {
  * Softer than .firing so repeated fires still "flash" on top. */
 .pn-transition.playhead .pn-transition-rect {
     border-color: #ffd36a;
-    box-shadow: 0 0 14px rgba(255, 211, 106, 0.7), inset 0 0 6px rgba(255, 211, 106, 0.35);
+    box-shadow: 0 0 6px rgba(255, 211, 106, 0.7), inset 0 0 4px rgba(255, 211, 106, 0.35);
 }
 
 .pn-transition.has-midi .pn-transition-rect {
