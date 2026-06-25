@@ -20,15 +20,6 @@ import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } fr
 // sequencer-worker.js — keep in sync.
 const LOOKAHEAD_MS = 80;
 
-// Voice-recycle cadence. Tone v14's PolySynth/Synth voice pools retain their
-// per-note oscillators over long continuous playback, so an hour-long loop
-// bloats the Web Audio graph (~600 leaked oscillators/min) and the render
-// thread lags. While playing we rebuild one channel's instrument on this
-// interval (round-robin via toneEngine.recycleVoices) to reclaim them —
-// bounding live oscillators instead of growing without limit. One channel
-// per tick keeps the audible blip to a single voice. See tone-engine.js.
-const VOICE_RECYCLE_MS = 12000;
-
 // --- Transport ---
 
 export function cyclePlaybackMode(el) {
@@ -90,18 +81,8 @@ export function togglePlay(el) {
         try { el.dispatchEvent(new CustomEvent('pn-play')); } catch {}
         setupMediaSession(el);
         installVisibilityRecovery(el);
-        // Periodic voice-pool flush so hour-long loops don't bloat the audio
-        // graph (one channel rebuilt per tick, round-robin).
-        clearInterval(el._voiceRecycleTimer);
-        el._voiceRecycleTimer = setInterval(() => {
-            if (el._playing) {
-                try { toneEngine.recycleVoices(1); } catch {}
-            }
-        }, VOICE_RECYCLE_MS);
     } else {
         el._vizStopLoop();
-        clearInterval(el._voiceRecycleTimer);
-        el._voiceRecycleTimer = null;
         // Cancel any pending macro restores — worker will reset mute state anyway.
         el._cancelAllMacros();
         // Stop Tone.Transport so any leftover scheduled events freeze
