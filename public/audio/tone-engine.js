@@ -1604,15 +1604,10 @@ class ToneEngine {
         this._loading.add(loadKey);
 
         const oldInst = this._instruments.get(channel);
-        if (oldInst) {
-            oldInst.dispose();
-        }
-        this._drumVoiceFilters?.delete(channel);
-        // Dispose old normalization gain node
         const oldGain = this._instrumentGains?.get(channel);
-        if (oldGain) {
-            oldGain.dispose();
-        }
+        // Full teardown (instrument + aux effect nodes + norm gain).
+        this._disposeInstrument(oldInst, oldGain);
+        this._drumVoiceFilters?.delete(channel);
 
         let instrument;
         const strip = this._getChannelStrip(channel);
@@ -1635,7 +1630,7 @@ class ToneEngine {
                     instrument = await this._createPlayers(config, dest);
                     break;
                 case 'custom':
-                    instrument = config.create(dest);
+                    instrument = this._createCustom(config, dest);
                     if (instrument._voiceFilters) {
                         if (!this._drumVoiceFilters) this._drumVoiceFilters = new Map();
                         const roleMap = new Map();
@@ -1702,7 +1697,7 @@ class ToneEngine {
                     instrument = await this._createPlayers(config, normGain);
                     break;
                 case 'custom':
-                    instrument = config.create(normGain);
+                    instrument = this._createCustom(config, normGain);
                     break;
                 default:
                     instrument = new Tone.Synth().connect(normGain);
@@ -1717,7 +1712,7 @@ class ToneEngine {
         // Same-channel races: if something else got pooled/promoted for this
         // channel meanwhile, keep the newest preload and drop the older entry.
         const prev = this._pool.get(poolKey);
-        if (prev) { prev.instrument.dispose(); prev.gain.dispose(); }
+        if (prev) this._disposeInstrument(prev.instrument, prev.gain);
         this._pool.set(poolKey, { instrument, gain: normGain, config, name: instrumentName });
     }
 
@@ -1731,9 +1726,8 @@ class ToneEngine {
         this._pool.delete(poolKey);
 
         const oldInst = this._instruments.get(channel);
-        if (oldInst) oldInst.dispose();
         const oldGain = this._instrumentGains?.get(channel);
-        if (oldGain) oldGain.dispose();
+        this._disposeInstrument(oldInst, oldGain);
 
         if (pooled.instrument._voiceFilters) {
             if (!this._drumVoiceFilters) this._drumVoiceFilters = new Map();
@@ -1757,10 +1751,146 @@ class ToneEngine {
     // discarded). Prevents unbounded memory growth across many regens.
     clearPool() {
         for (const { instrument, gain } of this._pool.values()) {
-            instrument.dispose();
-            gain.dispose();
+            this._disposeInstrument(instrument, gain);
         }
         this._pool.clear();
+    }
+
+    // Build a 'custom' instrument while capturing every auxiliary Tone effect
+    // node its factory constructs. Custom factories return a bare synth and
+    // wire aux nodes inline (e.g. electric-piano's Tremolo+Chorus, bass's
+    // Compressor+Filter), so the returned synth's dispose() orphans them — a
+    // latent leak that the periodic voice-recycle would otherwise amplify.
+    // We temporarily wrap the public Tone effect constructors (NOT the synth
+    // classes — those belong to the instrument's own voice machinery and are
+    // freed by its dispose) so only the config's explicit `new Tone.X(...)`
+    // effect calls are collected, then tag the instrument with _auxNodes for
+    // _disposeInstrument. The wrap is applied and removed synchronously around
+    // the (synchronous) factory call, so there is no concurrency window.
+    _createCustom(config, dest) {
+        const created = [];
+        const EFFECTS = ['Gain', 'Filter', 'EQ3', 'Chorus', 'Tremolo', 'Compressor',
+            'Limiter', 'Volume', 'Panner', 'Reverb', 'Freeverb', 'JCReverb', 'Convolver',
+            'FeedbackDelay', 'PingPongDelay', 'Delay', 'Distortion', 'Chebyshev', 'Phaser',
+            'Vibrato', 'AutoFilter', 'AutoWah', 'AutoPanner', 'BitCrusher', 'StereoWidener',
+            'FrequencyShifter', 'PitchShift', 'LFO'];
+        const saved = {};
+        for (const k of EFFECTS) {
+            if (typeof Tone[k] === 'function') {
+                const Orig = saved[k] = Tone[k];
+                const Wrapped = function (...args) { const n = new Orig(...args); created.push(n); return n; };
+                Wrapped.prototype = Orig.prototype;
+                Tone[k] = Wrapped;
+            }
+        }
+        let instrument;
+        try {
+            instrument = config.create(dest);
+        } finally {
+            for (const k in saved) Tone[k] = saved[k];
+        }
+        try { instrument._auxNodes = created.filter(n => n !== instrument); } catch {}
+        return instrument;
+    }
+
+    // Fully tear down an instrument: its own dispose() (which frees its voice
+    // machinery), any aux effect nodes captured by _createCustom, and the
+    // normalization gain. Each wrapped so a double-dispose can't abort cleanup.
+    _disposeInstrument(instrument, gain) {
+        if (instrument) {
+            const aux = instrument._auxNodes;
+            try { instrument.dispose(); } catch {}
+            if (Array.isArray(aux)) {
+                for (const n of aux) { try { n.dispose?.(); } catch {} }
+            }
+        }
+        if (gain) { try { gain.dispose(); } catch {} }
+    }
+
+    // Rebuild a single channel's instrument in place, disposing the old one.
+    // Deliberately bypasses loadInstrument's "already loaded" guard — the
+    // whole point is to replace an *identical* instrument to reclaim the
+    // oscillators its voice pool has accumulated. Only valid for
+    // oscillator-based instruments (synth / custom / default); sampler and
+    // players are buffer-based (no oscillator accumulation) and their reload
+    // is async, so callers skip them. Returns true on success.
+    _recycleInstrument(channel) {
+        const entry = this._channelConfigs.get(channel);
+        if (!entry || !entry.config) return false;
+        const config = entry.config;
+        if (config.type === 'sampler' || config.type === 'players') return false;
+
+        const strip = this._getChannelStrip(channel);
+        const gainDb = INSTRUMENT_GAIN[entry.name] || 0;
+        const normGain = new Tone.Gain(Tone.dbToGain(gainDb)).connect(strip.volume);
+
+        let instrument;
+        try {
+            switch (config.type) {
+                case 'synth':
+                    instrument = this._createSynth(config, normGain);
+                    break;
+                case 'custom':
+                    instrument = this._createCustom(config, normGain);
+                    break;
+                default:
+                    instrument = new Tone.Synth().connect(normGain);
+            }
+            if (instrument.maxPolyphony !== undefined) instrument.maxPolyphony = 256;
+        } catch (err) {
+            normGain.dispose();
+            console.warn(`recycleInstrument: rebuild failed for ${entry.name} on ch ${channel}:`, err);
+            return false;
+        }
+
+        // Swap the fresh instrument in BEFORE disposing the old one so the
+        // worker's next playNote routes to the live node with minimal gap.
+        const oldInst = this._instruments.get(channel);
+        const oldGain = this._instrumentGains?.get(channel);
+
+        if (instrument._voiceFilters) {
+            if (!this._drumVoiceFilters) this._drumVoiceFilters = new Map();
+            const roleMap = new Map();
+            for (const [role, filters] of Object.entries(instrument._voiceFilters)) {
+                roleMap.set(role, filters);
+            }
+            this._drumVoiceFilters.set(channel, roleMap);
+        }
+        if (!this._instrumentGains) this._instrumentGains = new Map();
+        this._instrumentGains.set(channel, normGain);
+        this._instruments.set(channel, instrument);
+
+        this._disposeInstrument(oldInst, oldGain);
+        return true;
+    }
+
+    // Periodic voice-pool flush for long continuous playback. Tone v14's
+    // PolySynth/Synth voices retain their per-note oscillators — ended
+    // oscillators stay referenced by the voice pool and are released only on
+    // instrument dispose — so looping for 45-60 min steadily bloats the Web
+    // Audio graph (~600 leaked oscillators/min) and the render thread lags.
+    // Rebuilding instruments reclaims them. We recycle one channel per call
+    // (round-robin) so at most one voice blips at a time. Returns the count
+    // recycled. Driven by the transport's VOICE_RECYCLE_MS timer.
+    recycleVoices(count = 1) {
+        if (!this._started) return 0;
+        const channels = [];
+        for (const [channel, entry] of this._channelConfigs) {
+            if (entry.config && entry.config.type !== 'sampler' && entry.config.type !== 'players') {
+                channels.push(channel);
+            }
+        }
+        if (!channels.length) return 0;
+        channels.sort((a, b) => a - b);
+        let done = 0;
+        for (let i = 0; i < count; i++) {
+            if (this._recycleCursor == null || this._recycleCursor >= channels.length) {
+                this._recycleCursor = 0;
+            }
+            const ch = channels[this._recycleCursor++];
+            if (this._recycleInstrument(ch)) done++;
+        }
+        return done;
     }
 
     async _createSampler(config, dest) {
