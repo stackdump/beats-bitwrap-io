@@ -1,5 +1,5 @@
 {
-  "@context": "https://petri-note.dev/schema/v1",
+  "@context": "https://beats.bitwrap.io/schema/petri-note.schema.json",
   "@type": "PetriNoteProject",
   "@id": "example:drum-bass-demo",
   "name": "Drum & Bass Demo",

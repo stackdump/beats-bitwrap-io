@@ -28,7 +28,7 @@ The top-level container for a music composition.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `@context` | string | Always `"https://petri-note.dev/schema/v1"` |
+| `@context` | string | Always `"https://beats.bitwrap.io/schema/petri-note.schema.json"` |
 | `@type` | string | Always `"PetriNoteProject"` |
 | `name` | string | Project name |
 | `tempo` | number | Global tempo in BPM (20-300) |
@@ -206,7 +206,7 @@ Common CC numbers:
 
 ```json
 {
-  "@context": "https://petri-note.dev/schema/v1",
+  "@context": "https://beats.bitwrap.io/schema/petri-note.schema.json",
   "@type": "PetriNoteProject",
   "name": "Simple Beat",
   "tempo": 120,

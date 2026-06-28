@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://petri-note.dev/schema/v1",
+  "$id": "https://beats.bitwrap.io/schema/petri-note.schema.json",
   "title": "PetriNote Project Schema",
   "description": "Schema for Petri net music sequencer projects. Each project contains a collection of Petri nets where tokens flow through places and transitions fire to trigger MIDI notes.",
 

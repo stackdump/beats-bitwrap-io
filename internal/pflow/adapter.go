@@ -702,7 +702,7 @@ func (p *Project) ToJSONLD(baseURL string) map[string]interface{} {
 	ld := map[string]interface{}{
 		"@context": map[string]interface{}{
 			"@vocab":    "https://schema.org/",
-			"petriNote": "https://petri-note.dev/schema/v1#",
+			"petriNote": "https://beats.bitwrap.io/schema/petri-note.schema.json#",
 		},
 		"@type":       "MusicComposition",
 		"@id":         fmt.Sprintf("%s/api/song/%s.jsonld", baseURL, cid),
