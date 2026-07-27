@@ -2,7 +2,7 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test-audio test-cohesion-parity seed-collection-extended \
+.PHONY: build run dev clean docs test-audio test-e2e test-cohesion-parity seed-collection-extended \
         bazel-build bazel-test bazel-gazelle
 
 build:
@@ -91,6 +91,23 @@ test-audio: build
 	done
 	@trap 'kill $$(cat /tmp/beats-test-audio.pid) 2>/dev/null; rm -f /tmp/beats-test-audio.pid' EXIT; \
 	  ./scripts/test-macro-audio.py --host http://localhost:$(TEST_AUDIO_PORT) --workers $(TEST_AUDIO_WORKERS) $(TEST_AUDIO_ARGS)
+
+# Full UI e2e — drives every control (transport, panels, all macros,
+# Fire pads, FX sliders, keyboard shortcuts, mixer, Feel, Auto-DJ,
+# generate/shuffle/genre, share, mocked Web MIDI) through the real DOM
+# in headless Chrome via raw CDP. No Python deps — node >= 20 +
+# google-chrome. Boots its own server on :18096.
+TEST_E2E_PORT := 18096
+TEST_E2E_DATA := /tmp/beats-test-e2e-data
+test-e2e: build
+	@rm -rf $(TEST_E2E_DATA) && mkdir -p $(TEST_E2E_DATA)
+	@echo "starting e2e server on :$(TEST_E2E_PORT)"
+	@./$(BINARY) -authoring -addr :$(TEST_E2E_PORT) -data $(TEST_E2E_DATA) -public public > /tmp/beats-test-e2e.log 2>&1 & echo $$! > /tmp/beats-test-e2e.pid
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+	    curl -fsS -o /dev/null http://localhost:$(TEST_E2E_PORT)/ && break; sleep 0.5; \
+	done
+	@trap 'kill $$(cat /tmp/beats-test-e2e.pid) 2>/dev/null; rm -f /tmp/beats-test-e2e.pid' EXIT; \
+	  node scripts/test-e2e-controls.mjs http://localhost:$(TEST_E2E_PORT) $(TEST_E2E_ARGS)
 
 # Rebuild + resubmit the official collection with structure=extended.
 # Boots a local authoring server with chromedp realtime render, runs

@@ -746,7 +746,11 @@ export function channelParamMove(el, macro, durationMs) {
         for (const node of sliders) node.classList.remove('pn-pulsing', 'pn-pulsing-hot');
     };
 
-    const token = { cancelled: false, before };
+    // Carry the restore + blink cleanup on the token so external
+    // cancellers (stop / panic / project-sync via clearLocalMacroState)
+    // can put the channels back without re-deriving pan-vs-decay from
+    // the snapshot values.
+    const token = { cancelled: false, before, restore: () => { restore(); cleanupBlink(); } };
     el._chanAnim[macro.id] = token;
 
     // Safety net: guaranteed restore + blink cleanup.

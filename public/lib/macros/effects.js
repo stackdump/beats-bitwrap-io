@@ -105,6 +105,8 @@ export function runCompound(el, macro, duration, durationUnit, msPerTick) {
     for (const step of macro.steps || []) {
         const delay = step.offsetMs || 0;
         const t = schedAudio(() => {
+            // Self-prune so fired tokens don't accumulate across a session.
+            el._compoundTimers = (el._compoundTimers || []).filter(x => x !== t);
             const sub = MACROS.find(m => m.id === step.macroId);
             if (!sub) return;
             // Push the sub-macro directly (ignore queue, don't mark as running)
@@ -148,9 +150,20 @@ export function setTempoTransient(el, bpm) {
     el._sendWs({ type: 'tempo', bpm: clamped });
 }
 
+// Same start-inheritance rule as fxSweep: if a tempo macro re-fires while
+// a prior one is in flight, inherit the PRIOR animation's startBpm — the
+// current tempo is already macro-modified, and capturing it would make
+// the modification permanent (half-time twice: 120→60→30, "restores" 60).
+function inheritStartBpm(el) {
+    const prev = el._tempoAnim;
+    return (prev && !prev.cancelled && Number.isFinite(prev.startBpm))
+        ? prev.startBpm
+        : (el._tempo || 120);
+}
+
 // Tempo Hold: multiply tempo by factor, hold for duration, restore.
 export function tempoHold(el, factor, durationMs) {
-    const startBpm = el._tempo || 120;
+    const startBpm = inheritStartBpm(el);
     const targetBpm = Math.max(20, Math.round(startBpm * factor));
     // Cancel any prior tempo-hold so Panic and stacked fires have a
     // single token to reset. _tempoAnim is also used by tempoSweep.
@@ -173,7 +186,7 @@ export function tempoHold(el, factor, durationMs) {
 // when the puck or a sweep has drifted you off-grid and you want to
 // "land" briefly without committing to it.
 export function tempoAnchor(el, durationMs) {
-    const startBpm = el._tempo || 120;
+    const startBpm = inheritStartBpm(el);
     const genre = el.querySelector('.pn-genre-select')?.value;
     const targetBpm = el._genreData?.[genre]?.bpm || 120;
     if (el._tempoAnim) {
@@ -197,7 +210,7 @@ export function tempoAnchor(el, durationMs) {
 // scheduler and can drop ticks. Throttle to ~12 Hz (80 ms) — still plenty
 // smooth for a tape-stop gesture, and 5× kinder to the worker.
 export function tempoSweep(el, finalBpm, durationMs) {
-    const startBpm = el._tempo || 120;
+    const startBpm = inheritStartBpm(el);
     const target = Math.max(20, finalBpm);
     const DISPATCH_INTERVAL = 80;
     let lastDispatch = -DISPATCH_INTERVAL;
@@ -276,7 +289,16 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
 // Local-only clear of in-flight macro state. Does NOT notify the worker.
 // Used on project-sync (regen / seamless swap), where sending
 // `cancel-macros` would prune the just-injected Auto-DJ transition net
-// before it gets to fire.
+// before it gets to fire — and by cancelAllMacros (the transport-stop
+// path), which does notify the worker.
+//
+// Cancelling is not enough: every animation family must also RESTORE its
+// pre-fire snapshot, otherwise stopping playback mid-macro strands the
+// swept state (HP filter left up = thin/near-silent mix, tempo stuck at
+// a tape-stop's crawl, feel puck stranded in a corner — and the puck is
+// persisted to localStorage, so that one survives reload). Restore logic
+// is carried on each animation token so this function needs no knowledge
+// of who created it.
 export function clearLocalMacroState(el) {
     if (el._runningTimer) {
         clearAudioSched(el._runningTimer);
@@ -284,14 +306,76 @@ export function clearLocalMacroState(el) {
     }
     el._runningMacro = null;
     el._macroQueue = [];
+
+    // Break any beat-repeat loop (token-guard exits on next scheduled fire)
+    // and drop pending compound sub-fires.
+    el._beatRepeatRuns = (el._beatRepeatRuns || 0) + 1;
+    if (el._compoundTimers) {
+        for (const t of el._compoundTimers) clearAudioSched(t);
+        el._compoundTimers = [];
+    }
+
+    // Tempo hold/sweep/anchor: cancel + snap back to the captured start BPM.
+    if (el._tempoAnim) {
+        const tok = el._tempoAnim;
+        tok.cancelled = true;
+        if (tok.timeout) clearAudioSched(tok.timeout);
+        if (typeof tok.startBpm === 'number') el._setTempo(tok.startBpm);
+        el._tempoAnim = null;
+    }
+
+    // Fire-pad stinger re-mute timers: clear them. Their closures capture
+    // mute state from the project that was live at fire time — surviving
+    // a regen/genre-change, a stale timer would re-mute a stinger the
+    // user deliberately unmuted on the NEW project. The worker resets
+    // mute state on stop, and project-sync applies the new project's
+    // initialMutes, so dropping the timers is always safe.
+    if (el._stingerMuteTimers) {
+        for (const id of Object.keys(el._stingerMuteTimers)) {
+            clearAudioSched(el._stingerMuteTimers[id]);
+        }
+        el._stingerMuteTimers = {};
+    }
+
+    // Feel snap/sweep/genre-reset: cancel + run the token's own restore.
+    if (el._feelAnim) {
+        const tok = el._feelAnim;
+        tok.cancelled = true;
+        if (tok.timeout) clearAudioSched(tok.timeout);
+        el._feelAnim = null;
+        try { tok.restore?.(); } catch {}
+    }
+
+    // Channel param moves (pan-move / decay-move): cancel + restore the
+    // per-channel snapshot the animation captured at fire time.
+    if (el._chanAnim) {
+        for (const id of Object.keys(el._chanAnim)) {
+            const t = el._chanAnim[id];
+            if (!t) continue;
+            if (t.hardStop) clearTimeout(t.hardStop);
+            t.cancelled = true;
+            try { t.restore?.(); } catch {}
+        }
+        el._chanAnim = {};
+    }
+
     el.querySelectorAll?.('.pn-macro-btn.running, .pn-macro-btn.queued, .pn-macro-btn.firing').forEach(b => {
         b.classList.remove('running');
         b.classList.remove('queued');
         b.classList.remove('firing');
     });
     el.querySelectorAll?.('.pn-macro-queue-badge').forEach(b => b.remove());
+
+    // Master-FX sweep/hold: cancel + restore the slider to its pre-macro
+    // start value.
     if (el._fxAnim) {
-        for (const token of Object.values(el._fxAnim)) if (token) token.cancelled = true;
+        for (const token of Object.values(el._fxAnim)) {
+            if (!token) continue;
+            token.cancelled = true;
+            if (token.slider && typeof token.start === 'number') {
+                el._setFxValue(token.slider, token.start);
+            }
+        }
         el._fxAnim = {};
     }
 }

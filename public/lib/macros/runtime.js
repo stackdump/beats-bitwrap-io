@@ -8,10 +8,10 @@
 // as first argument; petri-note.js keeps one-line class-method wrappers
 // so call sites like `el._fireMacro(id)` are unchanged.
 
-import { toneEngine } from '../../audio/tone-engine.js';
 import { MACROS, TRANSITION_MACRO_IDS } from './catalog.js';
 import { oneShotSpec } from '../audio/oneshots.js';
 import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
+import { clearLocalMacroState } from './effects.js';
 
 // Slider keys tracked by the tone reset/nav/save machinery. Pitch/Hits/
 // Instrument stay outside — they're semantic params, not tone.
@@ -39,63 +39,13 @@ export function musicNets(el) {
 // --- Panic: cancel every pending / in-flight macro effect ---
 
 export function panicMacros(el) {
-    // 1. Drop queued macros; they never fire.
-    el._macroQueue = [];
-    el._runningMacro = null;
-    if (el._runningTimer) { clearAudioSched(el._runningTimer); el._runningTimer = null; }
+    // 1. Cancel + RESTORE every in-flight animation family (queue,
+    //    beat-repeat, compound timers, tempo, feel, channel params,
+    //    master-FX sweeps). Shared with the transport-stop and
+    //    project-sync paths so all cancellers behave identically.
+    clearLocalMacroState(el);
 
-    // 2. Break any beat-repeat loop — the token guard exits on next tick.
-    el._beatRepeatRuns = (el._beatRepeatRuns || 0) + 1;
-
-    // 2b. Clear any compound-macro delayed sub-fires still pending.
-    if (el._compoundTimers) {
-        for (const t of el._compoundTimers) clearAudioSched(t);
-        el._compoundTimers = [];
-    }
-
-    // 2c. Tempo: if a tempo-hold / tempo-sweep is running, cancel + snap
-    //     back to its captured start BPM instead of waiting for the
-    //     scheduled restore / sweep to finish.
-    if (el._tempoAnim) {
-        const tok = el._tempoAnim;
-        tok.cancelled = true;
-        if (tok.timeout) clearAudioSched(tok.timeout);
-        if (typeof tok.startBpm === 'number') el._setTempo(tok.startBpm);
-        el._tempoAnim = null;
-    }
-    // 2d. Feel: cancel any in-flight Feel snap/sweep/genre-reset so its
-    //     rAF loop or restore timeout stops overriding the puck.
-    cancelFeelAnim(el);
-
-    // 3. Cancel + restore every in-flight channel param animation
-    //    (pan-move / decay-move).
-    if (el._chanAnim) {
-        for (const id of Object.keys(el._chanAnim)) {
-            const t = el._chanAnim[id];
-            if (!t) continue;
-            if (t.hardStop) { clearTimeout(t.hardStop); }
-            // Run restore manually via the stored snapshot.
-            if (t.before) {
-                for (const ch of Object.keys(t.before)) {
-                    const v = t.before[ch];
-                    const chNum = parseInt(ch, 10);
-                    // Snapshot format differs by kind — decay is a scalar
-                    // multiplier in roughly [0.05, 3.0]; pan is the raw
-                    // panner.pan.value in [-1, +1].
-                    if (v >= -1 && v <= 1) {
-                        const cc = Math.max(0, Math.min(127, Math.round((v + 1) * 63.5)));
-                        toneEngine.controlChange(chNum, 10, cc);
-                    } else {
-                        toneEngine.setChannelDecay(chNum, v);
-                    }
-                }
-            }
-            t.cancelled = true;
-        }
-        el._chanAnim = {};
-    }
-
-    // 4. Cancel every pulse token and strip its CSS.
+    // 2. Cancel every pulse token and strip its CSS.
     if (el._pulseAnim) {
         for (const id of Object.keys(el._pulseAnim)) {
             const t = el._pulseAnim[id];
@@ -107,23 +57,7 @@ export function panicMacros(el) {
         node.classList.remove('pn-pulsing', 'pn-pulsing-hot');
     });
 
-    // 5. Cancel master-FX sweep/hold animations AND restore their slider
-    //    to the pre-macro start value. Without the restore, the slider
-    //    stays wherever the ramp was when we cancelled — "stranded
-    //    reverb" etc.
-    if (el._fxAnim) {
-        for (const key of Object.keys(el._fxAnim)) {
-            const t = el._fxAnim[key];
-            if (!t) continue;
-            t.cancelled = true;
-            if (t.slider && typeof t.start === 'number') {
-                el._setFxValue(t.slider, t.start);
-            }
-        }
-        el._fxAnim = {};
-    }
-
-    // 6. Tell the worker to prune in-flight macro control nets, then
+    // 3. Tell the worker to prune in-flight macro control nets, then
     //    unmute anything not in the user's manual mute set — but keep
     //    the project's schema-reserved `initialMutes` (hit1-hit4 stinger
     //    slots) muted. Without this guard, Panic unmutes the stinger
@@ -139,7 +73,7 @@ export function panicMacros(el) {
         el._sendWs({ type: 'mute', netId: id, muted: false });
     }
 
-    // 7. Visual book-keeping — drop queue badges, reset serial slot UI.
+    // 4. Visual book-keeping — drop queue badges, reset serial slot UI.
     updateQueuedBadges(el);
     el.querySelectorAll('.pn-macro-btn.running, .pn-macro-btn.queued, .pn-macro-btn.firing')
         .forEach(b => b.classList.remove('running', 'queued', 'firing'));
@@ -297,9 +231,7 @@ export function executeMacro(el, id, opts) {
             const pairBars = el.querySelector(`.pn-macro-bars[data-macro="${pairId}"]`);
             const savedBars = pairBars?.value;
             if (pairBars) pairBars.value = String(bars);
-            const savedRunning = el._runningMacro;
-            el._runningMacro = null;        // bypass serial queue for this side-effect
-            try { executeMacro(el, pairId); } finally { el._runningMacro = savedRunning; }
+            executeMacro(el, pairId, { bypassQueue: true });
             if (pairBars && savedBars != null) pairBars.value = savedBars;
         }
     }
@@ -315,7 +247,10 @@ export function executeMacro(el, id, opts) {
     const runTime = macro.kind === 'one-shot'
         ? 700 + Math.max(0, duration - 1) * (el._msPerBar() / 16)
         : (permanent ? pulseMs : durationMs);
-    markMacroRunning(el, id, runTime);
+    // Bypass fires (paired FX, stacked macros, repeating one-shots) run
+    // alongside a legitimately running macro — they must not claim the
+    // serial slot or its release timer.
+    if (!opts?.bypassQueue) markMacroRunning(el, id, runTime);
 }
 
 // --- Feel macros: snap / sweep + visual pulse + auto-restore ---
@@ -352,9 +287,16 @@ function pulseFeelButton(el, durationMs, key) {
 // but the prior loop clobbers it on the next tick.
 function cancelFeelAnim(el) {
     if (el._feelAnim) {
-        el._feelAnim.cancelled = true;
-        if (el._feelAnim.timeout) clearAudioSched(el._feelAnim.timeout);
+        const tok = el._feelAnim;
+        tok.cancelled = true;
+        if (tok.timeout) clearAudioSched(tok.timeout);
         el._feelAnim = null;
+        // Restore the pre-fire snapshot the animation was going to land
+        // on. Without this, cancelling (stop, panic, or a second feel
+        // macro firing) strands the puck/tempo/FX mid-animation — and
+        // the puck is persisted to localStorage, so the stranded state
+        // survives reload.
+        try { tok.restore?.(); } catch {}
     }
 }
 
@@ -372,6 +314,9 @@ function snapshotFeelState(el) {
         const v = el._fxSlider?.(k)?.value;
         if (v != null) fx[k] = parseInt(v, 10);
     }
+    // Prefer a restore-in-flight reverb target over the slider read — the
+    // flush window briefly parks the slider at 0.
+    if (Number.isFinite(el._pendingReverbWet)) fx['reverb-wet'] = el._pendingReverbWet;
     return {
         puck: el._feelState?.puck ? [...el._feelState.puck] : [0.5, 0.5],
         tempo: el._tempo || 120,
@@ -398,8 +343,25 @@ function restoreFeelState(el, snap) {
         // worst of the tail on most settings without an audible click.
         const targetWet = snap.fx['reverb-wet'];
         if (Number.isFinite(targetWet)) {
-            el._setFxByKey('reverb-wet', 0);
-            schedAudio(() => el._setFxByKey('reverb-wet', targetWet), 180);
+            // The flush ride's on the transport clock — if the transport is
+            // stopped (restore triggered by the stop button) the deferred
+            // set would never fire and wet strands at 0. Only flush when
+            // the clock is actually running.
+            const clockRunning = isOfflineContext()
+                || (typeof Tone !== 'undefined' && Tone.Transport && Tone.Transport.state === 'started');
+            if (clockRunning) {
+                el._setFxByKey('reverb-wet', 0);
+                // Publish the in-flight target so a snapshot taken during
+                // the 180 ms flush window (back-to-back feel fires from an
+                // Auto-DJ stack) captures the real value, not the 0.
+                el._pendingReverbWet = targetWet;
+                schedAudio(() => {
+                    el._setFxByKey('reverb-wet', targetWet);
+                    if (el._pendingReverbWet === targetWet) el._pendingReverbWet = null;
+                }, 180);
+            } else {
+                el._setFxByKey('reverb-wet', targetWet);
+            }
         }
         for (const [k, v] of Object.entries(snap.fx)) {
             if (k === 'reverb-wet') continue; // handled by the flush above
@@ -412,7 +374,7 @@ function feelSnap(el, target, durationMs) {
     if (!Array.isArray(target) || target.length !== 2) return;
     cancelFeelAnim(el);
     const snap = snapshotFeelState(el);
-    const token = { cancelled: false };
+    const token = { cancelled: false, restore: () => restoreFeelState(el, snap) };
     el._feelAnim = token;
     el._applyFeel(clampPuck(target));
     pulseFeelButton(el, durationMs, 'feel-snap');
@@ -469,6 +431,13 @@ function feelGenreReset(el, durationMs) {
             el._setFxByKey(k, Math.round(start + (def - start) * e));
         }
     };
+    // Reset is one-way (toward genre defaults) — cancelling should finish
+    // the job instantly rather than strand FX/tempo mid-lerp.
+    token.restore = () => {
+        lerpFx(1);
+        if (bpmChanges) el._setTempo(Math.round(targetBpm));
+        el._disengageFeel?.();
+    };
     const applyAt = (elapsed) => {
         if (!el.isConnected || token.cancelled) return;
         const t = elapsed / durationMs;
@@ -497,7 +466,7 @@ function feelSweep(el, target, durationMs) {
     const snap = snapshotFeelState(el);
     const start = snap.puck;
     const end = clampPuck(target);
-    const token = { cancelled: false };
+    const token = { cancelled: false, restore: () => restoreFeelState(el, snap) };
     el._feelAnim = token;
     pulseFeelButton(el, durationMs, 'feel-sweep');
     // applyFeelGrid touches tempo + lp-freq every call. Tempo updates
@@ -772,9 +741,7 @@ export function fireStackedMacros(el) {
     if (ids.length === 0) return;
     const statusEl = el.querySelector('.pn-autodj-status');
     for (const id of ids) {
-        const saved = el._runningMacro;
-        el._runningMacro = null;
-        try { executeMacro(el, id); } finally { el._runningMacro = saved; }
+        executeMacro(el, id, { bypassQueue: true });
     }
     if (statusEl) statusEl.textContent = `→ stack: ${ids.join(' + ')}`;
 }
@@ -1038,8 +1005,12 @@ export function fireRepeatingOneShots(el, prevTick, curTick) {
     const prevBeat = Math.floor(prevTick / 4);
     const curBeat  = Math.floor(curTick / 4);
     if (curBeat === prevBeat) return;
+    // Bypass the serial queue: repeats arrive every beat, faster than a
+    // one-shot's ~700 ms queue budget drains — routing through fireMacro
+    // grows the queue without bound and Auto-DJ's busy check then skips
+    // forever ("macros stopped working" after ticking a Repeat box).
     const boxes = el.querySelectorAll('.pn-os-repeat:checked');
-    for (const cb of boxes) fireMacro(el, cb.dataset.macro);
+    for (const cb of boxes) executeMacro(el, cb.dataset.macro, { bypassQueue: true });
 }
 
 export function markMacroRunning(el, id, durationMs) {
@@ -1056,6 +1027,11 @@ export function markMacroRunning(el, id, durationMs) {
     // schedAudio for sample-accurate restores; this is just the UI tick.
     const ms = Math.max(100, durationMs + 40);
     const tid = setTimeout(() => {
+        // Generation guard: if another fire has since replaced the slot
+        // (or a canceller cleared it), this timer is stale — releasing
+        // would double-dequeue the serial queue / null a legitimately
+        // running macro's slot.
+        if (!el._runningTimer || el._runningTimer.id !== tid) return;
         const b = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
         if (b) b.classList.remove('running');
         el._runningMacro = null;

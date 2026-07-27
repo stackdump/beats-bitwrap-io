@@ -103,17 +103,10 @@ export function applyProjectSync(el, project, seamless = false) {
     // the queue, button shows .queued, effect never lands. Local-only
     // (don't ship cancel-macros to the worker — the seamless path
     // injected its transition net there and we'd prune it).
+    // Also cancels + RESTORES every in-flight animation family (FX
+    // sweeps, tempo, feel, channel params) so the new project doesn't
+    // inherit half-swept state — see clearLocalMacroState.
     clearLocalMacroState(el);
-    // Cancel any in-flight macro animations — their tokens reference DOM
-    // nodes about to be replaced and channels whose snapshots no longer
-    // apply.
-    if (el._chanAnim) {
-        for (const id of Object.keys(el._chanAnim)) {
-            const t = el._chanAnim[id];
-            if (t) { t.cancelled = true; if (t.hardStop) clearTimeout(t.hardStop); }
-        }
-        el._chanAnim = {};
-    }
     if (el._pulseAnim) {
         for (const id of Object.keys(el._pulseAnim)) {
             const t = el._pulseAnim[id];
@@ -124,20 +117,6 @@ export function applyProjectSync(el, project, seamless = false) {
     el.querySelectorAll('.pn-pulsing, .pn-pulsing-hot').forEach(node => {
         node.classList.remove('pn-pulsing', 'pn-pulsing-hot');
     });
-    // Master-FX sweep/hold in progress? Snap their sliders back to the
-    // pre-macro start BEFORE cancelling so the new project doesn't
-    // inherit a half-swept reverb / delay / filter.
-    if (el._fxAnim) {
-        for (const key of Object.keys(el._fxAnim)) {
-            const t = el._fxAnim[key];
-            if (!t) continue;
-            t.cancelled = true;
-            if (t.slider && typeof t.start === 'number') {
-                el._setFxValue(t.slider, t.start);
-            }
-        }
-        el._fxAnim = {};
-    }
     el._autoDjPreviewPending = false;
 
     // Tag the incoming project with the Feel-engaged snapshot.
@@ -203,6 +182,12 @@ export function applyProjectSync(el, project, seamless = false) {
     }
     el._navingHistory = false;
     el._tempo = project.tempo || 120;
+    // clearLocalMacroState above may have restored an in-flight tempo/feel
+    // macro's pre-fire BPM — and on the seamless path the worker has
+    // already swapped to the new project, so that restore left the worker
+    // ticking the NEW track at the OLD tempo. Re-assert the incoming
+    // project's tempo so worker and UI agree.
+    el._sendWs({ type: 'tempo', bpm: el._tempo });
     el._swing = project.swing || 0;
     el._humanize = project.humanize || 0;
     el._structure = project.structure || null;

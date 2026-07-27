@@ -102,17 +102,22 @@ export function togglePlay(el) {
         el._vizStopLoop();
         clearInterval(el._voiceRecycleTimer);
         el._voiceRecycleTimer = null;
-        // Cancel any pending macro restores — worker will reset mute state anyway.
-        el._cancelAllMacros();
-        // Stop Tone.Transport so any leftover scheduled events freeze
-        // (they'll resume if the user starts again — which is what
-        // _cancelAllMacros already cleared, so the queue is empty).
+        // Stop Tone.Transport FIRST, then cancel macros. Order matters:
+        // restoreFeelState's reverb flush checks Transport.state to decide
+        // between a deferred (transport-clocked) restore and a synchronous
+        // one — with the transport still 'started' it would defer, and the
+        // cancel(0) below would then delete the deferred restore, stranding
+        // reverb-wet at 0. All token restores in clearLocalMacroState are
+        // synchronous, so nothing else needs the transport alive.
         try {
             if (typeof Tone !== 'undefined' && Tone.Transport) {
                 Tone.Transport.cancel(0);
                 if (Tone.Transport.state === 'started') Tone.Transport.stop();
             }
         } catch {}
+        // Cancel + restore any in-flight macro state — worker will reset
+        // mute state anyway.
+        el._cancelAllMacros();
         // Reset playhead to loop start (or beginning if no loop).
         el._tick = el._loopStart > 0 ? el._loopStart : 0;
         el._lastPlayheadPct = null;

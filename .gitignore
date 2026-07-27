@@ -11,3 +11,6 @@ __pycache__/
 # Bazel: ignore only the convenience symlinks. MODULE.bazel, .bazelrc, .bazelversion,
 # BUILD.bazel files, and MODULE.bazel.lock ARE tracked.
 /bazel-*
+
+# macro-audio harness failure artifacts
+test-out/
