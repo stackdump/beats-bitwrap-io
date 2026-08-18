@@ -22,6 +22,7 @@ bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 # Hermetic Node.js — runs the vanilla-ESM cohesion-parity test (no npm/package.json)
 # as a Bazel test target, so `bazel test //...` covers Go<->JS state-root parity.
 bazel_dep(name = "rules_nodejs", version = "6.7.4")
+
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
 node.toolchain(node_version = "22.14.0")
 
