@@ -16,8 +16,7 @@
 #      authoring server, and runs scripts/test-macro-audio.py across N
 #      parallel tabs.
 #
-# Requires: go (with go-pflow checked out as ../go-pflow, per the go.mod
-# replace), python3 + pip, and on a fresh box the Chromium system libs
+# Requires: go, python3 + pip, and on a fresh box the Chromium system libs
 # (re-run with WITH_DEPS=1 to let Playwright apt-install them; needs sudo).
 #
 # Usage:

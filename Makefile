@@ -18,8 +18,8 @@ dev:
 # `make build` deliberately stays on `go build`: it emits ./$(BINARY) at the
 # repo root, which test-audio / seed-collection-extended invoke directly.
 # These targets mirror what CI runs (.github/workflows/ci.yml) for local
-# parity. Requires go-pflow checked out as a sibling (../go-pflow) since
-# go.mod consumes it via a local replace.
+# parity. Every dependency resolves from the module proxy, so no sibling
+# checkout is needed.
 bazel-build:
 	bazel build //...
 

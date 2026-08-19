@@ -4,11 +4,11 @@ Deterministic beat generator + share store. Go deps are sourced from go.mod
 via Gazelle's go_deps extension, so `go build`/`go test` (and the Makefile)
 keep working alongside Bazel.
 
-The core Petri-net library go-pflow is consumed from the local working copy
-(go.mod's `replace github.com/pflow-xyz/go-pflow => ../go-pflow`). Gazelle's
-go_deps extension reads that replace directive and stages ../go-pflow as the
-@com_github_pflow_xyz_go_pflow repo — no bazel_dep wiring needed. beats is the
-root module, so its rules_go / Go SDK govern the whole graph.
+The core Petri-net library go-pflow is an ordinary released dependency
+(go.mod requires a tagged version). Gazelle's go_deps extension stages it from
+the module proxy as the @com_github_pflow_xyz_go_pflow repo — no bazel_dep
+wiring needed, and no sibling checkout. beats is the root module, so its
+rules_go / Go SDK govern the whole graph.
 """
 
 module(
