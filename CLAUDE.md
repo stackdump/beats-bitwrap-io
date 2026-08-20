@@ -471,3 +471,20 @@ A `--workers 4` realtime batch averages ≈ `(track length) / workers` per track
 ## Roadmap — Remote Conductor (WS backend)
 
 Front-end supports `data-backend="ws"` — `connectWebSocket(el)` opens `ws://<host>/ws` speaking the same JSON message types as the in-page worker. Authoritative dispatch in `internal/ws/hub.go`; handlers in `lib/backend/index.js::handleWsMessage`. Production does NOT run `/ws` (deployed without `-authoring`); run locally via `-authoring`.
+
+## Decommissioning
+
+Beat sequencer at beats.bitwrap.io (pflow.dev :8089).
+
+See [Archiving, backing up and taking down a project](../stackdump-com/CLAUDE.md#archiving-backing-up-and-taking-down-a-project) for the ecosystem-wide procedure and the ordering. This section records only what **this** project holds, which is the part that differs.
+
+**State that is not in git** (every path below is gitignored):
+
+| Host | Path | Size | What it is |
+|---|---|---|---|
+| pflow.dev | `~/Workspace/beats-bitwrap-io/data/` | 1.3G | rendered audio + `index.db`; the largest untracked tree in the ecosystem |
+
+**Specific to this project:**
+
+- Tracks already published to cdn.stackdump.com are immutable CIDs and survive independently.
+- beats-builder on valoper renders into this; retire that first or it writes into a deleted tree.
