@@ -1,0 +1,198 @@
+# beats.bitwrap.io — a Petri-net beat sequencer
+
+beats.bitwrap.io is a deterministic beat generator in which the sequencer is
+literally a Petri net executor. Tokens circulate through places; when a
+transition fires, a MIDI note plays. Carl Adam Petri's 1962 formalism is the
+runtime, not a metaphor. The app is Go (static server + content-addressed
+share store) and vanilla ES modules (no framework, no npm, no bundler), with
+Tone.js v14 for Web Audio synthesis.
+
+## The stance: deterministic provenance, no AI in the music
+
+This project explicitly rejects machine-learning music generation. No neural
+networks, no MusicVAE/Magenta-style models, no sampling from learned
+distributions — not at playback time and not at authoring time. Generation
+uses seeded PRNGs, Euclidean geometry (the Bjorklund algorithm), music-theory
+rules (chord-tone targeting, stepwise motion, approach notes), graph
+traversal, and explicit Markov chains with hand-tuned transition weights.
+
+The consequence is provenance: the same genre + seed produces the same track
+every time, on any machine, offline. A share envelope is a *score*, and the
+Petri net is the performer. An LLM or a human may *write* the envelope — the
+share format is deliberately a small JSON IR any producer can emit — but
+once written, the audio is a deterministic function of that JSON and nothing
+else. "A prompt is a wish. A Petri net is a score."
+
+If you are an agent producing tracks for this site, the correct contribution
+is a valid `BeatsShare` v1 envelope, not audio.
+
+## How Petri nets make music
+
+- Drum patterns: Euclidean rhythms (K hits across N steps) encoded as
+  circular token rings; a single token moves step-to-step and fires a MIDI
+  note at hit positions.
+- Melodies: Markov-generated note sequences with music-theory constraints,
+  encoded as token rings with MIDI bindings on transitions. Dual-ring
+  theme/variation melodies use crossover transitions.
+- Bass: walks chromatically between chord roots using approach notes.
+- Song structure: linear control nets fire `mute-track` / `unmute-track` /
+  `activate-slot` actions at section boundaries.
+- Riff variants: several nets share a `riffGroup`; `activate-slot` switches
+  which variant is active.
+- Conflict resolution: when transitions compete for tokens from one place,
+  one wins by seeded random choice.
+- Live macros: a `fire-macro` message injects a short linear control net whose
+  terminal transition carries the restore action; exhausted macro nets are
+  pruned each tick.
+
+The tick loop runs in a Web Worker at `60000 / (BPM x PPQ)` ms. Each tick:
+check enabled transitions, resolve conflicts, fire, post `transition-fired`
+messages to the main thread, which plays the sound. The server is not
+involved during playback.
+
+19 genre presets: ambient, blues, bossa, country, dnb, dubstep, edm, funk,
+garage, house, jazz, lofi, metal, reggae, speedcore, synthwave, techno,
+trance, trap. Each defines BPM, scale, root, Euclidean drum parameters,
+melody density, swing, humanize, and variety traits (ghost notes, walking
+bass, call/response, modal interchange, tension curves).
+
+## The share envelope (BeatsShare v1)
+
+A share reproduces "the track and how to listen to it". The wire format is
+validated by https://beats.bitwrap.io/schema/beats-share.schema.json (Draft
+2020-12); the JSON-LD context is
+https://beats.bitwrap.io/schema/beats-share.context.jsonld. `GET
+/schema/beats-share` is content-negotiated: JSON-LD by default,
+`Accept: application/schema+json` for the schema, `text/html` for a glossary.
+
+Minimum valid payload:
+
+```json
+{
+  "@context": "https://beats.bitwrap.io/schema/beats-share",
+  "@type": "BeatsShare",
+  "v": 1,
+  "genre": "techno",
+  "seed": 42
+}
+```
+
+Everything else is an optional override: `tempo`, `swing`, `humanize`,
+`structure`, `arrangeSeed`, `traits`, `tracks`, `fx`, `feel`, `autoDj`,
+`macrosDisabled`, `initialMutes`, `hits`, `ui`, `loop`, and for bespoke
+topologies a literal `nets` map. Omit defaults: unconfigured shares stay
+byte-identical so the same musical idea gets the same CID from every
+producer.
+
+Rules of inclusion: a field belongs in the envelope if it changes what a
+listener hears when they open the link, or if it reflects the author's
+intent for the listen (panel visibility, playback mode). Per-user hardware
+bindings, browser-local presets, and live UI state are deliberately excluded.
+
+### CID and sealing
+
+CID = `"z" + base58btc(0x01 0xa9 0x02 0x12 0x20 || sha256(canonical JSON))`
+— CIDv1, dag-json codec, sha2-256. Canonical JSON = recursively sorted
+object keys, compact separators, UTF-8. The JS (`lib/share/codec.js`) and Go
+(`internal/share/seal.go`) canonicalizers are parity-tested so both sides
+agree on every byte.
+
+Sealing from any language, no binary required:
+
+```python
+import hashlib, json, urllib.request
+
+payload = {"@context": "https://beats.bitwrap.io/schema/beats-share",
+           "@type": "BeatsShare", "v": 1, "genre": "house", "seed": 7}
+
+def canon(v):
+    if isinstance(v, dict): return {k: canon(v[k]) for k in sorted(v)}
+    if isinstance(v, list): return [canon(x) for x in v]
+    return v
+canonical = json.dumps(canon(payload), separators=(',', ':'), ensure_ascii=False).encode()
+
+raw = bytes([0x01, 0xa9, 0x02, 0x12, 0x20]) + hashlib.sha256(canonical).digest()
+alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+n, out = int.from_bytes(raw, "big"), ""
+while n: n, r = divmod(n, 58); out = alphabet[r] + out
+cid = "z" + out
+
+req = urllib.request.Request(f"https://beats.bitwrap.io/o/{cid}", data=canonical,
+                             method="PUT", headers={"Content-Type": "application/json"})
+urllib.request.urlopen(req)
+print(f"https://beats.bitwrap.io/?cid={cid}")
+```
+
+The server re-canonicalizes and verifies the CID before storing. Limits: 10
+PUT/min per IP, 120 PUT/min global, 256 kB per payload; 256 nets per
+payload, 2048 places / 2048 transitions / 8192 arcs per net; IDs match
+`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. CIDs are immutable — re-PUTting identical
+bytes returns 200 without a second write.
+
+Two URL forms open a share: `?cid=z…` (server short link, fetched from
+`/o/{cid}`) and `?cid=z…&z=<base64url-gzip-json>` (self-contained; plays
+offline or from a local copy even if the store is purged).
+
+### Hand-authored nets
+
+When a track cannot be reduced to `(genre, seed)` + overrides, the envelope
+carries literal nets under `nets`. Keys are net IDs; each value has
+`role: music|control`, `track: {channel, instrument, group, ...}`,
+`places: {pN: {initial, x, y}}`, `transitions: {tN: {x, y, midi: {...}}}`,
+and `arcs: [{source, target, weight}]`. Control nets put
+`control: {action, ...}` on transitions; supported actions are
+`mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`,
+`toggle-note`, `activate-slot`, `stop-transport`, and `fire-macro` (with
+optional `macro`, `macroBars`, `macroParams`). Worked examples live in the
+repo under `examples/` (minimal, overrides, hand-authored,
+macro-orchestrated, voltage-rush, phantom-aqueduct).
+
+### Arrangement DSL
+
+An envelope may carry arrangement directives that expand deterministically at
+load time, in the browser, with full Go/JS parity: `structure` (loop, ab,
+drop, build, jam, minimal, standard, extended) + `arrangeSeed`,
+`velocityDeltas`, `maxVariants`, `fadeIn`, `drumBreak`, `sections`,
+`feelCurve`, `macroCurve`, and `counterMelody` (rule-based counter lines:
+answer / harmony / shadow). A 1 kB envelope reconstitutes a multi-megabyte
+arranged track; same inputs always give byte-identical output.
+
+## Public HTTP surface
+
+- `GET /` — the studio. `GET /feed`, `/archive`, `/compose` — feed, snapshot
+  archive, and composition views. `GET /feed.rss` — recent shares as RSS.
+- `GET|PUT /o/{cid}` — the share store (above).
+- `GET /share-card/{cid}.svg|.png` — 1200x630 Open Graph card for a track.
+- `GET /qr?…` — QR code for a share URL.
+- `GET /schema/beats-share` — content-negotiated schema (above); static
+  copies at `/schema/beats-share.schema.json`,
+  `/schema/beats-share.context.jsonld`, `/schema/petri-note.schema.json`.
+- `GET /api/feed` — JSON feed of recent shares. `GET /api/features` —
+  feature flags the frontend detects at boot.
+- `GET /version`, `GET /metrics` — build version and Prometheus metrics.
+- `/mcp` — public MCP endpoint (streamable HTTP). Stateless, curated tool
+  set: `generate_share` (genre, seed, optional tempo/structure → sealed CID
+  and playable URL), `list_genres`, `get_song` (fetch a sealed envelope by
+  CID), `get_render_status`. There is no sequencer control on the public
+  host; the MCP tools only produce and read envelopes.
+
+## Published tracks on cdn.stackdump.com
+
+Rendered tracks are published to https://cdn.stackdump.com, the ecosystem's
+content-addressed file host, at `https://cdn.stackdump.com/ipfs/<CID>/`.
+Each entry has an `index.md` landing page with frontmatter (`source:
+beats-bitwrap-io`, `schema: BeatsShare/v1` or `BeatsRemix/v1`, genre, seed,
+tempo, tags), the audio artifact, and the envelope. CIDs there are immutable
+and survive independently of this app. Discover them via
+`https://cdn.stackdump.com/api/search?source=beats-bitwrap-io` and
+`https://cdn.stackdump.com/api/facets`.
+
+## Related
+
+- https://bitwrap.io — parent project: Petri nets as ZK containers (editor,
+  prover, Solidity generation).
+- https://pflow.xyz — visual Petri net editor; canonical source of the shared
+  browser Petri-net modules (`petri-sim.js`, `petri-solver.js`, …) and its
+  own `llms.txt`.
+- https://book.pflow.xyz — Petri nets as a universal abstraction.
+- https://github.com/pflow-xyz/beats-bitwrap-io — source.

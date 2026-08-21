@@ -1,0 +1,65 @@
+# beats.bitwrap.io
+
+> Deterministic beat generator where the sequencer IS a Petri net executor.
+> Every note is a transition firing; every rhythm is tokens circulating
+> through places. No AI, no LLMs, no neural networks in the music — seeded
+> PRNGs, Euclidean rhythms, music-theory rules, and explicit Markov chains
+> with hand-tuned weights. Same genre + same seed = the same track, every
+> time, offline, with no model in the loop.
+
+Tracks are shared as a content-addressed `BeatsShare` v1 JSON envelope
+(`@context: https://beats.bitwrap.io/schema/beats-share`). The CID is
+`base58btc(CIDv1(dag-json, sha256(canonical-JSON(payload))))`, computed
+identically in JS and Go; a `?cid=z…` URL reproduces byte-identical playback
+in the browser. Minimum valid payload: `{"@context": …, "@type":
+"BeatsShare", "v": 1, "genre": "techno", "seed": 42}`. Valid genres: ambient,
+blues, bossa, country, dnb, dubstep, edm, funk, garage, house, jazz, lofi,
+metal, reggae, speedcore, synthwave, techno, trance, trap.
+
+## Docs
+
+- [Full guide](https://beats.bitwrap.io/llms-full.txt): how the Petri nets
+  make music, the share envelope, sealing a CID without the binary, the
+  arrangement DSL, the public MCP endpoint, and the deterministic-provenance stance
+- [Share schema](https://beats.bitwrap.io/schema/beats-share): content-negotiated
+  — JSON-LD `@context` by default, `application/schema+json` for the Draft 2020-12
+  JSON Schema, `text/html` for a rendered glossary
+- [Share JSON Schema (static)](https://beats.bitwrap.io/schema/beats-share.schema.json):
+  the wire-format contract for `BeatsShare` v1 payloads
+- [Share JSON-LD context (static)](https://beats.bitwrap.io/schema/beats-share.context.jsonld)
+- [Project schema](https://beats.bitwrap.io/schema/petri-note.schema.json): the
+  runtime project shape — nets, places, transitions, arcs, MIDI bindings
+- [Source](https://github.com/pflow-xyz/beats-bitwrap-io): Go + vanilla ES
+  modules, no npm, no bundler
+
+## App
+
+- [Studio](https://beats.bitwrap.io/): generate, mix, perform macros,
+  Auto-DJ, Feel pad, Stage view, share (`?cid=…`)
+- [Feed](https://beats.bitwrap.io/feed): recently shared tracks
+- [Archive](https://beats.bitwrap.io/archive): snapshot archive of the share store
+- [Compose](https://beats.bitwrap.io/compose): multi-track composition view
+
+## API
+
+- [Share store](https://beats.bitwrap.io/o/): `GET /o/{cid}` returns the
+  sealed envelope; `PUT /o/{cid}` seals a new one (server re-canonicalizes
+  and rejects a CID mismatch; 10 PUT/min/IP, 256 kB max; CIDs are immutable)
+- [Share card](https://beats.bitwrap.io/share-card/): `/share-card/{cid}.svg`
+  or `.png` — 1200x630 Open Graph card for a sealed track
+- [Public MCP endpoint](https://beats.bitwrap.io/mcp): streamable-HTTP MCP
+  server with a stateless tool set — `generate_share` (genre + seed → sealed
+  CID + playable URL), `list_genres`, `get_song`, `get_render_status`
+- [RSS feed](https://beats.bitwrap.io/feed.rss): recently shared tracks as RSS
+
+## Related
+
+- [cdn.stackdump.com](https://cdn.stackdump.com): content-addressed host
+  where rendered tracks are published at `/ipfs/<CID>/` — immutable, survives
+  independently of this app; filter `/api/search?source=beats-bitwrap-io`
+- [bitwrap.io](https://bitwrap.io): Petri nets as ZK containers — the parent
+  project (editor + prover + Solidity generation)
+- [pflow.xyz](https://pflow.xyz): visual Petri net editor and the shared
+  browser Petri-net modules
+- [book.pflow.xyz](https://book.pflow.xyz): Petri nets as a universal
+  abstraction

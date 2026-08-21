@@ -143,6 +143,8 @@ go_library(
         "public/lib/ui/mixer.js",
         "public/lib/ui/slider-tip.js",
         "public/lib/ui/stage.js",
+        "public/llms-full.txt",
+        "public/llms.txt",
         "public/manifest.json",
         "public/petri-note.css",
         "public/petri-note.js",
