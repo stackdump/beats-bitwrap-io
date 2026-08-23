@@ -329,7 +329,10 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 			http.Error(w, "render error", http.StatusInternalServerError)
 			return
 		}
-		decorated := injectIntoHead(indexBytes, []byte(buf.String()))
+		// The shell carries site-wide defaults (description, canonical,
+		// og:*) between "default seo" markers; a share card replaces them
+		// rather than adding a second set a crawler would have to pick from.
+		decorated := injectIntoHead(stripDefaultSEO(indexBytes), []byte(buf.String()))
 		if tag := googleAnalyticsTag(GoogleAnalyticsID); tag != "" {
 			decorated = injectIntoHead(decorated, []byte(tag))
 		}
@@ -379,6 +382,25 @@ func googleAnalyticsTag(id string) string {
 // injectIntoHead slides `block` in just before the closing </head> tag.
 // If for some reason </head> isn't present (hand-edited index), the
 // block is appended to the front.
+// stripDefaultSEO removes the "<!-- default seo -->…<!-- /default seo -->"
+// block from index.html. Without markers the document is returned as is.
+func stripDefaultSEO(doc []byte) []byte {
+	start := indexBytes(doc, []byte("<!-- default seo -->"))
+	if start < 0 {
+		return doc
+	}
+	endMarker := []byte("<!-- /default seo -->")
+	end := indexBytes(doc[start:], endMarker)
+	if end < 0 {
+		return doc
+	}
+	end += start + len(endMarker)
+	out := make([]byte, 0, len(doc)-(end-start))
+	out = append(out, doc[:start]...)
+	out = append(out, doc[end:]...)
+	return out
+}
+
 func injectIntoHead(doc, block []byte) []byte {
 	marker := []byte("</head>")
 	idx := indexBytes(doc, marker)

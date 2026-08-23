@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /o/
+Disallow: /c/
+
+Sitemap: https://beats.bitwrap.io/sitemap.xml
