@@ -439,6 +439,15 @@ func (s *Sequencer) CropProject(startTick, endTick int64) map[string]interface{}
 	return s.project.ToJSON()
 }
 
+// Tempo returns the current live tempo in BPM. Used by ms-only MIDI
+// consumers to resolve beat-relative note durations (durationSteps) at
+// the live tempo.
+func (s *Sequencer) Tempo() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tempo
+}
+
 // SetTempo changes the tempo.
 func (s *Sequencer) SetTempo(bpm float64) {
 	s.mu.Lock()

@@ -25,7 +25,13 @@
         "duration": {
           "type": "integer",
           "minimum": 0,
-          "description": "Duration in milliseconds"
+          "description": "Duration in milliseconds (legacy canonical form; ignored when durationSteps is present)"
+        },
+        "durationSteps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Beat-relative duration in sixteenth steps (1 step = 1/4 beat), resolved at playback against the live BPM: ms = steps * (60000 / bpm) / 4. Canonical when > 0; the ms duration is then omitted"
         },
         "channel": {
           "type": "integer",

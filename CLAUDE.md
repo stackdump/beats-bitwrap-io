@@ -142,6 +142,15 @@ Shape: keys are net IDs, values match what `parseNetBundle` (`lib/pflow.js`) con
 
 Supported `control.action`: `mute-track`, `unmute-track`, `toggle-track`, `mute-note`, `unmute-note`, `toggle-note`, `activate-slot`, `stop-transport`, `fire-macro` (with optional `macro`, `macroBars`, `macroParams`). See `lib/macros/catalog.js` for macro IDs.
 
+### Note durations: beat-relative encoding (`midi.durationSteps`)
+
+`midi` bindings carry sustain in one of two forms, and exactly one is canonical per binding:
+
+- **`durationSteps` (canonical when > 0)** — beat-relative, in SIXTEENTH steps (1 step = 1/4 beat). Resolved to ms at playback against the **live** BPM: `ms = steps * (60000 / bpm) / 4`. Serialization and CID hashing carry `durationSteps` and omit `duration`.
+- **`duration` (legacy ms)** — canonical only when `durationSteps` is absent. Existing saved/shared models keep their exact bytes, CIDs and playback; nothing up-converts them on load.
+
+New authoring (compose/arrange, Go and JS in lockstep) stamps `durationSteps = round(ms * bpm * 4 / 60000)` against the model's authored tempo, so sustains now scale with a listener's tempo override (the bossa walking-bass dotted quarter was the motivating case). The contract lives in `internal/pflow/duration.go` and the duration helpers at the bottom of `public/lib/pflow.js`; the live Go↔JS parity diff `bazel test //tools/parity:model_cid_parity_test` (or `make test-model-parity`) byte-compares the parse → normalize → CID path of both languages, with both encodings in the fixture. Editing a note's ms in the MIDI-binding dialog drops `durationSteps` — the edited ms becomes canonical for that note.
+
 **Sealing from an agent — no Go binary needed.** See `examples/README.md` for the end-to-end Python recipe (canonical JSON + CIDv1 + `PUT /o/{cid}`) and worked examples.
 
 Rate limits: 10 PUT/min/IP, 120 PUT/min global, 256 kB max per payload. Schema caps: 256 nets per payload, 2048 places / 2048 transitions / 8192 arcs per net, 64-char IDs matching `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (rejects `__proto__`, `constructor`, etc.). CIDs are immutable — same canonical bytes twice return 200 without a second disk write.

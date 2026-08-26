@@ -161,6 +161,8 @@ go_library(
         "public/vendor/NOTICE.md",
         "public/vendor/qrcode.LICENSE",
         "public/vendor/qrcode.js",
+        "public/robots.txt",
+        "public/sitemap.xml",
     ],
     importpath = "beats-bitwrap-io",
     visibility = ["//visibility:private"],

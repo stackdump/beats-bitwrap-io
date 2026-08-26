@@ -2,8 +2,8 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test-audio test-e2e test-cohesion-parity seed-collection-extended \
-        bazel-build bazel-test bazel-gazelle
+.PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
+        seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
@@ -73,6 +73,20 @@ clean:
 test-cohesion-parity:
 	@go test ./internal/generator/ -run TestPinnedMotifVectorTechnoSeed42 -count=1
 	@node scripts/test-cohesion-parity.mjs
+
+# Live Go↔JS model-CID parity — runs BOTH live producers (the Go binary
+# in tools/parity and public/lib/pflow.js) on the same fixture and diffs
+# canonical JSON + CID byte-for-byte. Bazel equivalent:
+# `bazel test //tools/parity:model_cid_parity_test`.
+test-model-parity:
+	@go build -o /tmp/beats-model-cid ./tools/parity
+	@GO_MODEL_CID=/tmp/beats-model-cid node tools/parity/model-cid-parity.mjs
+
+# Full pre-commit gate: Go unit tests + both Go↔JS parity checks.
+test:
+	go test ./...
+	@$(MAKE) --no-print-directory test-cohesion-parity
+	@$(MAKE) --no-print-directory test-model-parity
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and

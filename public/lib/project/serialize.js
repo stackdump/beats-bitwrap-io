@@ -111,7 +111,13 @@ export function serializeProject(el) {
             if (trans.midi) {
                 if (trans.midi.channel === ch) delete trans.midi.channel;
                 if (trans.midi.velocity === defVel) delete trans.midi.velocity;
-                if (trans.midi.duration === 100) delete trans.midi.duration;
+                // Canonical-form rule (lib/pflow.js duration helpers):
+                // durationSteps wins when present; legacy ms only otherwise.
+                if (trans.midi.durationSteps > 0) delete trans.midi.duration;
+                else {
+                    delete trans.midi.durationSteps;
+                    if (trans.midi.duration === 100) delete trans.midi.duration;
+                }
             }
         }
 

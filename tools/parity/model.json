@@ -1,0 +1,52 @@
+{
+  "name": "Parity <Fixture> & Friends",
+  "tempo": 112.5,
+  "swing": 12.5,
+  "nets": {
+    "legacy": {
+      "track": { "channel": 2, "defaultVelocity": 100 },
+      "places": {
+        "p0": { "initial": [1], "x": 10, "y": 20 },
+        "p1": { "initial": [0] }
+      },
+      "transitions": {
+        "t0": { "midi": { "note": 40, "velocity": 90, "duration": 250 } },
+        "t1": { "midi": { "note": 43 } }
+      },
+      "arcs": [
+        { "source": "p0", "target": "t0" },
+        { "source": "t0", "target": "p1", "weight": [2] },
+        { "source": "p1", "target": "t1", "weight": [0, 2], "inhibit": true }
+      ]
+    },
+    "steps": {
+      "riffGroup": "bass",
+      "track": { "channel": 3, "defaultVelocity": 110 },
+      "places": {
+        "q0": { "initial": [1] }
+      },
+      "transitions": {
+        "u0": { "midi": { "note": 36, "velocity": 100, "durationSteps": 6 } },
+        "u1": { "midi": { "note": 38, "duration": 500, "durationSteps": 3 } }
+      },
+      "arcs": [
+        { "source": "q0", "target": "u0" },
+        { "source": "u0", "target": "q0" }
+      ]
+    },
+    "ctl": {
+      "role": "control",
+      "track": { "channel": 1, "defaultVelocity": 100 },
+      "places": {
+        "c0": { "initial": [1] }
+      },
+      "transitions": {
+        "v0": { "control": { "action": "mute-track", "targetNet": "legacy" } },
+        "v1": { "control": { "action": "stop-transport" } }
+      },
+      "arcs": [
+        { "source": "c0", "target": "v0" }
+      ]
+    }
+  }
+}

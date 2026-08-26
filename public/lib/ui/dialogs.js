@@ -4,6 +4,7 @@
 // at Save time.
 
 import { noteToName, nameToNote } from '../audio/note-name.js';
+import { resolveDurationMs } from '../pflow.js';
 import { renderCurrentCard } from '../share/card.js';
 import { openAiPromptModal } from './ai-prompt.js';
 import { listHistory, clearHistory } from '../share/history.js';
@@ -19,7 +20,12 @@ export function openMidiEditor(el, transitionId) {
         note: Number.isFinite(src.note) ? src.note : 60,
         channel: Number.isFinite(src.channel) ? src.channel : trackCh,
         velocity: Number.isFinite(src.velocity) ? src.velocity : trackVel,
-        duration: Number.isFinite(src.duration) ? src.duration : 100,
+        // Beat-relative bindings display as the ms they resolve to at the
+        // current tempo; saving writes back plain ms (the fresh object
+        // below drops durationSteps, making the edited ms canonical).
+        duration: src.durationSteps > 0
+            ? resolveDurationMs(src, el._tempo || 120)
+            : (Number.isFinite(src.duration) ? src.duration : 100),
     };
 
     const overlay = document.createElement('div');

@@ -7,6 +7,7 @@
 // first arg; petri-note.js keeps one-line class-method wrappers.
 
 import { toneEngine } from '../../audio/tone-engine.js';
+import { resolveDurationMs } from '../pflow.js';
 import { apcSync } from './apc-mini-mk2.js';
 
 // --- Init + MIDI input ---
@@ -620,6 +621,13 @@ export function debouncedRenderMixer(el) {
 // --- Playback routing ---
 
 export async function playNote(el, midi, netId, playAt) {
+    // Beat-relative durations (midi.durationSteps) resolve to ms against
+    // the LIVE tempo here — once, for every downstream consumer (Tone.js
+    // and Web MIDI note-off both take ms). Legacy ms bindings pass
+    // through unchanged.
+    if (midi && midi.durationSteps > 0) {
+        midi = { ...midi, duration: resolveDurationMs(midi, el._tempo || 120) };
+    }
     const channel = midi.channel || 1;
     if (netId && (el._mutedNets.has(netId) || el._manualMutedNets.has(netId))) return;
     if (el._mutedChannels.has(channel)) return;

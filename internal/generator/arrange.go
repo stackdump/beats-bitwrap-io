@@ -134,6 +134,12 @@ type CounterMelodyEntry struct {
 
 // ArrangeWithOpts is the canonical entry point — other forms wrap it.
 func ArrangeWithOpts(proj *pflow.Project, genre, size string, opts ArrangeOpts) {
+	// Arrange can synthesize new music nets (counter-melody) with
+	// ms-authored bindings; stamp beat-relative durationSteps on every
+	// exit so arrange output, like compose output, emits the canonical
+	// beat-relative encoding (lockstep with public/lib/generator/arrange.js).
+	defer pflow.StampDurationSteps(proj)
+
 	// Overlay mode: skip structure + variant expansion, only run the
 	// overlay passes against the project's existing Structure. This is
 	// how composer-generated tracks receive arrange-time curves layered

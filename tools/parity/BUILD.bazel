@@ -1,0 +1,34 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools:nodejs_test.bzl", "nodejs_test")
+
+go_library(
+    name = "parity_lib",
+    srcs = ["main.go"],
+    importpath = "beats-bitwrap-io/tools/parity",
+    visibility = ["//visibility:private"],
+    deps = ["//internal/pflow"],
+)
+
+go_binary(
+    name = "parity",
+    embed = [":parity_lib"],
+    visibility = ["//visibility:public"],
+)
+
+# Live Go↔JS model-CID parity diff: runs the LIVE Go producer (the
+# go_binary above, staged into runfiles) and the LIVE JS producer
+# (public/lib/pflow.js, via //:js_generator_srcs) on the same fixture and
+# byte-compares canonical JSON + CID — not both-against-a-pinned-fixture.
+# The fixture mixes legacy ms durations with beat-relative durationSteps,
+# so the duration canonical-form rule is inside the diffed surface.
+nodejs_test(
+    name = "model_cid_parity_test",
+    data = [
+        "model.json",
+        "model-cid-parity.mjs",
+        ":parity",
+        "//:js_generator_srcs",
+    ],
+    entry_point = "model-cid-parity.mjs",
+    visibility = ["//visibility:public"],
+)

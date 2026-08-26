@@ -53,6 +53,7 @@ go_test(
         "qr_test.go",
         "seal_test.go",
         "share_card_png_test.go",
+        "share_page_seo_test.go",
         "sigverify_test.go",
     ],
     data = [

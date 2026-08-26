@@ -917,6 +917,10 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 			}
 
 			AddStingerTracks(proj, rng.Int63())
+			// New authoring emits beat-relative durations: stamp
+			// durationSteps from the authored ms at the authored tempo
+			// (lockstep with public/lib/generator/composer.js).
+			pflow.StampDurationSteps(proj)
 			return proj
 		}
 	}
@@ -948,6 +952,10 @@ func Compose(genreName string, overrides map[string]interface{}) *pflow.Project 
 	}
 
 	AddStingerTracks(proj, rng.Int63())
+	// New authoring emits beat-relative durations: stamp durationSteps
+	// from the authored ms at the authored tempo (lockstep with
+	// public/lib/generator/composer.js).
+	pflow.StampDurationSteps(proj)
 	return proj
 }
 

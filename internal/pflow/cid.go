@@ -11,13 +11,20 @@ import (
 // Deterministic: same project structure always produces the same CID.
 // Compatible with go-pflow's CID approach (SHA256 of normalized JSON).
 func (p *Project) CID() string {
-	normalized := p.normalizeForCID()
-	data, err := json.Marshal(normalized)
+	data, err := p.CanonicalJSON()
 	if err != nil {
 		return ""
 	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+// CanonicalJSON returns the exact bytes the CID hashes: the normalized,
+// deterministically ordered model JSON. Exported so the Go↔JS parity
+// harness (tools/parity) can byte-compare this path against the JS
+// implementation (public/lib/pflow.js::canonicalProjectJSON).
+func (p *Project) CanonicalJSON() ([]byte, error) {
+	return json.Marshal(p.normalizeForCID())
 }
 
 // normalizeForCID creates a deterministically ordered representation.
@@ -89,12 +96,20 @@ func normalizeBundle(b *NetBundle) map[string]interface{} {
 	for _, id := range transIDs {
 		t := make(map[string]interface{})
 		if midi, ok := b.Bindings[id]; ok {
-			t["midi"] = map[string]interface{}{
+			m := map[string]interface{}{
 				"note":     midi.Note,
 				"velocity": midi.Velocity,
-				"duration": midi.Duration,
 				"channel":  midi.Channel,
 			}
+			// Canonical-form rule (duration.go): hash durationSteps when
+			// present, else the legacy ms — so every pre-steps model
+			// keeps its CID unchanged.
+			if midi.DurationSteps > 0 {
+				m["durationSteps"] = midi.DurationSteps
+			} else {
+				m["duration"] = midi.Duration
+			}
+			t["midi"] = m
 		}
 		if ctrl, ok := b.ControlBindings[id]; ok {
 			c := map[string]interface{}{"action": ctrl.Action}

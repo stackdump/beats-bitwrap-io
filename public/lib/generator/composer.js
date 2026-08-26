@@ -17,7 +17,7 @@ import { markovMelody } from './markov.js';
 import { drumRiff, melodyRiff } from './riffs.js';
 import { ghostNoteHihat, walkingBassLine, callResponseMelody, applyModalInterchange, drumFillNet, chorus } from './variety.js';
 import { fadeIn, fadeOut, drumBreak, injectFeelCurve, injectMacroCurve } from './arrange.js';
-import { parseNetBundle } from '../pflow.js';
+import { parseNetBundle, stampDurationSteps } from '../pflow.js';
 import { generateStructure, songStructure, extractSlotIndex, defaultPhrases } from './structure.js';
 import { genrePhrases } from './theory.js';
 import { shuffleInstruments } from './shuffle.js';
@@ -950,6 +950,10 @@ export function compose(genreName, overrides = {}) {
 
             addStingerTracks(proj, rng.nextInt63());
             ensureGroupAndInstrumentSet(proj);
+            // New authoring emits beat-relative durations: stamp
+            // durationSteps from the authored ms at the authored tempo
+            // (lockstep with internal/generator/composer.go).
+            stampDurationSteps(proj);
             return proj;
         }
     }
@@ -978,6 +982,10 @@ export function compose(genreName, overrides = {}) {
     // after chorus / stingers / structure catches everything added by
     // arrangement passes, not just the primary-role generators.
     ensureGroupAndInstrumentSet(proj);
+
+    // New authoring emits beat-relative durations (lockstep with
+    // internal/generator/composer.go).
+    stampDurationSteps(proj);
 
     return proj;
 }
