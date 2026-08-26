@@ -291,7 +291,8 @@
                   "note":     { "type": "integer", "minimum": 0, "maximum": 127 },
                   "channel":  { "type": "integer", "minimum": 1, "maximum": 32 },
                   "velocity": { "type": "integer", "minimum": 0, "maximum": 127 },
-                  "duration": { "type": "integer", "minimum": 0, "maximum": 60000 }
+                  "duration": { "type": "integer", "minimum": 0, "maximum": 60000 },
+                  "durationSteps": { "type": "integer", "minimum": 0, "maximum": 4096 }
                 }
               },
               "control": {

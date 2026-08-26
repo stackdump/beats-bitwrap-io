@@ -17,7 +17,7 @@
 
 import { ringLayout } from './euclidean.js';
 import { createRng } from './core.js';
-import { NetBundle } from '../pflow.js';
+import { NetBundle, stampDurationSteps } from '../pflow.js';
 import {
     PPQ as COUNTER_PPQ,
     seedFromBytes as counterSeedFromBytes,
@@ -843,7 +843,19 @@ function nextFreeCounterChannel(proj) {
  *   overlayOnly: bool,
  * }
  */
+// Arrange can synthesize new music nets (counter-melody) with ms-authored
+// bindings; stamp beat-relative durationSteps on every exit so arrange
+// output, like compose output, emits the canonical beat-relative encoding
+// (lockstep with internal/generator/arrange.go, which defers the stamp).
 export function arrangeWithOpts(proj, genre, size, opts = {}) {
+    try {
+        arrangeWithOptsInner(proj, genre, size, opts);
+    } finally {
+        stampDurationSteps(proj);
+    }
+}
+
+function arrangeWithOptsInner(proj, genre, size, opts = {}) {
     proj.nets = proj.nets || {};
 
     if (opts.overlayOnly) {

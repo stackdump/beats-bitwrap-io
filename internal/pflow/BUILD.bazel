@@ -6,6 +6,7 @@ go_library(
         "adapter.go",
         "analyze.go",
         "cid.go",
+        "duration.go",
     ],
     importpath = "beats-bitwrap-io/internal/pflow",
     visibility = ["//:__subpackages__"],

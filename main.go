@@ -796,7 +796,9 @@ func setupMIDI(seq *sequencer.Sequencer, port string, virtual, perNet bool, pref
 			if prevFired != nil {
 				prevFired(netId, transId, m)
 			}
-			single.Send(m)
+			// Resolve beat-relative durations to ms at the live tempo —
+			// hardware MIDI note-off timers are ms-only.
+			single.Send(pflow.ResolvedBinding(m, seq.Tempo()))
 		}
 		prevComplete := seq.OnPlaybackComplete
 		seq.OnPlaybackComplete = func() {
@@ -818,7 +820,7 @@ func setupMIDI(seq *sequencer.Sequencer, port string, virtual, perNet bool, pref
 			if prevFired != nil {
 				prevFired(netId, transId, m)
 			}
-			fan.Send(netId, m)
+			fan.Send(netId, pflow.ResolvedBinding(m, seq.Tempo()))
 		}
 		prevSwapped := seq.OnProjectSwapped
 		seq.OnProjectSwapped = func(project map[string]interface{}) {
@@ -847,7 +849,7 @@ func setupMIDI(seq *sequencer.Sequencer, port string, virtual, perNet bool, pref
 			if prevFired != nil {
 				prevFired(netId, transId, m)
 			}
-			multi.Send(netId, m)
+			multi.Send(netId, pflow.ResolvedBinding(m, seq.Tempo()))
 		}
 		prevComplete := seq.OnPlaybackComplete
 		seq.OnPlaybackComplete = func() {

@@ -262,13 +262,16 @@ export function parseNetBundle(data) {
             };
             if (tData.label) nb.transitions[id].label = tData.label;
 
-            // MIDI binding
+            // MIDI binding. durationSteps (sixteenth steps, canonical
+            // when > 0) rides beside the legacy ms duration — see the
+            // duration helpers at the bottom of this file.
             if (tData.midi && typeof tData.midi === 'object') {
                 nb.bindings[id] = {
                     note: getInt(tData.midi, 'note', 60),
                     channel: getInt(tData.midi, 'channel', nb.track.channel),
                     velocity: getInt(tData.midi, 'velocity', nb.track.defaultVelocity),
                     duration: getInt(tData.midi, 'duration', 100),
+                    durationSteps: getInt(tData.midi, 'durationSteps', 0),
                 };
             }
 
@@ -321,6 +324,7 @@ export function parseNetBundle(data) {
                     channel:  getInt(m, 'channel', nb.track.channel),
                     velocity: getInt(m, 'velocity', nb.track.defaultVelocity),
                     duration: getInt(m, 'duration', 100),
+                    durationSteps: getInt(m, 'durationSteps', 0),
                 };
             }
         }
@@ -489,7 +493,12 @@ function bundleToJSON(nb) {
             const midi = { note: m.note };
             if (m.channel !== ch) midi.channel = m.channel;
             if (m.velocity !== defVel) midi.velocity = m.velocity;
-            if (m.duration !== 100) midi.duration = m.duration;
+            // Canonical-form rule (see duration helpers below): when
+            // durationSteps is present it is canonical and the legacy ms
+            // duration is omitted; otherwise legacy ms only, so
+            // pre-steps models round-trip byte-identically.
+            if (m.durationSteps > 0) midi.durationSteps = m.durationSteps;
+            else if (m.duration !== 100) midi.duration = m.duration;
             t.midi = midi;
         }
         if (nb.controlBindings[label]) {
@@ -516,4 +525,144 @@ function bundleToJSON(nb) {
     });
 
     return result;
+}
+
+// --- Beat-relative durations (mirrors internal/pflow/duration.go) ---
+//
+// Canonical-form rule, identical on both sides:
+//   - midi.durationSteps present (> 0): canonical. Sixteenth steps
+//     (1 step = 1/4 beat); serialization and CID hashing carry
+//     durationSteps and omit the legacy ms duration; playback resolves
+//     against the LIVE bpm: ms = steps * (60000 / bpm) / 4.
+//   - durationSteps absent: legacy midi.duration (ms) stays canonical —
+//     existing models keep their bytes, CIDs and playback unchanged.
+// New authoring (compose/arrange, both languages) stamps
+// steps = round(ms * bpm * 4 / 60000) at the model's authored tempo.
+
+export function durationStepsFromMs(ms, bpm) {
+    if (!(ms > 0) || !(bpm > 0)) return 0;
+    const steps = Math.round(ms * bpm * 4 / 60000);
+    return steps < 1 ? 1 : steps;
+}
+
+export function resolveDurationMs(midi, bpm) {
+    if (!midi) return 0;
+    if (midi.durationSteps > 0 && bpm > 0) {
+        return Math.round(midi.durationSteps * 60000 / (bpm * 4));
+    }
+    return Number.isFinite(midi.duration) ? midi.duration : 100;
+}
+
+// Stamp durationSteps on every legacy ms binding, at the project's
+// authored tempo. Idempotent. Handles both parsed NetBundle nets
+// (bindings map) and raw nets (transitions[id].midi).
+export function stampDurationSteps(proj) {
+    if (!proj || !proj.nets) return;
+    const bpm = proj.tempo > 0 ? proj.tempo : 120;
+    const stamp = (m) => {
+        if (!m || m.durationSteps > 0) return;
+        const ms = Number.isFinite(m.duration) ? m.duration : 0;
+        if (ms <= 0) return;
+        m.durationSteps = durationStepsFromMs(ms, bpm);
+    };
+    for (const nb of Object.values(proj.nets)) {
+        if (!nb || typeof nb !== 'object') continue;
+        if (nb.bindings && typeof nb.bindings === 'object') {
+            for (const m of Object.values(nb.bindings)) stamp(m);
+        }
+        if (nb.transitions && typeof nb.transitions === 'object') {
+            for (const t of Object.values(nb.transitions)) {
+                if (t && t.midi && typeof t.midi === 'object' && Number.isFinite(t.midi.duration)) {
+                    stamp(t.midi);
+                }
+            }
+        }
+    }
+}
+
+// --- Model CID (mirrors internal/pflow/cid.go) ---
+//
+// normalizeProjectForCID / canonicalProjectJSON reproduce, byte for byte,
+// Go's Project.normalizeForCID + json.Marshal: same field-inclusion rules
+// (including the durationSteps-vs-duration canonical form above), keys
+// sorted, Go's HTML escaping of < > & and U+2028/U+2029. The Bazel target
+// //tools/parity:model_cid_parity_test diffs this output against the live
+// Go implementation on the same input.
+
+function normalizeBundleForCID(nb) {
+    const n = {};
+    if (nb.role && nb.role !== 'music') n.role = nb.role;
+    if (nb.riffGroup) n.riffGroup = nb.riffGroup;
+
+    const places = {};
+    for (const id of Object.keys(nb.places).sort()) {
+        places[id] = { initial: nb.places[id].initial || [0] };
+    }
+    n.places = places;
+
+    const transitions = {};
+    for (const id of Object.keys(nb.transitions).sort()) {
+        const t = {};
+        const m = nb.bindings[id];
+        if (m) {
+            const midi = { note: m.note, velocity: m.velocity, channel: m.channel };
+            if (m.durationSteps > 0) midi.durationSteps = m.durationSteps;
+            else midi.duration = m.duration;
+            t.midi = midi;
+        }
+        const c = nb.controlBindings[id];
+        if (c) {
+            const ctrl = { action: c.action };
+            if (c.targetNet) ctrl.targetNet = c.targetNet;
+            t.control = ctrl;
+        }
+        transitions[id] = t;
+    }
+    n.transitions = transitions;
+
+    n.arcs = nb.arcs
+        .map(a => {
+            const arc = { source: a.source, target: a.target, weight: a.weight };
+            if (a.inhibit) arc.inhibit = true;
+            return arc;
+        })
+        .sort((a, b) => (a.source !== b.source
+            ? (a.source < b.source ? -1 : 1)
+            : (a.target < b.target ? -1 : a.target > b.target ? 1 : 0)));
+    return n;
+}
+
+export function normalizeProjectForCID(proj) {
+    const result = { name: proj.name, tempo: proj.tempo };
+    if (proj.swing > 0) result.swing = proj.swing;
+    if (proj.humanize > 0) result.humanize = proj.humanize;
+    const nets = {};
+    for (const id of Object.keys(proj.nets).sort()) {
+        nets[id] = normalizeBundleForCID(proj.nets[id]);
+    }
+    result.nets = nets;
+    return result;
+}
+
+// JSON.stringify with sorted object keys and Go json.Marshal's escaping,
+// so output bytes match Go's encoding of the same normalized value.
+function canonicalStringify(v) {
+    if (v === null || v === undefined) return 'null';
+    const t = typeof v;
+    if (t === 'number' || t === 'boolean') return JSON.stringify(v);
+    if (t === 'string') {
+        return JSON.stringify(v)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026')
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+    }
+    if (Array.isArray(v)) return '[' + v.map(canonicalStringify).join(',') + ']';
+    const keys = Object.keys(v).sort();
+    return '{' + keys.map(k => canonicalStringify(k) + ':' + canonicalStringify(v[k])).join(',') + '}';
+}
+
+export function canonicalProjectJSON(proj) {
+    return canonicalStringify(normalizeProjectForCID(proj));
 }

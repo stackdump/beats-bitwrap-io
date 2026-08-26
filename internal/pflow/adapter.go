@@ -17,11 +17,19 @@ import (
 )
 
 // MidiBinding defines note parameters for a transition.
+//
+// Duration semantics (see duration.go for the full contract): when
+// DurationSteps > 0 it is the canonical sustain — sixteenth steps
+// (1 step = 1/4 beat), resolved to ms against the live BPM at playback —
+// and the legacy fixed-ms Duration is omitted from serialization and
+// hashing. When DurationSteps is absent, Duration (ms) stays canonical
+// so existing models keep their bytes, CIDs and playback unchanged.
 type MidiBinding struct {
-	Note     int `json:"note"`
-	Channel  int `json:"channel"`
-	Velocity int `json:"velocity"`
-	Duration int `json:"duration"` // ms
+	Note          int `json:"note"`
+	Channel       int `json:"channel"`
+	Velocity      int `json:"velocity"`
+	Duration      int `json:"duration"`                // ms (legacy canonical form)
+	DurationSteps int `json:"durationSteps,omitempty"` // sixteenth steps (canonical when > 0)
 }
 
 // Track holds MIDI channel settings for a net.
@@ -371,10 +379,11 @@ func parseNetBundle(data map[string]interface{}) *NetBundle {
 			// MIDI binding
 			if midi, ok := tm["midi"].(map[string]interface{}); ok {
 				bindings[id] = &MidiBinding{
-					Note:     getInt(midi, "note", 60),
-					Channel:  getInt(midi, "channel", track.Channel),
-					Velocity: getInt(midi, "velocity", track.DefaultVelocity),
-					Duration: getInt(midi, "duration", 100),
+					Note:          getInt(midi, "note", 60),
+					Channel:       getInt(midi, "channel", track.Channel),
+					Velocity:      getInt(midi, "velocity", track.DefaultVelocity),
+					Duration:      getInt(midi, "duration", 100),
+					DurationSteps: getInt(midi, "durationSteps", 0),
 				}
 			}
 
@@ -799,12 +808,20 @@ func bundleToJSON(nb *NetBundle) map[string]interface{} {
 			t["label"] = *trans.LabelText
 		}
 		if midi, ok := nb.Bindings[label]; ok {
-			t["midi"] = map[string]interface{}{
+			m := map[string]interface{}{
 				"note":     midi.Note,
 				"channel":  midi.Channel,
 				"velocity": midi.Velocity,
-				"duration": midi.Duration,
 			}
+			// Canonical-form rule (duration.go): durationSteps wins when
+			// present; legacy ms only otherwise, so pre-steps models
+			// round-trip byte-identically.
+			if midi.DurationSteps > 0 {
+				m["durationSteps"] = midi.DurationSteps
+			} else {
+				m["duration"] = midi.Duration
+			}
+			t["midi"] = m
 		}
 		if ctrl, ok := nb.ControlBindings[label]; ok {
 			cm := map[string]interface{}{

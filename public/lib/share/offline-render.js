@@ -67,7 +67,7 @@
 // 48 kHz). The server transcodes WAV → Opus/WebM via ffmpeg before the
 // cached file lands, so on-disk shape matches realtime renders.
 
-import { parseProject } from '../pflow.js';
+import { parseProject, resolveDurationMs } from '../pflow.js';
 import { ToneEngine } from '../../audio/tone-engine.js';
 import { hpFreq, lpFreq } from '../ui/mixer-sliders.js';
 import { MACROS, MACRO_TARGETS } from '../macros/catalog.js';
@@ -501,7 +501,12 @@ function simulateProjectNotes(projectMap, totalSteps, tickIntervalMs, opts = {})
                 channel: binding.channel ?? nb.track?.channel ?? 0,
                 midi: binding.note,
                 velocity,
-                durationMs: binding.duration ?? 100,
+                // Beat-relative durations resolve against the render
+                // tempo (PPQ=4, so tickIntervalMs is exactly one
+                // sixteenth step); legacy ms bindings pass through.
+                durationMs: binding.durationSteps > 0
+                    ? binding.durationSteps * tickIntervalMs
+                    : (binding.duration ?? 100),
             });
         }
     }
