@@ -9,7 +9,7 @@ require (
 	github.com/fogleman/gg v1.3.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.45.0
-	github.com/pflow-xyz/go-pflow v0.22.0
+	github.com/pflow-xyz/go-pflow v0.27.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
