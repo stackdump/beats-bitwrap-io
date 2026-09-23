@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<link rel="icon" href="../favicon.svg"/>
+<title>Jog lab — calibrate against real hardware</title>
+<style>
+    :root { color-scheme: dark; --bg: #0e1116; --panel: #161b22; --line: #2a313c; --fg: #d7dde5; --dim: #7d8794; --hot: #ffb454; --ok: #5ad1a0; --bad: #ff7b72; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; }
+    h1 { font-size: 17px; margin: 0 0 2px; }
+    .sub, .dim { color: var(--dim); }
+    .sub { margin: 0 0 16px; }
+    main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; max-width: 1200px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+    h3 { font-size: 14px; margin: 0 0 4px; }
+    ul, ol { list-style: none; margin: 0; padding: 0; }
+    #ports li { padding: 3px 0; } #ports li span { color: var(--dim); } #ports em { color: var(--ok); font-style: normal; font-size: 12px; margin-left: 6px; }
+    .bad { color: var(--bad); }
+    #steps li { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; opacity: .6; }
+    #steps li.current { opacity: 1; border-color: var(--hot); cursor: default; }
+    #steps li.done { opacity: .9; border-color: #2f5b49; }
+    #steps p { margin: 0 0 8px; }
+    #steps pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; font: 11px/1.4 ui-monospace, monospace; color: #9aa5b1; }
+    .warn { color: var(--hot); font-size: 13px; margin: 6px 0 0 !important; }
+    button { background: var(--hot); color: #111; border: 0; border-radius: 6px; padding: 6px 14px; font-weight: 600; cursor: pointer; margin-right: 8px; }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+    button:disabled { opacity: .4; cursor: default; }
+    .count { color: var(--ok); font-variant-numeric: tabular-nums; }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    th { text-align: left; color: var(--dim); font-weight: 500; font-size: 12px; }
+    td, th { padding: 3px 8px 3px 0; }
+    tr.same td:last-child { color: var(--ok); } tr.diff td { color: var(--hot); }
+    pre#log, pre#override { margin: 0; font: 12px/1.35 ui-monospace, monospace; color: #aeb8c4; overflow: hidden; }
+    pre#log { height: 300px; white-space: pre; }
+    .jog { width: 220px; touch-action: none; user-select: none; cursor: grab; display: block; }
+    .jog-ring { fill: none; stroke: #232a34; } .jog-knurl { stroke: #3b4450; stroke-width: 2; }
+    .jog-platter { fill: #1b222c; stroke: #38414d; stroke-width: 2; } .jog-platter.touched { fill: #2b2618; stroke: var(--hot); }
+    .jog-marker { stroke: var(--hot); stroke-width: 4; stroke-linecap: round; } .jog-hub { fill: #38414d; }
+    label { color: var(--dim); font-size: 12px; }
+    #wheel-card { position: sticky; top: 8px; z-index: 1; }
+</style>
+</head>
+<body>
+<h1>Jog lab — calibrate</h1>
+<p class="sub">Measure what the controller really sends, compare it with the assumed profile, save the corrections. Mode: <span id="mode">…</span> · <a href="demo.html?midi=real" style="color:var(--hot)">demo with real input →</a></p>
+
+<main>
+    <div>
+        <section>
+            <h2>MIDI inputs</h2>
+            <ul id="ports"><li class="dim">requesting access…</li></ul>
+            <p style="margin:10px 0 0"><button id="wake" class="ghost">Send wake-up (B0 7F 7F)</button><span class="dim">only if the controller stays silent</span></p>
+        </section>
+        <section>
+            <h2>Script — about five minutes</h2>
+            <ol id="steps"></ol>
+        </section>
+    </div>
+    <div>
+        <section id="wheel-card" hidden>
+            <h2>Simulated wheel (rehearsal)</h2>
+            <div id="wheel"></div>
+            <label><input id="deck-b" type="checkbox"/> deck B · hold Shift while dragging for the shift layer</label>
+        </section>
+        <section>
+            <h2>Assumed vs measured</h2>
+            <div id="verdict"></div>
+            <p style="margin:12px 0 0">
+                <button id="save" disabled>Save as profile override</button>
+                <button id="dl" class="ghost">Download capture</button>
+                <button id="clear" class="ghost">Clear override</button>
+            </p>
+            <p id="saved" class="dim" style="margin:8px 0 0"></p>
+        </section>
+        <section>
+            <h2>Override that would be saved</h2>
+            <pre id="override">{}</pre>
+        </section>
+        <section>
+            <h2>Raw input — every port, every message</h2>
+            <pre id="log"></pre>
+        </section>
+    </div>
+</main>
+<script type="module" src="calibrate.js"></script>
+</body>
+</html>
