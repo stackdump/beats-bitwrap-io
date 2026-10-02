@@ -335,11 +335,20 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 | `data/audio/` | Cached audio renders (`.webm`) served to the feed. Bucketed by `YYYY/MM/{cid}.webm`. Production runs without `-audio-render`, so deletion is **only** safe-to-delete when you have an off-host worker (`scripts/process-rebuild-queue.py`) ready to re-render — otherwise listeners get 404s for affected CIDs. |
 | `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
 | `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable, and **not** included in `/api/snapshot` (that bundles `index.db` only): back it up by hand with `sqlite3 data/bench.db ".backup …"`. |
+| `data/telemetry.db` | SQLite: anonymous playback diagnostics (`/api/telemetry`). Row cap 5M events, 30-day retention purged on insert. Safe to delete (only history is lost). |
 | `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Required by `X-Rebuild-Secret` on `PUT /audio/{cid}.webm` (bypasses first-write-wins), `GET /api/snapshot`, and `POST /api/archive-delete`. Treat as a credential — don't commit, don't paste in chat. |
 
 ### Benchmark submissions (`/api/bench`)
 
 The studio's Help → *Benchmark this device* modal (and `public/wave-engine/bench.html`) can submit its report. `internal/bench` validates every field (version `beats-audio-engine/v1`, known cases A/B/F/C/D/E, finite ranges, length caps, no control characters, unknown fields rejected, 16 kB body cap) and stores only the validated fields, never the raw body. Rate-limited by the share store's per-IP limiter; **nothing IP-derived is stored**. CORS is open (no credentials) so the CDN-hosted bench can post. `GET /api/bench?reference=1&limit=N` is public; `/wave-engine/results.html` renders it. Reference runs (techno · 42 · standard · 20 s) are flagged so devices compare like for like.
+
+### Playback diagnostics (`/api/telemetry`)
+
+`public/lib/perf/telemetry.js` sends batched, anonymous events while the studio is used (from first Play): coarse tap area (never coordinates or text), focus / visibility / freeze, audio-context and `<audio>`-sink state, play / stop **with reason** (`user` / `hidden` / `end`), perf-monitor windows, late notes, worker catch-up. Session id is random per page load and never stored client-side; `internal/telemetry` stores no IP (in-memory rate limit only). Nothing is sent with Global Privacy Control / Do Not Track, after Help → *Diagnostics … turn off* (`localStorage pn-telemetry=off`), or with `?telemetry=0`.
+
+- `GET /api/telemetry/summary?days=N` — public, aggregate only, per platform × engine: play minutes, late notes/min, stops by reason, hidden stops split into *returned* (page came back — the interruption case, with median hidden duration and count under 2 s) vs *left*, and correlation of late notes / stops with what happened ≤ 2 s before (tap, focus/visibility/freeze, ctx/sink, worker catch-up): `share` of outcomes near a trigger, `coverage` of play time near one, `lift = share / coverage` (> 1 = clusters after it; noisy at low counts).
+- `GET /api/telemetry/sessions`, `/api/telemetry/session/{sid}` — raw, `X-Rebuild-Secret`.
+- Adding an event kind means adding it to `telemetry.Kinds` (server rejects unknown kinds) and to the comment block in `telemetry.js`, and to the Help disclosure if it changes what is collected.
 
 ### Purge the feed without nuking shares
 

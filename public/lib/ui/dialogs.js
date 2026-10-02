@@ -726,6 +726,10 @@ export function showHelpModal(el) {
             <h3>This device</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Crackle or late hits? Measure how much audio headroom this device has for each engine.
                 <button type="button" class="pn-bench-open" style="margin-left:6px">Benchmark this device</button></p>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Anonymous diagnostics help fix playback on phones: which part of the page you tap (not where or what),
+                focus / screen changes, audio timing and late notes, with a random id that resets every visit. No IP is stored.
+                Off automatically with Do Not Track / Global Privacy Control.
+                <button type="button" class="pn-telemetry-toggle" style="margin-left:6px"></button></p>
 
             <h3>Getting Started</h3>
             <ul>
@@ -925,6 +929,13 @@ export function showHelpModal(el) {
         if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
     });
     el.appendChild(overlay);
+    import('../perf/telemetry.js').then((t) => {
+        const btn = overlay.querySelector('.pn-telemetry-toggle');
+        if (!btn) return;
+        const render = () => { btn.textContent = t.telemetryAllowed() ? 'Diagnostics on — turn off' : 'Diagnostics off — turn on'; };
+        render();
+        btn.addEventListener('click', () => { t.setTelemetryEnabled(el, !t.telemetryAllowed()); render(); });
+    });
     overlay.querySelector('.pn-bench-open')?.addEventListener('click', () => {
         overlay.remove();
         el._showBenchModal();

@@ -16,6 +16,7 @@ first; this file sequences the remaining work.
 | P-1 | Reference devices + budget gate on every phase | 🟡 high-end Android measured (`docs/perf/`); in-app submissions + `/wave-engine/results.html` collect the rest |
 | P-2 | Quality tiers (full / lite / eco), deterministic per setting | 🔜 |
 | P-3 | Live underrun detection + auto step-down | 🔜 |
+| P-5 | Field telemetry: taps / focus / ctx / late notes / stops → `/api/telemetry/summary` | ✅ (branch `telemetry`) |
 | P-4 | Main-thread + battery: live visual-lag detection + adaptive visuals ✅ (branch `perf-monitor`); idle suspend 🔜 | 🟡 |
 | W-1 | Voice spec format, A/B fidelity harness, coverage gate | 🔜 |
 | W-2 | Channel strip in the worklet (vol/pan/LP/HP/decay/accent, per-drum-voice filters) | 🔜 |

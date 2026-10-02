@@ -12,9 +12,15 @@ import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 import { routeToWave, waveLoadProject } from './wave.js';
 import { perfStart, perfStop, perfNote, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
+import { telemetryOnPlay, telemetryOnStop, telemetryEvent } from '../perf/telemetry.js';
 
-// Live perf monitor runs exactly while the transport plays.
-function syncPerf(el) { if (el._playing) perfStart(el); else perfStop(el); }
+// Live perf monitor and diagnostics run exactly while the transport plays.
+// `reason` says why the transport changed: user (tap / key), hidden (the
+// page lost visibility), end (track finished / next track).
+function syncPerf(el, reason) {
+    if (el._playing) { perfStart(el); telemetryOnPlay(el); }
+    else { perfStop(el); telemetryOnStop(el, reason); }
+}
 
 // Audio-clock lookahead window. Worker stamps every transition fire
 // with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
@@ -55,7 +61,8 @@ export function togglePlay(el) {
     toneEngine.resumeContext();
 
     el._playing = !el._playing;
-    syncPerf(el);
+    syncPerf(el, el._toggleReason || 'user');
+    el._toggleReason = null;
 
     // Drop the audio grid anchor. The next worker fire after a fresh
     // play (or the silence after a stop) re-anchors against Tone.now().
@@ -138,6 +145,7 @@ export function togglePlay(el) {
 
 export function showAudioLockBanner(el) {
     if (el._audioLockBanner) return;
+    telemetryEvent(el, 'banner');
     const banner = document.createElement('div');
     banner.className = 'pn-audio-lock-banner';
     banner.innerHTML = '<span>Audio is blocked by the browser.</span><button>Click to enable</button>';
@@ -195,6 +203,7 @@ export function installVisibilityRecovery(el) {
         if (document.visibilityState === 'hidden' && el._playing && !afk) {
             // Stop playback. Same path as tapping Play so all cleanup
             // runs (wake-lock release, viz loop stop, worker stop).
+            el._toggleReason = 'hidden';
             el._togglePlay();
             return;
         }
@@ -308,7 +317,7 @@ export function connectBackend(el) {
 }
 
 export function connectWorker(el) {
-    el._worker = new Worker('./sequencer-worker.js?v=12', { type: 'module' });
+    el._worker = new Worker('./sequencer-worker.js?v=13', { type: 'module' });
     el._workerReady = false;
 
     // The very first worker spawned during connectedCallback fails
@@ -446,6 +455,9 @@ export function handleWsMessage(el, msg) {
             onRemoteTransitionFired(el, msg.netId, msg.transitionId, msg.midi,
                                     msg.playAtOffsetMs, msg.tickEpochMs,
                                     msg.playbackTicks, msg.tickIntervalMs);
+            break;
+        case 'tick-catchup':
+            telemetryEvent(el, 'catchup', { n: msg.missed });
             break;
         case 'state-sync': {
             const prevTick = el._tick;
@@ -620,7 +632,7 @@ export function handleWsMessage(el, msg) {
             // Sequencer has stopped — mark as not playing so project-sync
             // goes through the cold-load path (sends project-load + play).
             el._playing = false;
-            syncPerf(el);
+            syncPerf(el, 'end');
             if (el._playbackMode === 'repeat') {
                 // Replay the same track from the beginning.
                 el._tick = 0; el._lastPlayheadPct = 0;
@@ -628,7 +640,7 @@ export function handleWsMessage(el, msg) {
                 el._updatePlayhead();
                 sendWs(el, { type: 'transport', action: 'play' });
                 el._playing = true;
-                syncPerf(el);
+                syncPerf(el, 'end');
                 el._vizStartLoop();
                 el._fireTransitionMacro();
             } else if (el._playbackMode === 'shuffle') {
@@ -668,7 +680,7 @@ export function handleWsMessage(el, msg) {
             } else {
                 // Single: stop.
                 el._playing = false;
-                syncPerf(el);
+                syncPerf(el, 'end');
                 el._tick = 0; el._lastPlayheadPct = 0;
                 el._vizStopLoop();
                 el._draw();

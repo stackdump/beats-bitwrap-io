@@ -204,6 +204,7 @@ go_library(
         "public/wave-engine/synth.js",
         "public/wave-engine/worklet.js",
         "public/lib/perf/monitor.js",
+        "public/lib/perf/telemetry.js",
     ],
     importpath = "beats-bitwrap-io",
     visibility = ["//visibility:private"],
@@ -220,6 +221,7 @@ go_library(
         "//internal/routes",
         "//internal/sequencer",
         "//internal/share",
+        "//internal/telemetry",
         "//internal/ws",
     ],
 )

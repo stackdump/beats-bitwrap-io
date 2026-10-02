@@ -31,6 +31,7 @@ import (
 
 	"beats-bitwrap-io/internal/audiorender"
 	"beats-bitwrap-io/internal/bench"
+	"beats-bitwrap-io/internal/telemetry"
 	"beats-bitwrap-io/internal/deploy"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
@@ -520,6 +521,18 @@ func main() {
 			log.Fatalf("bench db open: %v", err)
 		}
 		mux.HandleFunc("/api/bench", bench.Handler(benchStore, shareStore.RateLimitPUT, time.Now))
+		// /api/telemetry — anonymous playback diagnostics (taps, focus /
+		// visibility, audio-context state, late notes, stops) to find what
+		// makes mobile playback erratic. Own DB with row cap + 30-day
+		// retention; IPs only in the in-memory limiter. Summary is public
+		// and aggregate-only; raw sessions need X-Rebuild-Secret.
+		telemetryStore, err := telemetry.Open(filepath.Join(*dataDir, "telemetry.db"))
+		if err != nil {
+			log.Fatalf("telemetry db open: %v", err)
+		}
+		telemetryHandler := telemetry.Handler(telemetryStore, telemetry.NewLimiter(12, 1200), rebuildSecret, time.Now)
+		mux.HandleFunc("/api/telemetry", telemetryHandler)
+		mux.HandleFunc("/api/telemetry/", telemetryHandler)
 		if *rebuildQueueEnabled {
 			// In-process pub/sub: rebuild-mark publishes the CID, the
 			// secret-gated SSE endpoint fans it out to subscribed workers so

@@ -328,6 +328,9 @@ function tick() {
     // and mutes stay correct, but DON'T post transition-fired — otherwise
     // resuming from a long screen-lock fires a 1-second burst of
     // compressed beats. The on-time tick below plays normally.
+    // Diagnostics: a catch-up means the timer was throttled (backgrounded
+    // tab, busy main thread / device) — the page logs it for telemetry.
+    if (catchUp > 0) post({ type: 'tick-catchup', missed: catchUp });
     _silentAdvance = true;
     for (let i = 0; i < catchUp; i++) {
         if (!project) { _silentAdvance = false; return; }

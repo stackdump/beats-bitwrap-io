@@ -194,6 +194,56 @@ try {
     check('perf monitor: "full" preference disables stepping down', pm.levelWithFull === 0);
     console.log('     verdict: ' + pm.verdict);
 
+    // Telemetry (local only — it writes to the server): real taps and a page
+    // freeze/resume must reach /api/telemetry/summary; ?telemetry=0 must
+    // not create a collector.
+    if (LOCAL) {
+        await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            if (!el._playing) el._togglePlay();
+            return 1;
+        })()`);
+        await sleep(1500);
+        for (let i = 0; i < 3; i++) {
+            for (const type of ['mousePressed', 'mouseReleased']) {
+                await cdp.send('Input.dispatchMouseEvent', { type, x: 400, y: 500, button: 'left', clickCount: 1 });
+            }
+            await sleep(400);
+        }
+        await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+        await sleep(300);
+        await cdp.send('Page.setWebLifecycleState', { state: 'active' });
+        await sleep(2500);
+        const tel = await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            if (!el._telemetry) return { error: 'no collector' };
+            const sid = el._telemetry.sid;
+            const kinds = el._telemetry.buf.map(e => e[1]);
+            if (el._playing) el._togglePlay();           // stop → flush
+            await el._telemetry.flush(false);             // anything left (freeze may have stopped play already)
+            await new Promise(r => setTimeout(r, 800));
+            const sum = await (await fetch('/api/telemetry/summary')).json();
+            return { sid, kinds, groups: sum.groups };
+        })()`);
+        const g = (tel.groups || []).find(x => x.platform === 'desktop' && x.engine === 'default');
+        check('telemetry: taps and play/stop reach the server summary',
+            !!g && g.taps >= 3 && g.playMinutes > 0 && (g.stops?.user || 0) >= 1,
+            g ? `sessions ${g.sessions}, taps ${g.taps}, play ${g.playMinutes} min, stops ${JSON.stringify(g.stops)}` : JSON.stringify(tel).slice(0, 300));
+        // Raw session (secret-gated): the local server's secret is on disk.
+        let rawKinds = null;
+        try {
+            const { readFileSync } = await import('node:fs');
+            const secret = readFileSync(process.env.WAVE_DATA_DIR ? process.env.WAVE_DATA_DIR + '/.rebuild-secret' : '/tmp/wave-data/.rebuild-secret', 'utf8').trim();
+            const raw = await (await fetch(`${HOST}/api/telemetry/session/${tel.sid}`, { headers: { 'X-Rebuild-Secret': secret } })).json();
+            rawKinds = [...new Set(raw.events.map(e => e[1]))];
+        } catch (err) { rawKinds = ['error: ' + err.message]; }
+        check('telemetry: raw session has the freeze/resume and visibility events',
+            ['tap', 'freeze', 'resume', 'vis', 'play', 'stop', 'win'].every(k => rawKinds.includes(k)), rawKinds.join(','));
+        const off = await run(cdp, 'genre=techno&seed=42&telemetry=0');
+        const offCollector = await cdp.evaluate(`!!document.querySelector('petri-note')._telemetry`);
+        check('telemetry: ?telemetry=0 collects nothing', off.playing && !offCollector);
+    }
+
     // In-app benchmark: Help → "Benchmark this device", a quick run of the
     // reference track and of the current track, then playback must still
     // work (the bench swaps Tone's global context and must restore it).

@@ -134,7 +134,7 @@ export function perfNote(el, marginSec, reanchored) {
     if (!m || !m.running) return;
     const ms = marginSec * 1000;
     m.notes++;
-    if (reanchored || ms < 0) m.late++;
+    if (reanchored || ms < 0) { m.late++; el._telemetry?.late(ms); }
     else if (ms < m.cfg.tightMs) m.tight++;
     if (ms < m.minMarginMs) m.minMarginMs = ms;
 }
@@ -179,6 +179,7 @@ function closeWindow(el) {
         waveLagMs: m.waveLagN ? +(m.waveLagSum / m.waveLagN).toFixed(1) : null,
     };
     m.history.push(w);
+    el._telemetry?.win(w);
     if (m.history.length > 60) m.history.shift();
     m.last = w;
 
