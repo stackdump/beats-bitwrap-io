@@ -9,6 +9,9 @@
  * tick — a few per second — and those posts are the one place this thread
  * allocates.
  *
+ * processorOptions: {project?, play?, quiet?, runner?} — load (and start)
+ * at construction, for offline renders; `quiet` suppresses UI messages.
+ *
  * Port protocol (page → worklet):
  *   {type:'load', project}            project JSON (projectToJSON shape)
  *   {type:'transport', action}        'play' | 'stop' | 'pause'
@@ -26,10 +29,18 @@ import { markingOf } from './net.js';
 const STATE_EVERY = 6; // ticks between marking posts, as in the sequencer worker
 
 class WaveEngineProcessor extends AudioWorkletProcessor {
-    constructor() {
+    constructor(options) {
         super();
-        this.runner = new WaveRunner(sampleRate);
+        const o = (options && options.processorOptions) || {};
+        this.runner = new WaveRunner(sampleRate, o.runner || {});
         this.port.onmessage = (e) => this.onMessage(e.data);
+        // Offline renders can't wait for an async port message before
+        // rendering starts, so a project may arrive with the constructor.
+        if (o.project) {
+            this.runner.load(o.project);
+            if (o.play) this.runner.play();
+        }
+        this.quiet = !!o.quiet; // no UI messages (benchmarks, offline)
     }
 
     onMessage(msg) {
@@ -51,7 +62,7 @@ class WaveEngineProcessor extends AudioWorkletProcessor {
         if (!out || !out[0]) return true;
         const r = this.runner;
         r.process(out[0], out[1] || null, out[0].length);
-        if (r.ticksInBlock && r.graph) this.report();
+        if (r.ticksInBlock && r.graph && !this.quiet) this.report();
         return true;
     }
 

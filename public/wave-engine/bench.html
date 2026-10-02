@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>beats · audio engine bench</title>
+<script src="https://unpkg.com/tone@15.1.22/build/Tone.js"
+        integrity="sha384-NWoslxaf/3dYwQk+uGziDYJFdsjBpVlU1WpFRexuDFcIk/5PJpCbpVXia2Uikeix"
+        crossorigin="anonymous"></script>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 1rem; max-width: 46rem; color: #222; background: #fafafa; }
+  h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
+  p.note { color: #555; margin: .25rem 0 1rem; }
+  label { display: inline-block; margin: 0 .75rem .5rem 0; }
+  select, input, button { font: inherit; padding: .3rem .5rem; }
+  button { background: #222; color: #fff; border: 0; border-radius: 6px; padding: .55rem 1rem; }
+  button:disabled { opacity: .5; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+  td.num { text-align: right; }
+  .bad { color: #b00020; font-weight: 600; } .ok { color: #116b2f; font-weight: 600; } .meh { color: #9a6200; font-weight: 600; }
+  pre { background: #eee; padding: .5rem; overflow-x: auto; font-size: 12px; }
+  #status { color: #555; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<h1>Audio engine bench</h1>
+<p class="note">Renders the same deterministic track several ways, as fast as this device can, in an
+OfflineAudioContext — the same audio graph a live session runs, minus the realtime deadline.
+<b>×realtime</b> is headroom: 1× means this device can barely keep up; live playback wants ≥ 3×
+to survive GC, UI work and thermal throttling without crackle. Takes ~1–2 min on a phone; keep the screen on.</p>
+<div>
+  <label>genre <select id="genre"></select></label>
+  <label>structure <select id="structure"><option>standard</option><option value="">loop</option><option>extended</option></select></label>
+  <label>seconds <input id="seconds" type="number" value="20" min="5" max="120" style="width:4.5em"></label>
+</div>
+<button id="run">Run bench</button> <button id="copy" disabled>Copy results</button>
+<div id="status"></div>
+<table id="out"><thead><tr><th>case</th><th class="num">render</th><th class="num">×realtime</th><th>verdict</th></tr></thead><tbody></tbody></table>
+<pre id="dev"></pre>
+<script type="module" src="./bench.js"></script>
+</body>
+</html>

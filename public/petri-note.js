@@ -350,7 +350,7 @@ class PetriNote extends HTMLElement {
     }
 
     _watchAudioContextState() {
-        const ctx = window.Tone?.context?.rawContext;
+        const ctx = window.Tone?.getContext?.()?.rawContext;
         if (!ctx) return;
         const sync = () => {
             if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();

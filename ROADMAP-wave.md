@@ -12,6 +12,11 @@ first; this file sequences the remaining work.
 | Phase | Title | Status |
 |---|---|---|
 | W-0 | Engine core: executor in worklet, ring gates, offline WAV, tests | ✅ `b0a896d` (branch `wave-engine`) |
+| P-0 | Mobile: on-device bench, lean output path, `playback` latency, `Tone.context` fix | ✅ (branch `wave-engine`) |
+| P-1 | Reference devices + budget gate on every phase | 🔜 needs device numbers |
+| P-2 | Quality tiers (full / lite / eco), deterministic per setting | 🔜 |
+| P-3 | Live underrun detection + auto step-down | 🔜 |
+| P-4 | Main-thread + battery: rAF-coalesced visuals, idle suspend | 🔜 |
 | W-1 | Voice spec format, A/B fidelity harness, coverage gate | 🔜 |
 | W-2 | Channel strip in the worklet (vol/pan/LP/HP/decay/accent, per-drum-voice filters) | 🔜 |
 | W-3 | Drum kits — all 6, faithful | 🔜 |
@@ -31,10 +36,10 @@ first; this file sequences the remaining work.
 
 Today the wave engine **converts 6 of 72 instruments, approximately**: the
 drum kits. Every other instrument plays as a generic family voice (saw, soft,
-bell, square or sine wavetable) picked by a regex on its name. Wave mode is
-also *built on* Tone. Tone owns the AudioContext; the worklet feeds
-`toneEngine._masterVolume`; the master FX chain, the recorder and the
-render-farm tap are all Tone nodes.
+bell, square or sine wavetable) picked by a regex on its name. Wave mode also
+still leans on Tone. Tone owns the AudioContext and the phone `<audio>` sink.
+The lean path skips Tone's master chain, but master FX, the recorder and the
+render-farm tap only exist as Tone nodes (`&fx=tone`).
 
 What still depends on Tone (`git grep -c "Tone\.\|toneEngine"`, Oct 2026).
 The last column says which phase would take each item off Tone *if* D-1
@@ -80,6 +85,125 @@ that only holds for the linear part says so.
 Determinism rules, carried from W-0: no `Math.random`, no wall clock;
 LFOs are phase-locked to the tick clock; noise is seeded per lane; the
 per-sample path allocates nothing.
+
+## Performance track — mobile and low-powered devices
+
+The goal: **beats plays without crackle on a cheap phone.** Issue #2 was filed
+after the Hacker News traffic (~60% phones) reported no sound, late kicks and
+crackle. This track is not a phase that runs once. Its budget **gates every
+W-phase**: a converted instrument family that blows the low-end budget isn't
+done.
+
+### Where things stand (P-0, measured)
+
+`public/wave-engine/bench.html` renders the same deterministic track (techno,
+seed 42, `standard`, 20 s) through each engine into an OfflineAudioContext,
+i.e. the same audio graph a live session runs, as fast as the device can.
+The result, **×realtime**, is audio-thread headroom. Desktop (valoper, headless
+Chrome):
+
+| case | ×realtime |
+|---|---|
+| A · Tone instruments + Tone master chain (**the default engine today**) | **1.7×** |
+| B · wave engine → Tone master chain (`?engine=wave` before P-0) | 4.5× |
+| F · wave engine, Tone master unhooked (**`?engine=wave` now**) | **25×** |
+| C · wave engine alone | 36–39× |
+| D · wave engine alone @ 24 kHz | 55–66× |
+| E · wave DSP only, main thread, no audio graph | 48–50× |
+
+What it says:
+
+- The default engine barely clears realtime *on a desktop*. A phone 4–6×
+  slower is below 1×, which is the crackle in #2. Nothing inside the Tone
+  path makes that up.
+- Tone's master chain costs **~8× the whole wave engine** (B vs C). It runs
+  its DSP at `wet: 0`: phase-vocoder pitch shift, −48 dB filters, phaser,
+  crusher, reverb and delay buses. #2's fix #1 was exactly this.
+- 24 kHz is a ~1.6× cheaper tier (D vs C) for free.
+- Side finding: case A peaks at 3.7 (> 0 dBFS). Tone's offline renders clip;
+  the master compressor isn't a limiter.
+
+P-0 shipped (all opt-in under `?engine=wave`):
+
+- **Lean output path**: worklet → gain → destination (or Tone's `<audio>`
+  stream sink on phones, which keeps iOS playing through screen lock). Tone's
+  master chain is unhooked. `&fx=tone` restores the old routing. Master FX
+  and FX macros are unavailable on the lean path until W-10.
+- **`latencyHint: 'playback'` on phones** (#2 fix #2): the worklet is the
+  clock, so only transport/mute response gets slightly slower.
+- **`Tone.context` → `Tone.getContext()`**: the deprecated binding still points
+  at Tone's original context after `setContext`. In wave mode that made
+  Tone's phone init throw (silently: no master, no `<audio>` sink) and made
+  `resumeContext`/`isContextRunning` look at the wrong context. It is
+  identical on the default engine.
+- `scripts/test-wave-browser.mjs` now also runs as an emulated iPhone:
+  `playback` latency (baseLatency 21 ms vs 11 ms) and audio through the
+  `<audio>` sink.
+
+**Run it on a phone:** the bench is published on the CDN (branch build, no
+deploy needed): `https://cdn.stackdump.com/ipfs/bafyreie6dbb396ae7f07f199bbdf693df1042e/wave-engine/bench.html`.
+Run bench → Copy results; the JSON carries UA, cores and device memory.
+
+### P-1 — Reference devices and the budget gate
+
+- Pick **two reference devices**: one budget Android (a ~$150 Galaxy A / Moto
+  G class, 4 GB) and the oldest iPhone worth supporting. Record their bench
+  JSON in `docs/perf/` (or as CDN entries, `schema: BenchResult/v1`, so
+  they're facets).
+- **Budget: ≥ 3× realtime on both reference devices for case F**, for the
+  heaviest built-in arrangement (`edm`/`ambient` + `extended`). 3× leaves room
+  for GC, UI work and thermal throttling. 1.5–3× is "tight", < 1.5×
+  "will crackle", the same verdicts the bench prints.
+- `wave-bench.mjs` gets a `--budget` mode that fails CI when desktop
+  ×realtime falls below `budget × measured desktop/phone ratio`. The ratio comes
+  from P-1's device runs, replacing today's assumed 6×.
+- Every W-phase adds its family's worst instrument to the bench before it
+  lands.
+
+### P-2 — Quality tiers
+
+Converted voices get cheaper variants, selected per **setting**, never
+silently per device. Determinism means "same setting → same bytes", so a
+tier is an explicit, stored choice:
+
+| tier | sample rate | voice pool (melodic / pad) | unison copies | oscillator | inserts |
+|---|---|---|---|---|---|
+| full | 48 kHz | 4 / 6 | as specified | polyBLEP | all |
+| lite | 48 kHz | 3 / 4 | ≤ 3 | wavetable | chorus/phaser off |
+| eco | 24 kHz | 2 / 3 | 1 | wavetable | none |
+
+- Default: chosen once, at first play, by a 1–2 s main-thread probe (bench
+  case E). Stored in `localStorage`, changeable in the UI. **Not** in the
+  share envelope: a listener's device doesn't change what the author made.
+- The offline renderer and the render farm always render `full`.
+- The sound difference per tier goes in the W-1 A/B harness, so "eco"
+  is known-acceptable rather than whatever the code happens to do.
+
+### P-3 — Live underrun detection and auto step-down
+
+OfflineAudioContext measures cost, but a phone also has thermal throttling,
+background tabs and GC. In the live session:
+
+- Use `AudioContext.playoutStats` where available (Chrome: underrun /
+  fallback-frame counts). Elsewhere, a proxy: the worklet reports
+  ticks rendered vs `currentTime` progress, so a late-tick count is visible.
+- On sustained underruns, step down one tier at the next bar and show a small
+  notice ("switched to lite for smooth playback"). Never step up mid-session.
+
+### P-4 — Main thread and battery
+
+- **Visuals** (#2 fix #4): coalesce `transition-fired` / `state-sync`
+  rendering to `requestAnimationFrame`. Skip off-screen nets and the
+  canvas entirely while the Stage is open. Under `max-width: 720px`, render
+  the active net only.
+- **Message volume**: the worklet already posts one batched message per tick
+  and the marking every 6 ticks. On phones, send the marking every 16
+  ticks (once a bar); the mandala interpolates.
+- **Battery**: suspend the AudioContext after ~30 s stopped; `process()`
+  returns early (no lane work) while stopped. Pause the Stage's rAF loop when
+  the page is hidden.
+- The default (Tone) engine keeps its own #2 mitigations independently
+  (idle-FX bypass, polyphony cap) until W-12. Users are on it until then.
 
 ## W-1 — Voice spec format, fidelity harness, coverage gate
 
@@ -275,6 +399,10 @@ These are not instruments, but they must work before a default flip:
 
 ## W-10 — Master chain and capture in the wave graph
 
+- **Mobile constraint (from P-0):** the master chain must cost nothing when
+  idle. Tone's runs full DSP at `wet: 0` and costs ~8× the whole engine.
+  Instantiate an effect only while it is non-neutral, and crossfade it in
+  and out at a bar boundary so connecting it doesn't click.
 - Port the master chain (volume, HP, phaser, LP, crush, drive, pitch-shift,
   compressor, reverb, delay) into the worklet or into native Web Audio nodes
   (`BiquadFilterNode`, `DynamicsCompressorNode`, `ConvolverNode`, `DelayNode`).
@@ -300,7 +428,7 @@ whole feed this way only after W-12 decides what old links should sound like.
 ## W-12 — Default flip
 
 Preconditions: coverage gate at 72/72, A/B within tolerance for every
-family, W-2/W-9/W-10 done, and phone CPU *measured on devices*. That covers
+family, W-2/W-9/W-10 done, and the P-1 budget met on both reference devices. That covers
 beats-bitwrap-io#2, which only has a desktop estimate so far.
 
 The decision this phase must make: **which engine plays an existing share?**

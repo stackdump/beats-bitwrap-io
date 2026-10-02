@@ -1267,8 +1267,8 @@ class ToneEngine {
     // Call synchronously inside a user gesture to unlock Chrome AudioContext
     resumeContext() {
         Tone.start();
-        if (Tone.context.state !== 'running') {
-            Tone.context.resume();
+        if (Tone.getContext().state !== 'running') {
+            Tone.getContext().resume();
         }
         // Mobile: <audio> element gets paused alongside the AudioContext
         // when the OS suspends the tab. Re-issue play() so audio returns
@@ -1279,7 +1279,7 @@ class ToneEngine {
     }
 
     isContextRunning() {
-        return Tone.context.state === 'running';
+        return Tone.getContext().state === 'running';
     }
 
     // AudioContext clock — exposed so callers can build absolute play
@@ -1316,7 +1316,7 @@ class ToneEngine {
                 && typeof navigator !== 'undefined'
                 && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
             if (isMobile) {
-                const raw = Tone.context.rawContext;
+                const raw = Tone.getContext().rawContext;
                 const streamDest = raw.createMediaStreamDestination();
                 this._masterComp = new Tone.Compressor(-12, 3).connect(streamDest);
                 const audioEl = document.createElement('audio');
@@ -1390,7 +1390,7 @@ class ToneEngine {
 
     async setOutputDevice(deviceId) {
         await this.init();
-        const raw = Tone.context.rawContext;
+        const raw = Tone.getContext().rawContext;
 
         // Preferred path: AudioContext.setSinkId (Chrome 110+)
         if (typeof raw.setSinkId === 'function') {
@@ -1439,7 +1439,7 @@ class ToneEngine {
 
     getOutputDeviceId() {
         if (this._masterSinkId) return this._masterSinkId;
-        const raw = Tone.context.rawContext;
+        const raw = Tone.getContext().rawContext;
         return typeof raw.sinkId === 'string' ? raw.sinkId : '';
     }
 
@@ -1461,7 +1461,7 @@ class ToneEngine {
             return;
         }
 
-        const raw = Tone.context.rawContext;
+        const raw = Tone.getContext().rawContext;
         if (typeof HTMLAudioElement.prototype.setSinkId !== 'function') {
             throw new Error('HTMLAudioElement.setSinkId not supported');
         }
@@ -1581,6 +1581,8 @@ class ToneEngine {
         const v = Math.max(-60, Math.min(0, db));
         this._masterVolume.volume.value = v;
         for (const fx of this._channelFx.values()) fx.masterVol.volume.value = v;
+        // ?engine=wave lean path (lib/backend/wave.js) bypasses this chain.
+        if (this._waveGain) this._waveGain.gain.value = Math.pow(10, v / 20);
     }
 
     async loadInstrument(channel, instrumentName) {

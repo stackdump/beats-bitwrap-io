@@ -74,8 +74,8 @@ export function clearAllAudioSched() {
 // goal is for this same code to also run under node-web-audio-api,
 // where the class name is the same but the constructor lives elsewhere).
 export function isOfflineContext() {
-    if (typeof Tone === 'undefined' || !Tone.context) return false;
-    const raw = Tone.context.rawContext || Tone.context;
+    if (typeof Tone === 'undefined' || !Tone.getContext) return false;
+    const raw = Tone.getContext().rawContext || Tone.getContext();
     const name = raw?.constructor?.name || '';
     return name === 'OfflineAudioContext';
 }

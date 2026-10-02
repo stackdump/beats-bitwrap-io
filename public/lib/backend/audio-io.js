@@ -426,7 +426,7 @@ export async function ensureToneStarted(el) {
             toneEngine.setMasterVolume(initDb);
             el._toneStarted = true;
             // Keep banner in sync with context state.
-            const ctx = window.Tone?.context?.rawContext;
+            const ctx = window.Tone?.getContext?.()?.rawContext;
             if (ctx && !el._ctxListenerBound) {
                 el._ctxListenerBound = true;
                 ctx.addEventListener('statechange', () => {

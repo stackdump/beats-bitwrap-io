@@ -99,6 +99,15 @@ async function run(cdp, query) {
             out.peak = peak;
             out.ctxState = ctx.state;
         }
+        const { toneEngine } = await import('/audio/tone-engine.js');
+        out.lean = !!toneEngine._waveGain;
+        out.latency = window.Tone.getContext().rawContext.baseLatency;
+        out.mobileSink = !!toneEngine._masterSink;
+        out.audioElPlaying = toneEngine._masterSink ? !toneEngine._masterSink.audioEl.paused : null;
+        if (toneEngine._waveGain) {
+            toneEngine.setMasterVolume(-6);
+            out.gainAfterVol = +toneEngine._waveGain.gain.value.toFixed(3);
+        }
         const net = el._project.nets.kick || Object.values(el._project.nets)[0];
         out.markingSeen = Object.values(net.places).some(p => Array.isArray(p.tokens));
         return out;
@@ -116,6 +125,18 @@ try {
     check('wave: marking reaches the canvas state', w.markingSeen);
     check('wave: worklet output is not silent', w.peak > 0.01, `peak ${w.peak?.toFixed(3)}`);
     check('wave: Tone.js plays no notes', w.toneNotes === 0, `${w.toneNotes} Tone notes`);
+
+    check('wave: lean output path (Tone master chain bypassed)', w.lean);
+    check('wave: master volume reaches the lean path', w.gainAfterVol === 0.501, `gain ${w.gainAfterVol} for -6 dB`);
+
+    // Phone: iPhone UA → 'playback' latency hint and the <audio>-element sink
+    // that keeps iOS playing through screen lock.
+    await cdp.send('Emulation.setUserAgentOverride', { userAgent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' });
+    const m = await run(cdp, 'engine=wave&genre=techno&seed=42');
+    check('wave/mobile: plays through the <audio> sink', m.wave && m.playing && m.lean && m.mobileSink && m.tick > 8,
+        JSON.stringify({ tick: m.tick, audioElPlaying: m.audioElPlaying, baseLatency: m.latency, desktopBaseLatency: w.latency }));
+    await cdp.send('Emulation.setUserAgentOverride', { userAgent: '' });
 
     const d = await run(cdp, 'genre=techno&seed=42');
     check('default engine: unchanged, still plays through Tone', !d.wave && d.toneNotes > 0 && d.tick > 8,

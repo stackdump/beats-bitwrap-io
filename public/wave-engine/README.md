@@ -144,13 +144,26 @@ reproduce from run to run, and the mean and p99 don't show them. The
 comparison that matters for beats-bitwrap-io#2 is against the Tone path, which
 builds a node graph per voice. That comparison still needs a device.
 
+### In the browser (`bench.html`)
+
+`bench.html` measures the whole audio graph (worklet included) in an
+OfflineAudioContext on whatever device opens it. Desktop, techno/standard,
+20 s: Tone default 1.7× · wave through Tone's master 4.5× · wave lean (now)
+25× · wave alone 36–39× · wave @24 kHz 55–66×. Phone numbers are still to
+come; see ROADMAP-wave.md, performance track. Published copy:
+`https://cdn.stackdump.com/ipfs/bafyreie6dbb396ae7f07f199bbdf693df1042e/wave-engine/bench.html`.
+
 ## Studio integration
 
 In wave mode Tone gets a **native** `AudioContext`
 (`prepareWaveContext`). Tone's default standardized-audio-context wrapper
-re-wraps worklet modules as classic scripts, which breaks ES `import`. The
-worklet's output joins `toneEngine._masterVolume`, so master volume, the
-master bus and the recorder / render-farm tap still apply. The sequencer
+re-wraps worklet modules as classic scripts, which breaks ES `import`. By
+default the worklet's output takes the **lean path**: worklet → gain →
+destination (or, on phones, Tone's `<audio>` stream sink, which keeps iOS
+playing through screen lock), with Tone's master chain unhooked. That chain
+costs ~8× the whole wave engine even when idle. The master-volume slider drives
+the gain. `&fx=tone` routes through Tone's master chain instead (master FX and
+the recorder tap, at that cost). Phones get `latencyHint: 'playback'`. The sequencer
 worker keeps composing but never plays. Transport goes to the worklet, and its
 ticks are replayed into `handleWsMessage` as `transition-fired`, `state-sync`,
 `control-fired` and `mute-state`. The canvas, mixer and Stage visualizers
