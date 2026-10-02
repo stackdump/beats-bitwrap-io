@@ -12,7 +12,7 @@ first; this file sequences the remaining work.
 | Phase | Title | Status |
 |---|---|---|
 | W-0 | Engine core: executor in worklet, ring gates, offline WAV, tests | ✅ `b0a896d` (branch `wave-engine`) |
-| P-0 | Mobile: on-device bench, lean output path, `playback` latency, `Tone.context` fix | ✅ (branch `wave-engine`) |
+| P-0 | Mobile: on-device bench (standalone + in-app), lean output path, `playback` latency, `Tone.context` fix | ✅ (branch `wave-engine`) |
 | P-1 | Reference devices + budget gate on every phase | 🟡 high-end Android measured (`docs/perf/`); budget device + iPhone still needed |
 | P-2 | Quality tiers (full / lite / eco), deterministic per setting | 🔜 |
 | P-3 | Live underrun detection + auto step-down | 🔜 |
@@ -143,6 +143,12 @@ P-0 shipped (all opt-in under `?engine=wave`):
 - `scripts/test-wave-browser.mjs` now also runs as an emulated iPhone:
   `playback` latency (baseLatency 21 ms vs 11 ms) and audio through the
   `<audio>` sink.
+
+**In the app:** Help (`?`) → *Benchmark this device*, or `?bench=1`. It runs the
+fixed reference track (comparable across devices) or the track currently
+loaded, stops playback first, keeps a per-device history in `localStorage`,
+and prints a recommendation ("try `?engine=wave`" when the default is
+tight). It reaches users when the branch merges. Until then:
 
 **Run it on a phone:** the bench is published on the CDN (branch build, no
 deploy needed): `https://cdn.stackdump.com/ipfs/bafyreie6dbb396ae7f07f199bbdf693df1042e/wave-engine/bench.html`.

@@ -723,6 +723,10 @@ export function showHelpModal(el) {
             <button class="pn-help-close" title="Close (Esc)">&times;</button>
             <h2>Performance Guide <span class="pn-help-version" style="font-size:0.55em;color:#777;font-weight:400;letter-spacing:0.04em;margin-left:6px">loading…</span></h2>
 
+            <h3>This device</h3>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Crackle or late hits? Measure how much audio headroom this device has for each engine.
+                <button type="button" class="pn-bench-open" style="margin-left:6px">Benchmark this device</button></p>
+
             <h3>Getting Started</h3>
             <ul>
                 <li><b>Generate</b> a track, then hit <b>Play</b></li>
@@ -921,6 +925,10 @@ export function showHelpModal(el) {
         if (e.key === 'Escape') { e.preventDefault(); overlay.remove(); }
     });
     el.appendChild(overlay);
+    overlay.querySelector('.pn-bench-open')?.addEventListener('click', () => {
+        overlay.remove();
+        el._showBenchModal();
+    });
     overlay.focus();
 
     // Populate the version chip next to the title. Cached between

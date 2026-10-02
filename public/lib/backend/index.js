@@ -482,6 +482,7 @@ export function handleWsMessage(el, msg) {
             el._audioGridStartTone = null;
             break;
         case 'project-sync':
+            el._lastProjectJSON = msg.project; // the benchmark's "current track"
             waveLoadProject(el, msg.project);
             // Worker swapped projects (or just synced state) — drop
             // the audio grid anchor so the next fire re-establishes

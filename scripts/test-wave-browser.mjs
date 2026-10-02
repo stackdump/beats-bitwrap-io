@@ -142,6 +142,55 @@ try {
     check('default engine: unchanged, still plays through Tone', !d.wave && d.toneNotes > 0 && d.tick > 8,
         `tick ${d.tick}, ${d.toneNotes} Tone notes`);
 
+    // In-app benchmark: Help → "Benchmark this device", a quick run of the
+    // reference track and of the current track, then playback must still
+    // work (the bench swaps Tone's global context and must restore it).
+    await cdp.evaluate(`localStorage.removeItem('pn-bench-history')`);
+    const b = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        el.querySelector('.pn-help-btn').click();
+        await sleep(200);
+        el.querySelector('.pn-bench-open').click();
+        for (let i = 0; i < 50 && !el.querySelector('.pn-bench-overlay'); i++) await sleep(100);
+        const ov = el.querySelector('.pn-bench-overlay');
+        if (!ov) return { error: 'modal did not open' };
+        ov.querySelector('.pn-bench-quick').checked = true;
+        const runAndWait = async (which) => {
+            ov.querySelector('.pn-bench-run[data-which="' + which + '"]').click();
+            for (let i = 0; i < 1200; i++) {
+                await sleep(100);
+                const st = ov.querySelector('.pn-bench-status').textContent;
+                if (st === 'done' || st.startsWith('bench failed')) return { st, report: el._benchLastReport() };
+            }
+            return { st: 'timeout' };
+        };
+        const ref = await runAndWait('reference');
+        const cur = await runAndWait('current');
+        const history = JSON.parse(localStorage.getItem('pn-bench-history') || '[]');
+        ov.querySelector('.pn-help-close').click();
+        // Playback after the bench, on the default engine.
+        const { toneEngine } = await import('/audio/tone-engine.js');
+        let notes = 0;
+        const orig = toneEngine.playNote.bind(toneEngine);
+        toneEngine.playNote = (...a) => { notes++; return orig(...a); };
+        const t0 = el._tick;
+        if (!el._playing) el._togglePlay();
+        await sleep(3000);
+        return {
+            ref: ref.st, cur: cur.st,
+            refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
+            curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
+            history: history.length, notesAfter: notes, ticksAfter: el._tick - t0, playing: el._playing,
+        };
+    })()`);
+    check('bench modal: reference run completes with default + wave cases',
+        b.ref === 'done' && b.refX?.length === 2 && b.refX.every(x => /:\d/.test(x)), JSON.stringify(b.refX || b));
+    check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
+    check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
+    check('bench modal: playback still works afterwards (Tone context restored)', b.playing && b.notesAfter > 0,
+        `${b.notesAfter} Tone notes in 3 s`);
+
     const errs = cdp.logs.filter(l => /EXC|wave engine|Error/i.test(l));
     if (errs.length) console.log('page errors:\n  ' + errs.slice(0, 10).join('\n  '));
     cdp.close();

@@ -931,6 +931,10 @@ class PetriNote extends HTMLElement {
         this.querySelector('.pn-help-btn')?.addEventListener('click', () => {
             this._showHelpModal();
         });
+        // ?bench=1 opens the device benchmark directly.
+        if (new URLSearchParams(location.search).get('bench') === '1') {
+            setTimeout(() => this._showBenchModal(), 500);
+        }
 
         // Control category map
         this.querySelector('.pn-category-btn')?.addEventListener('click', (e) => {
@@ -1641,6 +1645,7 @@ class PetriNote extends HTMLElement {
     _showHelpModal() { return showHelpModal(this); }
     _showCategoryModal() { return showCategoryModal(this); }
     _showMidiMonitor() { return showMidiMonitorModal(this); }
+    _showBenchModal() { return import('./lib/ui/bench-modal.js').then(m => m.showBenchModal(this)); }
     _toggleStage() { return toggleStage(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }

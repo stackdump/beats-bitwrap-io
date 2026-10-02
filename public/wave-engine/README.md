@@ -146,7 +146,9 @@ builds a node graph per voice. That comparison still needs a device.
 
 ### In the browser (`bench.html`)
 
-`bench.html` measures the whole audio graph (worklet included) in an
+The same bench runs inside the studio: Help (`?`) → *Benchmark this device*,
+or `?bench=1` (`lib/ui/bench-modal.js` over `bench-core.js`). `bench.html`
+measures the whole audio graph (worklet included) in an
 OfflineAudioContext on whatever device opens it. Desktop, techno/standard,
 20 s: Tone default 1.7× · wave through Tone's master 4.5× · wave lean (now)
 25× · wave alone 36–39× · wave @24 kHz 55–66×. Phone numbers are still to
