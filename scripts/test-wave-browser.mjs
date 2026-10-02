@@ -14,6 +14,9 @@
 import { spawn } from 'node:child_process';
 
 const HOST = process.argv[2] || 'http://localhost:18093';
+// The in-app bench section submits a result; only do that against a local
+// server, never against production (it would land in the public table).
+const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(HOST);
 const PORT = 9341;
 const CHROME = process.env.CHROME || 'google-chrome';
 
@@ -145,60 +148,64 @@ try {
     // In-app benchmark: Help → "Benchmark this device", a quick run of the
     // reference track and of the current track, then playback must still
     // work (the bench swaps Tone's global context and must restore it).
-    await cdp.evaluate(`localStorage.removeItem('pn-bench-history')`);
-    const b = await cdp.evaluate(`(async () => {
-        const el = document.querySelector('petri-note');
-        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-        el.querySelector('.pn-help-btn').click();
-        await sleep(200);
-        el.querySelector('.pn-bench-open').click();
-        for (let i = 0; i < 50 && !el.querySelector('.pn-bench-overlay'); i++) await sleep(100);
-        const ov = el.querySelector('.pn-bench-overlay');
-        if (!ov) return { error: 'modal did not open' };
-        ov.querySelector('.pn-bench-quick').checked = true;
-        const runAndWait = async (which) => {
-            ov.querySelector('.pn-bench-run[data-which="' + which + '"]').click();
-            for (let i = 0; i < 1200; i++) {
-                await sleep(100);
-                const st = ov.querySelector('.pn-bench-status').textContent;
-                if (st === 'done' || st.startsWith('bench failed')) return { st, report: el._benchLastReport() };
-            }
-            return { st: 'timeout' };
-        };
-        const ref = await runAndWait('reference');
-        const cur = await runAndWait('current');
-        const history = JSON.parse(localStorage.getItem('pn-bench-history') || '[]');
-        // Submit the current-track report with a label.
-        ov.querySelector('.pn-bench-label').value = 'ci-headless';
-        ov.querySelector('.pn-bench-submit').click();
-        for (let i = 0; i < 50 && !/^Submitted #/.test(ov.querySelector('.pn-bench-submit').textContent); i++) await sleep(100);
-        const submitted = ov.querySelector('.pn-bench-submit').textContent;
-        const listed = await (await fetch('/api/bench')).json();
-        ov.querySelector('.pn-help-close').click();
-        // Playback after the bench, on the default engine.
-        const { toneEngine } = await import('/audio/tone-engine.js');
-        let notes = 0;
-        const orig = toneEngine.playNote.bind(toneEngine);
-        toneEngine.playNote = (...a) => { notes++; return orig(...a); };
-        const t0 = el._tick;
-        if (!el._playing) el._togglePlay();
-        await sleep(3000);
-        return {
-            ref: ref.st, cur: cur.st,
-            refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
-            curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
-            submitted, listedLabel: listed.results[0]?.label, listedF: listed.results[0]?.xRealtime?.F,
-            history: history.length, notesAfter: notes, ticksAfter: el._tick - t0, playing: el._playing,
-        };
-    })()`);
-    check('bench modal: reference run completes with default + wave cases',
-        b.ref === 'done' && b.refX?.length === 2 && b.refX.every(x => /:\d/.test(x)), JSON.stringify(b.refX || b));
-    check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
-    check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
-    check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedF > 0,
-        `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedF}×`);
-    check('bench modal: playback still works afterwards (Tone context restored)', b.playing && b.notesAfter > 0,
-        `${b.notesAfter} Tone notes in 3 s`);
+    if (LOCAL) {
+        await cdp.evaluate(`localStorage.removeItem('pn-bench-history')`);
+        const b = await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            el.querySelector('.pn-help-btn').click();
+            await sleep(200);
+            el.querySelector('.pn-bench-open').click();
+            for (let i = 0; i < 50 && !el.querySelector('.pn-bench-overlay'); i++) await sleep(100);
+            const ov = el.querySelector('.pn-bench-overlay');
+            if (!ov) return { error: 'modal did not open' };
+            ov.querySelector('.pn-bench-quick').checked = true;
+            const runAndWait = async (which) => {
+                ov.querySelector('.pn-bench-run[data-which="' + which + '"]').click();
+                for (let i = 0; i < 1200; i++) {
+                    await sleep(100);
+                    const st = ov.querySelector('.pn-bench-status').textContent;
+                    if (st === 'done' || st.startsWith('bench failed')) return { st, report: el._benchLastReport() };
+                }
+                return { st: 'timeout' };
+            };
+            const ref = await runAndWait('reference');
+            const cur = await runAndWait('current');
+            const history = JSON.parse(localStorage.getItem('pn-bench-history') || '[]');
+            // Submit the current-track report with a label.
+            ov.querySelector('.pn-bench-label').value = 'ci-headless';
+            ov.querySelector('.pn-bench-submit').click();
+            for (let i = 0; i < 50 && !/^Submitted #/.test(ov.querySelector('.pn-bench-submit').textContent); i++) await sleep(100);
+            const submitted = ov.querySelector('.pn-bench-submit').textContent;
+            const listed = await (await fetch('/api/bench')).json();
+            ov.querySelector('.pn-help-close').click();
+            // Playback after the bench, on the default engine.
+            const { toneEngine } = await import('/audio/tone-engine.js');
+            let notes = 0;
+            const orig = toneEngine.playNote.bind(toneEngine);
+            toneEngine.playNote = (...a) => { notes++; return orig(...a); };
+            const t0 = el._tick;
+            if (!el._playing) el._togglePlay();
+            await sleep(3000);
+            return {
+                ref: ref.st, cur: cur.st,
+                refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
+                curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
+                submitted, listedLabel: listed.results[0]?.label, listedF: listed.results[0]?.xRealtime?.F,
+                history: history.length, notesAfter: notes, ticksAfter: el._tick - t0, playing: el._playing,
+            };
+        })()`);
+        check('bench modal: reference run completes with default + wave cases',
+            b.ref === 'done' && b.refX?.length === 2 && b.refX.every(x => /:\d/.test(x)), JSON.stringify(b.refX || b));
+        check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
+        check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
+        check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedF > 0,
+            `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedF}×`);
+        check('bench modal: playback still works afterwards (Tone context restored)', b.playing && b.notesAfter > 0,
+            `${b.notesAfter} Tone notes in 3 s`);
+    } else {
+        console.log('skip bench modal checks (non-local host: would write to the public results table)');
+    }
 
     const errs = cdp.logs.filter(l => /EXC|wave engine|Error/i.test(l));
     if (errs.length) console.log('page errors:\n  ' + errs.slice(0, 10).join('\n  '));

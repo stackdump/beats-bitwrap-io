@@ -333,7 +333,7 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 | `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
 | `data/audio/` | Cached audio renders (`.webm`) served to the feed. Bucketed by `YYYY/MM/{cid}.webm`. Production runs without `-audio-render`, so deletion is **only** safe-to-delete when you have an off-host worker (`scripts/process-rebuild-queue.py`) ready to re-render — otherwise listeners get 404s for affected CIDs. |
 | `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
-| `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable; back it up with the snapshot set. |
+| `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable, and **not** included in `/api/snapshot` (that bundles `index.db` only): back it up by hand with `sqlite3 data/bench.db ".backup …"`. |
 | `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Required by `X-Rebuild-Secret` on `PUT /audio/{cid}.webm` (bypasses first-write-wins), `GET /api/snapshot`, and `POST /api/archive-delete`. Treat as a credential — don't commit, don't paste in chat. |
 
 ### Benchmark submissions (`/api/bench`)
