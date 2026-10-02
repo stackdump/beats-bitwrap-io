@@ -931,6 +931,10 @@ class PetriNote extends HTMLElement {
         this.querySelector('.pn-help-btn')?.addEventListener('click', () => {
             this._showHelpModal();
         });
+        // ?perf=1 shows the live perf monitor readout (lib/perf/monitor.js).
+        if (new URLSearchParams(location.search).get('perf') === '1') {
+            import('./lib/perf/monitor.js').then(m => m.perfHudEnable(this));
+        }
         // ?bench=1 opens the device benchmark directly.
         if (new URLSearchParams(location.search).get('bench') === '1') {
             setTimeout(() => this._showBenchModal(), 500);

@@ -203,6 +203,7 @@ go_library(
         "public/wave-engine/runner.js",
         "public/wave-engine/synth.js",
         "public/wave-engine/worklet.js",
+        "public/lib/perf/monitor.js",
     ],
     importpath = "beats-bitwrap-io",
     visibility = ["//visibility:private"],

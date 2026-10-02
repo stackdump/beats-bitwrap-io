@@ -6,6 +6,7 @@
 // Extracted from petri-note.js. Functions take the custom element as
 // first arg; petri-note.js keeps one-line class-method wrappers.
 
+import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { toneEngine } from '../../audio/tone-engine.js';
 import { resolveDurationMs } from '../pflow.js';
 import { apcSync } from './apc-mini-mk2.js';
@@ -756,15 +757,21 @@ export function vizSpawnParticle(el, netId, midi) {
 // under headless_shell, which skips rasterization); halving the repaint rate
 // is imperceptible for the slow right-to-left scroll. Keep scheduling on rAF
 // so we stay vsync-aligned and pause when the tab is hidden.
-const VIZ_MIN_FRAME_MS = 1000 / 30;
+// Per visual level (lib/perf/monitor.js): full 30fps → reduced 15 →
+// minimal 8 → paused 4 (playhead still moves).
+const VIZ_MIN_FRAME_MS = [1000 / 30, 1000 / 15, 1000 / 8, 1000 / 4];
 export function vizStartLoop(el) {
     if (el._vizRafId) return;
     let lastDraw = 0;
     const loop = (now) => {
         el._vizRafId = requestAnimationFrame(loop);
-        if (now - lastDraw < VIZ_MIN_FRAME_MS) return;
+        if (now - lastDraw < VIZ_MIN_FRAME_MS[Math.min(3, el._vizLevel | 0)]) return;
         lastDraw = now;
+        const t0 = vizBegin();
         vizDrawFrame(el);
+        // Test hook (scripts/test-wave-browser.mjs): synthetic visual cost.
+        if (el._perfTestVizBurnMs) { const end = t0 + el._perfTestVizBurnMs; while (performance.now() < end) {} }
+        vizEnd(VIZ.TIMELINE, t0);
     };
     el._vizRafId = requestAnimationFrame(loop);
 }

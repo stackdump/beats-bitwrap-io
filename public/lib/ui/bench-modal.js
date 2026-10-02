@@ -46,6 +46,16 @@ export function showBenchModal(el) {
             <p style="color:#888;margin:0 0 12px;font-size:12px">Submitting sends this report — timings, browser user-agent,
                 device model if your browser shares it, CPU cores, memory and the name you type — to the public results table.
                 No account; your IP address is not stored.</p>
+            <h3 style="margin:8px 0 4px">Live session</h3>
+            <p class="pn-bench-live" style="font-size:13px;color:#ccc;margin:0 0 6px"></p>
+            <label style="font-size:13px;color:#ccc">Visual quality
+                <select class="pn-bench-vizq">
+                    <option value="auto">auto — reduce when visuals cause lag</option>
+                    <option value="full">full</option>
+                    <option value="reduced">reduced</option>
+                    <option value="minimal">minimal</option>
+                </select></label>
+            <p style="color:#888;margin:4px 0 12px;font-size:12px">Add <code>?perf=1</code> to the URL for a live readout.</p>
             <h3 style="margin:8px 0 4px">History on this device</h3>
             <div class="pn-bench-history" style="font-size:12px;color:#aaa"></div>
         </div>
@@ -67,6 +77,14 @@ export function showBenchModal(el) {
         </table>` : 'No runs yet.';
     };
     renderHistory();
+
+    // Live session: what the perf monitor saw while this session played.
+    import('../perf/monitor.js').then((mon) => {
+        $('.pn-bench-live').textContent = mon.perfVerdict(mon.perfReport(el));
+        const sel = $('.pn-bench-vizq');
+        sel.value = mon.vizPreference();
+        sel.addEventListener('change', () => mon.setVizPreference(el, sel.value));
+    });
 
     const header = () => {
         $('.pn-bench-table').innerHTML = `<tr style="color:#888;text-align:left">

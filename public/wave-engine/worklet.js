@@ -79,7 +79,9 @@ class WaveEngineProcessor extends AudioWorkletProcessor {
             const n = g.nets[g.controls[i]], t = g.controls[i + 1];
             controls.push([n.id, n.transIds[t], n.bundle.controlBindings[n.transIds[t]]]);
         }
-        const msg = { type: 'wave-tick', tick: g.tick, fired, controls };
+        // t: audio-thread time of this tick; the page compares it with
+        // its own context time to measure how far the visuals trail.
+        const msg = { type: 'wave-tick', tick: g.tick, t: currentTime, fired, controls };
         if (g.tick % STATE_EVERY === 0) msg.state = markingOf(g);
         if (controls.length) {
             const muted = {};

@@ -145,6 +145,55 @@ try {
     check('default engine: unchanged, still plays through Tone', !d.wave && d.toneNotes > 0 && d.tick > 8,
         `tick ${d.tick}, ${d.toneNotes} Tone notes`);
 
+    // Live perf monitor: synthetic visual cost must be blamed on the
+    // visualization and stepped down; removing it must recover; equally
+    // heavy non-visual work must be reported as 'other' with the visuals
+    // left alone; the 'full' preference must disable stepping down.
+    const pm = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const mon = await import('/lib/perf/monitor.js');
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const waitFor = async (pred, ms) => { for (let t = 0; t < ms; t += 100) { if (pred()) return true; await sleep(100); } return false; };
+        localStorage.removeItem('pn-viz-quality');
+        el._perfConfig = { windowMs: 500, downAfter: 2, upAfter: 3, silent: true };
+        if (el._playing) el._togglePlay();
+        el._perf = null;
+        el._togglePlay();
+        await sleep(1500);
+        const causes = () => el._perf.history.map(w => w.cause[0]).join('');
+        el._perfTestVizBurnMs = 40;
+        const steppedDown = await waitFor(() => el._perf.level >= 1, 8000);
+        const vizCauses = causes();
+        el._perfTestVizBurnMs = 0;
+        const nr = el._perf.history.length;
+        const recovered = await waitFor(() => el._perf.level === 0, 12000);
+        const recoverWindows = el._perf.history.slice(nr).map(w => w.cause[0] + w.level + '/' + w.fps + 'fps/p95 ' + w.p95FrameMs + '/drop ' + w.dropped + '/blk ' + w.blockingMsPerS + '/late ' + w.late).join(' | ');
+        const n0 = el._perf.history.length;
+        const burner = setInterval(() => { const e = performance.now() + 70; while (performance.now() < e) {} }, 100);
+        await sleep(3000);
+        clearInterval(burner);
+        const otherCauses = el._perf.history.slice(n0).map(w => w.cause[0]).join('');
+        const levelAfterOther = el._perf.level;
+        mon.setVizPreference(el, 'full');
+        el._perfTestVizBurnMs = 40;
+        await sleep(3000);
+        el._perfTestVizBurnMs = 0;
+        const levelWithFull = el._perf.level;
+        mon.setVizPreference(el, 'auto');
+        localStorage.removeItem('pn-viz-quality');
+        const report = mon.perfReport(el);
+        el._togglePlay();
+        return { steppedDown, vizCauses, recovered, recoverWindows, otherCauses, levelAfterOther, levelWithFull,
+            verdict: mon.perfVerdict(report) };
+    })()`);
+    check('perf monitor: visual cost is blamed on the visualization and stepped down',
+        pm.steppedDown && pm.vizCauses.includes('v'), `causes ${pm.vizCauses}`);
+    check('perf monitor: visuals recover once the cost is gone', pm.recovered, pm.recovered ? '' : pm.recoverWindows);
+    check('perf monitor: non-visual jank is "other" and leaves visuals alone',
+        /o/.test(pm.otherCauses) && !/v/.test(pm.otherCauses) && pm.levelAfterOther === 0, `causes ${pm.otherCauses}`);
+    check('perf monitor: "full" preference disables stepping down', pm.levelWithFull === 0);
+    console.log('     verdict: ' + pm.verdict);
+
     // In-app benchmark: Help → "Benchmark this device", a quick run of the
     // reference track and of the current track, then playback must still
     // work (the bench swaps Tone's global context and must restore it).

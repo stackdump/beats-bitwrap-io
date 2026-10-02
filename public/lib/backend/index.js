@@ -11,6 +11,10 @@ import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 import { routeToWave, waveLoadProject } from './wave.js';
+import { perfStart, perfStop, perfNote, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
+
+// Live perf monitor runs exactly while the transport plays.
+function syncPerf(el) { if (el._playing) perfStart(el); else perfStop(el); }
 
 // Audio-clock lookahead window. Worker stamps every transition fire
 // with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
@@ -51,6 +55,7 @@ export function togglePlay(el) {
     toneEngine.resumeContext();
 
     el._playing = !el._playing;
+    syncPerf(el);
 
     // Drop the audio grid anchor. The next worker fire after a fresh
     // play (or the silence after a stop) re-anchors against Tone.now().
@@ -615,6 +620,7 @@ export function handleWsMessage(el, msg) {
             // Sequencer has stopped — mark as not playing so project-sync
             // goes through the cold-load path (sends project-load + play).
             el._playing = false;
+            syncPerf(el);
             if (el._playbackMode === 'repeat') {
                 // Replay the same track from the beginning.
                 el._tick = 0; el._lastPlayheadPct = 0;
@@ -622,6 +628,7 @@ export function handleWsMessage(el, msg) {
                 el._updatePlayhead();
                 sendWs(el, { type: 'transport', action: 'play' });
                 el._playing = true;
+                syncPerf(el);
                 el._vizStartLoop();
                 el._fireTransitionMacro();
             } else if (el._playbackMode === 'shuffle') {
@@ -661,6 +668,7 @@ export function handleWsMessage(el, msg) {
             } else {
                 // Single: stop.
                 el._playing = false;
+                syncPerf(el);
                 el._tick = 0; el._lastPlayheadPct = 0;
                 el._vizStopLoop();
                 el._draw();
@@ -683,11 +691,15 @@ export function handleWsMessage(el, msg) {
 // --- Remote-fire + humanize/swing ---
 
 export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs, playbackTicks, tickIntervalMs) {
+    const vt0 = vizBegin();
+    // At visual level ≥ 2 (minimal) per-fire flashes and Stage pulses are
+    // skipped; the timeline still records the fire.
+    const flashes = (el._vizLevel | 0) < 2;
     // Visual feedback — match by exact ID or riff group.
     const activeNet = el._project?.nets?.[el._activeNetId];
     const firedNet = el._project?.nets?.[netId];
     const sameGroup = activeNet?.riffGroup && activeNet.riffGroup === firedNet?.riffGroup;
-    if (netId === el._activeNetId || sameGroup) {
+    if (flashes && (netId === el._activeNetId || sameGroup)) {
         const node = el._nodes[transitionId];
         if (node) {
             node.classList.add('firing');
@@ -709,7 +721,8 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     }
 
     // Full-page Stage: pulse the matching transition in its panel.
-    stageOnTransitionFired(el, netId, transitionId);
+    if (flashes) stageOnTransitionFired(el, netId, transitionId);
+    vizEnd(VIZ.FIRE, vt0);
 
     // Play sound locally — unless the wave engine is rendering it.
     if (midi && !el._waveEngine) {
@@ -773,6 +786,11 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
                   + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
                 : -Infinity;
             const stale = candidatePlayAt < toneEngine.now();
+            // Perf monitor: a stale anchor mid-session means this fire
+            // arrived too late to land on the grid — an audible hiccup.
+            const lateReanchor = stale && el._audioGridStartTone != null
+                && playbackTicks >= (el._audioGridStartPlaybackTicks ?? 0)
+                && el._audioGridTickIntervalMs === tickIntervalMs;
             if (el._audioGridStartTone == null
                 || playbackTicks < (el._audioGridStartPlaybackTicks ?? 0)
                 || el._audioGridTickIntervalMs !== tickIntervalMs
@@ -784,6 +802,7 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
             const playAt = el._audioGridStartTone
                 + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
                 + swingDelay(el) / 1000;
+            perfNote(el, playAt - toneEngine.now(), lateReanchor);
             el._playNote(m, netId, playAt);
         } else if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
             if (el._lastTickEpochMs !== tickEpochMs) {
@@ -859,7 +878,16 @@ export function onStateSync(el, state) {
         }
     }
     if (el._activeNetId in state) {
-        el._renderNet();
+        // Reduced visual levels re-render the net canvas less often.
+        const lvl = el._vizLevel | 0;
+        const minGap = lvl >= 3 ? 2000 : lvl >= 2 ? 500 : 0;
+        const now = performance.now();
+        if (!minGap || now - (el._lastNetRender || 0) >= minGap) {
+            el._lastNetRender = now;
+            const t0 = vizBegin();
+            el._renderNet();
+            vizEnd(VIZ.NET, t0);
+        }
     }
     el._updatePlayhead();
 }

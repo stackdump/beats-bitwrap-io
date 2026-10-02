@@ -6,6 +6,7 @@
 // State is module-scoped (not on `el`) so it can't collide with the
 // single-net renderer in canvas.js, which owns el._stage/_nodes/_view.
 
+import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { renderCurrentCard } from '../share/card.js';
 import { buildShareUrlForms } from '../share/url.js';
 import { openAiPromptModal } from './ai-prompt.js';
@@ -1011,10 +1012,20 @@ function drawArrowhead(ctx, x1, y1, x2, y2) {
 }
 
 let lastTime = 0;
+const STAGE_MIN_FRAME_MS = [0, 1000 / 30, 1000 / 15, 1000 / 4];
 function startLoop() {
     lastTime = performance.now();
     const tick = (now) => {
         if (!session) return;
+        // Visual level (lib/perf/monitor.js): full = every frame, then
+        // 30 / 15 / 4 fps. Skipped frames don't advance lastTime, so dt
+        // still covers the real elapsed time on the next drawn frame.
+        const lvl = Math.min(3, (session.el?._vizLevel ?? window.__pnVizLevel ?? 0) | 0);
+        if (lvl && now - lastTime < STAGE_MIN_FRAME_MS[lvl]) {
+            session.rafId = requestAnimationFrame(tick);
+            return;
+        }
+        const vt0 = vizBegin();
         const dt = Math.min(100, now - lastTime) / 1000;
         lastTime = now;
         const flowOn = session.vizModes.has('flow');
@@ -1128,6 +1139,7 @@ function startLoop() {
                 ` translate(${cx}px, ${cy}px) rotate(${p.angle}deg) translate(${-cx}px, ${-cy}px)`;
             drawPanel(p);
         }
+        vizEnd(VIZ.STAGE, vt0);
         session.rafId = requestAnimationFrame(tick);
     };
     session.rafId = requestAnimationFrame(tick);

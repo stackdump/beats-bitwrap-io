@@ -11,6 +11,7 @@
 
 import { toneEngine } from '../../audio/tone-engine.js';
 import { createWaveEngine } from '../../wave-engine/node.js';
+import { perfWaveLag } from '../perf/monitor.js';
 
 export function waveEngineRequested() {
     try { return new URLSearchParams(location.search).get('engine') === 'wave'; }
@@ -113,6 +114,10 @@ function onWaveMessage(el, msg) {
         return;
     }
     if (msg.type !== 'wave-tick') return;
+    if (typeof msg.t === 'number') {
+        const ctx = window.Tone?.getContext?.()?.rawContext;
+        if (ctx) perfWaveLag(el, (ctx.currentTime - msg.t) * 1000);
+    }
     for (const [netId, transitionId, control] of msg.controls) {
         el._handleWsMessage?.({ type: 'control-fired', netId, transitionId, control });
     }

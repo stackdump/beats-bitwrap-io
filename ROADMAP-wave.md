@@ -16,7 +16,7 @@ first; this file sequences the remaining work.
 | P-1 | Reference devices + budget gate on every phase | 🟡 high-end Android measured (`docs/perf/`); in-app submissions + `/wave-engine/results.html` collect the rest |
 | P-2 | Quality tiers (full / lite / eco), deterministic per setting | 🔜 |
 | P-3 | Live underrun detection + auto step-down | 🔜 |
-| P-4 | Main-thread + battery: rAF-coalesced visuals, idle suspend | 🔜 |
+| P-4 | Main-thread + battery: live visual-lag detection + adaptive visuals ✅ (branch `perf-monitor`); idle suspend 🔜 | 🟡 |
 | W-1 | Voice spec format, A/B fidelity harness, coverage gate | 🔜 |
 | W-2 | Channel strip in the worklet (vol/pan/LP/HP/decay/accent, per-drum-voice filters) | 🔜 |
 | W-3 | Drum kits — all 6, faithful | 🔜 |
@@ -208,6 +208,33 @@ background tabs and GC. In the live session:
   notice ("switched to lite for smooth playback"). Never step up mid-session.
 
 ### P-4 — Main thread and battery
+
+**Done: live detection** (`public/lib/perf/monitor.js`). While playing, every
+2 s window combines frame pacing, long animation frames (with Chrome's
+script attribution), time inside each visual path (timeline, Stage, net
+canvas, per-fire flashes), default-engine note scheduling margin (late /
+tight), and wave-engine view lag. The verdict is `visualization` | `other` |
+`none`. In `auto`, the visuals step full → reduced → minimal → paused only
+when the *visualization* is the cause, and come back after a clean stretch.
+`?perf=1` shows a readout; the benchmark modal shows the session verdict and
+a Visual quality override.
+
+Measured (headless Chrome, CPU throttled to simulate a phone, Stage open,
+techno 42):
+
+| engine, throttle | verdict | late notes |
+|---|---|---|
+| default, 1× | smooth; Stage ≈ 6% of main thread | 0 / 316 |
+| default, 4× | visualization blamed in the first 4 windows → reduced → minimal; residual jank "other" | 1 / 315 |
+| default, 6× | visualization blamed in 60% → paused; still 21 fps | 2 / 316 |
+| wave, 4× | 20 fps, visuals 15% of main thread; audio unaffected (view lag 24 ms) | — |
+| wave, 6× | visuals reduced; audio unaffected (view lag 52 ms) | — |
+
+So on a slow main thread the visualization **is** a measurable cause of
+lag, and in the default engine it costs notes. In the wave engine it can
+only make the picture trail the sound.
+
+Still to do:
 
 - **Visuals** (#2 fix #4): coalesce `transition-fired` / `state-sync`
   rendering to `requestAnimationFrame`. Skip off-screen nets and the
