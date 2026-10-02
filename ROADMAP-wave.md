@@ -13,7 +13,7 @@ first; this file sequences the remaining work.
 |---|---|---|
 | W-0 | Engine core: executor in worklet, ring gates, offline WAV, tests | ✅ `b0a896d` (branch `wave-engine`) |
 | P-0 | Mobile: on-device bench, lean output path, `playback` latency, `Tone.context` fix | ✅ (branch `wave-engine`) |
-| P-1 | Reference devices + budget gate on every phase | 🔜 needs device numbers |
+| P-1 | Reference devices + budget gate on every phase | 🟡 high-end Android measured (`docs/perf/`); budget device + iPhone still needed |
 | P-2 | Quality tiers (full / lite / eco), deterministic per setting | 🔜 |
 | P-3 | Live underrun detection + auto step-down | 🔜 |
 | P-4 | Main-thread + battery: rAF-coalesced visuals, idle suspend | 🔜 |
@@ -113,9 +113,13 @@ Chrome):
 
 What it says:
 
-- The default engine barely clears realtime *on a desktop*. A phone 4–6×
-  slower is below 1×, which is the crackle in #2. Nothing inside the Tone
-  path makes that up.
+- The default engine barely clears realtime on valoper (a loaded, shared
+  desktop). On the first real phone, an 8 GB Android, it reaches 4.25×,
+  while the lean wave path reaches 50×. **Phones are not uniformly slower
+  than valoper**: that one was ~2× faster. The ratios are what hold across
+  devices: lean wave ≈ 12–15× cheaper than the Tone default. #2's crackle
+  points at budget phones, where the default's margin, after live UI and GC
+  load, falls below the 3× line. All runs are in `docs/perf/`.
 - Tone's master chain costs **~8× the whole wave engine** (B vs C). It runs
   its DSP at `wet: 0`: phase-vocoder pitch shift, −48 dB filters, phaser,
   crusher, reverb and delay buses. #2's fix #1 was exactly this.
@@ -155,8 +159,10 @@ Run bench → Copy results; the JSON carries UA, cores and device memory.
   for GC, UI work and thermal throttling. 1.5–3× is "tight", < 1.5×
   "will crackle", the same verdicts the bench prints.
 - `wave-bench.mjs` gets a `--budget` mode that fails CI when desktop
-  ×realtime falls below `budget × measured desktop/phone ratio`. The ratio comes
-  from P-1's device runs, replacing today's assumed 6×.
+  ×realtime falls below `budget × measured desktop/phone ratio`. The ratio
+  comes from P-1's *budget*-device runs. The bench's assumed 6× "phone
+  column" is wrong for at least one real phone; drop it once a budget device
+  is measured.
 - Every W-phase adds its family's worst instrument to the bench before it
   lands.
 

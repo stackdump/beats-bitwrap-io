@@ -1,0 +1,22 @@
+{
+  "bench": "beats-audio-engine/v1",
+  "genre": "techno",
+  "seed": 42,
+  "structure": "standard",
+  "seconds": 20,
+  "at": "2026-10-02T14:37:24.127Z",
+  "device": {
+    "ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36",
+    "cores": 8,
+    "memoryGB": 8,
+    "defaultSampleRate": 48000
+  },
+  "results": [
+    { "case": "A", "name": "A · Tone instruments + Tone master (default today)", "renderMs": 4703, "xRealtime": 4.25, "peak": 3.723 },
+    { "case": "B", "name": "B · wave engine → Tone master (?engine=wave today)", "renderMs": 2595, "xRealtime": 7.71, "peak": 0.869 },
+    { "case": "F", "name": "F · wave alone, Tone master built but unhooked (lean ?engine=wave)", "renderMs": 400, "xRealtime": 50.06, "peak": 0.782 },
+    { "case": "C", "name": "C · wave engine alone", "renderMs": 339, "xRealtime": 58.93, "peak": 0.782 },
+    { "case": "D", "name": "D · wave engine alone @ 24 kHz", "renderMs": 226, "xRealtime": 88.69, "peak": 0.791 },
+    { "case": "E", "name": "E · wave DSP only (main thread, no audio graph)", "renderMs": 207, "xRealtime": 96.62, "peak": null }
+  ]
+}
