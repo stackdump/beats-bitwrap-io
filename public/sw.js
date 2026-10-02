@@ -1,4 +1,6 @@
-const CACHE = 'beats-v5';
+// Bump to drop every cached copy on activate (activate deletes other
+// caches). v6: server now sends no-store / no-cache + ETag (staticcache).
+const CACHE = 'beats-v6';
 const ASSETS = [
   '/',
   '/index.html',

@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "staticcache",
+    srcs = ["staticcache.go"],
+    importpath = "beats-bitwrap-io/internal/staticcache",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "staticcache_test",
+    srcs = ["staticcache_test.go"],
+    embed = [":staticcache"],
+)

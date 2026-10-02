@@ -323,7 +323,9 @@ This is the ecosystem's **first cross-project Bazel graph** (go-pflow ROADMAP Ph
 ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && git pull && make build && ~/services restart beats-bitwrap"
 ```
 
-Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx. Only restart `beats-bitwrap` — other services on pflow.dev are independent.
+Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx.
+
+**Caching (why a deploy reaches browsers at once).** The embedded FS has no modtimes, so `http.FileServer` alone sends no validators and Chrome Android was seen booting a restored tab entirely from stale pre-deploy code. `internal/staticcache` now sends `Cache-Control: no-store` for documents (`/`, `*.html`) and `no-cache` + a content-hash `ETag` for everything else (unchanged files revalidate as `304`). The root route sets `no-store` itself. The service worker's cache name (`public/sw.js`, `beats-vN`) is bumped when old cached copies must be dropped. Bumping `?v=` on the worker URL is no longer needed for freshness, but harmless. Only restart `beats-bitwrap` — other services on pflow.dev are independent.
 
 ### Production data layout
 

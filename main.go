@@ -42,6 +42,7 @@ import (
 	"beats-bitwrap-io/internal/routes"
 	"beats-bitwrap-io/internal/sequencer"
 	"beats-bitwrap-io/internal/share"
+	"beats-bitwrap-io/internal/staticcache"
 	"beats-bitwrap-io/internal/ws"
 )
 
@@ -145,7 +146,9 @@ func main() {
 			log.Fatal(err)
 		}
 		publicSub = sub
-		staticHandler = http.FileServer(http.FS(sub))
+		// no-store for documents, no-cache + ETag for everything else, so
+		// a deploy reaches browsers at once (see internal/staticcache).
+		staticHandler = staticcache.Wrap(sub, http.FileServer(http.FS(sub)))
 		log.Printf("Serving embedded files")
 	}
 
@@ -241,6 +244,9 @@ func main() {
 	decorated := share.DecoratedIndex(shareStore, publicSub, *dir)
 	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
+			// The studio page itself: never reuse a stale copy (a restored
+			// tab would boot pre-deploy code). See internal/staticcache.
+			w.Header().Set("Cache-Control", "no-store")
 			decorated.ServeHTTP(w, r)
 			return
 		}

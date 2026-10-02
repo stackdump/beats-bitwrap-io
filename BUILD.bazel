@@ -221,6 +221,7 @@ go_library(
         "//internal/routes",
         "//internal/sequencer",
         "//internal/share",
+        "//internal/staticcache",
         "//internal/telemetry",
         "//internal/ws",
     ],
