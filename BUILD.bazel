@@ -43,6 +43,12 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "js_wave_engine_srcs",
+    srcs = glob(["public/wave-engine/*.js"]),
+    visibility = ["//visibility:public"],
+)
+
 go_library(
     name = "beats-bitwrap-io_lib",
     srcs = [

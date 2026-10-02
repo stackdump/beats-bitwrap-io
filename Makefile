@@ -3,6 +3,7 @@ ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
+        test-wave test-wave-browser wave-render wave-bench \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -87,6 +88,7 @@ test:
 	go test ./...
 	@$(MAKE) --no-print-directory test-cohesion-parity
 	@$(MAKE) --no-print-directory test-model-parity
+	@$(MAKE) --no-print-directory test-wave
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and
@@ -172,3 +174,27 @@ seed-collection-extended: build
 	      --workers $(SEED_WORKERS) \
 	      --official --structure extended \
 	      --rebuild-secret "$$BEATS_REBUILD_SECRET" $(SEED_ARGS)
+
+# --- Wave engine (?engine=wave) — public/wave-engine/ ---
+# Determinism, P-invariants, ring spectrum vs DFT of place weights, closed
+# form vs IIR gate, executor parity with the worker, nesting, allocation.
+test-wave:
+	@node scripts/test-wave-engine.mjs
+
+# Real browser: boots the server from public/, drives headless Chrome over
+# CDP, checks the worklet plays and the default engine is unchanged.
+test-wave-browser: build
+	@./$(BINARY) -addr :18093 -public public -data /tmp/wave-browser-data >/tmp/wave-browser-server.log 2>&1 & \
+	  pid=$$!; sleep 2; node scripts/test-wave-browser.mjs http://localhost:18093; rc=$$?; kill $$pid; exit $$rc
+
+# make wave-render GENRE=techno SEED=42 STRUCTURE=standard SECONDS=30
+GENRE ?= techno
+SEED ?= 42
+STRUCTURE ?=
+SECONDS ?= 30
+wave-render:
+	node scripts/wave-render.mjs --genre $(GENRE) --seed $(SEED) $(if $(STRUCTURE),--structure $(STRUCTURE)) --seconds $(SECONDS)
+
+wave-bench:
+	node scripts/wave-bench.mjs
+

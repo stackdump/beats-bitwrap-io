@@ -10,6 +10,7 @@
 import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
+import { routeToWave, waveLoadProject } from './wave.js';
 
 // Audio-clock lookahead window. Worker stamps every transition fire
 // with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
@@ -426,6 +427,7 @@ export function updateWsStatus(el, connected) {
 }
 
 export function sendWs(el, msg) {
+    if (routeToWave(el, msg)) return;
     if (el._ws?.readyState === WebSocket.OPEN) {
         el._ws.send(JSON.stringify(msg));
     } else if (el._worker) {
@@ -480,6 +482,7 @@ export function handleWsMessage(el, msg) {
             el._audioGridStartTone = null;
             break;
         case 'project-sync':
+            waveLoadProject(el, msg.project);
             // Worker swapped projects (or just synced state) — drop
             // the audio grid anchor so the next fire re-establishes
             // it at Tone.now() + LOOKAHEAD against the new project.
@@ -707,8 +710,8 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     // Full-page Stage: pulse the matching transition in its panel.
     stageOnTransitionFired(el, netId, transitionId);
 
-    // Play sound locally.
-    if (midi) {
+    // Play sound locally — unless the wave engine is rendering it.
+    if (midi && !el._waveEngine) {
         // Apply client-side humanization.
         let m = humanizeNote(el, midi);
         // Hit-pad live pitch: the .pn-os-pitch dropdown in the Beats

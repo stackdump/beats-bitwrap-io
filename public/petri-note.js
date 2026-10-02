@@ -74,6 +74,7 @@ import {
     scheduleReconnect, updateWsStatus, sendWs, handleWsMessage,
     onRemoteTransitionFired, humanizeNote, swingDelay, onStateSync,
 } from './lib/backend/index.js';
+import { waveEngineRequested, prepareWaveContext } from './lib/backend/wave.js';
 import {
     initAudio, connectMidiInputs,
     sliderBindingKey, resolveBinding,
@@ -180,6 +181,10 @@ class PetriNote extends HTMLElement {
 
         // Audio — Set of enabled global output modes: 'web-audio', 'web-midi'
         this._audioModes = new Set(['web-audio']);
+        // ?engine=wave — audio computed sample-by-sample from the marking
+        // in an AudioWorklet (public/wave-engine/) instead of Tone.js voices.
+        this._waveEngine = waveEngineRequested();
+        if (this._waveEngine) prepareWaveContext();
         this._audioCtx = null;
         this._midiAccess = null;
         this._midiOutputId = null; // Selected MIDI output port ID

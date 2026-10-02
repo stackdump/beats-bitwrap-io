@@ -13,3 +13,18 @@ nodejs_test(
     entry_point = "test-cohesion-parity.mjs",
     visibility = ["//visibility:public"],
 )
+
+# Wave engine: determinism, P-invariants, ring spectrum, executor parity.
+# The test spawns wave-render.mjs and a --expose-gc child with the same
+# hermetic node (process.execPath), so both are staged here.
+nodejs_test(
+    name = "wave_engine_test",
+    data = [
+        "test-wave-engine.mjs",
+        "wave-render.mjs",
+        "//:js_generator_srcs",
+        "//:js_wave_engine_srcs",
+    ],
+    entry_point = "test-wave-engine.mjs",
+    visibility = ["//visibility:public"],
+)
