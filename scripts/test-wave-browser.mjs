@@ -168,6 +168,12 @@ try {
         const ref = await runAndWait('reference');
         const cur = await runAndWait('current');
         const history = JSON.parse(localStorage.getItem('pn-bench-history') || '[]');
+        // Submit the current-track report with a label.
+        ov.querySelector('.pn-bench-label').value = 'ci-headless';
+        ov.querySelector('.pn-bench-submit').click();
+        for (let i = 0; i < 50 && !/^Submitted #/.test(ov.querySelector('.pn-bench-submit').textContent); i++) await sleep(100);
+        const submitted = ov.querySelector('.pn-bench-submit').textContent;
+        const listed = await (await fetch('/api/bench')).json();
         ov.querySelector('.pn-help-close').click();
         // Playback after the bench, on the default engine.
         const { toneEngine } = await import('/audio/tone-engine.js');
@@ -181,6 +187,7 @@ try {
             ref: ref.st, cur: cur.st,
             refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
             curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
+            submitted, listedLabel: listed.results[0]?.label, listedF: listed.results[0]?.xRealtime?.F,
             history: history.length, notesAfter: notes, ticksAfter: el._tick - t0, playing: el._playing,
         };
     })()`);
@@ -188,6 +195,8 @@ try {
         b.ref === 'done' && b.refX?.length === 2 && b.refX.every(x => /:\d/.test(x)), JSON.stringify(b.refX || b));
     check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
     check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
+    check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedF > 0,
+        `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedF}×`);
     check('bench modal: playback still works afterwards (Tone context restored)', b.playing && b.notesAfter > 0,
         `${b.notesAfter} Tone notes in 3 s`);
 

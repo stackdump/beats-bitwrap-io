@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"beats-bitwrap-io/internal/audiorender"
+	"beats-bitwrap-io/internal/bench"
 	"beats-bitwrap-io/internal/deploy"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
@@ -509,6 +510,16 @@ func main() {
 		mux.HandleFunc("/api/analysis/", analysisHandler(idx, rebuildSecret))
 		mux.HandleFunc("/feed.rss", rssFeedHandler(idx, publicURL))
 		mux.HandleFunc("/api/features", featuresHandler(*rebuildQueueEnabled))
+		// /api/bench — opt-in, anonymous audio-engine benchmark reports
+		// from the studio's "Benchmark this device" modal and the
+		// standalone wave-engine/bench.html. Own DB (not index.db, which
+		// is safe to delete for a feed purge). Same per-IP limiter as
+		// share PUTs; no IP-derived data is stored.
+		benchStore, err := bench.Open(filepath.Join(*dataDir, "bench.db"))
+		if err != nil {
+			log.Fatalf("bench db open: %v", err)
+		}
+		mux.HandleFunc("/api/bench", bench.Handler(benchStore, shareStore.RateLimitPUT, time.Now))
 		if *rebuildQueueEnabled {
 			// In-process pub/sub: rebuild-mark publishes the CID, the
 			// secret-gated SSE endpoint fans it out to subscribed workers so

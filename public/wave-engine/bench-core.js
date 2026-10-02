@@ -153,15 +153,51 @@ function peakOf(buf) {
     return p;
 }
 
-export function deviceInfo() {
+export async function deviceInfo() {
     let defaultSampleRate = null;
     try { const c = new AudioContext(); defaultSampleRate = c.sampleRate; c.close(); } catch {}
-    return {
+    const info = {
         ua: navigator.userAgent,
         cores: navigator.hardwareConcurrency || null,
         memoryGB: navigator.deviceMemory || null,
         defaultSampleRate,
     };
+    // UA client hints (Chromium): the reduced UA string hides the model
+    // ("Android 10; K"); the hints carry it when the browser allows.
+    try {
+        const h = await navigator.userAgentData?.getHighEntropyValues?.(['model', 'platformVersion']);
+        if (h) {
+            if (h.model) info.model = h.model;
+            if (h.platform) info.platform = h.platform;
+            if (h.platformVersion) info.platformVersion = h.platformVersion;
+            if (typeof h.mobile === 'boolean') info.mobile = h.mobile;
+        }
+    } catch {}
+    for (const k of Object.keys(info)) if (info[k] == null) delete info[k];
+    return info;
+}
+
+// Where submissions go: same origin when served by the beats server; the
+// CDN-hosted bench page posts to beats.bitwrap.io (CORS is open there).
+export function benchApi() {
+    return location.hostname === 'cdn.stackdump.com' ? 'https://beats.bitwrap.io/api/bench' : '/api/bench';
+}
+
+export function resultsUrl() {
+    return location.hostname === 'cdn.stackdump.com'
+        ? 'https://beats.bitwrap.io/wave-engine/results.html' : '/wave-engine/results.html';
+}
+
+/** POST a report (optionally with a user label). Resolves {ok, id} or throws. */
+export async function submitReport(report, label) {
+    const body = { ...report };
+    if (label && label.trim()) body.label = label.trim().slice(0, 80);
+    const res = await fetch(benchApi(), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`${res.status} ${text.trim()}`);
+    return JSON.parse(text);
 }
 
 /**
@@ -191,7 +227,7 @@ export async function runBench({ project, track, seconds = REFERENCE.seconds, ca
     return {
         bench: 'beats-audio-engine/v1',
         ...(track || {}), seconds,
-        at: new Date().toISOString(), device: deviceInfo(), results,
+        at: new Date().toISOString(), device: await deviceInfo(), results,
     };
 }
 

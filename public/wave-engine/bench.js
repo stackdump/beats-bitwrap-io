@@ -2,7 +2,7 @@
 // Query params: ?genre=&structure=&seconds=&cases=A,B,F,C,D,E&auto=1
 
 import { composeProject } from './offline.js';
-import { runBench, verdict, recommend, CASE_ORDER, REFERENCE } from './bench-core.js';
+import { runBench, verdict, recommend, CASE_ORDER, REFERENCE, submitReport, resultsUrl } from './bench-core.js';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
@@ -38,7 +38,21 @@ async function run() {
     window.__benchReport = report;
     status(recommend(report) || 'done');
     $('run').disabled = false; $('copy').disabled = false;
+    $('submitbox').style.display = ''; $('submit').disabled = false;
 }
+
+$('resultslink').href = resultsUrl();
+$('submit').onclick = async () => {
+    if (!window.__benchReport) return;
+    $('submit').disabled = true;
+    try {
+        const r = await submitReport(window.__benchReport, $('label').value);
+        status(`submitted (#${r.id}) — thank you`);
+    } catch (err) {
+        status('submit failed: ' + err.message);
+        $('submit').disabled = false;
+    }
+};
 
 $('run').onclick = run;
 $('copy').onclick = async () => {

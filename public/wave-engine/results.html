@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>beats · audio engine bench results</title>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 1rem; max-width: 60rem; color: #222; background: #fafafa; }
+  h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
+  p.note { color: #555; margin: .25rem 0 1rem; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+  th { color: #666; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  td.num { text-align: right; }
+  .ok { color: #116b2f; } .meh { color: #9a6200; } .bad { color: #b00020; font-weight: 600; }
+  .ua { color: #888; font-size: 12px; max-width: 22rem; overflow-wrap: anywhere; }
+  #status { color: #555; }
+</style>
+</head>
+<body>
+<h1>Audio engine bench — submitted results</h1>
+<p class="note">×realtime = audio-thread headroom when rendering the same track: ≥ 3× comfortable, 1.5–3× tight,
+  &lt; 1.5× crackles. <b>default</b> is today's Tone.js engine; <b>wave</b> is the lean wave engine
+  (<code>?engine=wave</code>). Run it yourself: in the studio, <b>?</b> → <i>Benchmark this device</i>, or
+  <a href="bench.html">the bench page</a>.</p>
+<label><input type="checkbox" id="ref" checked> reference track only (comparable across devices)</label>
+<span id="status"></span>
+<table id="t"><thead><tr>
+  <th data-k="submittedAt">when</th><th data-k="device">device</th><th data-k="platform">platform</th>
+  <th data-k="cores" class="num">cores</th><th data-k="memoryGB" class="num">GB</th>
+  <th data-k="A" class="num">default</th><th data-k="F" class="num">wave</th><th data-k="ratio" class="num">wave/default</th>
+  <th data-k="track">track</th>
+</tr></thead><tbody></tbody></table>
+<script type="module">
+const api = location.hostname === 'cdn.stackdump.com' ? 'https://beats.bitwrap.io/api/bench' : '/api/bench';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cls = (x) => x == null ? '' : x >= 3 ? 'ok' : x >= 1.5 ? 'meh' : 'bad';
+let rows = [], sortKey = 'submittedAt', desc = true;
+const val = (r, k) => k === 'A' || k === 'F' ? r.xRealtime[k] : k === 'ratio' ? r.ratio : k === 'device' ? r.device : r[k];
+function render() {
+  const sorted = [...rows].sort((a, b) => {
+    const x = val(a, sortKey), y = val(b, sortKey);
+    if (x == null) return 1; if (y == null) return -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * (desc ? -1 : 1);
+  });
+  document.querySelector('#t tbody').innerHTML = sorted.map(r => `<tr>
+    <td>${esc(new Date(r.submittedAt).toLocaleDateString())}</td>
+    <td>${esc(r.device)}<div class="ua">${esc(r.ua)}</div></td>
+    <td>${esc(r.platform)}</td>
+    <td class="num">${r.cores ?? ''}</td><td class="num">${r.memoryGB ?? ''}</td>
+    <td class="num ${cls(r.xRealtime.A)}">${r.xRealtime.A != null ? r.xRealtime.A + '×' : ''}</td>
+    <td class="num ${cls(r.xRealtime.F)}">${r.xRealtime.F != null ? r.xRealtime.F + '×' : ''}</td>
+    <td class="num">${r.ratio != null ? r.ratio.toFixed(1) + '×' : ''}</td>
+    <td>${esc(r.track)}</td></tr>`).join('') || '<tr><td colspan="9">No results yet.</td></tr>';
+}
+async function load() {
+  document.getElementById('status').textContent = ' loading…';
+  try {
+    const res = await fetch(api + (document.getElementById('ref').checked ? '?reference=1' : ''));
+    const data = await res.json();
+    rows = data.results.map(r => ({ ...r,
+      device: r.model || r.label || r.platform,
+      ratio: r.xRealtime.A && r.xRealtime.F ? r.xRealtime.F / r.xRealtime.A : null }));
+    document.getElementById('status').textContent = ` ${rows.length} result${rows.length === 1 ? '' : 's'}`;
+  } catch (err) {
+    document.getElementById('status').textContent = ' could not load results: ' + err.message;
+    rows = [];
+  }
+  render();
+}
+document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+  desc = sortKey === th.dataset.k ? !desc : true; sortKey = th.dataset.k; render();
+});
+document.getElementById('ref').onchange = load;
+load();
+</script>
+</body>
+</html>

@@ -333,7 +333,12 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 | `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
 | `data/audio/` | Cached audio renders (`.webm`) served to the feed. Bucketed by `YYYY/MM/{cid}.webm`. Production runs without `-audio-render`, so deletion is **only** safe-to-delete when you have an off-host worker (`scripts/process-rebuild-queue.py`) ready to re-render — otherwise listeners get 404s for affected CIDs. |
 | `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
+| `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable; back it up with the snapshot set. |
 | `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Required by `X-Rebuild-Secret` on `PUT /audio/{cid}.webm` (bypasses first-write-wins), `GET /api/snapshot`, and `POST /api/archive-delete`. Treat as a credential — don't commit, don't paste in chat. |
+
+### Benchmark submissions (`/api/bench`)
+
+The studio's Help → *Benchmark this device* modal (and `public/wave-engine/bench.html`) can submit its report. `internal/bench` validates every field (version `beats-audio-engine/v1`, known cases A/B/F/C/D/E, finite ranges, length caps, no control characters, unknown fields rejected, 16 kB body cap) and stores only the validated fields, never the raw body. Rate-limited by the share store's per-IP limiter; **nothing IP-derived is stored**. CORS is open (no credentials) so the CDN-hosted bench can post. `GET /api/bench?reference=1&limit=N` is public; `/wave-engine/results.html` renders it. Reference runs (techno · 42 · standard · 20 s) are flagged so devices compare like for like.
 
 ### Purge the feed without nuking shares
 

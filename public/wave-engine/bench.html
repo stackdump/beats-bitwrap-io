@@ -35,6 +35,13 @@ to survive GC, UI work and thermal throttling without crackle. Takes ~1–2 min 
   <label>seconds <input id="seconds" type="number" value="20" min="5" max="120" style="width:4.5em"></label>
 </div>
 <button id="run">Run bench</button> <button id="copy" disabled>Copy results</button>
+<div id="submitbox" style="display:none;margin:.75rem 0">
+  <label>device name (optional) <input id="label" maxlength="80" placeholder="e.g. Pixel 6a" style="width:12em"></label>
+  <button id="submit">Submit results</button>
+  <p class="note" style="font-size:13px">Sends the report below — timings, browser user-agent, device model if your browser shares it,
+  CPU cores, memory, and the name you type — to beats.bitwrap.io for the public <a id="resultslink" href="#">results table</a>.
+  No account; your IP address is not stored.</p>
+</div>
 <div id="status"></div>
 <table id="out"><thead><tr><th>case</th><th class="num">render</th><th class="num">×realtime</th><th>verdict</th></tr></thead><tbody></tbody></table>
 <pre id="dev"></pre>

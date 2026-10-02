@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "bench",
+    srcs = ["bench.go"],
+    importpath = "beats-bitwrap-io/internal/bench",
+    visibility = ["//:__subpackages__"],
+    deps = ["@org_modernc_sqlite//:sqlite"],
+)
+
+go_test(
+    name = "bench_test",
+    srcs = ["bench_test.go"],
+    embed = [":bench"],
+)

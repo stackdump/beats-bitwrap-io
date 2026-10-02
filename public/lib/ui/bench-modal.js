@@ -37,9 +37,15 @@ export function showBenchModal(el) {
             <div class="pn-bench-status" style="min-height:1.4em;color:#ccc;font-size:13px"></div>
             <table class="pn-bench-table" style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px;font-variant-numeric:tabular-nums"></table>
             <div class="pn-bench-rec" style="font-size:13px;margin:6px 0 10px"></div>
-            <div style="display:flex;gap:8px;margin-bottom:12px">
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px">
                 <button type="button" class="pn-bench-copy" disabled title="Copy the full JSON report">Copy results</button>
+                <input type="text" class="pn-bench-label" maxlength="80" placeholder="device name (optional)" style="width:14em">
+                <button type="button" class="pn-bench-submit" disabled>Submit results</button>
+                <a class="pn-bench-results" href="/wave-engine/results.html" target="_blank" rel="noopener" style="font-size:13px">all results →</a>
             </div>
+            <p style="color:#888;margin:0 0 12px;font-size:12px">Submitting sends this report — timings, browser user-agent,
+                device model if your browser shares it, CPU cores, memory and the name you type — to the public results table.
+                No account; your IP address is not stored.</p>
             <h3 style="margin:8px 0 4px">History on this device</h3>
             <div class="pn-bench-history" style="font-size:12px;color:#aaa"></div>
         </div>
@@ -73,6 +79,8 @@ export function showBenchModal(el) {
         running = true;
         overlay.querySelectorAll('.pn-bench-run').forEach(b => { b.disabled = true; });
         $('.pn-bench-copy').disabled = true;
+        $('.pn-bench-submit').disabled = true;
+        $('.pn-bench-submit').textContent = 'Submit results';
         $('.pn-bench-rec').textContent = '';
         header();
         try {
@@ -105,6 +113,7 @@ export function showBenchModal(el) {
             lastReport = report;
             $('.pn-bench-rec').textContent = core.recommend(report);
             $('.pn-bench-copy').disabled = false;
+            $('.pn-bench-submit').disabled = false;
             const x = (id) => report.results.find(r => r.case === id && !r.error)?.xRealtime;
             saveHistory([{ at: report.at, track: track.current || `${track.genre}·${track.seed}·${track.structure}`,
                 A: x('A'), F: x('F'), C: x('C') }, ...loadHistory()]);
@@ -129,6 +138,20 @@ export function showBenchModal(el) {
             document.body.appendChild(ta); ta.select();
             try { document.execCommand('copy'); status('copied'); } catch { status('copy failed'); }
             ta.remove();
+        }
+    });
+    $('.pn-bench-submit').addEventListener('click', async () => {
+        if (!lastReport) return;
+        const btn = $('.pn-bench-submit');
+        btn.disabled = true;
+        try {
+            const core = await import('../../wave-engine/bench-core.js');
+            const r = await core.submitReport(lastReport, $('.pn-bench-label').value);
+            btn.textContent = `Submitted #${r.id}`;
+            status('submitted — thank you');
+        } catch (err) {
+            status('submit failed: ' + ((err && err.message) || err));
+            btn.disabled = false;
         }
     });
     const close = () => { if (!running) overlay.remove(); };
