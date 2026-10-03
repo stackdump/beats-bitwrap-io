@@ -52,12 +52,13 @@ var Kinds = map[string]bool{
 	"pagehide": true, "pageshow": true, "freeze": true, "resume": true,
 	"ctx": true, "sink": true, "play": true, "stop": true,
 	"late": true, "win": true, "catchup": true, "banner": true,
+	"blip": true,
 }
 
 // Trigger groups the summary correlates late notes and stops against.
 var triggerGroups = map[string][]string{
 	"tap":     {"tap"},
-	"focus":   {"vis", "focus", "blur", "pagehide", "pageshow", "freeze", "resume"},
+	"focus":   {"vis", "focus", "blur", "pagehide", "pageshow", "freeze", "resume", "blip"},
 	"ctx":     {"ctx", "sink", "banner"},
 	"catchup": {"catchup"},
 }
@@ -374,12 +375,16 @@ type Group struct {
 	// left = it never came back (navigated away / closed). The median
 	// hidden duration of returned ones under ~2 s points at a focus / tap /
 	// browser-UI blip rather than the user switching apps.
-	HiddenReturned int           `json:"hiddenStopsReturned"`
-	HiddenLeft     int           `json:"hiddenStopsLeft"`
-	HiddenBlipMs   float64       `json:"hiddenReturnedMedianMs"`
-	HiddenShort    int           `json:"hiddenReturnedUnder2s"`
-	LateAfter      []Correlation `json:"lateAfter"`
-	StopAfter      []Correlation `json:"stopAfter"`
+	HiddenReturned int     `json:"hiddenStopsReturned"`
+	HiddenLeft     int     `json:"hiddenStopsLeft"`
+	HiddenBlipMs   float64 `json:"hiddenReturnedMedianMs"`
+	HiddenShort    int     `json:"hiddenReturnedUnder2s"`
+	// Blips: the page was hidden and came back within the stop grace
+	// period (1.5 s), so playback kept going. Before the grace period
+	// each of these was a stop.
+	HiddenBlips int           `json:"hiddenBlips"`
+	LateAfter   []Correlation `json:"lateAfter"`
+	StopAfter   []Correlation `json:"stopAfter"`
 }
 
 type ev struct {
@@ -542,6 +547,8 @@ func (s *Store) Summarize(since time.Time) ([]Group, error) {
 				a.g.CtxChanges++
 			case "catchup":
 				a.g.Catchups++
+			case "blip":
+				a.g.HiddenBlips++
 			case "win":
 				if n, ok := e.data["n"].(float64); ok {
 					a.g.Notes += int(n)

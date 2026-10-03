@@ -526,6 +526,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("bench db open: %v", err)
 		}
+		snapshotBenchDB = benchStore
 		mux.HandleFunc("/api/bench", bench.Handler(benchStore, shareStore.RateLimitPUT, time.Now))
 		// /api/telemetry — anonymous playback diagnostics (taps, focus /
 		// visibility, audio-context state, late notes, stops) to find what
@@ -2082,6 +2083,7 @@ func archiveMissingHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 //   o/{cid}.json       — every share envelope (always included)
 //   audio/{cid}.webm   — every cached render (when ?audio=1)
 //   index.db           — sqlite track index    (when ?db=1)
+//   bench.db           — benchmark submissions  (when ?db=1; not rebuildable)
 // The envelopes are the canonical state; audio + db are derived
 // (audio is re-renderable from envelopes; db is rebuildable via
 // backfillIndex). Including them just skips reconstruction work on
@@ -2113,6 +2115,10 @@ func snapshotHandler(store *share.Store, ar *audiorender.Renderer, indexPath str
 		_, _ = writeSnapshot(w, store, ar, indexPath, r.Host, createdAt, includeAudio, includeDB)
 	}
 }
+
+// snapshotBenchDB is set at startup when the bench store opens; ?db=1
+// snapshots then include a consistent copy of it.
+var snapshotBenchDB *bench.Store
 
 // writeSnapshot streams the .tar.gz body to w and returns the manifest
 // describing what was written. Used by both the streaming HTTP handler
@@ -2155,6 +2161,21 @@ func writeSnapshot(w io.Writer, store *share.Store, ar *audiorender.Renderer,
 					}
 				}
 			}
+		}
+	}
+	// bench.db (user-submitted benchmark results) rides along with
+	// ?db=1 as a consistent VACUUM INTO copy; unlike index.db it is not
+	// rebuildable from the envelopes.
+	if includeDB && snapshotBenchDB != nil {
+		if data, err := snapshotBenchDB.SnapshotBytes(); err == nil {
+			hdr := &tar.Header{Name: "bench.db", Mode: 0o644, Size: int64(len(data)), ModTime: createdAt}
+			if err := tw.WriteHeader(hdr); err == nil {
+				if n, err := tw.Write(data); err == nil {
+					dbBytes += int64(n)
+				}
+			}
+		} else {
+			log.Printf("snapshot bench.db: %v", err)
 		}
 	}
 	// Manifest is appended last — its sizes/counts are only known

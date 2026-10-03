@@ -180,6 +180,7 @@ seed-collection-extended: build
 # form vs IIR gate, executor parity with the worker, nesting, allocation.
 test-wave:
 	@node scripts/test-wave-engine.mjs
+	@node scripts/test-sw.mjs
 
 # Real browser: boots the server from public/, drives headless Chrome over
 # CDP, checks the worklet plays and the default engine is unchanged.

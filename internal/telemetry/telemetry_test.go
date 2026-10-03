@@ -78,7 +78,8 @@ func TestSummaryCorrelation(t *testing.T) {
 	ev = append(ev, `[55000,"late",{"m":-3}]`) // one unrelated late note
 	ev = append(ev, `[60000,"win",{"n":400,"c":"none"}]`)
 	ev = append(ev, `[60000,"vis",{"s":"hidden"}]`, `[60050,"stop",{"r":"hidden"}]`)
-	ev = append(ev, `[60900,"vis",{"s":"visible"}]`) // back after 850 ms: a blip
+	ev = append(ev, `[60900,"vis",{"s":"visible"}]`) // back after 850 ms
+	ev = append(ev, `[30500,"blip",{"ms":400}]`)     // hidden 400 ms, kept playing
 	if rec := post(t, h, batch("sess-corr", 0, strings.Join(ev, ","))); rec.Code != http.StatusNoContent {
 		t.Fatalf("post = %d %s", rec.Code, rec.Body)
 	}
@@ -111,6 +112,9 @@ func TestSummaryCorrelation(t *testing.T) {
 	}
 	if st := byTrig(g.StopAfter, "focus"); st.Outcomes != 1 || st.Total != 1 {
 		t.Fatalf("stop-after-hidden not attributed: %+v", st)
+	}
+	if g.HiddenBlips != 1 {
+		t.Fatalf("blips = %d", g.HiddenBlips)
 	}
 	if g.HiddenReturned != 1 || g.HiddenLeft != 0 || g.HiddenShort != 1 || g.HiddenBlipMs != 850 {
 		t.Fatalf("hidden split = returned %d left %d short %d median %v", g.HiddenReturned, g.HiddenLeft, g.HiddenShort, g.HiddenBlipMs)

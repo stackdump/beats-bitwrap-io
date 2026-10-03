@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,5 +137,31 @@ func TestNonReferenceAndPlatform(t *testing.T) {
 	if Platform(Device{UA: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"}) != "ios" ||
 		Platform(Device{UA: "Mozilla/5.0 (X11; Linux x86_64)"}) != "desktop" {
 		t.Fatal("platform buckets")
+	}
+}
+
+func TestSnapshotBytes(t *testing.T) {
+	s := newStore(t)
+	h := Handler(s, nil, fixedNow)
+	if rec := post(t, h, phone); rec.Code != http.StatusCreated {
+		t.Fatalf("POST = %d", rec.Code)
+	}
+	b, err := s.SnapshotBytes()
+	if err != nil || len(b) < 1024 || string(b[:15]) != "SQLite format 3" {
+		t.Fatalf("snapshot: %d bytes, err %v", len(b), err)
+	}
+	// The copy opens and holds the row.
+	p := filepath.Join(t.TempDir(), "copy.db")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	rows, _ := c.List(10, false)
+	if len(rows) != 1 || rows[0].Model != "Pixel 8" {
+		t.Fatalf("copy rows = %+v", rows)
 	}
 }

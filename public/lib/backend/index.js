@@ -196,16 +196,35 @@ export async function acquireWakeLock(el) {
 //   the right rate. Same model as a multiplayer game tolerating an
 //   AFK player. Toggle is intentionally hidden — most users want the
 //   default stop-on-hide; AFK is for live-listening / recording rigs.
+// How long the page may be hidden before playback stops (see below).
+const HIDDEN_STOP_GRACE_MS = 1500;
+
 export function installVisibilityRecovery(el) {
     if (el._visRecoveryHandler) return;
     el._visRecoveryHandler = () => {
         const afk = (() => { try { return localStorage.getItem('pn-afk-mode') === '1'; } catch { return false; } })();
         if (document.visibilityState === 'hidden' && el._playing && !afk) {
-            // Stop playback. Same path as tapping Play so all cleanup
-            // runs (wake-lock release, viz loop stop, worker stop).
-            el._toggleReason = 'hidden';
-            el._togglePlay();
+            // Stop playback — but only if the page is *still* hidden after
+            // a short grace period. Phones fire brief hidden/visible blips
+            // (notification shade, browser UI, focus changes); stopping on
+            // those made playback erratic. Same path as tapping Play so
+            // all cleanup runs (wake-lock release, viz loop stop, worker).
+            clearTimeout(el._hiddenStopTimer);
+            el._hiddenAt = performance.now();
+            el._hiddenStopTimer = setTimeout(() => {
+                el._hiddenStopTimer = null;
+                if (document.visibilityState === 'hidden' && el._playing) {
+                    el._toggleReason = 'hidden';
+                    el._togglePlay();
+                }
+            }, HIDDEN_STOP_GRACE_MS);
             return;
+        }
+        if (document.visibilityState === 'visible' && el._hiddenStopTimer) {
+            // Back within the grace period: keep playing, note the blip.
+            clearTimeout(el._hiddenStopTimer);
+            el._hiddenStopTimer = null;
+            telemetryEvent(el, 'blip', { ms: Math.round(performance.now() - (el._hiddenAt || 0)) });
         }
         if (document.visibilityState === 'visible' && el._playing) {
             // Catch-up path (AFK mode only — non-AFK already stopped).

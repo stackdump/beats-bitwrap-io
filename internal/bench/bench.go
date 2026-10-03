@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -221,6 +223,22 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// SnapshotBytes returns a transactionally consistent copy of the database
+// (SQLite VACUUM INTO a temp file), for backups. Copying the live file
+// with a plain read can capture a torn page or miss the WAL.
+func (s *Store) SnapshotBytes() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "bench-snapshot-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	out := filepath.Join(dir, "bench.db")
+	if _, err := s.db.Exec(`VACUUM INTO ?`, out); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(out)
+}
 
 func trackLabel(r *Report) string {
 	if r.Current != "" {

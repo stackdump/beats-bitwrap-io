@@ -268,7 +268,9 @@ export function showWelcomeCard(el, force = false) {
             return;
         }
     }
-    el.querySelector('.pn-welcome-overlay')?.remove();
+    // The card lives on document.body, not inside el — look there, or a
+    // second call stacks a new card on top of the one already showing.
+    document.querySelector('.pn-welcome-overlay')?.remove();
     const svg = renderCurrentCard(el, urlTitle);
     const primaryLabel  = isMobile ? 'Open in player' : 'Start playing';
     const secondaryLabel = isMobile ? 'Stay on this page' : 'Open full guide';
@@ -309,7 +311,7 @@ export function showWelcomeCard(el, force = false) {
     overlay.className = 'pn-help-overlay pn-welcome-overlay';
     overlay.innerHTML = `
         <div class="pn-welcome-modal" style="max-width:760px;width:92%;background:#0d0d0d;border:1px solid #222;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
-            <div class="pn-welcome-card" style="display:block;line-height:0;cursor:pointer" title="Click to start">${svg}</div>
+            <div class="pn-welcome-card" style="display:block;line-height:0;cursor:pointer" title="Click to close">${svg}</div>
             <div style="padding:18px 22px;color:#ccc;font-family:system-ui,sans-serif">
                 ${mobileNote}
                 <p style="margin:0 0 12px;font-size:14px;line-height:1.55">
@@ -343,10 +345,8 @@ export function showWelcomeCard(el, force = false) {
     };
     // Mobile: clicking primary "Open in player" appends current CID
     // to the playlist (so the phone listener lands on their track,
-    // not just a generic feed) and navigates to /feed. The card
-    // tile and overlay click also dismiss into the player so any
-    // "click anywhere to continue" instinct sends them to the
-    // surface that works.
+    // not just a generic feed) and navigates to /feed. Only that
+    // button navigates; tapping elsewhere just dismisses.
     const goToPlayer = () => {
         const cid = new URLSearchParams(location.search).get('cid');
         if (cid) {
@@ -384,12 +384,12 @@ export function showWelcomeCard(el, force = false) {
             else dismiss();
             return;
         }
-        // Backdrop / card-art click: on mobile, route to player
-        // (the user came for the track, not the editor); on desktop,
-        // dismiss into the synth as before.
+        // Backdrop / card-art click: dismiss and stay, on every device.
+        // (On phones this used to route to the player, so a tap meant to
+        // focus the page or start audio navigated away from the studio.
+        // The explicit "Open in player" button still does.)
         if (e.target === overlay || e.target.closest('.pn-welcome-card')) {
-            if (isMobile) goToPlayer();
-            else dismiss();
+            dismiss();
         }
     });
     // Permalink copy — clipboard write, brief "copied!" feedback,

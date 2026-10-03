@@ -325,6 +325,8 @@ ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && git pull && make build && ~/se
 
 Live at [beats.bitwrap.io](https://beats.bitwrap.io) on port 8089 behind nginx.
 
+**Stop-on-hidden has a 1.5 s grace period** (`HIDDEN_STOP_GRACE_MS`, `lib/backend/index.js`): phones fire brief hidden/visible blips (notification shade, browser UI, focus changes), and stopping on those made playback erratic. A blip is logged to telemetry as `blip`; staying hidden longer still stops. The service worker (`public/sw.js`) caches only successful same-origin GETs and never `/api/` or `/audio/`; its policy is tested directly by `scripts/test-sw.mjs` because `index.html` unregisters it on localhost. On phones, only the welcome card's explicit *Open in player* button navigates to `/feed`; tapping the card or backdrop just dismisses.
+
 **Caching (why a deploy reaches browsers at once).** The embedded FS has no modtimes, so `http.FileServer` alone sends no validators and Chrome Android was seen booting a restored tab entirely from stale pre-deploy code. `internal/staticcache` now sends `Cache-Control: no-store` for documents (`/`, `*.html`) and `no-cache` + a content-hash `ETag` for everything else (unchanged files revalidate as `304`). The root route sets `no-store` itself. The service worker's cache name (`public/sw.js`, `beats-vN`) is bumped when old cached copies must be dropped. Bumping `?v=` on the worker URL is no longer needed for freshness, but harmless. Only restart `beats-bitwrap` — other services on pflow.dev are independent.
 
 ### Production data layout
@@ -336,7 +338,7 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 | `data/o/<cid>` | Content-addressed share store. Every `?cid=…` URL anyone has ever sealed. **Deleting these breaks share links permanently.** |
 | `data/audio/` | Cached audio renders (`.webm`) served to the feed. Bucketed by `YYYY/MM/{cid}.webm`. Production runs without `-audio-render`, so deletion is **only** safe-to-delete when you have an off-host worker (`scripts/process-rebuild-queue.py`) ready to re-render — otherwise listeners get 404s for affected CIDs. |
 | `data/index.db` | SQLite track index. Drives `/feed`, `/feed.rss`, `/api/feed`, and (when `-rebuild-queue` is on) the `rebuild_queue` table. Recreated on startup from `schema.sql` if missing. Safe to delete. |
-| `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable, and **not** included in `/api/snapshot` (that bundles `index.db` only): back it up by hand with `sqlite3 data/bench.db ".backup …"`. |
+| `data/bench.db` | SQLite: user-submitted audio-engine benchmark reports (`/api/bench`). **Separate from `index.db` on purpose** — purging the feed must not wipe device results. Not regenerable. Included in `/api/snapshot?db=1` and `snapshot-persist …&db=1` as a consistent `VACUUM INTO` copy. |
 | `data/telemetry.db` | SQLite: anonymous playback diagnostics (`/api/telemetry`). Row cap 5M events, 30-day retention purged on insert. Safe to delete (only history is lost). |
 | `data/.rebuild-secret` | 32-byte hex secret generated on first boot (mode 0600). Required by `X-Rebuild-Secret` on `PUT /audio/{cid}.webm` (bypasses first-write-wins), `GET /api/snapshot`, and `POST /api/archive-delete`. Treat as a credential — don't commit, don't paste in chat. |
 

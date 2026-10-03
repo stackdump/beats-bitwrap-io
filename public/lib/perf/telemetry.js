@@ -9,6 +9,8 @@
 // latency, and timestamped events (ms since page load):
 //   tap {on: area}           which UI area, never coordinates or text
 //   vis {s} focus blur pagehide pageshow freeze resume
+//   blip {ms}                page was hidden briefly and came back before
+//                            the stop grace period — playback continued
 //   ctx {s}  sink {e}  banner   audio context / <audio> sink state
 //   play  stop {r: user|hidden|end}
 //   win {…}                  perf monitor 2 s window summary

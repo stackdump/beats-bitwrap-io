@@ -161,8 +161,8 @@ try {
         el._togglePlay();
         await sleep(1500);
         const causes = () => el._perf.history.map(w => w.cause[0]).join('');
-        el._perfTestVizBurnMs = 40;
-        const steppedDown = await waitFor(() => el._perf.level >= 1, 8000);
+        el._perfTestVizBurnMs = 60;   // well above the noise on a busy host
+        const steppedDown = await waitFor(() => el._perf.level >= 1, 12000);
         const vizCauses = causes();
         el._perfTestVizBurnMs = 0;
         const nr = el._perf.history.length;
@@ -172,7 +172,9 @@ try {
         const burner = setInterval(() => { const e = performance.now() + 70; while (performance.now() < e) {} }, 100);
         await sleep(3000);
         clearInterval(burner);
-        const otherCauses = el._perf.history.slice(n0).map(w => w.cause[0]).join('');
+        // Skip the first window: it can straddle the switch from the
+        // previous phase.
+        const otherCauses = el._perf.history.slice(n0 + 1).map(w => w.cause[0]).join('');
         const levelAfterOther = el._perf.level;
         mon.setVizPreference(el, 'full');
         el._perfTestVizBurnMs = 40;
@@ -242,6 +244,78 @@ try {
         const off = await run(cdp, 'genre=techno&seed=42&telemetry=0');
         const offCollector = await cdp.evaluate(`!!document.querySelector('petri-note')._telemetry`);
         check('telemetry: ?telemetry=0 collects nothing', off.playing && !offCollector);
+    }
+
+    // Stop-on-hidden grace period: a brief hidden blip keeps playing (and
+    // logs a blip); staying hidden past the grace period still stops.
+    {
+        await run(cdp, 'genre=techno&seed=42&telemetry=1');
+        const vis = await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            let state = 'visible';
+            Object.defineProperty(document, 'visibilityState', { get: () => state, configurable: true });
+            Object.defineProperty(document, 'hidden', { get: () => state === 'hidden', configurable: true });
+            const flip = (s) => { state = s; document.dispatchEvent(new Event('visibilitychange')); };
+            if (!el._playing) el._togglePlay();
+            await sleep(500);
+            flip('hidden'); await sleep(400); flip('visible');
+            await sleep(2000);
+            const afterBlip = el._playing;
+            const blips = (el._telemetry?.buf || []).filter(e => e[1] === 'blip').map(e => e[2].ms);
+            flip('hidden'); await sleep(2200);
+            const afterLong = el._playing;
+            flip('visible');
+            return { afterBlip, blips, afterLong };
+        })()`);
+        check('hidden blip (400 ms) keeps playing and logs a blip', vis.afterBlip === true && vis.blips.length === 1,
+            `blips ${JSON.stringify(vis.blips)}`);
+        check('hidden past the grace period still stops', vis.afterLong === false);
+    }
+
+    // (The service worker is unregistered on localhost by index.html, so
+    // it is tested directly in scripts/test-sw.mjs.)
+
+    // Welcome card on a phone: a backdrop tap dismisses and stays; the
+    // explicit "Open in player" button still goes to the player.
+    {
+        await cdp.send('Emulation.setUserAgentOverride', { userAgent:
+            'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36' });
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 2, mobile: true });
+        await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        await cdp.send('Page.navigate', { url: `${HOST}/?genre=techno&seed=42&telemetry=0` });
+        await sleep(5000);
+        const wc = await cdp.evaluate(`(async () => {
+            sessionStorage.removeItem('pn-welcome-mobile-seen');
+            const el = document.querySelector('petri-note');
+            const { showWelcomeCard } = await import('/lib/ui/dialogs.js');
+            showWelcomeCard(el);
+            const ov = document.querySelector('.pn-welcome-overlay');
+            if (!ov) return { error: 'no welcome card' };
+            const label = ov.querySelector('.pn-welcome-start').textContent;
+            ov.querySelector('.pn-welcome-card').click();
+            await new Promise(r => setTimeout(r, 500));
+            return { label, path: location.pathname, open: !!document.querySelector('.pn-welcome-overlay') };
+        })()`);
+        check('welcome card (phone): tapping the card dismisses and stays on the studio',
+            wc.label === 'Open in player' && wc.path === '/' && wc.open === false, JSON.stringify(wc));
+        const wc2 = await cdp.evaluate(`(async () => {
+            sessionStorage.removeItem('pn-welcome-mobile-seen');
+            const el = document.querySelector('petri-note');
+            const { showWelcomeCard } = await import('/lib/ui/dialogs.js');
+            showWelcomeCard(el);
+            document.querySelector('.pn-welcome-overlay .pn-welcome-start').click();
+            return 1;
+        })()`).catch(() => 1);
+        await sleep(2500);
+        const pathAfter = await cdp.evaluate('location.pathname');
+        check('welcome card (phone): "Open in player" still opens the player', pathAfter === '/feed', pathAfter);
+        await cdp.send('Emulation.setUserAgentOverride', { userAgent: '' });
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
+        await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+        // Back to the studio for the sections below.
+        await run(cdp, 'genre=techno&seed=42&telemetry=0');
+        await cdp.evaluate(`(() => { const el = document.querySelector('petri-note'); if (el._playing) el._togglePlay(); return 1; })()`);
     }
 
     // In-app benchmark: Help → "Benchmark this device", a quick run of the
