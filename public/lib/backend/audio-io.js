@@ -796,11 +796,14 @@ export function vizDrawTimeline(el, ctx, w, h) {
     const maxWindowMs = (240 / Math.max(60, el._tempo)) * 1000;
     const elapsed = el._vizHistory.length > 0 ? now - el._vizHistory[0].time : 0;
     const windowMs = Math.max(2000, Math.min(maxWindowMs, elapsed + 500));
+    // A transiently non-finite _tempo makes every x NaN and createLinearGradient throws.
+    if (!Number.isFinite(windowMs) || windowMs <= 0) return;
 
     for (const evt of el._vizHistory) {
         const age = now - evt.time;
         if (age > windowMs) continue;
         const x = w - (age / windowMs) * w;
+        if (!Number.isFinite(x)) continue;
         const color = vizColorForNet(evt.netId);
         // Stay visible across the full screen: fade only in the last 15%.
         const pct = age / windowMs;

@@ -450,7 +450,7 @@ class PetriNote extends HTMLElement {
             if (!p.initialMutes.includes(id)) p.initialMutes.push(id);
         }
 
-        this._tempo = p.tempo;
+        this._tempo = Number.isFinite(p.tempo) ? p.tempo : 120;
         this._swing = p.swing || 0;
         this._humanize = p.humanize || 0;
     }

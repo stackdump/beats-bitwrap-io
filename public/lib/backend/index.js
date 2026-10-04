@@ -229,7 +229,7 @@ export function installVisibilityRecovery(el) {
         if (document.visibilityState === 'visible' && el._playing) {
             // Catch-up path (AFK mode only — non-AFK already stopped).
             try { toneEngine.resumeContext(); } catch {}
-            if (el._worker && typeof el._tempo === 'number') {
+            if (el._worker && Number.isFinite(el._tempo)) {
                 el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
             }
         } else if (document.visibilityState === 'visible') {
@@ -309,6 +309,7 @@ export function updateMediaSessionState(el) {
 }
 
 export function setTempo(el, bpm) {
+    if (!Number.isFinite(bpm)) return;
     el._tempo = Math.max(20, Math.min(300, bpm));
     el._project.tempo = el._tempo;
     el.querySelector('.pn-tempo input').value = el._tempo;
@@ -511,8 +512,10 @@ export function handleWsMessage(el, msg) {
             break;
         }
         case 'tempo-changed':
-            el._tempo = msg.tempo;
-            el.querySelector('.pn-tempo input').value = msg.tempo;
+            if (Number.isFinite(msg.tempo)) {
+                el._tempo = msg.tempo;
+                el.querySelector('.pn-tempo input').value = msg.tempo;
+            }
             // Tempo change invalidates the audio grid (interval changed).
             // Next fire re-anchors against the new tickIntervalMs.
             el._audioGridStartTone = null;
@@ -897,6 +900,8 @@ export function swingDelay(el) {
     return 0;
 }
 
+let _netRenderWarned = false;
+
 export function onStateSync(el, state) {
     // Update token counts from server.
     for (const [netId, netState] of Object.entries(state)) {
@@ -916,8 +921,16 @@ export function onStateSync(el, state) {
         if (!minGap || now - (el._lastNetRender || 0) >= minGap) {
             el._lastNetRender = now;
             const t0 = vizBegin();
-            el._renderNet();
-            vizEnd(VIZ.NET, t0);
+            try {
+                el._renderNet();
+            } catch (e) {
+                if (!_netRenderWarned) {
+                    _netRenderWarned = true;
+                    console.warn('[onStateSync] _renderNet failed:', e);
+                }
+            } finally {
+                vizEnd(VIZ.NET, t0);
+            }
         }
     }
     el._updatePlayhead();
