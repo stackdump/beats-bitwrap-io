@@ -706,6 +706,9 @@ class PetriNote extends HTMLElement {
     // Track settings now handled by _renderMixer()
 
     _resizeCanvas() {
+        // Hidden behind the Scope tab the workspace measures 0×0; the
+        // tab's close handler (syncNetVisibility) resizes on restore.
+        if (this._showScope) return;
         const rect = this._canvas.parentElement.getBoundingClientRect();
         this._canvas.width = rect.width * this._dpr;
         this._canvas.height = rect.height * this._dpr;

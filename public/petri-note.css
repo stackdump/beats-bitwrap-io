@@ -2080,6 +2080,9 @@ input[type="range"][data-default] {
     overflow: hidden;
     min-height: 400px;
 }
+/* Scope tab open: the net ring + timeline dots are hidden (and not drawn —
+   canvas.js renderFrame/renderNet), the Scope panel takes the space. */
+petri-note.pn-scope-open .pn-workspace { display: none; }
 
 /* Canvas container */
 .pn-canvas-container {

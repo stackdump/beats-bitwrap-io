@@ -615,7 +615,7 @@ export function handleWsMessage(el, msg) {
                 if (target) stageSetVisualizer(target);
             }
             // Visual feedback for control events.
-            if (msg.netId === el._activeNetId) {
+            if (msg.netId === el._activeNetId && !el._showScope) {
                 const node = el._nodes[msg.transitionId];
                 if (node) {
                     node.classList.add('firing');
@@ -734,7 +734,7 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     const activeNet = el._project?.nets?.[el._activeNetId];
     const firedNet = el._project?.nets?.[netId];
     const sameGroup = activeNet?.riffGroup && activeNet.riffGroup === firedNet?.riffGroup;
-    if (flashes && (netId === el._activeNetId || sameGroup)) {
+    if (flashes && !el._showScope && (netId === el._activeNetId || sameGroup)) {
         const node = el._nodes[transitionId];
         if (node) {
             node.classList.add('firing');

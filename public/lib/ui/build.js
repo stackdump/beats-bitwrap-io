@@ -18,6 +18,7 @@ import { sanitizeNote, liveScrubNote } from '../note/note.js';
 import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.js';
 import { renderDeviceMap, startDeviceLoop, stopDeviceLoop } from './device-map.js';
 import { renderScopePanel, scopeSync } from './scope.js';
+import { syncNetVisibility } from './canvas.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -1137,6 +1138,7 @@ export function buildUI(el) {
         el._showScope = !el._showScope;
         scopePanel.style.display = el._showScope ? 'flex' : 'none';
         scopeBtn.classList.toggle('active', el._showScope);
+        syncNetVisibility(el);
         if (el._showScope) renderScopePanel(el);
         scopeSync(el);
     });

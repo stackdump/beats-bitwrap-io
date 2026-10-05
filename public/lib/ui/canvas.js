@@ -8,6 +8,11 @@
 import { noteToName } from '../audio/note-name.js';
 
 export function renderNet(el) {
+    // Hidden behind the Scope tab: the model (tokens, active net) is already
+    // current, only the DOM rebuild is deferred to syncNetVisibility().
+    if (el._showScope) { el._netDirty = true; return; }
+    el._netDirty = false;
+    el._netRenders = (el._netRenders | 0) + 1;
     const net = el._getActiveNet();
     if (!net) return;
 
@@ -132,8 +137,13 @@ export function createTransitionElement(el, id, trans) {
 //   3. ring layer (arcs + arrowheads + optional weight labels), with
 //      the Auto-DJ rotation applied around the ring centroid
 export function renderFrame(el) {
+    // The Scope tab hides the workspace and takes its frame budget: no
+    // timeline dots, no ring. State (history, playhead, tokens) keeps
+    // updating; syncNetVisibility() repaints on close.
+    if (el._showScope) return;
     const ctx = el._ctx;
     if (!ctx) return;
+    el._netPaints = (el._netPaints | 0) + 1;
     const w = el._canvas.width / el._dpr;
     const h = el._canvas.height / el._dpr;
     ctx.clearRect(0, 0, w, h);
@@ -210,6 +220,17 @@ export function drawRing(el, ctx, playing) {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+}
+
+// Scope tab open ⇄ closed: hide the workspace (net ring + timeline dots)
+// while Scope is open so its panel gets the space and the frame budget;
+// on close, re-measure the canvas and repaint at once so nothing is stale.
+export function syncNetVisibility(el) {
+    const hide = !!el._showScope;
+    el.classList.toggle('pn-scope-open', hide);
+    if (hide || !el._canvas) return;
+    el._resizeCanvas();             // re-centres and repaints the frame
+    if (el._netDirty || !el._stage?.childElementCount) renderNet(el);
 }
 
 // Back-compat entry used by non-rAF callers (resize, one-shot paints,
