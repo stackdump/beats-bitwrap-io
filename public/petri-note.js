@@ -1123,13 +1123,21 @@ class PetriNote extends HTMLElement {
         const status = overlay.querySelector('.pn-save-status');
         input.focus();
 
+        const SAVE_COOLDOWN_MS = 3000;
         const doSave = async (sign) => {
+            const now = Date.now();
+            if (this._lastSaveAt && (now - this._lastSaveAt) < SAVE_COOLDOWN_MS) {
+                status.textContent = 'Please wait a moment before saving again';
+                status.style.color = '#e94560';
+                return;
+            }
             const tag = input.value.toUpperCase();
             if (!/^[A-Za-z0-9]{4}$/.test(tag)) {
                 status.textContent = 'Tag must be exactly 4 alphanumeric characters';
                 status.style.color = '#e94560';
                 return;
             }
+            this._lastSaveAt = now;
             const proj = this._serializeProject();
             const body = { project: proj, tag };
 
