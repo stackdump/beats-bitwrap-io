@@ -11,6 +11,7 @@ import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 import { routeToWave, waveLoadProject } from './wave.js';
+import { scopeOnFire } from '../ui/scope.js';
 import { perfStart, perfStop, perfNote, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { telemetryOnPlay, telemetryOnStop, telemetryEvent } from '../perf/telemetry.js';
 
@@ -474,7 +475,7 @@ export function handleWsMessage(el, msg) {
         case 'transition-fired':
             onRemoteTransitionFired(el, msg.netId, msg.transitionId, msg.midi,
                                     msg.playAtOffsetMs, msg.tickEpochMs,
-                                    msg.playbackTicks, msg.tickIntervalMs);
+                                    msg.playbackTicks, msg.tickIntervalMs, msg.tick, msg.audioT);
             break;
         case 'tick-catchup':
             telemetryEvent(el, 'catchup', { n: msg.missed });
@@ -724,7 +725,7 @@ export function handleWsMessage(el, msg) {
 
 // --- Remote-fire + humanize/swing ---
 
-export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs, playbackTicks, tickIntervalMs) {
+export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOffsetMs, tickEpochMs, playbackTicks, tickIntervalMs, tick, audioT) {
     const vt0 = vizBegin();
     // At visual level ≥ 2 (minimal) per-fire flashes and Stage pulses are
     // skipped; the timeline still records the fire.
@@ -757,6 +758,9 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     // Full-page Stage: pulse the matching transition in its panel.
     if (flashes) stageOnTransitionFired(el, netId, transitionId);
     vizEnd(VIZ.FIRE, vt0);
+
+    // Scope tab (wave engine): the worklet's tick time is when it sounds.
+    if (midi && el._waveEngine && el._scope) scopeOnFire(el, netId, midi, audioT, audioT, tick);
 
     // Play sound locally — unless the wave engine is rendering it.
     if (midi && !el._waveEngine) {
@@ -838,6 +842,10 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
                 + swingDelay(el) / 1000;
             perfNote(el, playAt - toneEngine.now(), lateReanchor);
             el._playNote(m, netId, playAt);
+            if (el._scope) {
+                scopeOnFire(el, netId, m, playAt, el._audioGridStartTone
+                    + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000), tick);
+            }
         } else if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
             if (el._lastTickEpochMs !== tickEpochMs) {
                 el._lastTickEpochMs = tickEpochMs;
@@ -848,8 +856,10 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
                 + (playAtOffsetMs - el._burstAnchorOffsetMs) / 1000
                 + swingDelay(el) / 1000;
             el._playNote(m, netId, playAt);
+            if (el._scope) scopeOnFire(el, netId, m, playAt, playAt, tick);
         } else {
             const delay = swingDelay(el);
+            if (el._scope) scopeOnFire(el, netId, m, NaN, NaN, tick);
             if (delay > 0) {
                 setTimeout(() => el._playNote(m, netId), delay);
             } else {

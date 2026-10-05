@@ -59,6 +59,7 @@ import {
     attachCidHandoffPill,
 } from './lib/ui/dialogs.js';
 import { buildUI } from './lib/ui/build.js';
+import { scopeSync, scopeStats } from './lib/ui/scope.js';
 import { toggleStage } from './lib/ui/stage.js';
 import {
     fxSweep, runBeatRepeat, runCompound,
@@ -1662,6 +1663,8 @@ class PetriNote extends HTMLElement {
     _setChannelRouting(channel, value) { return setChannelRouting(this, channel, value); }
     _playTone(midi) { return playTone(this, midi); }
     _vizColorForNet(netId) { return vizColorForNet(netId); }
+    _scopeSync() { return scopeSync(this); }
+    _scopeStats() { return scopeStats(this); }
     _vizSpawnParticle(netId, midi) { return vizSpawnParticle(this, netId, midi); }
     _vizStartLoop() { return vizStartLoop(this); }
     _vizStopLoop() { return vizStopLoop(this); }

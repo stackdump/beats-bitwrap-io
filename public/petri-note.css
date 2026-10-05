@@ -992,6 +992,7 @@ input[type="range"][data-default] {
 .pn-oneshots-panel  { order: 3; }
 .pn-autodj-panel    { order: 4; }
 .pn-device-panel    { order: 5; }
+.pn-scope-panel     { order: 5; }
 
 .pn-effects-toggle {
     display: flex;
@@ -1109,7 +1110,8 @@ input[type="range"][data-default] {
 
 .pn-note-btn,
 .pn-midi-btn,
-.pn-device-btn {
+.pn-device-btn,
+.pn-scope-btn {
     background: transparent;
     border: 1px solid #0f3460;
     color: #4a90d9;
@@ -1121,13 +1123,15 @@ input[type="range"][data-default] {
 }
 .pn-note-btn:hover,
 .pn-midi-btn:hover,
-.pn-device-btn:hover {
+.pn-device-btn:hover,
+.pn-scope-btn:hover {
     border-color: #e94560;
     color: #e94560;
 }
 .pn-note-btn.active,
 .pn-midi-btn.active,
-.pn-device-btn.active {
+.pn-device-btn.active,
+.pn-scope-btn.active {
     background: #0f3460;
     color: #e94560;
 }
@@ -3963,4 +3967,75 @@ a.pn-stage-btn:hover { color: #fff; }
     color: #678;
     padding-bottom: 2px;
     font-weight: 600;
+}
+
+/* === Scope tab (lib/ui/scope.js) ===================================== */
+.pn-scope-panel {
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 14px 10px;
+    background: #0a1628;
+    border-bottom: 1px solid #0f3460;
+    color: #ccc;
+    font-size: 11px;
+    min-width: 0;
+}
+.pn-scope-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.pn-scope-views { display: inline-flex; gap: 4px; }
+.pn-scope-views button {
+    background: transparent;
+    border: 1px solid #0f3460;
+    color: #4a90d9;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: bold;
+    font-family: inherit;
+}
+.pn-scope-views button:hover { border-color: #e94560; color: #e94560; }
+.pn-scope-views button.active { background: #0f3460; color: #e94560; }
+.pn-scope-measured {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #8899aa;
+    cursor: pointer;
+}
+.pn-scope-status {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 10px;
+    color: #667788;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 120px;
+}
+.pn-scope-wrap {
+    position: relative;
+    width: 100%;
+    height: 180px;
+    border: 1px solid #1a2a3a;
+    border-radius: 4px;
+    background: #050a14;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+.pn-scope-canvas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.pn-scope-caption {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 10px;
+    color: #556677;
 }

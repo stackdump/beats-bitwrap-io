@@ -12,6 +12,7 @@ import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
 import { injectTransitionNet } from '../macros/runtime.js';
 import { clearLocalMacroState } from '../macros/effects.js';
 import { stageOnProjectSync } from '../ui/stage.js';
+import { scopeOnProject } from '../ui/scope.js';
 
 export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
@@ -206,6 +207,8 @@ export function applyProjectSync(el, project, seamless = false) {
     el._setupEventListeners();
     el._restoreFxState();
     el._renderNet();
+    // Scope tab: re-derive parts; a new track (not the worker's echo) restarts the bars.
+    if (el._scope || el._showScope) scopeOnProject(el, !isEcho);
     el._updateWsStatus();
     const genreSelect = el.querySelector('.pn-genre-select');
     if (genreSelect) {

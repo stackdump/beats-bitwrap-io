@@ -24,8 +24,8 @@
 // cannot delay it; the monitor still reports it (and reduces visuals) for
 // smoothness, but `notes` stays empty there.
 
-export const VIZ = { TIMELINE: 0, STAGE: 1, NET: 2, FIRE: 3 };
-const VIZ_NAMES = ['timeline', 'stage', 'net', 'fire'];
+export const VIZ = { TIMELINE: 0, STAGE: 1, NET: 2, FIRE: 3, SCOPE: 4 };
+const VIZ_NAMES = ['timeline', 'stage', 'net', 'fire', 'scope'];
 export const LEVELS = ['full', 'reduced', 'minimal', 'paused'];
 const PREF_KEY = 'pn-viz-quality'; // 'auto' | 'full' | 'reduced' | 'minimal'
 
@@ -42,8 +42,8 @@ const DEFAULTS = {
 };
 
 // Accumulators written from hot paths: typed, so timing them allocates nothing.
-const vizMs = new Float64Array(4);
-const vizCalls = new Float64Array(4);
+const vizMs = new Float64Array(VIZ_NAMES.length);
+const vizCalls = new Float64Array(VIZ_NAMES.length);
 
 /** performance.now() at the start of a visual path; pass it to vizEnd. */
 export const vizBegin = () => performance.now();
@@ -104,7 +104,7 @@ export function perfStart(el) {
                     m.blockingMs += e.blockingDuration ?? Math.max(0, e.duration - 50);
                     if (e.scripts) {
                         for (const s of e.scripts) {
-                            if (/\/lib\/ui\/(stage|canvas)\.js|vizDraw|renderFrame/.test(`${s.sourceURL} ${s.sourceFunctionName}`)) {
+                            if (/\/lib\/ui\/(stage|canvas|scope)\.js|vizDraw|renderFrame/.test(`${s.sourceURL} ${s.sourceFunctionName}`)) {
                                 m.vizAttributedMs += s.duration;
                             }
                         }
@@ -158,7 +158,7 @@ function closeWindow(el) {
     const blockingPerS = m.blockingMs * 1000 / span;
     const viz = {};
     let vizTotal = 0;
-    for (let i = 0; i < 4; i++) { viz[VIZ_NAMES[i]] = +vizMs[i].toFixed(1); vizTotal += vizMs[i]; }
+    for (let i = 0; i < VIZ_NAMES.length; i++) { viz[VIZ_NAMES[i]] = +vizMs[i].toFixed(1); vizTotal += vizMs[i]; }
     const vizShare = vizTotal / span;
     const jank = deltas.length > 5 && (p95 > med * cfg.jankP95Factor || dropped > cfg.jankDropped
             || med > 1000 / cfg.minFps)
@@ -290,7 +290,7 @@ function renderHud(el) {
     hud.textContent =
         `fps ${w.fps}  p95 ${w.p95FrameMs}ms  drop ${(w.dropped * 100).toFixed(0)}%\n` +
         `long ${w.longFrames} (${w.blockingMsPerS}ms/s blocking)\n` +
-        `viz ${w.vizSharePct}%  tl ${v.timeline} st ${v.stage} net ${v.net} fire ${v.fire} ms\n` +
+        `viz ${w.vizSharePct}%  tl ${v.timeline} st ${v.stage} net ${v.net} fire ${v.fire} scope ${v.scope} ms\n` +
         (w.notes ? `notes ${w.notes}  late ${w.late}  tight ${w.tight}  min ${w.minMarginMs}ms\n` : '') +
         (w.waveLagMs != null ? `wave view lag ${w.waveLagMs}ms\n` : '') +
         `cause ${w.cause}  visuals ${LEVELS[w.level]} (${el._perf.pref})`;

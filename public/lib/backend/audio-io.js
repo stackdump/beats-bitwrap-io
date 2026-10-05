@@ -10,6 +10,7 @@ import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { toneEngine } from '../../audio/tone-engine.js';
 import { resolveDurationMs } from '../pflow.js';
 import { apcSync } from './apc-mini-mk2.js';
+import { scopeSync } from '../ui/scope.js';
 
 // --- Init + MIDI input ---
 
@@ -761,6 +762,7 @@ export function vizSpawnParticle(el, netId, midi) {
 // minimal 8 → paused 4 (playhead still moves).
 const VIZ_MIN_FRAME_MS = [1000 / 30, 1000 / 15, 1000 / 8, 1000 / 4];
 export function vizStartLoop(el) {
+    if (el._scope) scopeSync(el);
     if (el._vizRafId) return;
     let lastDraw = 0;
     const loop = (now) => {
@@ -777,6 +779,7 @@ export function vizStartLoop(el) {
 }
 
 export function vizStopLoop(el) {
+    if (el._scope) scopeSync(el);
     if (el._vizRafId) {
         cancelAnimationFrame(el._vizRafId);
         el._vizRafId = null;

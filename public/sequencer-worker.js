@@ -433,6 +433,9 @@ function _advanceOneTick() {
                         // grid positions. Drops setInterval jitter.
                         playbackTicks,
                         tickIntervalMs: tickInterval(),
+                        // Song tick of this fire (step = tick − 1): lets the
+                        // Scope tab put events and bar lines on one grid.
+                        tick: tickCount,
                     });
                 }
             }

@@ -124,7 +124,7 @@ function onWaveMessage(el, msg) {
     if (msg.mutedNets) el._handleWsMessage?.({ type: 'mute-state', mutedNets: msg.mutedNets, mutedNotes: {} });
     for (const [netId, transitionId, midi] of msg.fired) {
         // Visuals only — onRemoteTransitionFired skips Tone in wave mode.
-        el._handleWsMessage?.({ type: 'transition-fired', netId, transitionId, midi });
+        el._handleWsMessage?.({ type: 'transition-fired', netId, transitionId, midi, tick: msg.tick, audioT: msg.t });
     }
     if (msg.state) el._handleWsMessage?.({ type: 'state-sync', state: msg.state, tick: msg.tick });
 }

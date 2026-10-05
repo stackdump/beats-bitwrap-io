@@ -17,6 +17,7 @@ import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
 import { sanitizeNote, liveScrubNote } from '../note/note.js';
 import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.js';
 import { renderDeviceMap, startDeviceLoop, stopDeviceLoop } from './device-map.js';
+import { renderScopePanel, scopeSync } from './scope.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -410,6 +411,7 @@ export function buildUI(el) {
             <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
             <button class="pn-midi-btn ${el._showMidi ? 'active' : ''}" title="MIDI — input bindings, live transpose, pad / CC learn">MIDI</button>
             <button class="pn-device-btn ${el._showDevice ? 'active' : ''}" title="Device — visual layout of your APC mini mk2 with labels and live LED state">Device</button>
+            <button class="pn-scope-btn ${el._showScope ? 'active' : ''}" title="Scope — the track as a filtered point process x = tanh(g·Σ h_k * μ_k): waveform + fired events, model spectrogram, per-bar bands, score raster">Scope</button>
             <button class="pn-fx-bypass" title="Bypass all effects">Bypass</button>
             <button class="pn-fx-reset" title="Reset all effects to defaults">Reset</button>
             <button class="pn-macro-panic" title="Cancel all queued/running macros and animations">Panic</button>
@@ -645,6 +647,7 @@ export function buildUI(el) {
             </div>
         </div>
         <div class="pn-device-panel" style="display:${el._showDevice ? 'flex' : 'none'}"></div>
+        <div class="pn-scope-panel" style="display:${el._showScope ? 'flex' : 'none'}"></div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
@@ -1124,6 +1127,20 @@ export function buildUI(el) {
     arrangePanel.querySelector('.pn-arrange-apply')?.addEventListener('click', () => {
         applyArrangeFromPanel(el, arrangePanel);
     });
+
+    // Scope tab — waveform/events, model spectrogram + bands, score raster.
+    // Its draw loop runs only while this panel is open and the transport
+    // plays (scopeSync); closing the tab stops it and drops the analyser tap.
+    const scopeBtn   = fx.querySelector('.pn-scope-btn');
+    const scopePanel = fx.querySelector('.pn-scope-panel');
+    scopeBtn.addEventListener('click', () => {
+        el._showScope = !el._showScope;
+        scopePanel.style.display = el._showScope ? 'flex' : 'none';
+        scopeBtn.classList.toggle('active', el._showScope);
+        if (el._showScope) renderScopePanel(el);
+        scopeSync(el);
+    });
+    if (el._showScope) renderScopePanel(el);
 
     // Note tab: textarea bound to el._project.note. Sanitises on every
     // input event so a paste of "<a href=...>x</a>" or
