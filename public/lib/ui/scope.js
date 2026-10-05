@@ -17,12 +17,18 @@
 //            default: Σ over the bar's events of the same product
 //   Raster   μ for the whole arrangement: the project's nets ticked offline
 //            (wave-engine/net.js, the worker's deterministic executor),
-//            sections marked; computed lazily, once per project
+//            sections marked; computed lazily, once per project. A loop
+//            project (no structure) is ticked for one cycle: until every
+//            net's marking and the mute table are back where they started,
+//            on a bar line (≤ LOOP_MAX_BARS)
 //
 // "measured" (off by default) adds the analyser's FFT: measured bands and
 // spectrogram beside the model, and the residual (measured − model, dB per
 // band after removing each side's per-band mean) — what reverb, delay,
 // compression and the master chain add on top of Σ h*μ.
+//
+// While the tab is open the net ring and its timeline dots are hidden and
+// not drawn (canvas.js syncNetVisibility), so the panel grows into the space.
 //
 // Runs only while the tab is visible and the transport plays: the rAF loop
 // starts from scopeSync() (called by vizStartLoop/vizStopLoop and the tab
@@ -53,6 +59,7 @@ const FONT = '10px ui-monospace, SFMono-Regular, monospace';
 const BG = '#050a14', GRID = '#1a2a3a', BARLINE = '#2f4a6a', SECTION = '#e94560', TEXT = '#8899aa';
 const WINDOW_STEPS = 64;            // 4 bars
 const MAX_BARS = 1024;
+const LOOP_MAX_BARS = 64;           // = the share renderers' LOOP_FALLBACK_TICKS (1024)
 const EV_CAP = 4096, AN_CAP = 64, WF_CAP = 8192, SPEC_CAP = 2048, MSPEC_CAP = 512;
 const FFT_SIZE = 4096, BLOCK = 256;
 const LEVEL_DB = 4;                 // one IR digit
@@ -512,11 +519,14 @@ function detachAnalyserIfIdle(s) {
 }
 
 function viewHeight(s) {
+    // The net workspace is hidden while Scope is open: use the room it
+    // leaves (about half the viewport), never less than the old fixed sizes.
+    const room = Math.max(0, Math.min(640, Math.round((window.innerHeight || 800) * 0.55)));
     switch (s.view) {
-    case 'spectro': return s.measured ? 300 : 170;
+    case 'spectro': return s.measured ? Math.max(300, room) : Math.max(170, Math.round(room * 0.7));
     case 'bands': return s.measured ? 300 : 124;
-    case 'raster': return Math.max(90, Math.min(560, s.lanes.length * 18 + 32));
-    default: return Math.max(170, Math.min(320, 110 + s.lanes.length * 12));
+    case 'raster': return Math.max(90, Math.min(Math.max(560, room), s.lanes.length * 28 + 32));
+    default: return Math.max(170, Math.min(640, Math.max(110 + s.lanes.length * 12, room)));
     }
 }
 
@@ -540,7 +550,11 @@ function updateStatus(el) {
     const st = el.querySelector('.pn-scope-status');
     if (!st) return;
     let txt = s.kernelStatus;
-    if (s.view === 'raster' && s.raster) txt = `raster · ${s.raster.n} events · ${s.raster.steps / 16} bars · ${s.raster.ms} ms`;
+    const r = s.raster;
+    if (s.view === 'raster' && r) {
+        txt = r.failed ? `raster unavailable${r.error ? ' — ' + r.error : ''}`
+            : `raster · ${r.loop ? (r.cycle ? 'loop cycle · ' : 'loop (no repeat) · ') : ''}${r.n} events · ${r.steps / 16} bars · ${r.ms} ms`;
+    }
     if (!s.running && s.view !== 'raster') txt += ' · paused (plays when transport runs)';
     st.textContent = txt;
 }
@@ -1030,15 +1044,25 @@ async function computeRaster(el, s) {
     const { compileProject, tick } = await import('../../wave-engine/net.js');
     const t0 = performance.now();
     const g = compileProject(el._project);
-    let total = el._totalSteps;
-    if (!(total > 0)) total = (el._structure || []).reduce((n, x) => n + (x.steps || 0), 0);
+    // Arranged track: the structure's length. Loop project (no structure —
+    // the site default): one cycle of the nets, found below; _totalSteps may
+    // be left over from a previously loaded arranged track, so ignore it.
+    const loop = !(el._structure && el._structure.length);
+    let total = loop ? LOOP_MAX_BARS * 16
+        : (el._structure.reduce((n, x) => n + (x.steps || 0), 0) || el._totalSteps);
     if (!(total > 0)) total = 16 * 16;
     total = Math.min(total, MAX_BARS * 16);
     const laneOfNet = new Int16Array(g.nets.length).fill(-1);
     g.nets.forEach((n, i) => { const l = s.laneOf.get(n.id); if (l !== undefined) laneOfNet[i] = l; });
     const cap = 262144;
     const r = { steps: total, n: 0, step: new Int32Array(cap), lane: new Uint8Array(cap), note: new Uint8Array(cap),
-        vel: new Uint8Array(cap), dur: new Float32Array(cap), ms: 0 };
+        vel: new Uint8Array(cap), dur: new Float32Array(cap), ms: 0, loop, cycle: 0 };
+    const muted0 = loop ? g.muted.slice() : null;
+    const atStart = () => {
+        for (const n of g.nets) for (let p = 0; p < n.P; p++) if (n.state[p] !== n.initial[p]) return false;
+        for (let i = 0; i < muted0.length; i++) if (g.muted[i] !== muted0[i]) return false;
+        return true;
+    };
     const tickMs = tickSecOf(el) * 1000;
     let cur = 0;
     const onNote = (n, t) => {
@@ -1051,7 +1075,10 @@ async function computeRaster(el, s) {
     for (cur = 0; cur < total; cur++) {
         tick(g, onNote);
         if (g.stopRequested) break;
+        // Loop: stop at the first bar line where the marking is back home.
+        if (loop && (cur + 1) % 16 === 0 && atStart()) { r.cycle = cur + 1; break; }
     }
+    if (loop && r.cycle) r.steps = r.cycle;
     r.ms = Math.round(performance.now() - t0);
     return r;
 }
@@ -1068,7 +1095,9 @@ function drawRaster(el, s, ctx) {
                 if (gen === s.projectGen) { s.raster = r; s.cost.raster = r.ms; }
             }).catch(err => {
                 console.warn('scope: raster failed', err);
-                s.raster = { steps: 1, n: 0, ms: 0, failed: true };
+                // A failure for a project that has since been replaced is moot:
+                // leave s.raster empty so the new one is computed.
+                if (gen === s.projectGen) s.raster = { steps: 16, n: 0, ms: 0, failed: true, error: String(err?.message || err).slice(0, 80) };
             }).finally(() => { s.rasterPending = false; s.rKey = ''; drawOnce(el); });
         }
         return;
@@ -1119,6 +1148,10 @@ function drawRaster(el, s, ctx) {
             }
         }
         c.fillStyle = SECTION;
+        if (r.loop && !r.failed) {
+            c.fillRect(gut - 1, top - 2, 2, H - top - axisH + 2);
+            c.fillText(r.cycle ? `loop · ${bars} bar cycle` : `loop · no repeat in ${bars} bars`, gut + 3, 1);
+        }
         for (const sec of s.sections) {
             if (sec.step >= total) continue;
             const x = xs(sec.step);

@@ -10,7 +10,11 @@
 // Scope tab opens, the model kernel table renders, every view draws a
 // non-empty canvas, model bands fill while playing, the measured path and
 // residual work when toggled, the loop stops when the tab closes, and no
-// console errors / exceptions are raised. Saves a PNG per view when a
+// console errors / exceptions are raised. While the tab is open the net
+// workspace (ring + timeline dots) must be hidden and not painted, with
+// state (tick, fire history) still advancing; closing restores and repaints
+// it. On a loop project (no structure — the site default) the raster must
+// cover one loop cycle with events. Saves a PNG per view when a
 // screenshot directory is given and prints per-view frame cost.
 
 import { spawn } from 'node:child_process';
@@ -96,7 +100,7 @@ async function shot(cdp, name) {
     return path;
 }
 
-async function run(cdp, label, query, shots) {
+async function run(cdp, label, query, shots, opts = {}) {
     cdp.errors.length = 0;
     await cdp.send('Page.navigate', { url: `${HOST}/?${query}` });
     for (let i = 0; i < 100; i++) {
@@ -131,6 +135,28 @@ async function run(cdp, label, query, shots) {
         check(`${label}: ${view} canvas is not empty`, ink > 0.01, `ink ${(ink * 100).toFixed(1)}%`);
         if (shots) out[view] = await shot(cdp, `${shots}-${view}`);
     }
+    // Net workspace hidden + idle while Scope is open; state keeps moving.
+    const hid = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const ws = el.querySelector('.pn-workspace');
+        const a = { paints: el._netPaints | 0, renders: el._netRenders | 0, tick: el._tick, hist: el._vizHistory.length,
+                    last: el._vizHistory.at(-1)?.time || 0 };
+        await new Promise(r => setTimeout(r, 1500));
+        return { display: getComputedStyle(ws).display, paints: (el._netPaints | 0) - a.paints,
+                 renders: (el._netRenders | 0) - a.renders, ticks: el._tick - a.tick,
+                 hist: (el._vizHistory.at(-1)?.time || 0) > a.last, rasterStatus: document.querySelector('.pn-scope-status').textContent,
+                 loop: !(el._structure && el._structure.length), raster: el._scope.raster && { n: el._scope.raster.n, steps: el._scope.raster.steps,
+                     loop: el._scope.raster.loop, cycle: el._scope.raster.cycle, failed: !!el._scope.raster.failed } };
+    })()`);
+    check(`${label}: net workspace hidden while Scope is open`, hid.display === 'none', `display ${hid.display}`);
+    check(`${label}: ring + timeline dots not drawn while hidden`, hid.paints === 0 && hid.renders === 0,
+        `${hid.paints} paints, ${hid.renders} net renders in 1.5 s`);
+    check(`${label}: transport state keeps running while hidden`, hid.ticks > 0 && hid.hist, `${hid.ticks} ticks, history ${hid.hist ? 'advancing' : 'stalled'}`);
+    if (opts.loop) {
+        const r = hid.raster || {};
+        check(`${label}: loop project (no structure) raster covers a loop cycle with events`,
+            hid.loop && !r.failed && r.loop && r.n > 0 && r.steps >= 16 && /loop/.test(hid.rasterStatus), `${hid.rasterStatus} · ${JSON.stringify(r)}`);
+    }
     const st = await cdp.evaluate(`(() => {
         const el = document.querySelector('petri-note');
         const s = el._scope;
@@ -155,13 +181,18 @@ async function run(cdp, label, query, shots) {
     // Closing the tab stops the loop and drops the analyser tap.
     const closed = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
+        const p0 = el._netPaints | 0;
         el.querySelector('.pn-scope-btn').click();
         await new Promise(r => setTimeout(r, 300));
-        const r = { running: el._scope.running, analyser: !!el._scope.an };
+        const ws = el.querySelector('.pn-workspace');
+        const r = { running: el._scope.running, analyser: !!el._scope.an, display: getComputedStyle(ws).display,
+                    paints: (el._netPaints | 0) - p0, canvasW: el._canvas.width, nodes: el._stage.childElementCount, dirty: !!el._netDirty };
         el._togglePlay();
         return r;
     })()`);
     check(`${label}: closing the tab stops the loop and the analyser`, !closed.running && !closed.analyser);
+    check(`${label}: closing restores the net workspace and repaints it`,
+        closed.display !== 'none' && closed.paints > 0 && closed.canvasW > 0 && closed.nodes > 0 && !closed.dirty, JSON.stringify(closed));
     const errs = cdp.errors.filter(e => !/favicon|ERR_|Failed to load resource|telemetry/i.test(e));
     check(`${label}: no console errors`, errs.length === 0, errs.slice(0, 3).join(' | '));
     return { ...st, shots: out };
@@ -174,11 +205,12 @@ try {
     await cdp.send('Page.enable');
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1600, deviceScaleFactor: 1, mobile: false });
     const results = {};
-    results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42');
-    results.wave = await run(cdp, 'wave', 'engine=wave&genre=techno&seed=42', null);
+    // genre=techno&seed=42 loads in the site default loop mode (no structure).
+    results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42', { loop: true });
+    results.wave = await run(cdp, 'wave', 'engine=wave&genre=techno&seed=42', null, { loop: true });
     // Phone width: layout must not overflow.
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
-    results.mobile = await run(cdp, 'mobile', 'genre=techno&seed=42', SHOTS ? 'mobile' : null);
+    results.mobile = await run(cdp, 'mobile', 'genre=techno&seed=42', SHOTS ? 'mobile' : null, { loop: true });
     // The app's own row may be wider than a phone (pre-existing); the Scope
     // panel must not widen it further.
     const overflow = await cdp.evaluate(`(async () => {
