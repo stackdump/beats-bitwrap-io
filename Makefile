@@ -3,7 +3,7 @@ ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
-        test-wave test-wave-browser wave-render wave-bench \
+        test-wave test-wave-browser test-scope-browser wave-render wave-bench \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -187,6 +187,14 @@ test-wave:
 test-wave-browser: build
 	@./$(BINARY) -addr :18093 -public public -data /tmp/wave-browser-data >/tmp/wave-browser-server.log 2>&1 & \
 	  pid=$$!; sleep 2; node scripts/test-wave-browser.mjs http://localhost:18093; rc=$$?; kill $$pid; exit $$rc
+
+# Scope tab (lib/ui/scope.js): headless Chrome plays techno/42 in both
+# engines and at phone width, opens Scope, checks every view draws, the
+# model kernel table renders, measured + residual work and the loop stops
+# when the tab closes. SCOPE_SHOTS=<dir> saves a PNG per view.
+test-scope-browser: build
+	@./$(BINARY) -addr :18094 -public public -data /tmp/scope-browser-data >/tmp/scope-browser-server.log 2>&1 & \
+	  pid=$$!; sleep 2; node scripts/test-scope-browser.mjs http://localhost:18094 $(SCOPE_SHOTS); rc=$$?; kill $$pid; exit $$rc
 
 # make wave-render GENRE=techno SEED=42 STRUCTURE=standard SECONDS=30
 GENRE ?= techno
