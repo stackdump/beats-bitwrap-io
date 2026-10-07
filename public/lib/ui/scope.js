@@ -102,6 +102,7 @@ function state(el) {
         // waveform blocks
         wfT: new Float64Array(WF_CAP), wfMin: new Float32Array(WF_CAP), wfMax: new Float32Array(WF_CAP),
         wfSq: new Float32Array(WF_CAP), wfHead: 0, wfCount: 0, readT: 0, peak: 0.1,
+        disp: 0.1, vel: 0, lastT: 0,
         // analyser
         an: null, anSrc: null, td: new Float32Array(FFT_SIZE), fd: new Float32Array(FFT_SIZE / 2),
         binLo: new Int32Array(NR), binHi: new Int32Array(NR), binSr: 0,
@@ -721,8 +722,16 @@ function drawLive(el, s, ctx) {
         if (s.wfMax[i] > s.colMax[x]) s.colMax[x] = s.wfMax[i];
         s.colSq[x] += s.wfSq[i]; s.colN[x]++;
     }
-    s.peak = Math.max(0.05, s.peak * 0.998);
-    const mid = hTop / 2, sc = (hTop / 2 - 3) / s.peak;
+    // auto-gain: s.peak decays over time; the displayed scale s.disp chases it
+    // on an underdamped spring so gain changes bounce instead of snapping
+    const now = performance.now() / 1000;
+    const dt = Math.min(0.05, now - (s.lastT || now)); s.lastT = now;
+    s.peak = Math.max(0.05, s.peak * Math.exp(-dt / 7));
+    const k = 120, c = 9;
+    const a = k * (s.peak - s.disp) - c * s.vel;
+    s.vel += a * dt;
+    s.disp = Math.max(0.05, s.disp + s.vel * dt);
+    const mid = hTop / 2, sc = (hTop / 2 - 3) / s.disp;
     ctx.fillStyle = 'rgba(74,144,217,0.6)';
     for (let x = 0; x < n; x++) {
         if (!s.colN[x]) continue;
