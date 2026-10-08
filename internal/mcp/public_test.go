@@ -1,7 +1,10 @@
 package mcp
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +51,30 @@ func TestFullServerHasControlAndShare(t *testing.T) {
 	for _, name := range []string{"transport", "generate", "generate_share", "list_genres"} {
 		if _, ok := tools[name]; !ok {
 			t.Errorf("full server missing expected tool %q", name)
+		}
+	}
+}
+
+// The browser landing page at GET /mcp is served HTML like any other page on
+// the site, so it carries the same author-identity lines as the static pages
+// (see internal/share/share_page_seo_test.go).
+func TestLandingPageAuthorIdentity(t *testing.T) {
+	rec := httptest.NewRecorder()
+	landingPageHandler(NewPublicServer())(rec, httptest.NewRequest(http.MethodGet, "/mcp", nil))
+	body := rec.Body.String()
+	headEnd := strings.Index(body, "</head>")
+	if headEnd < 0 {
+		t.Fatal("landing page has no </head>")
+	}
+	for _, line := range []string{
+		`<meta name="author" content="Matt York">`,
+		`<link rel="me" href="https://github.com/stackdump">`,
+		`<link rel="me" href="https://blog.stackdump.com/">`,
+	} {
+		if n := strings.Count(body, line); n != 1 {
+			t.Errorf("%q appears %d times, want exactly 1", line, n)
+		} else if strings.Index(body, line) > headEnd {
+			t.Errorf("%q is outside <head>", line)
 		}
 	}
 }

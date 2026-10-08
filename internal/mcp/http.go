@@ -96,6 +96,9 @@ func landingPageHandler(s *server.MCPServer) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>beats-btw MCP Server</title>
+<meta name="author" content="Matt York">
+<link rel="me" href="https://github.com/stackdump">
+<link rel="me" href="https://blog.stackdump.com/">
 <style>
  body{font-family:system-ui,sans-serif;max-width:860px;margin:2em auto;padding:0 1em;background:#0d1117;color:#c9d1d9}
  h1,h2{color:#58a6ff} a{color:#58a6ff}

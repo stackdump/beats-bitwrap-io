@@ -59,6 +59,7 @@ go_test(
     data = [
         "beats-share.schema.json",  # keep: read at runtime for control-action count, not just embedded
         "//:category_doc_testdata",  # keep: TestCategoryDiagramInSync reads repo source files
+        "//:public_html_testdata",  # keep: author-identity tests read public/**/*.html
     ],
     embed = [":share"],
     deps = ["@com_github_skip2_go_qrcode//:go-qrcode"],

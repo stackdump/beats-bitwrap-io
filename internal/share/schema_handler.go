@@ -43,6 +43,9 @@ var schemaGlossaryTmpl = template.Must(template.New("glossary").Parse(`<!doctype
 <html lang="en"><head>
 <meta charset="utf-8">
 <title>BeatsShare schema · beats.bitwrap.io</title>
+<meta name="author" content="Matt York">
+<link rel="me" href="https://github.com/stackdump">
+<link rel="me" href="https://blog.stackdump.com/">
 <style>
   body { font: 14px/1.5 -apple-system, system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; background:#0d0d0d; color:#ddd; }
   h1 { font-size: 1.4rem; margin-bottom: .25rem; }
