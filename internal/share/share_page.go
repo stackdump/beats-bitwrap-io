@@ -618,6 +618,9 @@ const cardHeadTemplate = `<!-- beats-bitwrap share card -->
 <meta name="twitter:image:alt" content="{{.ImgAlt}}"/>
 <meta name="twitter:site" content="@bitwrap_io"/>
 <meta name="description" content="{{.Desc}}"/>
+<meta name="author" content="Matt York">
+<link rel="me" href="https://github.com/stackdump">
+<link rel="me" href="https://blog.stackdump.com/">
 <link rel="canonical" href="{{.ShareURL}}"/>
 <link rel="license" href="https://creativecommons.org/licenses/by/4.0/"/>
 <meta name="rights" content="CC BY 4.0 — beats.bitwrap.io"/>

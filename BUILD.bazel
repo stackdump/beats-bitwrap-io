@@ -27,6 +27,14 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+# Every HTML page under public/, read at runtime by internal/share's
+# author-identity tests via repoRoot. Staged into that test's runfiles as data.
+filegroup(
+    name = "public_html_testdata",
+    srcs = glob(["public/**/*.html"]),
+    visibility = ["//visibility:public"],
+)
+
 # Example project JSON read at runtime by internal/pflow tests (via
 # "../../examples/*.json"). Root-package-owned (no sub-BUILD).
 filegroup(
