@@ -16,8 +16,20 @@
 //   make test-e2e
 import { spawn } from 'node:child_process';
 
-const HOST = process.argv[2] && !process.argv[2].startsWith('--')
+const RAW_HOST = process.argv[2] && !process.argv[2].startsWith('--')
   ? process.argv[2] : 'http://localhost:18091';
+const HOST = (() => {
+  let parsed;
+  try {
+    parsed = new URL(RAW_HOST);
+  } catch {
+    throw new Error(`Invalid host URL: ${RAW_HOST}`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Host URL must use http(s): ${RAW_HOST}`);
+  }
+  return parsed.origin;
+})();
 const VERBOSE = process.argv.includes('--verbose');
 const URL = `${HOST}/?test=1&genre=techno&seed=42`;
 const PORT = 9340;
