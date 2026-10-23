@@ -224,7 +224,7 @@ claude mcp add beats-btw ./beats-bitwrap-io mcp
 ```
 Each tool talks to the HTTP server on `http://localhost:8080` by default — keep `-authoring` running. Override with `BEATS_BTW_URL=http://localhost:<port>`.
 
-**HTTP / Streamable HTTP** (`internal/mcp/http.go`, mirrors petri-pilot's `/mcp` pattern) — a remote client drives a running server without a subprocess:
+**HTTP / Streamable HTTP** (`internal/mcp/http.go`) — a remote client drives a running server without a subprocess:
 ```bash
 claude mcp add --transport http beats-btw http://localhost:8089/mcp   # authoring: full toolset
 ```

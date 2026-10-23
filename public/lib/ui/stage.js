@@ -1446,7 +1446,7 @@ function renderCorona() {
 }
 
 function spawnStars() {
-    // Stationary sparse starfield — inspired by pilot.pflow.xyz.
+    // Stationary sparse starfield.
     // No motion; each star just twinkles at its own slow rate.
     const count = 150;
     const stars = [];
@@ -1505,7 +1505,7 @@ function spawnPlanets() {
     session.bgPlanets = planets;
 }
 
-// Night-sky starfield. Palette borrowed from pilot.pflow.xyz: deep
+// Night-sky starfield. Palette: deep
 // indigo base with a slight upper-center glow, tiny faint stars that
 // twinkle independently. Strictly a mood layer — no streaking, no
 // parallax — so the meta-diagram always wins the viewer's attention.

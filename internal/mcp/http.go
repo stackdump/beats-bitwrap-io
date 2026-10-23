@@ -1,6 +1,5 @@
-// HTTP (Streamable HTTP) transport for the MCP server, mirroring the
-// petri-pilot pattern (cmd/petri-pilot/serve.go + pkg/mcp/openapi.go). Lets a
-// remote Claude client drive a running -authoring server over HTTP at /mcp
+// HTTP (Streamable HTTP) transport for the MCP server. Lets a remote Claude
+// client drive a running -authoring server over HTTP at /mcp
 // instead of spawning the `beats-bitwrap-io mcp` stdio subprocess.
 //
 //	claude mcp add --transport http beats-btw http://localhost:8089/mcp
