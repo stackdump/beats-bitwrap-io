@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -483,10 +484,68 @@ func WireCallbacks(seq *sequencer.Sequencer, hub *ws.Hub) {
 
 const dataDir = "data"
 
+// Resource limits for the save/vote endpoints (CWE-770). A full project
+// serialises to well under 100 kB (examples/ tops out around 64 kB), so
+// 2 MiB leaves plenty of headroom while refusing unbounded bodies. Saves
+// write to disk, so they also draw from a fixed-window budget.
+const (
+	maxSaveBodyBytes = 2 << 20
+	maxVoteBodyBytes = 16 << 10
+	savesPerWindow   = 30
+	saveWindow       = time.Minute
+)
+
 var (
 	tagRe  = regexp.MustCompile(`^[A-Za-z0-9]{4}$`)
 	voteMu sync.Mutex // serialize vote writes
+
+	saveLimit = newWindowLimiter(savesPerWindow, saveWindow, time.Now)
 )
+
+// windowLimiter is a fixed-window counter: at most max calls per window.
+type windowLimiter struct {
+	mu     sync.Mutex
+	max    int
+	window time.Duration
+	now    func() time.Time
+	start  time.Time
+	count  int
+}
+
+func newWindowLimiter(max int, window time.Duration, now func() time.Time) *windowLimiter {
+	return &windowLimiter{max: max, window: window, now: now}
+}
+
+// allow consumes one slot, reporting false when the window is exhausted.
+func (l *windowLimiter) allow() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	t := l.now()
+	if t.Sub(l.start) >= l.window {
+		l.start, l.count = t, 0
+	}
+	if l.count >= l.max {
+		return false
+	}
+	l.count++
+	return true
+}
+
+// decodeLimited decodes a JSON body capped at limit bytes, writing the
+// error response itself and returning false on failure.
+func decodeLimited(w http.ResponseWriter, r *http.Request, limit int64, v interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			http.Error(w, fmt.Sprintf("payload too large (limit %d bytes)", limit), http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
 
 // trackMeta is the sidecar metadata for a saved track.
 type trackMeta struct {
@@ -516,8 +575,12 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 		Address   string                 `json:"address,omitempty"`
 		Signature string                 `json:"signature,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if !saveLimit.allow() {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "too many saves, try again shortly", http.StatusTooManyRequests)
+		return
+	}
+	if !decodeLimited(w, r, maxSaveBodyBytes, &req) {
 		return
 	}
 	if req.Project == nil {
@@ -613,8 +676,7 @@ func (s *Server) handleVote(w http.ResponseWriter, r *http.Request) {
 		Address   string `json:"address"`
 		Signature string `json:"signature"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if !decodeLimited(w, r, maxVoteBodyBytes, &req) {
 		return
 	}
 	if req.CID == "" || req.Address == "" || req.Signature == "" {

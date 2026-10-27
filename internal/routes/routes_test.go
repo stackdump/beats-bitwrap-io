@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"beats-bitwrap-io/internal/sequencer"
 	"beats-bitwrap-io/internal/ws"
@@ -147,5 +148,59 @@ func TestShuffleNoProject(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("shuffle without project: got %d, want 400", w.Code)
+	}
+}
+
+func TestSaveRejectsOversizedBody(t *testing.T) {
+	_, mux := newTestServer()
+	saveLimit = newWindowLimiter(savesPerWindow, saveWindow, time.Now)
+
+	pad := strings.Repeat("x", maxSaveBodyBytes)
+	body := `{"tag":"ABCD","project":{"name":"` + pad + `"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/save", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized save: got %d, want 413 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestVoteRejectsOversizedBody(t *testing.T) {
+	_, mux := newTestServer()
+
+	body := `{"cid":"` + strings.Repeat("x", maxVoteBodyBytes) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/vote", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized vote: got %d, want 413", w.Code)
+	}
+}
+
+func TestSaveRateLimited(t *testing.T) {
+	_, mux := newTestServer()
+	now := time.Unix(1_000_000, 0)
+	saveLimit = newWindowLimiter(2, time.Minute, func() time.Time { return now })
+	defer func() { saveLimit = newWindowLimiter(savesPerWindow, saveWindow, time.Now) }()
+
+	// Invalid tags are rejected after the limiter, so no file is written
+	// while each request still spends a slot.
+	post := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/save", strings.NewReader(`{"tag":"x","project":{}}`))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w.Code
+	}
+	for i := 0; i < 2; i++ {
+		if code := post(); code != http.StatusBadRequest {
+			t.Fatalf("save %d: got %d, want 400", i, code)
+		}
+	}
+	if code := post(); code != http.StatusTooManyRequests {
+		t.Fatalf("third save: got %d, want 429", code)
+	}
+	now = now.Add(time.Minute)
+	if code := post(); code != http.StatusBadRequest {
+		t.Fatalf("save after window: got %d, want 400", code)
 	}
 }

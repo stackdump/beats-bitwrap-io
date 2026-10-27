@@ -1150,6 +1150,7 @@ class PetriNote extends HTMLElement {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body),
                     });
+                    if (!preResp.ok) throw new Error(await preResp.text());
                     const preResult = await preResp.json();
                     const cid = preResult.cid;
 
@@ -1162,7 +1163,7 @@ class PetriNote extends HTMLElement {
                     body.address = address;
                     body.signature = signature;
                 } catch (err) {
-                    status.textContent = 'Wallet signing cancelled';
+                    status.textContent = err?.message?.trim() || 'Wallet signing cancelled';
                     status.style.color = '#e94560';
                     return;
                 }
@@ -1176,6 +1177,13 @@ class PetriNote extends HTMLElement {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
+                if (!resp.ok) {
+                    // 413 (project over the size cap) and 429 (save budget
+                    // spent) carry a readable reason in the body.
+                    status.textContent = `Save failed: ${(await resp.text()).trim() || resp.status}`;
+                    status.style.color = '#e94560';
+                    return;
+                }
                 const result = await resp.json();
                 status.textContent = `Saved! CID: ${result.cid?.slice(0, 12)}...`;
                 status.style.color = '#2ecc71';
