@@ -21,4 +21,8 @@ go_test(
     name = "mcp_test",
     srcs = ["public_test.go"],
     embed = [":mcp"],
+    deps = [
+        "//internal/generator",
+        "@com_github_mark3labs_mcp_go//mcp",
+    ],
 )
