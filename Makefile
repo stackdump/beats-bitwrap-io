@@ -4,6 +4,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
+        djrust-wasm test-djrust test-djrust-browser \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -206,4 +207,22 @@ wave-render:
 
 wave-bench:
 	node scripts/wave-bench.mjs
+
+# --- djrust engine (?engine=djrust) — public/djrust/ -------------------------------------
+# The Rust engine as WebAssembly in the same worklet slot as the JS wave engine. The .wasm is
+# built from a djrust-vevr-se checkout ($$DJRUST_DIR, default ../djrust-vevr-se) and not
+# committed; djrust.lock records which build the tests ran against. See
+# docs/MIGRATION-djrust-wasm.md.
+djrust-wasm:
+	@./scripts/build-djrust-wasm.sh
+
+# Live parity against this repo's own JS: generator bytes + CIDs, audio, ticks, markings, the worklet
+# without TextEncoder. Node only.
+test-djrust:
+	@node scripts/test-djrust-wasm.mjs
+
+# Real browser: headless Chrome plays techno/42 through ?engine=djrust, and the fallbacks.
+test-djrust-browser: build
+	@./$(BINARY) -addr :18095 -public public -data /tmp/djrust-browser-data >/tmp/djrust-browser-server.log 2>&1 & \
+	  pid=$$!; sleep 2; node scripts/test-djrust-browser.mjs http://localhost:18095; rc=$$?; kill $$pid; exit $$rc
 

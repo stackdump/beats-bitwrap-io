@@ -14,3 +14,6 @@ __pycache__/
 
 # macro-audio harness failure artifacts
 test-out/
+
+# djrust engine build output (built from a private repo; public/djrust/djrust.lock is committed)
+public/djrust/djwasm.wasm

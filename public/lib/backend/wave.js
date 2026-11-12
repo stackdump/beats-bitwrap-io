@@ -11,11 +11,48 @@
 
 import { toneEngine } from '../../audio/tone-engine.js';
 import { createWaveEngine } from '../../wave-engine/node.js';
+import { createDjrustEngine } from '../../djrust/node.js';
 import { perfWaveLag } from '../perf/monitor.js';
 
+// `?engine=wave` plays through the JS wave engine; `?engine=djrust` is the same studio path with
+// the Rust engine (public/djrust/, djwasm.wasm) in the worklet instead. Both set el._waveEngine
+// (the worker keeps composing, the worklet is the clock and the sound); djrust additionally sets
+// el._engineName = 'djrust' once its module is running, and falls back to 'wave' if it is not.
+function engineParam() {
+    try { return new URLSearchParams(location.search).get('engine'); }
+    catch { return null; }
+}
+
 export function waveEngineRequested() {
-    try { return new URLSearchParams(location.search).get('engine') === 'wave'; }
-    catch { return false; }
+    const e = engineParam();
+    return e === 'wave' || e === 'djrust';
+}
+
+export function djrustRequested() {
+    return engineParam() === 'djrust';
+}
+
+function djrustWasmUrl() {
+    try { return new URLSearchParams(location.search).get('djrust-wasm') || undefined; }
+    catch { return undefined; }
+}
+
+/** Build the worklet engine this page asked for; djrust degrades to the JS wave engine. */
+async function createEngine(el, ctx) {
+    const connect = (node) => connectOutput(node, ctx);
+    if (djrustRequested()) {
+        try {
+            const dj = await createDjrustEngine(ctx, connect, { wasmUrl: djrustWasmUrl() });
+            el._engineName = 'djrust';
+            el._djrustInfo = dj.info;
+            return dj;
+        } catch (err) {
+            console.warn('djrust engine unavailable, using the JS wave engine instead:', err);
+            el._djrustError = String((err && err.message) || err);
+        }
+    }
+    el._engineName = 'wave';
+    return createWaveEngine(ctx, connect);
 }
 
 /**
@@ -41,7 +78,7 @@ function ensureWave(el) {
     el._wave = (async () => {
         await el._ensureToneStarted?.();
         const ctx = window.Tone.getContext().rawContext;
-        const wave = await createWaveEngine(ctx, (node) => connectOutput(node, ctx));
+        const wave = await createEngine(el, ctx);
         wave.onmessage = (msg) => onWaveMessage(el, msg);
         if (el._waveProject) wave.post({ type: 'load', project: el._waveProject });
         wave.post({ type: 'tempo', bpm: el._tempo || 120 });
@@ -109,6 +146,10 @@ export function waveLoadProject(el, project) {
 }
 
 function onWaveMessage(el, msg) {
+    if (msg.type === 'error') {
+        console.warn(`${el._engineName || 'wave'} engine:`, msg.message, msg.op ? `(${msg.op})` : '');
+        return;
+    }
     if (msg.type === 'playback-complete') {
         el._handleWsMessage?.({ type: 'playback-complete' });
         return;

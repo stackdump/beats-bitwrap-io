@@ -7,6 +7,11 @@ or kept as a "classic" engine is **a decision (D-1), not an assumption**; it
 gets made with data once the instruments are converted. Read `public/wave-engine/NOTES.md` and `README.md`
 first; this file sequences the remaining work.
 
+> **2026-11-12:** `docs/MIGRATION-djrust-wasm.md` plans to implement W-1 … W-10 by running the Rust
+> engine from `djrust-vevr-se` as WebAssembly in the same worklet slot (`?engine=djrust`, phase 1 on
+> branch `djrust-wasm-phase1`) instead of writing them again in JS. The W-phases below still define
+> *what* must be true before the default flip; that file adds the generator, CIDs, build and licence side.
+
 ## Status snapshot
 
 | Phase | Title | Status |
