@@ -11,6 +11,7 @@ import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
 import { routeToWave, waveLoadProject } from './wave.js';
+import { routeToDjrust, djrustLoadProject, djrustReloadProject } from './djrust.js';
 import { scopeOnFire } from '../ui/scope.js';
 import { perfStart, perfStop, perfNote, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { telemetryOnPlay, telemetryOnStop, telemetryEvent } from '../perf/telemetry.js';
@@ -462,7 +463,7 @@ export function updateWsStatus(el, connected) {
 }
 
 export function sendWs(el, msg) {
-    if (routeToWave(el, msg)) return;
+    if (routeToWave(el, msg) || routeToDjrust(el, msg)) return;
     if (el._ws?.readyState === WebSocket.OPEN) {
         el._ws.send(JSON.stringify(msg));
     } else if (el._worker) {
@@ -495,6 +496,7 @@ export function handleWsMessage(el, msg) {
             if (el._pendingInstruments && el._tick >= el._pendingBarTarget) {
                 toneEngine.panic();
                 el._onInstrumentsChanged(el._pendingInstruments);
+                djrustReloadProject(el);
                 el._pendingInstruments = null;
             }
             // Prefetch next track for shuffle mode at ~80% progress.
@@ -524,6 +526,7 @@ export function handleWsMessage(el, msg) {
         case 'project-sync':
             el._lastProjectJSON = msg.project; // the benchmark's "current track"
             waveLoadProject(el, msg.project);
+            djrustLoadProject(el, msg.project);
             // Worker swapped projects (or just synced state) — drop
             // the audio grid anchor so the next fire re-establishes
             // it at Tone.now() + LOOKAHEAD against the new project.
@@ -580,6 +583,7 @@ export function handleWsMessage(el, msg) {
                 el._pendingBarTarget = (Math.floor(el._tick / 16) + 1) * 16;
             } else {
                 el._onInstrumentsChanged(msg.instruments);
+                djrustReloadProject(el);
             }
             break;
         case 'control-fired':
@@ -760,10 +764,10 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     vizEnd(VIZ.FIRE, vt0);
 
     // Scope tab (wave engine): the worklet's tick time is when it sounds.
-    if (midi && el._waveEngine && el._scope) scopeOnFire(el, netId, midi, audioT, audioT, tick);
+    if (midi && (el._waveEngine || el._djrustEngine) && el._scope) scopeOnFire(el, netId, midi, audioT, audioT, tick);
 
-    // Play sound locally — unless the wave engine is rendering it.
-    if (midi && !el._waveEngine) {
+    // Play sound locally — unless an AudioWorklet engine (wave, djrust) is rendering it.
+    if (midi && !el._waveEngine && !el._djrustEngine) {
         // Apply client-side humanization.
         let m = humanizeNote(el, midi);
         // Hit-pad live pitch: the .pn-os-pitch dropdown in the Beats

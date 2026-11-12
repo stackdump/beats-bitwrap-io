@@ -4,6 +4,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
+        test-djrust-parity test-djrust-browser \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -195,6 +196,28 @@ test-wave-browser: build
 test-scope-browser: build
 	@./$(BINARY) -addr :18094 -public public -data /tmp/scope-browser-data >/tmp/scope-browser-server.log 2>&1 & \
 	  pid=$$!; sleep 2; node scripts/test-scope-browser.mjs http://localhost:18094 $(SCOPE_SHOTS); rc=$$?; kill $$pid; exit $$rc
+
+# --- djrust engine (?engine=djrust) — lib/backend/djrust.js + public/djrust/ ---
+# DJRUST_PKG=<dir>: a local djrust/npm/build.sh output (npm/pkg) instead of the
+# pinned npm version (public/djrust/version.js). The beats facade (load_share,
+# events, ...) is newer than djrust 0.1.0, so until a release has it, set this.
+DJRUST_PKG ?=
+DJRUST_PARITY_SEEDS ?= 6
+
+# Share-CID parity gate (plan contract 1): JS compose vs djrust compose, model
+# CID per genre × structure × seed, plus example share-envelope CIDs.
+test-djrust-parity:
+	@DJRUST_PKG=$(DJRUST_PKG) node scripts/test-djrust-parity.mjs --seeds $(DJRUST_PARITY_SEEDS)
+
+# Real browser: boots the server from public/ (and, with DJRUST_PKG, serves the
+# package with CORS for the ?djrust= override); checks djrust plays the studio's
+# project, mutes / tempo / stop / instrument reach it, unported controls are
+# hidden and the share CID is the one the default engine makes.
+test-djrust-browser: build
+	@./$(BINARY) -addr :18096 -public public -data /tmp/djrust-browser-data >/tmp/djrust-browser-server.log 2>&1 & \
+	  pid=$$!; pkg=""; ppid=""; \
+	  if [ -n "$(DJRUST_PKG)" ]; then python3 scripts/serve-djrust-pkg.py "$(DJRUST_PKG)" 18097 >/tmp/djrust-pkg-server.log 2>&1 & ppid=$$!; pkg=http://127.0.0.1:18097/; fi; \
+	  sleep 2; node scripts/test-djrust-browser.mjs http://localhost:18096 $$pkg; rc=$$?; kill $$pid $$ppid 2>/dev/null; exit $$rc
 
 # make wave-render GENRE=techno SEED=42 STRUCTURE=standard SECONDS=30
 GENRE ?= techno

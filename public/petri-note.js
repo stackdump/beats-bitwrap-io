@@ -76,6 +76,7 @@ import {
     onRemoteTransitionFired, humanizeNote, swingDelay, onStateSync,
 } from './lib/backend/index.js';
 import { waveEngineRequested, prepareWaveContext } from './lib/backend/wave.js';
+import { djrustEngineRequested, prepareDjrustContext, installDjrustAdapter, showDjrustEngine, djrustBlocksKey } from './lib/backend/djrust.js';
 import {
     initAudio, connectMidiInputs,
     sliderBindingKey, resolveBinding,
@@ -186,6 +187,10 @@ class PetriNote extends HTMLElement {
         // in an AudioWorklet (public/wave-engine/) instead of Tone.js voices.
         this._waveEngine = waveEngineRequested();
         if (this._waveEngine) prepareWaveContext();
+        // ?engine=djrust — the djrust engine (public npm package) plays the
+        // composed project in an AudioWorklet instead of Tone.js (lib/backend/djrust.js).
+        this._djrustEngine = !this._waveEngine && djrustEngineRequested();
+        if (this._djrustEngine) { prepareDjrustContext(); installDjrustAdapter(this); }
         this._audioCtx = null;
         this._midiAccess = null;
         this._midiOutputId = null; // Selected MIDI output port ID
@@ -245,6 +250,7 @@ class PetriNote extends HTMLElement {
     }
 
     connectedCallback() {
+        showDjrustEngine(this);
         // Test capture hook — loaded only when ?test=1 is present in
         // the URL. Installs window.__pnTestCaptureStart/__pnTestCaptureStop
         // for headless audio analysis (scripts/test-macro-audio.py).
@@ -1039,6 +1045,7 @@ class PetriNote extends HTMLElement {
         // Single-letter shortcuts — skip when typing or when a modal owns keys
         if (inInput || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
         const k = e.key.toLowerCase();
+        if (djrustBlocksKey(this, k)) return;
         switch (k) {
             case 'g': e.preventDefault(); this.querySelector('.pn-generate-btn')?.click(); return;
             case 's': e.preventDefault(); this.querySelector('.pn-shuffle-btn')?.click(); return;

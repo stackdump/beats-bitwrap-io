@@ -135,7 +135,7 @@ class Telemetry {
         }
     }
 
-    play() { this.hookAudio(); this.add('play', { engine: this.el._waveEngine ? 'wave' : 'default' }); }
+    play() { this.hookAudio(); this.add('play', { engine: this.el._waveEngine ? 'wave' : this.el._djrustEngine ? 'djrust' : 'default' }); }
     stop(reason) { this.add('stop', { r: reason || 'user' }); this.flush(false); }
 
     win(w) {
@@ -157,7 +157,7 @@ class Telemetry {
         const events = this.buf.splice(0, 1000);
         const body = JSON.stringify({
             v: 1, sid: this.sid, seq: this.seq++,
-            engine: this.el._waveEngine ? 'wave' : 'default',
+            engine: this.el._waveEngine ? 'wave' : this.el._djrustEngine ? 'djrust' : 'default',
             device: this.device, audio: this.audio || {}, events,
         });
         try {

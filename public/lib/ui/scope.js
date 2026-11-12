@@ -52,6 +52,9 @@ const VIEWS = [
     ['bands', 'Bands', 'Per-bar band energy, IR digits 0-9 (4 dB/step below each band\'s loudest bar)'],
     ['raster', 'Raster', 'Score raster μ of the whole arrangement, sections marked'],
 ];
+// Views drawn from per-instrument model kernels (Tone.Offline renders); hidden under
+// ?engine=djrust (lib/backend/djrust.js) until djrust has its own.
+const MODEL_VIEWS = new Set(['spectro', 'bands']);
 const VIZ_MIN_FRAME_MS = [1000 / 30, 1000 / 15, 1000 / 8, 1000 / 4];
 const GROUP_ORDER = ['drums', 'percussion', 'bass', 'chords', 'harmony', 'lead', 'melody', 'arp', 'pad', 'texture', 'stinger'];
 const FALLBACK_COLORS = ['#00d2ff', '#2ecc71', '#9b59b6', '#f5a623', '#4a90d9', '#ff6b6b', '#1abc9c', '#e67e22'];
@@ -482,8 +485,8 @@ export function renderScopePanel(el) {
         panel.innerHTML = `
             <div class="pn-scope-bar">
                 <span class="pn-scope-views">${VIEWS.map(([id, label, title]) =>
-                    `<button type="button" data-view="${id}" title="${title}">${label}</button>`).join('')}</span>
-                <label class="pn-scope-measured" title="Also read the master through an AnalyserNode: measured bands / spectrogram beside the model, and the residual (measured − model) per band">
+                    `<button type="button" data-view="${id}" title="${title}"${MODEL_VIEWS.has(id) ? ' class="pn-scope-model-only"' : ''}>${label}</button>`).join('')}</span>
+                <label class="pn-scope-measured pn-scope-model-only" title="Also read the master through an AnalyserNode: measured bands / spectrogram beside the model, and the residual (measured − model) per band">
                     <input type="checkbox"> measured</label>
                 <span class="pn-scope-status"></span>
             </div>
