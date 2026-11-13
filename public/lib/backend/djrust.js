@@ -88,11 +88,33 @@ async function startComposer(base, module, sampleRate) {
     }
 }
 
+/**
+ * Why djrust cannot run on this page, or null. An AudioWorklet is only given to a secure context
+ * (https, or http on localhost / 127.0.0.1): opened over plain http on a LAN address, Chrome has
+ * no `AudioContext.audioWorklet` at all. `ctx`: the AudioContext, when there is one to look at.
+ */
+export function engineUnsupported(win = globalThis, ctx = null) {
+    if (win.isSecureContext === false) {
+        const origin = win.location?.origin || 'this page';
+        return `${origin} is not a secure context, and browsers only run audio worklets on https ` +
+            'pages or on localhost. Open the studio over https (see "LAN dev server over https" in ' +
+            'CLAUDE.md) or at http://localhost.';
+    }
+    if (typeof win.AudioWorkletNode !== 'function' || (ctx && !ctx.audioWorklet)) {
+        return 'This browser has no AudioWorklet, which the audio engine needs. Try a current Chrome, Firefox or Safari.';
+    }
+    return null;
+}
+
 /** Start the engine (once): the worklet on the studio's AudioContext, and the composer Worker. */
 export function ensureDjrust(el) {
     if (el._dj) return el._dj;
     el._dj = (async () => {
+        const early = engineUnsupported();
+        if (early) throw new Error(early);
         const ctx = audioEngine.context();
+        const late = engineUnsupported(globalThis, ctx);
+        if (late) throw new Error(late);
         const base = djrustBase();
         const module = await compileWasm(base + 'djrust_bg.wasm');
         await ctx.audioWorklet.addModule(bootstrapUrl(base));
@@ -128,17 +150,25 @@ function engineFailed(el, err) {
     console.error('[djrust] the audio engine did not start:', why);
     el._djrustError = why;
     el._dj = null;
-    if (el._engineErrorBanner) return;
+    audioEngine.emit('failed', why);
+    if (el._engineErrorBanner) {
+        el._engineErrorBanner.querySelector('.pn-engine-error-why').textContent = why;
+        if (!el._engineErrorBanner.isConnected) document.body.appendChild(el._engineErrorBanner);
+        return;
+    }
     const banner = document.createElement('div');
     banner.className = 'pn-audio-lock-banner pn-engine-error';
-    banner.innerHTML = '<span>The audio engine did not load.</span><button>Retry</button>';
+    banner.setAttribute('role', 'alert');
+    banner.innerHTML = '<span>The audio engine did not load: <span class="pn-engine-error-why"></span></span><button>Retry</button>';
+    banner.querySelector('.pn-engine-error-why').textContent = why;
     banner.title = why;
     banner.querySelector('button').addEventListener('click', () => {
         banner.remove();
         el._engineErrorBanner = null;
         ensureDjrust(el);
     });
-    el.appendChild(banner);
+    // on the body, not in the studio element, which a project load rebuilds
+    document.body.appendChild(banner);
     el._engineErrorBanner = banner;
 }
 

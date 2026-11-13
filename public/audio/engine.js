@@ -63,10 +63,10 @@ class AudioEngine {
         // the vocoder: the settings sent so far (one object, replayed whole), and its meters
         this.voc = {};
         this.vocLevels = null;
-        this._listeners = new Map(); // 'fx' | 'voc' | 'ready' → Set of callbacks
+        this._listeners = new Map(); // 'fx' | 'voc' | 'ready' | 'failed' → Set of callbacks
     }
 
-    /** Call `fn` on `what` ('fx': pad lights changed, 'voc': vocoder meters, 'ready'). */
+    /** Call `fn` on `what` ('fx': pad lights changed, 'voc': vocoder meters, 'ready', 'failed': why). */
     on(what, fn) {
         if (!this._listeners.has(what)) this._listeners.set(what, new Set());
         this._listeners.get(what).add(fn);

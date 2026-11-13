@@ -33,6 +33,7 @@ export function buildPadsPanel(el, panel) {
         const cat = audioEngine.catalogue || [];
         if (!cat.length) {
             panel.innerHTML = `<div class="pn-pads-hint">The pads appear once the audio engine is up (press Play).</div>`;
+            if (el._djrustError) panel.firstChild.textContent = `The audio engine did not load: ${el._djrustError}`;
             return;
         }
         panel.innerHTML = padsHtml(el, cat);
@@ -42,6 +43,12 @@ export function buildPadsPanel(el, panel) {
     el._padsUnsub?.forEach((u) => u());
     el._padsUnsub = [
         audioEngine.on('ready', () => render()),
+        audioEngine.on('failed', (why) => {
+            if (!(audioEngine.catalogue || []).length) {
+                panel.innerHTML = '<div class="pn-pads-hint pn-pads-failed"></div>';
+                panel.firstChild.textContent = `The audio engine did not load: ${why}`;
+            }
+        }),
         audioEngine.on('fx', (active) => lightPads(panel, active)),
     ];
 

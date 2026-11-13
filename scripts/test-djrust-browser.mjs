@@ -16,6 +16,8 @@
 // Vocoder chord pad turns the vocoder on and it speaks, also with the track pulled out; the controls with no djrust equivalent are hidden while the FX, Macros,
 // Beats, Auto-DJ, MIDI and Feel panels, the tracks view, mixer and scope stay; the share CID is
 // the one this track always had (Tone's, recorded before the engine swap: contract 1).
+// On a plain-http page that is not a secure context the engine says why it cannot start (on the
+// page, in the console, in the Pads panel) instead of failing quietly.
 
 import { spawn } from 'node:child_process';
 import { computeCidForJsonLd, gzipToB64Url } from '../public/lib/share/codec.js';
@@ -23,6 +25,7 @@ import { computeCidForJsonLd, gzipToB64Url } from '../public/lib/share/codec.js'
 const HOST = process.argv[2] || 'http://localhost:18090';
 const PKG = process.argv[3] || process.env.DJRUST_URL || '';
 const PORT = 9342;
+const INSECURE_HOST = 'beats-insecure.test';
 const CHROME = process.env.CHROME || 'google-chrome';
 // One self-contained share link, so both engines open the same track.
 const ENVELOPE = { '@context': 'https://beats.bitwrap.io/schema/beats-share', '@type': 'BeatsShare', v: 1, genre: 'techno', seed: 42 };
@@ -39,7 +42,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, [
     '--headless=new', `--remote-debugging-port=${PORT}`, '--no-first-run', '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required', `--user-data-dir=/tmp/djrust-browser-profile-${process.pid}`, 'about:blank',
+    '--autoplay-policy=no-user-gesture-required',
+    // a host name that is not localhost: plain http on it is not a secure context (the LAN case)
+    `--host-resolver-rules=MAP ${INSECURE_HOST} 127.0.0.1`, `--user-data-dir=/tmp/djrust-browser-profile-${process.pid}`,
+    // CHROME_ARGS: extra flags, e.g. --ignore-certificate-errors-spki-list=<hash> to trust the
+    // dev certificate when testing the https LAN server (CLAUDE.md, "LAN dev server over https")
+    ...(process.env.CHROME_ARGS || '').split(' ').filter(Boolean), 'about:blank',
 ], { stdio: 'ignore' });
 
 async function cdpTarget() {
@@ -59,11 +67,14 @@ function connect(url) {
     let id = 0;
     const pending = new Map();
     const logs = [];
+    const urls = new Map(), failed = [];   // requests that failed (named when the studio does not come up)
     ws.onmessage = (e) => {
         const m = JSON.parse(e.data);
         if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
         else if (m.method === 'Runtime.consoleAPICalled') logs.push(m.params.args.map(a => a.value ?? a.description).join(' '));
         else if (m.method === 'Runtime.exceptionThrown') logs.push('EXC ' + m.params.exceptionDetails.exception?.description);
+        else if (m.method === 'Network.requestWillBeSent') urls.set(m.params.requestId, m.params.request.url);
+        else if (m.method === 'Network.loadingFailed' && !m.params.canceled) failed.push(`${urls.get(m.params.requestId)}: ${m.params.errorText}`);
     };
     const send = (method, params = {}) => new Promise((res) => {
         const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params }));
@@ -73,7 +84,7 @@ function connect(url) {
         if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'eval failed');
         return r.result?.result?.value;
     };
-    return new Promise(res => { ws.onopen = () => res({ send, evaluate, logs, close: () => ws.close() }); });
+    return new Promise(res => { ws.onopen = () => res({ send, evaluate, logs, failed, close: () => ws.close() }); });
 }
 
 async function boot(cdp, query) {
@@ -83,6 +94,10 @@ async function boot(cdp, query) {
         const ok = await cdp.evaluate(`(() => { const el = document.querySelector('petri-note');
             return !!(el && el._project && Object.keys(el._project.nets||{}).length && el._currentGen?.params?.seed != null); })()`).catch(() => false);
         if (ok) break;
+        if (i === 99) {
+            const at = await cdp.evaluate(`({ href: location.href, title: document.title, body: (document.body?.innerText || '').slice(0, 200) })`).catch(e => String(e));
+            throw new Error(`the studio did not come up at ${HOST}: ${JSON.stringify(at)}; failed requests: ${cdp.failed.slice(-8).join(' | ') || 'none'}; logs: ${cdp.logs.slice(-5).join(' | ')}`);
+        }
     }
     await sleep(2000); // generate → project-sync settles
     // Count the fires the page is told about, then press play.
@@ -112,6 +127,14 @@ let cdp;
 try {
     cdp = await connect(await cdpTarget());
     await cdp.send('Runtime.enable');
+    await cdp.send('Network.enable');
+    if (HOST.startsWith('https:')) {
+        // headless Chrome swaps its certificate verifier once just after start (to apply
+        // --ignore-certificate-errors-spki-list), failing whatever is in flight then with
+        // ERR_CERT_VERIFIER_CHANGED: let that happen on a throwaway request first
+        await cdp.send('Page.navigate', { url: `${HOST}/manifest.json` });
+        await sleep(1500);
+    }
 
     await boot(cdp, `${TRACK}${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}`);
     const up = await cdp.evaluate(`(async () => {
@@ -342,19 +365,20 @@ try {
         panel.querySelector('.pn-voc-pad[data-pad="4"]').dispatchEvent(new PointerEvent('pointerdown', opts));
         const seen = [];
         const off = audioEngine.on('voc', (m) => seen.push({ out: m.levels.output, mod: m.levels.modulator, vol: m.volume }));
-        await wait(4000);
+        await wait(6000);
         off();
         panel.querySelector('.pn-voc-pad[data-pad="4"]').dispatchEvent(new PointerEvent('pointerdown', opts));
         set('.pn-voc-latch', false);
         set('.pn-voc-on', false);
         el.querySelector('.pn-vocoder-btn').click();
-        const tail = seen.slice(-5);
-        const avg = (k) => tail.reduce((a, x) => a + x[k], 0) / Math.max(1, tail.length);
-        return { reports: seen.length, out: avg('out'), want: avg('mod') * 0.8, vol: tail.at(-1)?.vol, first: seen[0]?.vol, errors: el._djrustErrors || [] };
+        // the last 2 s: the vocoder's average output power against the track's, in dB
+        const tail = seen.slice(-10);
+        const pow = (k, g = 1) => tail.reduce((s, x) => s + (x[k] * g) ** 2, 0) / Math.max(1, tail.length);
+        const db = 10 * Math.log10(pow('out') / pow('mod', 0.8));
+        return { reports: seen.length, db, vol: seen.at(-1)?.vol, first: seen[0]?.vol, errors: el._djrustErrors || [] };
     })()`);
-    const autoDb = 20 * Math.log10(auto.out / auto.want);
-    check('vocoder auto level matches the track', auto.reports > 5 && Math.abs(autoDb) < 3 && !auto.errors.length,
-        `output ${auto.out?.toFixed(3)} vs track ${auto.want?.toFixed(3)} (${autoDb.toFixed(1)} dB), level ${auto.first} → ${auto.vol}`);
+    check('vocoder auto level matches the track', auto.reports > 5 && Math.abs(auto.db) < 3 && !auto.errors.length,
+        `output vs track ${auto.db?.toFixed(1)} dB over the last 2 s, level ${auto.first} → ${auto.vol}`);
 
     // hidden vs kept controls
     const ui = await cdp.evaluate(`(() => {
@@ -419,6 +443,41 @@ try {
     const off1 = await renderMode('offline'), off2 = await renderMode('offline');
     check('?render=offline is deterministic', !off1.error && off1.bytes > 100000 && off1.hash === off2.hash,
         `${off1.bytes} bytes, ${off1.info?.speedupX}× realtime, ${off1.hash.slice(0, 16)} vs ${off2.hash.slice(0, 16)} ${off1.error || ''}`);
+
+    // not a secure context (plain http, not localhost: a LAN address): no AudioWorklet. The
+    // engine says so on the page, in the console and in the Pads panel instead of failing quietly
+    const insecure = new URL(HOST);
+    if (insecure.protocol !== 'http:') console.log('skip insecure-context checks (HOST is not plain http)');
+    else {
+        insecure.hostname = INSECURE_HOST;
+        const logsBefore = cdp.logs.length;
+        await cdp.send('Page.navigate', { url: `${insecure.origin}/?${TRACK}${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}` });
+        for (let i = 0; i < 100; i++) {
+            await sleep(200);
+            if (await cdp.evaluate(`!!document.querySelector('petri-note')?._project`).catch(() => false)) break;
+        }
+        const nosec = await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            const secure = window.isSecureContext, worklet = typeof (new AudioContext()).audioWorklet;
+            el.querySelector('.pn-pads-btn')?.click();
+            el._togglePlay();
+            for (let i = 0; i < 50 && !el._djrustError; i++) await new Promise(r => setTimeout(r, 100));
+            const banner = document.querySelector('.pn-engine-error');
+            return { secure, worklet, error: el._djrustError || null,
+                     banner: banner && banner.getClientRects().length ? banner.textContent : null,
+                     pads: el.querySelector('.pn-pads-panel')?.textContent.trim() || '' };
+        })()`);
+        const logged = cdp.logs.slice(logsBefore).filter(l => /\[djrust\] the audio engine did not start: .*secure context/.test(l));
+        check('an insecure page has no AudioWorklet (the case being guarded)', nosec.secure === false && nosec.worklet === 'undefined',
+            `isSecureContext ${nosec.secure}, audioWorklet ${nosec.worklet}`);
+        check('the engine names the missing secure context on screen', /secure context/.test(nosec.error || '') && /secure context/.test(nosec.banner || ''),
+            `error ${nosec.error}; banner ${nosec.banner}`);
+        check('…in the console', logged.length > 0, cdp.logs.slice(logsBefore).filter(l => /djrust/.test(l)).join(' | '));
+        check('…and in the Pads panel', /secure context/.test(nosec.pads), nosec.pads);
+        const crashed = cdp.logs.slice(logsBefore).filter(l => /EXC|addModule/.test(l));
+        check('…without an uncaught exception', crashed.length === 0, crashed.join(' | '));
+    }
+
     if (process.env.VERBOSE) console.log(cdp.logs.join('\n'));
     cdp.close();
 } catch (e) {

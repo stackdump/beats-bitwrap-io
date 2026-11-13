@@ -213,6 +213,7 @@ go_library(
         "//internal/audiorender",
         "//internal/bench",
         "//internal/deploy",
+        "//internal/devserve",
         "//internal/generator",
         "//internal/index",
         "//internal/mcp",
