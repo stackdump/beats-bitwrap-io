@@ -19,20 +19,25 @@ const LEVEL_DEFAULT = 0.5;   // the vocoder's own level when first switched on (
 const AUTO_KEY = 'pn-voc-auto';
 const AUTO_STEP_DB = 3;      // the most auto level moves the vocoder's level per report (~200 ms)
 const AUTO_RANGE = [0.02, 1];
+const AUTO_AVG = 0.2;        // each report's weight in the running averages (~1 s at 5 a second)
 
 /**
- * One auto-level step from a vocoder report: the level that brings the vocoder's output to the
- * track's own loudness (its modulator level through the track's fader) times the trim, at most
- * AUTO_STEP_DB away from the level now. Null: hold (no chord sounding, nothing to measure).
+ * One auto-level step from a vocoder report. The meters are instant peaks (and the vocoder's
+ * envelopes lag the track), so the step compares running averages, about a second long, of the
+ * vocoder's output at level 1 (`output / measuredAt`: the report's output was measured at the
+ * engine's own level, which lags what was last sent) and of the track's loudness through its
+ * fader. The level moves half the way to the match times the trim, at most AUTO_STEP_DB.
+ * `avg`: the last step's averages (null: start afresh). Null: hold (no chord sounding).
  */
-export function autoLevelStep({ output, modulator }, volume, trim, trackLevel = TRACK_DEFAULT) {
-    if (!(volume > 1e-3) || !(output > 1e-3) || !(modulator > 1e-3)) return null;
-    const raw = output / volume;                      // what the vocoder would give at level 1
-    const want = modulator * trackLevel * (trim / LEVEL_DEFAULT) / raw;
+export function autoLevelStep({ output, modulator }, measuredAt, volume, trim, avg = null, trackLevel = TRACK_DEFAULT) {
+    if (!(measuredAt > 1e-3) || !(volume > 1e-3) || !(output > 1e-3) || !(modulator > 1e-3)) return null;
+    const raw = (output / measuredAt) ** 2, mod = (modulator * trackLevel) ** 2;   // power
+    const a = avg ? { raw: avg.raw + AUTO_AVG * (raw - avg.raw), mod: avg.mod + AUTO_AVG * (mod - avg.mod) } : { raw, mod };
+    const want = Math.sqrt(a.mod / a.raw) * (trim / LEVEL_DEFAULT);
     const errDb = 20 * Math.log10(want / volume);
     const stepDb = Math.max(-AUTO_STEP_DB, Math.min(AUTO_STEP_DB, errDb * 0.5));
     const v = volume * Math.pow(10, stepDb / 20);
-    return Math.round(Math.max(AUTO_RANGE[0], Math.min(AUTO_RANGE[1], v)) * 1000) / 1000;
+    return { volume: Math.round(Math.max(AUTO_RANGE[0], Math.min(AUTO_RANGE[1], v)) * 1000) / 1000, avg: a };
 }
 
 function loadAuto() {
@@ -145,10 +150,12 @@ export function buildVocoderPanel(el, panel) {
         if (f) f.style.width = `${Math.min(100, Math.round((m.levels?.output || 0) * 100))}%`;
         if (!st.auto || !st.on || st.pad == null || !m.levels) return;
         const volume = st.sent ?? m.volume;
-        const v = autoLevelStep(m.levels, volume, st.knobs.volume ?? LEVEL_DEFAULT);
-        if (v != null && Math.abs(v - volume) > 0.002) {
-            st.sent = v;
-            audioEngine.vocoder({ volume: v });
+        const r = autoLevelStep(m.levels, m.volume, volume, st.knobs.volume ?? LEVEL_DEFAULT, st.avg);
+        if (!r) return;
+        st.avg = r.avg;
+        if (Math.abs(r.volume - volume) > 0.002) {
+            st.sent = r.volume;
+            audioEngine.vocoder({ volume: r.volume });
         }
     });
 
@@ -177,6 +184,7 @@ export function buildVocoderPanel(el, panel) {
     };
     const stop = () => {
         st.pad = null;
+        st.avg = null;   // the next chord measures afresh
         audioEngine.vocoder({ notes: [] });
         panel.querySelectorAll('.pn-voc-pad.held').forEach((p) => p.classList.remove('held'));
     };
@@ -198,6 +206,7 @@ export function buildVocoderPanel(el, panel) {
             if (!st.auto) {
                 // back to the level the knob says
                 st.sent = null;
+                st.avg = null;
                 if (st.on) audioEngine.vocoder({ volume: st.knobs.volume ?? LEVEL_DEFAULT });
             }
         } else if (t.classList.contains('pn-voc-sound')) {
