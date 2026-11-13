@@ -2,7 +2,8 @@
 // track as the modulator, so the track's rhythm and sound shape the chord ("talking drums").
 // The chord pads are the seven triads of the genre's key; hold one to play it (or latch it).
 // "Vocoder only" pulls the track out of the mix while it still shapes the synth (the modulator
-// is taken before the track's fader).
+// is taken before the track's fader). Auto level keeps the vocoder as loud as the track while a
+// chord sounds; the Level knob is then a trim around that (50%: matched).
 //
 // Live performance only: nothing here goes into a share.
 
@@ -15,6 +16,28 @@ import { Major, Minor, Dorian, Mixolydian, Phrygian, HarmonicMin,
 const SOUNDS = ['classic', 'acid', 'pad', 'sync lead', 'ring bell', 'noise sweep'];
 const TRACK_DEFAULT = 0.8;   // djrust's deck volume when nothing has moved it
 const LEVEL_DEFAULT = 0.5;   // the vocoder's own level when first switched on (its default is louder than the track)
+const AUTO_KEY = 'pn-voc-auto';
+const AUTO_STEP_DB = 3;      // the most auto level moves the vocoder's level per report (~200 ms)
+const AUTO_RANGE = [0.02, 1];
+
+/**
+ * One auto-level step from a vocoder report: the level that brings the vocoder's output to the
+ * track's own loudness (its modulator level through the track's fader) times the trim, at most
+ * AUTO_STEP_DB away from the level now. Null: hold (no chord sounding, nothing to measure).
+ */
+export function autoLevelStep({ output, modulator }, volume, trim, trackLevel = TRACK_DEFAULT) {
+    if (!(volume > 1e-3) || !(output > 1e-3) || !(modulator > 1e-3)) return null;
+    const raw = output / volume;                      // what the vocoder would give at level 1
+    const want = modulator * trackLevel * (trim / LEVEL_DEFAULT) / raw;
+    const errDb = 20 * Math.log10(want / volume);
+    const stepDb = Math.max(-AUTO_STEP_DB, Math.min(AUTO_STEP_DB, errDb * 0.5));
+    const v = volume * Math.pow(10, stepDb / 20);
+    return Math.round(Math.max(AUTO_RANGE[0], Math.min(AUTO_RANGE[1], v)) * 1000) / 1000;
+}
+
+function loadAuto() {
+    try { return localStorage.getItem(AUTO_KEY) !== 'off'; } catch { return true; }
+}
 
 // The knobs up front: [name, label, min, max, default, log travel]
 const KNOBS = [
@@ -80,7 +103,7 @@ function knobText([name], v) {
 /** Fill `panel` (the .pn-vocoder-panel). */
 export function buildVocoderPanel(el, panel) {
     if (!panel) return;
-    const st = (el._voc ||= { on: false, sound: 'classic', latch: false, only: false, pad: null, knobs: {} });
+    const st = (el._voc ||= { on: false, sound: 'classic', latch: false, only: false, pad: null, knobs: {}, auto: loadAuto(), sent: null });
     const genre = () => el.querySelector?.('.pn-genre-select')?.value || el._currentGen?.genre || 'techno';
     const render = () => {
         const { key, pads } = chordPads(genre());
@@ -90,6 +113,7 @@ export function buildVocoderPanel(el, panel) {
                 <label class="pn-voc-switch"><input type="checkbox" class="pn-voc-on" ${st.on ? 'checked' : ''}> On</label>
                 <label class="pn-voc-switch" title="Take the track out of the mix; it still shapes the synth"><input type="checkbox" class="pn-voc-only" ${st.only ? 'checked' : ''}> Vocoder only</label>
                 <label class="pn-voc-switch"><input type="checkbox" class="pn-voc-latch" ${st.latch ? 'checked' : ''}> Latch chords</label>
+                <label class="pn-voc-switch" title="Keep the vocoder as loud as the track while a chord sounds; Level is then a trim (50%: matched)"><input type="checkbox" class="pn-voc-auto" ${st.auto ? 'checked' : ''}> Auto level</label>
                 <select class="pn-voc-sound" title="The synth's sound">
                     ${SOUNDS.map((s) => `<option value="${s}"${s === st.sound ? ' selected' : ''}>${s}</option>`).join('')}
                 </select>
@@ -119,12 +143,20 @@ export function buildVocoderPanel(el, panel) {
     el._vocUnsub = audioEngine.on('voc', (m) => {
         const f = fill();
         if (f) f.style.width = `${Math.min(100, Math.round((m.levels?.output || 0) * 100))}%`;
+        if (!st.auto || !st.on || st.pad == null || !m.levels) return;
+        const volume = st.sent ?? m.volume;
+        const v = autoLevelStep(m.levels, volume, st.knobs.volume ?? LEVEL_DEFAULT);
+        if (v != null && Math.abs(v - volume) > 0.002) {
+            st.sent = v;
+            audioEngine.vocoder({ volume: v });
+        }
     });
 
     const switchOn = (on) => {
         st.on = on;
         if (on) {
             const knobs = Object.fromEntries(KNOBS.map((k) => [k[0], st.knobs[k[0]] ?? k[4]]));
+            if (st.auto && st.sent != null) knobs.volume = st.sent;   // where auto level left it
             audioEngine.vocoderSound(st.sound);
             audioEngine.vocoder({ modulator: 'deck:A', carrier: 'synth', ...knobs, on: true });
         } else {
@@ -160,6 +192,14 @@ export function buildVocoderPanel(el, panel) {
             if (!st.latch && st.pad != null) stop();
             const note = panel.querySelector('.pn-voc-chords .pn-pads-note');
             if (note) note.textContent = st.latch ? 'tap: keeps sounding · tap again: stops' : 'hold a chord to play it';
+        } else if (t.classList.contains('pn-voc-auto')) {
+            st.auto = t.checked;
+            try { localStorage.setItem(AUTO_KEY, st.auto ? 'on' : 'off'); } catch { /* private mode */ }
+            if (!st.auto) {
+                // back to the level the knob says
+                st.sent = null;
+                if (st.on) audioEngine.vocoder({ volume: st.knobs.volume ?? LEVEL_DEFAULT });
+            }
         } else if (t.classList.contains('pn-voc-sound')) {
             st.sound = t.value;
             audioEngine.vocoderSound(st.sound);
@@ -172,7 +212,8 @@ export function buildVocoderPanel(el, panel) {
         const v = fromSlider(k, +t.value);
         st.knobs[k[0]] = v;
         t.parentElement.querySelector('.pn-voc-val').textContent = knobText(k, v);
-        if (st.on) audioEngine.vocoder({ [k[0]]: v });
+        // with auto level on, Level is a trim the next report applies
+        if (st.on && !(k[0] === 'volume' && st.auto)) audioEngine.vocoder({ [k[0]]: v });
     });
     panel.addEventListener('pointerdown', (ev) => {
         const pad = ev.target.closest('.pn-voc-pad');

@@ -328,6 +328,34 @@ try {
     check('"vocoder only" keeps the vocoder sounding without the track', voc.trackVol === 0 && voc.alonePeak > 0.01 && voc.restored > 0,
         `track level ${voc.trackVol} → ${voc.restored}, peak ${voc.alonePeak?.toFixed(3)}`);
 
+    // Vocoder auto level: a latched chord, and the vocoder's output walks to the track's loudness
+    const auto = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const { audioEngine } = await import('/audio/engine.js');
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        el.querySelector('.pn-vocoder-btn').click();
+        const panel = el.querySelector('.pn-vocoder-panel');
+        const set = (sel, v) => { const b = panel.querySelector(sel); b.checked = v; b.dispatchEvent(new Event('change', { bubbles: true })); };
+        set('.pn-voc-auto', true);
+        set('.pn-voc-latch', true);
+        const opts = { bubbles: true, pointerId: 3, isPrimary: true };
+        panel.querySelector('.pn-voc-pad[data-pad="4"]').dispatchEvent(new PointerEvent('pointerdown', opts));
+        const seen = [];
+        const off = audioEngine.on('voc', (m) => seen.push({ out: m.levels.output, mod: m.levels.modulator, vol: m.volume }));
+        await wait(4000);
+        off();
+        panel.querySelector('.pn-voc-pad[data-pad="4"]').dispatchEvent(new PointerEvent('pointerdown', opts));
+        set('.pn-voc-latch', false);
+        set('.pn-voc-on', false);
+        el.querySelector('.pn-vocoder-btn').click();
+        const tail = seen.slice(-5);
+        const avg = (k) => tail.reduce((a, x) => a + x[k], 0) / Math.max(1, tail.length);
+        return { reports: seen.length, out: avg('out'), want: avg('mod') * 0.8, vol: tail.at(-1)?.vol, first: seen[0]?.vol, errors: el._djrustErrors || [] };
+    })()`);
+    const autoDb = 20 * Math.log10(auto.out / auto.want);
+    check('vocoder auto level matches the track', auto.reports > 5 && Math.abs(autoDb) < 3 && !auto.errors.length,
+        `output ${auto.out?.toFixed(3)} vs track ${auto.want?.toFixed(3)} (${autoDb.toFixed(1)} dB), level ${auto.first} → ${auto.vol}`);
+
     // hidden vs kept controls
     const ui = await cdp.evaluate(`(() => {
         const el = document.querySelector('petri-note');
