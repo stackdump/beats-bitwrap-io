@@ -26,6 +26,30 @@ import (
 
 const shareContext = "https://beats.bitwrap.io/schema/beats-share"
 
+// structureNames is the single list of arrangement structures accepted by both
+// the public generate_share tool and the private generate tool.
+var structureNames = []string{"loop", "ab", "drop", "build", "jam", "minimal", "standard", "extended"}
+
+// genreNames returns every genre preset in the generator catalog, sorted.
+func genreNames() []string {
+	names := make([]string, 0, len(generator.Genres))
+	for name := range generator.Genres {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// genreDescription is the shared genre argument description for the generate tools.
+func genreDescription() string {
+	return "Genre preset: " + strings.Join(genreNames(), ", ") + ". Use list_genres for tempo and scale."
+}
+
+// structureDescription is the shared structure argument description.
+func structureDescription() string {
+	return "Arrangement: " + strings.Join(structureNames, ", ") + ". Omit for infinite loop."
+}
+
 // NewPublicServer builds the curated, stateless MCP server mounted on a
 // production host. Tools here neither require nor assume a running sequencer.
 func NewPublicServer() *server.MCPServer {
@@ -49,7 +73,7 @@ func generateShareTool() mcp.Tool {
 		mcp.WithDescription("Create a shareable, deterministic beat from a genre + seed and return a playable URL. Builds a share-v1 envelope, computes its content-address (CID), and seals it to the store. Opening the URL regenerates byte-identical playback in the browser — no server, no AI at play time."),
 		mcp.WithString("genre",
 			mcp.Required(),
-			mcp.Description("Genre preset, e.g. techno, house, ambient, dnb, dubstep, edm, synthwave, trance, trap, lofi. Use list_genres for the full set."),
+			mcp.Description(genreDescription()),
 		),
 		mcp.WithNumber("seed",
 			mcp.Description("Integer seed for reproducible generation (default 0). Same genre+seed always yields the same track."),
@@ -58,7 +82,7 @@ func generateShareTool() mcp.Tool {
 			mcp.Description("Override tempo in BPM (default: genre-specific)."),
 		),
 		mcp.WithString("structure",
-			mcp.Description("Arrangement: loop, ab, drop, build, jam, minimal, standard, extended. Omit for infinite loop."),
+			mcp.Description(structureDescription()),
 		),
 		mcp.WithNumber("arrangeSeed",
 			mcp.Description("Seed for the arrangement (blueprint pick, humanization). Only meaningful with a non-loop structure."),

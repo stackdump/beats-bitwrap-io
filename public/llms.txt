@@ -29,7 +29,7 @@ metal, reggae, speedcore, synthwave, techno, trance, trap.
 - [Share JSON-LD context (static)](https://beats.bitwrap.io/schema/beats-share.context.jsonld)
 - [Project schema](https://beats.bitwrap.io/schema/petri-note.schema.json): the
   runtime project shape — nets, places, transitions, arcs, MIDI bindings
-- [Source](https://github.com/pflow-xyz/beats-bitwrap-io): Go + vanilla ES
+- [Source](https://github.com/stackdump/beats-bitwrap-io): Go + vanilla ES
   modules, no npm, no bundler
 
 ## App
@@ -57,8 +57,8 @@ metal, reggae, speedcore, synthwave, techno, trance, trap.
 - [cdn.stackdump.com](https://cdn.stackdump.com): content-addressed host
   where rendered tracks are published at `/ipfs/<CID>/` — immutable, survives
   independently of this app; filter `/api/search?source=beats-bitwrap-io`
-- [bitwrap.io](https://bitwrap.io): Petri nets as ZK containers — the parent
-  project (editor + prover + Solidity generation)
+- [bitwrap.io](https://bitwrap.io): the music-apps site — beats, dj, djrust
+  and the music-genre ontology ([llms.txt](https://bitwrap.io/llms.txt))
 - [pflow.xyz](https://pflow.xyz): visual Petri net editor and the shared
   browser Petri-net modules
 - [book.pflow.xyz](https://book.pflow.xyz): Petri nets as a universal

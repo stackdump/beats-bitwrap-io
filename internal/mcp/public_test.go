@@ -6,6 +6,10 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"beats-bitwrap-io/internal/generator"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // The public MCP server (mounted at /mcp on production beats.bitwrap.io) must
@@ -75,6 +79,24 @@ func TestLandingPageAuthorIdentity(t *testing.T) {
 			t.Errorf("%q appears %d times, want exactly 1", line, n)
 		} else if strings.Index(body, line) > headEnd {
 			t.Errorf("%q is outside <head>", line)
+		}
+	}
+}
+
+func TestGenerateToolsShareGenreAndStructureLists(t *testing.T) {
+	for _, tool := range []mcp.Tool{generateTool(), generateShareTool()} {
+		props := tool.InputSchema.Properties
+		g, _ := props["genre"].(map[string]any)["description"].(string)
+		st, _ := props["structure"].(map[string]any)["description"].(string)
+		for name := range generator.Genres {
+			if !strings.Contains(g, name) {
+				t.Errorf("%s genre description missing %q", tool.Name, name)
+			}
+		}
+		for _, name := range structureNames {
+			if !strings.Contains(st, name) {
+				t.Errorf("%s structure description missing %q", tool.Name, name)
+			}
 		}
 	}
 }
