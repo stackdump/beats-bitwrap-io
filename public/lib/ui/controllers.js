@@ -5,9 +5,9 @@
 //   - FX slider helpers (_fxSlider / _setFxValue) and surface helpers
 //     (_setFxByKey, _setAutoDjValue) consumed by FEEL_MAP
 //   - _macroPulse chase-light animation driver
-//   - _channelParamMove for per-channel pan/decay animation
+//   - _channelParamMove: per-channel pan / decay moves (djrust aux macros)
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 import { audioAnimLoop, isOfflineContext } from '../macros/sched.js';
 import {
     CORNERS,
@@ -225,7 +225,7 @@ export function openTraitEditor(el, param) {
         el._feelTraitLocks.add(param);
         close();
         updateTraits(el);
-        toneEngine.resumeContext();
+        audioEngine.resumeContext();
         el._ensureToneStarted();
         const params = { ...el._traitOverrides };
         const structure = el.querySelector('.pn-structure-select')?.value;
@@ -679,134 +679,9 @@ export function macroPulse(el, elements, durationMs, tag) {
 
 // --- Per-channel pan / decay animation ---
 
+// Per-channel pan / decay moves (ping-pong, auto-pan, tighten, pulse…) are djrust aux macros:
+// the engine holds the parts' pan or decay for the bars and lets go itself.
 export function channelParamMove(el, macro, durationMs) {
-    const targets = macro.targets ? macro.targets(el) : [];
-    const chans = [];
-    const seen = new Set();
-    const allTargetIds = [];
-    for (const id of targets) {
-        const ch = el._project?.nets?.[id]?.track?.channel;
-        if (ch == null) continue;
-        allTargetIds.push(id);
-        if (!seen.has(ch)) { chans.push(ch); seen.add(ch); }
-    }
-    if (chans.length === 0) return;
-
-    const kind = macro.kind; // 'pan-move' | 'decay-move'
-
-    el._chanAnim = el._chanAnim || {};
-    const prev = el._chanAnim[macro.id];
-    const before = (prev && !prev.cancelled && prev.before)
-        ? prev.before
-        : (() => {
-            const snap = {};
-            for (const ch of chans) {
-                if (kind === 'pan-move') {
-                    snap[ch] = toneEngine._channelStrips?.get?.(ch)?.panner?.pan?.value ?? 0;
-                } else {
-                    snap[ch] = toneEngine._channelStrips?.get?.(ch)?.decay ?? 1.0;
-                }
-            }
-            return snap;
-        })();
-    if (prev) {
-        prev.cancelled = true;
-        if (prev.hardStop) clearTimeout(prev.hardStop);
-    }
-
-    const apply = (ch, v) => {
-        if (kind === 'pan-move') {
-            const cc = Math.max(0, Math.min(127, Math.round((v + 1) * 63.5)));
-            toneEngine.controlChange(ch, 10, cc);
-        } else {
-            toneEngine.setChannelDecay(ch, v);
-        }
-    };
-    const restore = () => {
-        for (const ch of chans) apply(ch, before[ch] ?? (kind === 'pan-move' ? 0 : 1.0));
-    };
-
-    // Pulse every targeted net's mixer row, not just the first per channel.
-    // Drum voices (kick/snare/hihat/clap) share a single channel — without
-    // this, dedup-by-channel meant only one drum row's slider animated
-    // and the others looked like the macro skipped them.
-    const sliderCls = kind === 'pan-move' ? 'pn-mixer-pan' : 'pn-mixer-decay';
-    const sliderSet = new Set();
-    for (const id of allTargetIds) {
-        const byNet = el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${id}"] .${sliderCls}`);
-        if (byNet) { sliderSet.add(byNet); continue; }
-        const net = el._project?.nets?.[id];
-        if (net?.riffGroup) {
-            const byGroup = el._mixerEl?.querySelector(`.pn-mixer-row[data-riff-group="${net.riffGroup}"] .${sliderCls}`);
-            if (byGroup) sliderSet.add(byGroup);
-        }
-    }
-    const sliders = [...sliderSet];
-    const cleanupBlink = () => {
-        for (const node of sliders) node.classList.remove('pn-pulsing', 'pn-pulsing-hot');
-    };
-
-    // Carry the restore + blink cleanup on the token so external
-    // cancellers (stop / panic / project-sync via clearLocalMacroState)
-    // can put the channels back without re-deriving pan-vs-decay from
-    // the snapshot values.
-    const token = { cancelled: false, before, restore: () => { restore(); cleanupBlink(); } };
-    el._chanAnim[macro.id] = token;
-
-    // Safety net: guaranteed restore + blink cleanup.
-    token.hardStop = setTimeout(() => {
-        if (token.cancelled) return;
-        token.cancelled = true;
-        restore();
-        cleanupBlink();
-        if (el._chanAnim[macro.id] === token) el._chanAnim[macro.id] = null;
-    }, durationMs + 400);
-
-    const msPerBeat = el._msPerBar() / 4;
-    const DISPATCH = 80;
-    const BLINK_STEP = 120;
-    let last = -DISPATCH;
-    let lastBlink = -BLINK_STEP;
-    let blinkIdx = 0;
-
-    const applyAt = (elapsed) => {
-        if (token.cancelled) { cleanupBlink(); return; }
-        if (elapsed >= durationMs) {
-            restore();
-            cleanupBlink();
-            if (token.hardStop) clearTimeout(token.hardStop);
-            if (el._chanAnim[macro.id] === token) el._chanAnim[macro.id] = null;
-            return;
-        }
-        let v;
-        if (macro.pattern === 'pingpong') {
-            const beat = Math.floor(elapsed / (msPerBeat * (macro.stepBeats || 1)));
-            v = (beat % 2 === 0) ? -1 : 1;
-        } else if (macro.pattern === 'sweep') {
-            const rateMs = (macro.rateBeats || 4) * msPerBeat;
-            const sine = Math.sin((elapsed / rateMs) * 2 * Math.PI);
-            if (kind === 'decay-move') {
-                const lo = macro.sweepMin ?? 0.3;
-                const hi = macro.sweepMax ?? 1.8;
-                v = lo + (sine + 1) * 0.5 * (hi - lo);
-            } else {
-                v = sine;
-            }
-        } else {
-            v = macro.toValue ?? (kind === 'pan-move' ? 0 : 1.0);
-        }
-        if (elapsed - last >= DISPATCH || isOfflineContext()) {
-            for (const ch of chans) apply(ch, v);
-            last = elapsed;
-        }
-        if (sliders.length > 0 && (elapsed - lastBlink >= BLINK_STEP)) {
-            for (let i = 0; i < sliders.length; i++) {
-                sliders[i].classList.add('pn-pulsing');
-                sliders[i].classList.toggle('pn-pulsing-hot', i === blinkIdx % sliders.length);
-            }
-            blinkIdx++;
-            lastBlink = elapsed;
-        }
-    };
-    audioAnimLoop(durationMs, DISPATCH, applyAt);
+    const bars = Math.max(1, Math.round(durationMs / el._msPerBar()));
+    audioEngine.fireMacro(macro.id, bars);
 }

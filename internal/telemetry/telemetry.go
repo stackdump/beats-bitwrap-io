@@ -152,8 +152,10 @@ func Validate(b *Batch) error {
 	if b.Seq < 0 || b.Seq >= MaxBatches {
 		return errors.New("seq out of range")
 	}
-	if b.Engine != "default" && b.Engine != "wave" {
-		return errors.New("engine: default or wave")
+	switch b.Engine {
+	case "default", "wave", "djrust":
+	default:
+		return errors.New("engine: default, wave or djrust")
 	}
 	d := b.Device
 	if d.UA == "" || !cleanText(d.UA, 400) || !cleanText(d.Model, 80) || !cleanText(d.Platform, 40) {

@@ -14,6 +14,7 @@ import { buildSharePayload } from './collect.js';
 import { signEnvelope, localEd25519PublicKey, ownerDelete } from './sign.js';
 import { recordShared, recordRendered } from './history.js';
 import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from './client-render.js';
+import { AUDIO_QUERY } from '../../djrust/version.js';
 
 // --- URL parsing ---
 
@@ -174,6 +175,10 @@ export function shareFromPayload(payload, cid) {
         // from. Carried forward by the Share collector when the user
         // re-shares so the parent CID isn't lost.
         parents: Array.isArray(payload.parents) ? payload.parents : null,
+        // `play: "dj"`: djrust's DJ sound (a track a DJ app shared as it played it). The engine
+        // is handed the envelope itself while the project is unedited (lib/backend/djrust.js).
+        play: payload.play === 'dj' && !payload.nets ? 'dj' : null,
+        envelope: payload,
     };
 }
 
@@ -507,7 +512,7 @@ function expectedRenderMs(el) {
 //   - missing: nothing in flight → "Render now" button
 function wireShareAudioStatus(el, overlay, cid, titleInput) {
     const audioBlock = overlay.querySelector('.pn-share-audio');
-    const audioUrl = `${location.origin}/audio/${cid}.webm`;
+    const audioUrl = `${location.origin}/audio/${cid}.webm${AUDIO_QUERY}`;
     const statusUrl = `/api/audio-status?cid=${cid}`;
     const expectedMs = expectedRenderMs(el);
     let pollTimer = null, tickTimer = null;
@@ -533,7 +538,7 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
             <audio controls preload="none" src="${audioUrl}" style="width:100%;height:32px"></audio>
             <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:6px;font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
         `;
-        // Stop the live Tone.js engine before pre-rendered audio
+        // Stop the live engine before pre-rendered audio
         // starts — otherwise the user hears both at once. The webm
         // is the canonical audio for an already-rendered share.
         audioBlock.querySelector('audio').addEventListener('play', () => {

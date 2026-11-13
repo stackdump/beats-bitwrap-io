@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "devserve",
+    srcs = ["devserve.go"],
+    importpath = "beats-bitwrap-io/internal/devserve",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "devserve_test",
+    srcs = ["devserve_test.go"],
+    embed = [":devserve"],
+)

@@ -62,7 +62,7 @@ let d = await dispatch(sw, 'POST', `${ORIGIN}/api/telemetry`);
 check('POST is not intercepted (cannot be cached)', !d.intercepted);
 d = await dispatch(sw, 'GET', `${ORIGIN}/api/feed`);
 check('GET /api/* is not intercepted (live data)', !d.intercepted);
-d = await dispatch(sw, 'GET', `https://unpkg.com/tone@15.1.22/build/Tone.js`);
+d = await dispatch(sw, 'GET', `https://cdn.jsdelivr.net/npm/djrust@0.2.0/djrust.js`);
 check('cross-origin is not intercepted', !d.intercepted);
 d = await dispatch(sw, 'GET', `${ORIGIN}/petri-note.js`);
 check('200 GET is served and cached', d.intercepted && d.r.status === 200 && cached().includes('/petri-note.js'));

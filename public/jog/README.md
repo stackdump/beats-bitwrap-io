@@ -1,7 +1,7 @@
 # Jog lab
 
 A simulated Hercules DJControl Inpulse 200 MK3 jog wheel, delivered as Web
-MIDI-shaped `midimessage` events, mapped onto a Petri-net clock, with a Tone.js
+MIDI-shaped `midimessage` events, mapped onto a Petri-net clock, with a djrust-rendered
 demo you can scratch. Exists to settle the adapter design before the hardware
 is bought. Not linked from the studio.
 
@@ -128,7 +128,7 @@ worth knowing before wiring it:
 
 **Audible scratching needs rendered audio.** Live-triggered synth voices can be
 frozen and re-timed but not played backwards. This demo renders the net's loop
-with `Tone.Offline` and plays it from the worklet; in the studio the analogue
+with djrust's offline render and plays it from the worklet; in the studio the analogue
 is `lib/share/offline-render.js` (or the cached `.webm`) feeding the same
 worklet while the worker is paused, then a `seek` to the landing tick on
 release. Jog bindings would sit beside the APC mini integration in

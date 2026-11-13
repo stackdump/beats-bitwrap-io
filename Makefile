@@ -2,8 +2,9 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
-        test-wave test-wave-browser test-scope-browser wave-render wave-bench \
+.PHONY: build run dev dev-lan clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
+        test-net test-scope-browser djrust-render \
+        test-djrust-parity test-djrust-browser \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -14,6 +15,21 @@ run: build
 
 dev:
 	go run -ldflags "-X main.version=$(VERSION)" . -addr $(ADDR) -public public
+
+# The studio over https on the LAN, for other devices (an AudioWorklet needs a secure context;
+# http on a LAN address is not one). Makes the certificate first (scripts/dev-cert.sh); trust
+# its CA once per device (CLAUDE.md, "LAN dev server over https"). DJRUST_PKG=<djrust/npm/pkg>
+# also serves a local engine build at /djrust-pkg/, which the studio then loads by default.
+#   make dev-lan LAN_IP=192.168.1.243 [LAN_PORT=18443] [DJRUST_PKG=../djrust/npm/pkg]
+LAN_PORT ?= 18443
+DEV_CERT_DIR ?= $(HOME)/.config/beats-dev-cert
+dev-lan:
+	@test -n "$(LAN_IP)" || { echo "LAN_IP=<this machine's LAN address> is needed"; exit 2; }
+	@BEATS_DEV_CERT_DIR=$(DEV_CERT_DIR) scripts/dev-cert.sh $(LAN_IP)
+	@echo "open https://$(LAN_IP):$(LAN_PORT)/"
+	go run -ldflags "-X main.version=$(VERSION)" . -addr $(LAN_IP):$(LAN_PORT) -public public \
+	  -tls-cert $(DEV_CERT_DIR)/server.pem -tls-key $(DEV_CERT_DIR)/server-key.pem \
+	  $(if $(DJRUST_PKG),-djrust-pkg $(DJRUST_PKG))
 
 # --- Bazel (Bzlmod, hermetic — opt-in alongside `go build`) ---
 # `make build` deliberately stays on `go build`: it emits ./$(BINARY) at the
@@ -88,7 +104,7 @@ test:
 	go test ./...
 	@$(MAKE) --no-print-directory test-cohesion-parity
 	@$(MAKE) --no-print-directory test-model-parity
-	@$(MAKE) --no-print-directory test-wave
+	@$(MAKE) --no-print-directory test-net
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and
@@ -175,35 +191,48 @@ seed-collection-extended: build
 	      --official --structure extended \
 	      --rebuild-secret "$$BEATS_REBUILD_SECRET" $(SEED_ARGS)
 
-# --- Wave engine (?engine=wave) — public/wave-engine/ ---
-# Determinism, P-invariants, ring spectrum vs DFT of place weights, closed
-# form vs IIR gate, executor parity with the worker, nesting, allocation.
-test-wave:
-	@node scripts/test-wave-engine.mjs
+# --- Petri-net executor (lib/net.js) ---
+# P-invariants, parity with the worker's tick, and the control-net plan
+# (lib/backend/controls.js) the studio runs fire-macro / set-feel from.
+test-net:
+	@node scripts/test-net.mjs
 	@node scripts/test-sw.mjs
 
-# Real browser: boots the server from public/, drives headless Chrome over
-# CDP, checks the worklet plays and the default engine is unchanged.
-test-wave-browser: build
-	@./$(BINARY) -addr :18093 -public public -data /tmp/wave-browser-data >/tmp/wave-browser-server.log 2>&1 & \
-	  pid=$$!; sleep 2; node scripts/test-wave-browser.mjs http://localhost:18093; rc=$$?; kill $$pid; exit $$rc
-
-# Scope tab (lib/ui/scope.js): headless Chrome plays techno/42 in both
-# engines and at phone width, opens Scope, checks every view draws, the
-# model kernel table renders, measured + residual work and the loop stops
-# when the tab closes. SCOPE_SHOTS=<dir> saves a PNG per view.
+# Scope tab (lib/ui/scope.js): headless Chrome plays techno/42, desktop and
+# at phone width, opens Scope, checks the live and raster views draw and the
+# loop stops when the tab closes. SCOPE_SHOTS=<dir> saves a PNG per view.
 test-scope-browser: build
 	@./$(BINARY) -addr :18094 -public public -data /tmp/scope-browser-data >/tmp/scope-browser-server.log 2>&1 & \
 	  pid=$$!; sleep 2; node scripts/test-scope-browser.mjs http://localhost:18094 $(SCOPE_SHOTS); rc=$$?; kill $$pid; exit $$rc
 
-# make wave-render GENRE=techno SEED=42 STRUCTURE=standard SECONDS=30
+# --- the audio engine: djrust — audio/engine.js, lib/backend/djrust.js, public/djrust/ ---
+# DJRUST_PKG=<dir>: a local djrust/npm/build.sh output (npm/pkg) instead of the
+# pinned npm version (public/djrust/version.js), for an unreleased engine.
+DJRUST_PKG ?=
+DJRUST_PARITY_SEEDS ?= 6
+
+# Share-CID parity gate (plan contract 1): JS compose vs djrust compose, model
+# CID per genre × structure × seed, plus example share-envelope CIDs.
+test-djrust-parity:
+	@DJRUST_PKG=$(DJRUST_PKG) node scripts/test-djrust-parity.mjs --seeds $(DJRUST_PARITY_SEEDS)
+
+# Real browser: boots the server from public/ (and, with DJRUST_PKG, serves the
+# package with CORS for the ?djrust= override); checks djrust plays the studio's
+# project, mutes / tempo / FX / mixer volume / macros / stop / instrument reach
+# it, the controls with no djrust equivalent are hidden and the share CID is
+# the one the track always had.
+test-djrust-browser: build
+	@./$(BINARY) -addr :18096 -public public -data /tmp/djrust-browser-data >/tmp/djrust-browser-server.log 2>&1 & \
+	  pid=$$!; pkg=""; ppid=""; \
+	  if [ -n "$(DJRUST_PKG)" ]; then python3 scripts/serve-djrust-pkg.py "$(DJRUST_PKG)" 18097 >/tmp/djrust-pkg-server.log 2>&1 & ppid=$$!; pkg=http://127.0.0.1:18097/; fi; \
+	  sleep 2; node scripts/test-djrust-browser.mjs http://localhost:18096 $$pkg; rc=$$?; kill $$pid $$ppid 2>/dev/null; exit $$rc
+
+# make djrust-render GENRE=techno SEED=42 STRUCTURE=standard SECONDS=30 [DJRUST_PKG=<dir>]
+# → a deterministic offline WAV of a share, with no browser (render_offline).
 GENRE ?= techno
 SEED ?= 42
 STRUCTURE ?=
 SECONDS ?= 30
-wave-render:
-	node scripts/wave-render.mjs --genre $(GENRE) --seed $(SEED) $(if $(STRUCTURE),--structure $(STRUCTURE)) --seconds $(SECONDS)
-
-wave-bench:
-	node scripts/wave-bench.mjs
+djrust-render:
+	@DJRUST_PKG=$(DJRUST_PKG) node scripts/djrust-render.mjs --genre $(GENRE) --seed $(SEED) $(if $(STRUCTURE),--structure $(STRUCTURE)) --seconds $(SECONDS)
 

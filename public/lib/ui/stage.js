@@ -10,7 +10,7 @@ import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { renderCurrentCard } from '../share/card.js';
 import { buildShareUrlForms } from '../share/url.js';
 import { openAiPromptModal } from './ai-prompt.js';
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 
 const BG = '#0a0a1a';
 const ARC_COLOR = '#4a90d9';
@@ -1411,7 +1411,7 @@ function renderCorona() {
     if (!session?.scopeCtx) return;
     const ctx = session.scopeCtx;
     const w = window.innerWidth, h = window.innerHeight;
-    const a = toneEngine.getMasterAnalyser?.('fft', 128);
+    const a = audioEngine.getMasterAnalyser?.('fft', 128);
     if (!a) return;
     let data;
     try { data = a.getValue(); } catch { return; }

@@ -14,13 +14,14 @@ Browser main thread                                 Web Worker
   ├── lib/backend/*       — transport + worker/WS + MIDI I/O + viz
   ├── lib/project/*       — serialize/download + apply-project-sync
   ├── lib/feel/*          — 4-axis performance sliders
-  ├── lib/audio/*         — note-name, oneshots, tone-engine
+  ├── lib/audio/*         — note-name, oneshots
+  ├── audio/engine.js     — the djrust engine's surface (FX, macros, voices)
   └── lib/generator/*     — genre instruments
 ```
 
 - **Worker** runs the Petri net tick loop at `60000 / (BPM × PPQ)` ms intervals.
 - Each tick: check enabled transitions → resolve conflicts → fire → post MIDI events.
-- **Main thread** receives `transition-fired` messages → plays sound via Tone.js.
+- **Audio** is djrust (an AudioWorklet): it plays the project the Worker composed and reports every fire back, so the views draw what sounds. The Worker composes; it does not play.
 - Communication is `postMessage` — no WebSocket, no server involvement during playback.
 
 ## Extraction pattern (READ THIS FIRST)
@@ -45,11 +46,11 @@ export function fireMacro(el, id) { /* actual implementation */ }
 
 Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits:
 
-- **Worker / engine** — `public/sequencer-worker.js` runs the tick loop; `public/lib/pflow.js` is the Petri-net engine; `public/audio/tone-engine.js` holds the 40+ instrument configs and master FX. **Don't split tone-engine.js** — the instrument lookup is cohesive and fragmenting hurts it.
+- **Worker / engine** — `public/sequencer-worker.js` runs the tick loop (composition, previews, the WS mirror); `public/lib/pflow.js` is the Petri-net engine; `public/lib/net.js` is its typed-array executor (worker-parity tested, `make test-net`), ticked offline by the Scope raster and the control-net planner.
 - **Generator** (`public/lib/generator/`) — composer / euclidean / markov / theory / structure / variety / regenerate / macros / genre-instruments. `arrange.js` is a **full JS port of `internal/generator/arrange.go`** with byte-identical Go parity. All arrange DSL directives (structure / variants / fadeIn / drumBreak / feelCurve / macroCurve / sections / overlayOnly) run in-process so production hosts without `-authoring` reconstitute the full arrangement client-side. Client prefers this path over `/api/arrange`.
 - **Main-thread modules** (`public/lib/{ui,macros,backend,project,share,feel,audio}/`) — every method on the `PetriNote` class is a one-line wrapper around a same-named function in one of these modules. Edit the module.
-- **Wave engine** (`public/wave-engine/`, opt-in `?engine=wave`) — renders audio sample by sample from the marking in an AudioWorklet: each single-token ring is Z_n, its gate is the superposition of one exponential pulse per weighted firing, and the output is gate × carrier. The executor is `net.js` (typed-array port of the worker's tick, parity-tested); `runner.js` is shared by the worklet and the offline WAV renderer. Default engine untouched; glue is `lib/backend/wave.js`. `make test-wave` / `make test-wave-browser` / `make wave-render` / `make wave-bench`. Read its `NOTES.md` + `README.md` before changing it.
-- **Scope tab** (`public/lib/ui/scope.js` + `scope-model.js`) — the track as a filtered marked point process x = tanh(g·Σ h_k * μ_k), backported from beats-py's describe/plot views. Four views: live waveform + fired events, spectrogram, per-bar band digits (beats-py band edges), whole-arrangement raster (net.js ticked offline). Bands and spectrogram are **model-based by default** — per-bar energy = Σ events v²·‖H_k‖²·|H_fx|², with ‖H_k‖² from one hit per instrument/note rendered via `Tone.Offline` (cached in localStorage by instrument + patch hash) and |H_fx|² from the live filter state; the opt-in *measured* toggle adds an AnalyserNode path and the residual (measured − model). The `Tone.Offline` kernel render is only safe while playing because its callback never yields (no sample patches) — keep it that way. Fires carry `tick` from the worker / worklet for the step grid. While the tab is open the net workspace (ring + timeline dots) is hidden **and not painted** — `renderFrame`/`renderNet` return early on `el._showScope`, state sync / playhead / Auto-DJ keep running, `syncNetVisibility` (canvas.js) resizes and repaints on close. Loop projects (no structure) raster one cycle: net.js is ticked until every marking and the mute table are back at their initial values on a bar line (≤ 64 bars). `make test-scope-browser`.
+- **Audio engine: djrust** (plan: `djweb-vevr-se/docs/BEATS-BACKPORT-PLAN.md`) — the public djrust crate (github.com/stackdump/djrust, MIT) as the pinned npm package (`public/djrust/version.js`, jsDelivr); Tone.js and the old `?engine=wave` are gone. The sequencer Worker keeps composing and never plays: `lib/backend/djrust.js` loads each project-sync into a djrust AudioWorklet (`public/djrust/worklet.js`, booted through a blob module that names the CDN glue; `polyfill.js` supplies TextEncoder/Decoder) as a raw-nets share, so the engine plays exactly the project the tracks view shows, and replays the engine's fires / ticks / mutes / marking into the normal handlers. `public/djrust/composer.js` (a second wasm instance in a Worker) compiles the track so the worklet only installs it. `public/audio/engine.js` is what the views and panels talk to: one AudioContext, master volume, analysers, output device, and the controls as djrust commands, kept and replayed after every project load — FX panel sliders in their own units (`masterFx` for hp/lp/phaser/crush/distortion/pitch; the aux bus for reverb/delay, whose deck send turns up on the first reverb/delay move), macros (`NATIVE_MACRO_KINDS` — song mutes, beat repeat, compounds, pan/decay moves — run in djrust on the bar via `fire_macro`; FX sweeps/holds, Feel and tempo moves animate the studio's sliders/tempo, which reach djrust), mixer volume / high cut / decay as per-channel voice tweaks relative to the slider defaults. djrust ignores `fire-macro` / `set-feel` / `set-visualizer` control actions in raw nets, so `lib/backend/controls.js` plans them by ticking the project with `lib/net.js` and fires them as djrust's tick passes (every structured song has a genre feel-curve). Controls with no djrust equivalent are hidden via the `pn-engine-djrust` host class, not faked: mixer pan / lo-cut / resonances / test note, live transpose (header pill, Beats-pad Pit), loop mode + crop, Scope model views. An engine that fails to load shows a banner with Retry (there is no fallback). Dev against an unreleased engine: `scripts/serve-djrust-pkg.py <djrust>/npm/pkg 18095` + `&djrust=http://127.0.0.1:18095/` (`DJRUST_PKG=<dir>` for the make targets). Gates: `make test-djrust-parity` (share-CID contract: JS vs djrust compose per genre × structure × seed), `make test-djrust-browser`, `make test-e2e`, `make test-scope-browser`; `make djrust-render` renders a share offline. Never bundle djrust into `public/`, and never depend on a private repo.
+- **Scope tab** (`public/lib/ui/scope.js` + `scope-model.js`) — the track as a filtered marked point process x = tanh(g·Σ h_k * μ_k), backported from beats-py's describe/plot views. Views: live waveform + fired events and the whole-arrangement raster (lib/net.js ticked offline). The spectrogram and per-bar band views are model-based (per-bar energy = Σ events v²·‖H_k‖²·|H_fx|², ‖H_k‖² from one hit per instrument) and their kernels were Tone renders, so with djrust they are hidden (`MODEL_KERNELS = false` in scope.js) until they read the measured AnalyserNode spectrum instead. Fires carry `tick` from the worker / worklet for the step grid. While the tab is open the net workspace (ring + timeline dots) is hidden **and not painted** — `renderFrame`/`renderNet` return early on `el._showScope`, state sync / playhead / Auto-DJ keep running, `syncNetVisibility` (canvas.js) resizes and repaints on close. Loop projects (no structure) raster one cycle: net.js is ticked until every marking and the mute table are back at their initial values on a bar line (≤ 64 bars). `make test-scope-browser`.
 - **Live perf monitor** (`public/lib/perf/monitor.js`) — runs while playing; decides each 2 s whether the main thread janks *because of the visualization* (frame pacing + long-animation-frame attribution + timed visual paths) and, in `auto`, steps visuals down via `el._vizLevel` (0 full … 3 paused), which the timeline loop, Stage loop, net re-render and per-fire flashes all honour. Wrap any new per-frame visual work in `vizBegin()`/`vizEnd(VIZ.…)` and respect `el._vizLevel`, or it is invisible to the monitor. `?perf=1` readout.
 - **Server** (`main.go` + `internal/`) — `share/` is the content-addressed seal/store + JSON-LD/Schema endpoint; `sequencer/` is the authoritative Petri-net executor; `ws/` mirrors the in-page worker protocol; `routes/` is `/api/*`; `midiout/` is CoreMIDI/ALSA fanout; `mcp/` is the stdio MCP server; `generator/` is the Go side of the composer with byte-identical output to JS.
 
@@ -66,7 +67,9 @@ Use `git ls-files` / `grep` for the file-by-file map. The non-obvious bits:
 
 ## Front-end UI
 
-The studio is built from a panel toggle row (FX / Macros / Beats / Auto-DJ / Arrange / Note / MIDI / Device / Scope) plus modals (Feel ◈, Stage ▣, MIDI Monitor, Trait editor, MIDI binding editor, per-track Preset Manager ★). All wiring lives in `public/lib/ui/` (panels, sliders, modals, mixer) and `public/lib/macros/` (catalog, runtime, effects). Live FX/macro panels expose ~35 macros across Mute / FX / Pitch / Tempo / Pan / Shape groups; Auto-DJ fires random macros from checked pools every N bars with optional regen + animate-only modes.
+The studio is built from a panel toggle row (FX / Macros / Beats / Pads / Vocoder / Auto-DJ / Arrange / Note / MIDI / Device / Scope) plus modals (Feel ◈, Stage ▣, MIDI Monitor, Trait editor, MIDI binding editor, per-track Preset Manager ★). All wiring lives in `public/lib/ui/` (panels, sliders, modals, mixer) and `public/lib/macros/` (catalog, runtime, effects). Live FX/macro panels expose ~35 macros across Mute / FX / Pitch / Tempo / Pan / Shape groups; Auto-DJ fires random macros from checked pools every N bars with optional regen + animate-only modes.
+
+**Pads** (`lib/ui/fx-pads.js`) and **Vocoder** (`lib/ui/vocoder.js`) are djrust's own, as the Android app plays them. Pads is djrust's effects catalogue (`effects_catalogue()`, sent with the worklet's `ready`): a pad engages on the next bar for 1-4 bars or latched (`engage` / `release`), a transition is held, and the lights are djrust's `fx_state`, which the worklet posts on a change. Vocoder is djrust's vocoder with its synth as the carrier and the track (deck A) as the modulator, played from chord pads in the genre's key; "Vocoder only" sets the deck's volume to 0 (the modulator is pre-fader). Auto level (on by default, `localStorage pn-voc-auto`) walks the vocoder's level, at most 3 dB a report (~200 ms), until its output matches the track's own loudness (modulator level × the deck's 0.8) while a chord sounds, and holds otherwise; Level is then a trim (50% = matched). `autoLevelStep` in vocoder.js is the step. Both are live only and never go into a share; `audioEngine.vocoderCommands()` replays the vocoder onto a fresh engine with the FX and voices.
 
 Mixer sections are driven by each net's `track.group` (`drums`/`bass`/`melody`/`harmony`/`arp`/`pad`/`stinger`, freeform). Section precedence: `drums`, `percussion`, `bass`, `chords`, `harmony`, `lead`, `melody`, `arp`, `pad`, `texture`, `stinger`, unknown last. Legacy fallback: missing `track.group` → `hitN` IDs bucket as `stinger`, everything else falls into `main`.
 
@@ -177,7 +180,7 @@ The share envelope carries an optional `structure` directive (values: `loop`, `a
 
 Pattern for adding the next directive: schema field → embedded schema sync (`internal/share/beats-share.schema.json`) → envelope passthrough in `main.go::buildShareEnvelope` → `ArrangeOpts` field in Go (`internal/generator/arrange.go`) → JS port field in `public/lib/generator/arrange.js` → `/api/arrange` body in `internal/routes/routes.go` → client reader in `shareFromPayload` → boot-path wiring in `petri-note.js` + `backend/index.js`.
 
-**Known limitation — per-channel polyphony.** Each channel gets one `Tone.PolySynth` with `maxPolyphony = 256` (bumped from 64; `public/audio/tone-engine.js:1604` + `:1655`). `playNote()` does not do explicit voice stealing — Tone reuses voices after release only. Long-tail instruments (pad, held reese) with multiple variants can still exceed 256 on dense arrangements (`Max polyphony exceeded. Note dropped.`). Voice stealing in `playNote()` and arrangement-aware release on mute were considered and rejected — the 256 ceiling is the chosen path (TODO.md).
+**Polyphony.** The 256-voice-per-channel ceiling was Tone's (`Tone.PolySynth`); djrust's voices are its own (see the djrust crate for its limits).
 
 ## Running locally for hand-authored tracks
 
@@ -237,7 +240,7 @@ claude mcp add --transport http beats-btw http://localhost:8089/mcp   # authorin
 - **Authoring backend** (`BEATS_REBUILD_SECRET` set, `-audio-render` on the local server): synchronous render+mirror chain. (1) PUT envelope to `BEATS_MIRROR_HOST` (defaults to `https://beats.bitwrap.io`), (2) GET local `/audio/{cid}.webm` which blocks for the realtime render, (3) PUT the bytes to `{mirror}/audio/{cid}.webm` with `X-Rebuild-Secret`. Foreground-for-10s-then-background — short cached renders return inline, cold renders return immediately with an ETA and complete in a goroutine.
 - **Public MCP** (no secret — anonymous user, or `https://beats.bitwrap.io/mcp` itself): falls back to the publicly-open `POST /api/rebuild-mark`. The CID is queued and the publish host's off-host render farm bakes the .webm asynchronously. No authoring backend needed.
 
-Either way the link plays in-browser via Tone.js regeneration without a .webm. Without `render: true`, behaviour is envelope-only seal (no farm load).
+Either way the link plays in-browser (djrust plays the regenerated project) without a .webm. Without `render: true`, behaviour is envelope-only seal (no farm load).
 
 The fallback path supports `wait: true` — block up to ~50s waiting for the farm to publish the .webm. The cap is intentionally well under typical MCP client transport timeouts (Claude.ai ≈ 60s, Claude Code ≈ 60-120s); going longer risks the client killing the call and surfacing a generic error that eats the CID. When the budget expires the tool still returns successfully with the CID and a hint to poll `get_render_status` for the long path. The MCP `/mcp` route clears the parent http.Server's 15s WriteTimeout via `http.NewResponseController` so the server-side hold can run that long. If the client gives up anyway, the render completes in the background and a re-invocation is idempotent.
 
@@ -297,6 +300,23 @@ When smoke-testing with Playwright against local, pass `-public public` so lib/*
 /tmp/beats-local -addr :18090 -data /tmp/beats-local-data -public public
 ```
 
+### LAN dev server over https (other devices: a Chromebook, a phone)
+
+The audio engine runs in an AudioWorklet, which browsers only give to a **secure context**: https, or http on `localhost` / `127.0.0.1`. Opened as `http://<LAN IP>:<port>/` from another device, Chrome has no `AudioContext.audioWorklet` at all and the engine cannot start (the studio says so in a banner, in the console and in the Pads panel: `engineUnsupported` in `lib/backend/djrust.js`). djrust does not use SharedArrayBuffer, so no COOP / COEP headers (cross-origin isolation) are needed.
+
+```bash
+make dev-lan LAN_IP=192.168.1.243 DJRUST_PKG=../djrust/npm/pkg   # → https://192.168.1.243:18443/
+```
+
+- `scripts/dev-cert.sh <IP or name>...` makes a local CA once and a server certificate signed by it (localhost, 127.0.0.1 and the names given; 397 days), in `~/.config/beats-dev-cert/` (`BEATS_DEV_CERT_DIR`). Rerun it for a new address; the CA stays, so devices need not trust anything new. `ca-key.pem` never leaves the machine.
+- Server flags: `-tls-cert` / `-tls-key` serve https; `-djrust-pkg <dir>` serves a local djrust npm build at `/djrust-pkg/` on the same origin (no second server, CORS or certificate) and rewrites `/djrust/version.js` so every page loads it instead of the pinned CDN copy (no `?djrust=` needed; the version and audio query stay as pinned). Neither is used on beats.bitwrap.io (nginx terminates TLS; the engine is the pinned CDN copy).
+- **Trust the CA once per device** (copy `~/.config/beats-dev-cert/ca.pem` over: a USB stick, Drive, or `python3 -m http.server` in that directory, then download it on the device):
+  - **ChromeOS:** Settings → Privacy and security → Security → Manage certificates (or `chrome://certificate-manager`) → *Local certificates* → *Custom* / *Installed by you* → Trusted certificates → **Import** → pick `ca.pem` → tick **Trust this certificate for identifying websites** → OK. Reload the studio tab. (Older ChromeOS: `chrome://settings/certificates` → *Authorities* → Import, same tick box.)
+  - **Android:** Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate.
+  - **macOS / iOS:** open `ca.pem` (Keychain Access → set *Always Trust*; on iOS install the profile, then Settings → General → About → Certificate Trust Settings → turn it on).
+  - Linux Chrome: `chrome://certificate-manager` → Import, as ChromeOS.
+- Testing it headless without trusting the CA system-wide: `CHROME_ARGS=--ignore-certificate-errors-spki-list=<base64 sha256 of the server key's SPKI> node scripts/test-djrust-browser.mjs https://<IP>:18443 /djrust-pkg/` (the hash: `openssl x509 -in server.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`). Against a plain-http `HOST` the same test also checks the insecure-context message, using a host name that is not localhost (`--host-resolver-rules`).
+
 ### Bazel (Bzlmod, hermetic — opt-in alongside `go build`)
 
 beats also builds under pure-Bzlmod Bazel, mirroring [go-pflow](../go-pflow/CLAUDE.md#build-systems). `go.mod`/`go.sum` stay the source of truth (Gazelle's `go_deps` reads them), so `make build` / `go test ./...` keep working unchanged — Bazel is opt-in. Driven by bazelisk (pinned in `.bazelversion`); if missing: `go install github.com/bazelbuild/bazelisk@latest` and symlink it to `bazel`.
@@ -345,7 +365,7 @@ Everything lives under `~/Workspace/beats-bitwrap-io/data/` on pflow.dev:
 
 ### Benchmark submissions (`/api/bench`)
 
-The studio's Help → *Benchmark this device* modal (and `public/wave-engine/bench.html`) can submit its report. `internal/bench` validates every field (version `beats-audio-engine/v1`, known cases A/B/F/C/D/E, finite ranges, length caps, no control characters, unknown fields rejected, 16 kB body cap) and stores only the validated fields, never the raw body. Rate-limited by the share store's per-IP limiter; **nothing IP-derived is stored**. CORS is open (no credentials) so the CDN-hosted bench can post. `GET /api/bench?reference=1&limit=N` is public; `/wave-engine/results.html` renders it. Reference runs (techno · 42 · standard · 20 s) are flagged so devices compare like for like.
+The (now removed) Help → *Benchmark this device* modal and `wave-engine/bench.html` submitted reports, which compared Tone with the wave engine; past results stay in `bench.db` and the endpoint still accepts them. `internal/bench` validates every field (version `beats-audio-engine/v1`, known cases A/B/F/C/D/E, finite ranges, length caps, no control characters, unknown fields rejected, 16 kB body cap) and stores only the validated fields, never the raw body. Rate-limited by the share store's per-IP limiter; **nothing IP-derived is stored**. CORS is open (no credentials) so the CDN-hosted bench can post. `GET /api/bench?reference=1&limit=N` is public. Reference runs (techno · 42 · standard · 20 s) are flagged so devices compare like for like.
 
 ### Playback diagnostics (`/api/telemetry`)
 
@@ -368,6 +388,29 @@ ssh pflow.dev "~/services start beats-bitwrap"
 Verify empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
 
 To **also** purge every shared CID, follow the **belt-and-suspenders pattern** in the Archival section below — capture three independent backup copies first; auto-restore handles per-link recovery as users visit them. Don't bare-`rm -rf data/o` without that capture; deleting the share store is the only operation in this codebase that can produce permanently-unrecoverable state.
+
+### Moving feed audio to a new engine version
+
+Audio is a function of (share CID, engine version): the pin in `public/djrust/version.js` is the version, the server reads it at startup (`internal/audioengine`), and every audio URL handed to a listener carries it as `?v=djrust-<version>` (RSS enclosures, `og:audio`, the feed player, the welcome card, webhook and MCP links), because `/audio/{cid}.webm` is served `immutable`. Each render's engine is recorded in `tracks.audio_engine` (uploads say it with `X-Audio-Engine`; the worker sends its local server's `/api/features` `audioEngine`). `GET /api/audio-stale` lists CIDs not rendered by the current engine; `process-rebuild-queue.py --converge-engine --watch` re-renders them (the worker's local checkout must be on the same pin, or it refuses).
+
+The Tone → djrust move (0.2.0) is a backup and purge, re-rendered over time (Matt, 2026-11-12) — after djrust is on npm and this branch is deployed:
+
+```bash
+export S=$(ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret")
+# 1. back up the Tone renders (heavy snapshot: audio + db), on the box and off it
+curl -fsS -X POST -H "X-Rebuild-Secret: $S" \
+     "https://beats.bitwrap.io/api/snapshot-persist?label=pre-djrust-0.2.0&audio=1&db=1"
+scp pflow.dev:~/Workspace/beats-bitwrap-io/data/snapshots/beats-snapshot-*-pre-djrust-0.2.0.tgz ~/beats-backups/
+# 2. purge the audio and the index (shares stay); the index is rebuilt from the store
+ssh pflow.dev "~/services stop beats-bitwrap"
+ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -rf data/audio data/audio-master && rm -f data/index.db"
+ssh pflow.dev "~/services start beats-bitwrap"
+# 3. re-render: the farm's archive sweep renders shares that have no audio
+#    (compositions' masters come back through scripts/process-composition-queue.py)
+BEATS_REBUILD_SECRET=$S ./scripts/process-rebuild-queue.py --archive --watch
+```
+
+A later engine bump needs no purge: move the pin, deploy, and run `--converge-engine`.
 
 ### Rebuild queue (off-host audio repair)
 
@@ -466,7 +509,7 @@ The /help and /archive surfaces both state: **we may archive (purge from the liv
 
 ## Conventions
 
-- **No npm/bundler** — vanilla ES modules, Tone.js from CDN.
+- **No npm/bundler** — vanilla ES modules; the audio engine is the pinned djrust npm package from a CDN (never bundled).
 - **No framework** — single custom HTMLElement (`<petri-note>`).
 - **Deterministic** — same genre + seed = same track (seeded PRNG via `mulberry32`).
 - **Worker does all sequencing** — main thread only handles UI and audio output.
@@ -483,13 +526,13 @@ The /help and /archive surfaces both state: **we may archive (purge from the liv
   # Playwright: navigate, wait for _project + _currentGen.params.seed, exercise _buildShareUrlForms + the specific feature you changed.
   ```
 - Manual: click Share → copy URL → open fresh tab → confirm genre/seed/tempo/tracks match.
-- `make test-audio TEST_AUDIO_WORKERS=8` — headless macro→audio verification. Boots a local server, parallel Playwright tabs, captures Tone.Recorder output via `?test=1` (loads `public/lib/test-hooks.js`), Python (`scripts/test-macro-audio.py`) windows the PCM into pre/during/post slices and asserts the right metric (centroid for sweep-lp/sweep-hp/riser, RMS for cut/breakdown). Confirms macros both *take effect* AND *recover*. ~13 s for 5 macros at 8 workers.
+- `make test-audio TEST_AUDIO_WORKERS=8` — headless macro→audio verification. Boots a local server, parallel Playwright tabs, captures the engine's master output (MediaRecorder) via `?test=1` (loads `public/lib/test-hooks.js`), Python (`scripts/test-macro-audio.py`) windows the PCM into pre/during/post slices and asserts the right metric (centroid for sweep-lp/sweep-hp/riser, RMS for cut/breakdown). Confirms macros both *take effect* AND *recover*. ~13 s for 5 macros at 8 workers.
 
 ## Bulk feed seeding
 
 `scripts/seed-feed.py` is the parallel seeder. Local server runs `-authoring -audio-render -audio-concurrent N`, script runs `--workers N`. Generate+seal stages serialize on a lock; chromedp realtime renders run N-wide.
 
-`-audio-render-mode realtime` is canonical (chromedp tab plays at 1× wall time, MediaRecorder captures Tone.js destination — exactly what the live studio plays). `-audio-render-mode offline` is experimental — see header comment in `public/lib/share/offline-render.js` for fidelity gaps. **Use realtime for production seeding.**
+`-audio-render-mode realtime` is canonical (chromedp tab plays at 1× wall time, MediaRecorder captures djrust's master output — exactly what the live studio plays, including Feel / macros / mixer). `-audio-render-mode offline` is djrust's deterministic `render_offline` (no live FX moves or Auto-DJ) — see `public/lib/share/offline-render.js`. **Use realtime for production seeding.**
 
 Quality knobs for feed seeding (the cached `.webm` is what listeners hear on feed cards, first-write-wins):
 - **Default**: `macrosDisabled` covers disruptive groups (Mute: `drop`/`breakdown`/`solo-drums`/`cut`/`beat-repeat`/`double-drop`; Tempo: `half-time`/`tape-stop`/`tempo-anchor`) AND `autoDj.run=false`. Stable, predictable per CID.

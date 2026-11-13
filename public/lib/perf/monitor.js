@@ -5,7 +5,7 @@
 //   long     long-animation-frame (LoAF) blocking time, longtask fallback
 //   viz      ms spent inside the visualization itself, per path:
 //            timeline canvas · Stage loop · net canvas · per-fire flashes
-//   notes    default (Tone) engine: scheduling margin of every note —
+//   notes    (the old Tone engine) scheduling margin of every note —
 //            late (scheduled in the past → the audio grid re-anchors, an
 //            audible hiccup) and tight (< 10 ms of margin)
 //   waveLag  wave engine: how far the page's view trails the audio thread
@@ -221,7 +221,7 @@ export function perfReport(el) {
     const avg = (k) => +(h.reduce((s, w) => s + (w[k] || 0), 0) / h.length).toFixed(1);
     return {
         windows: h.length, level: LEVELS[el._perf.level], pref: el._perf.pref,
-        engine: el._waveEngine ? 'wave' : 'default',
+        engine: 'djrust',
         vizWindows: n(w => w.cause === 'visualization'), otherWindows: n(w => w.cause === 'other'),
         lateNotes: h.reduce((s, w) => s + w.late, 0), notes: h.reduce((s, w) => s + w.notes, 0),
         avgFps: avg('fps'), avgVizSharePct: avg('vizSharePct'), avgBlockingMsPerS: avg('blockingMsPerS'),
@@ -235,14 +235,14 @@ export function perfVerdict(r) {
     const pct = (a) => Math.round(100 * a / r.windows);
     // In the wave engine audio runs on the audio thread: visual jank can't
     // delay it, so say what actually suffered.
-    const what = r.engine === 'wave' ? 'the visuals (audio unaffected in the wave engine)' : 'playback';
+    const what = r.engine !== 'default' ? 'the visuals (audio unaffected: it renders on the audio thread)' : 'playback';
     const significant = (k) => k >= 2 && pct(k) >= 20;
     if (significant(r.vizWindows) || (r.vizWindows && r.lateNotes)) {
         return `The visualization slowed ${what} in ${pct(r.vizWindows)}% of the session`
             + (r.lateNotes ? ` (${r.lateNotes} late notes)` : '') + `; visuals are now ${r.level}.`;
     }
     if (significant(r.otherWindows) || r.lateNotes) {
-        return `${r.engine === 'wave' ? 'The page' : 'Playback'} stuttered in ${pct(r.otherWindows + r.vizWindows)}% of the session, but not because of the visualization`
+        return `${r.engine !== 'default' ? 'The page' : 'Playback'} stuttered in ${pct(r.otherWindows + r.vizWindows)}% of the session, but not because of the visualization`
             + ` (visuals use ${r.avgVizSharePct}% of the main thread)`
             + (r.lateNotes ? `; ${r.lateNotes} late notes.` : '.');
     }

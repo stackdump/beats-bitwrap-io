@@ -7,7 +7,7 @@
 // so `el._renderMixer()` etc. still works. Reads `el._project` /
 // `el._mixerEl` / `el._channelInstruments` / `el._mutedNets` etc.
 
-import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
+import { audioEngine, isDrumChannel, volumeTweak, decayTweak } from '../../audio/engine.js';
 import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
@@ -225,9 +225,9 @@ export function renderMixer(el) {
         if (!net) continue;
         const ch = net.track?.channel || 1;
         const decSlider = row.querySelector('.pn-mixer-decay');
-        if (decSlider) toneEngine.setChannelDecay(ch, parseInt(decSlider.value) / 100);
+        if (decSlider) audioEngine.voice(ch, decayTweak(parseInt(decSlider.value, 10), ch));
         const volSel = row.querySelector('.pn-mixer-vol');
-        if (volSel) toneEngine.controlChange(ch, 7, Math.round(parseInt(volSel.value, 10) * 127 / 100));
+        if (volSel) audioEngine.voice(ch, volumeTweak(parseInt(volSel.value, 10)));
     }
 
     restoreMixerSliderState(el);
@@ -258,8 +258,6 @@ function bindMixerEvents(el) {
             else           el._toggleMute(muteBtn.dataset.netId);
             return;
         }
-        const testBtn = e.target.closest('.pn-mixer-test');
-        if (testBtn) { e.stopPropagation(); el._testNote(testBtn.dataset.netId); return; }
         const toneResetBtn = e.target.closest('.pn-mixer-tone-reset');
         if (toneResetBtn) { e.stopPropagation(); toneReset(el, toneResetBtn.dataset.netId); return; }
         const tonePrev = e.target.closest('.pn-mixer-tone-prev');
@@ -295,9 +293,10 @@ function bindMixerEvents(el) {
                     const ch = n.track?.channel || 1;
                     n.track.instrument = next;
                     el._channelInstruments[ch] = next;
-                    if (el._toneStarted) await toneEngine.loadInstrument(ch, next);
                 }
             }
+            // djrust plays the project: reload it with the new instrument
+            el._sendWs({ type: 'instrument-change', netId, riffGroup: riffGroup || '', instrument: next });
             const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
             if (fireBtn) {
                 const label = next === 'unbound'
@@ -386,14 +385,10 @@ function bindMixerEvents(el) {
                     const ch = net.track?.channel || 1;
                     net.track.instrument = instrument;
                     el._channelInstruments[ch] = instrument;
-                    if (el._toneStarted) await toneEngine.loadInstrument(ch, instrument);
                 }
             }
-            // Mirror the swap to the backend so server-authoritative state
-            // tracks the dropdown and the change fans out to other clients.
-            // Worker-mode backends don't have an instrument-change handler,
-            // so the post is a no-op there. Sent after the local load so
-            // playback never stalls on the round-trip.
+            // Mirror the swap to the backend: djrust reloads the project with it
+            // (lib/backend/djrust.js), and a WS server fans it out to other clients.
             el._sendWs({ type: 'instrument-change', netId, riffGroup: riffGroup || '', instrument });
             const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
             if (fireBtn) {
@@ -892,13 +887,8 @@ export function restoreFxState(el) {
             btn.classList.add('active');
             btn.textContent = 'Bypassed';
         }
-        toneEngine.setReverbWet(0);
-        toneEngine.setDelayWet(0);
-        toneEngine.setDistortion(0);
-        toneEngine.setHighpassFreq(20);
-        toneEngine.setLowpassFreq(20000);
-        toneEngine.setPhaserWet(0);
-        toneEngine.setCrush(0);
+        for (const [k, v] of Object.entries({ 'reverb-wet': 0, 'delay-wet': 0, 'distortion': 0,
+            'hp-freq': 0, 'lp-freq': 100, 'phaser-wet': 0, 'crush-bits': 0 })) audioEngine.fx(k, v);
     }
     el._savedFxValues = null;
 }

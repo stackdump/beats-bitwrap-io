@@ -1,130 +1,45 @@
-// Audio-time scheduling helpers for macros. Wraps Tone.Transport so
-// callsites read like setTimeout/clearTimeout but fire on the audio
-// clock instead of the wall clock.
+// Scheduling helpers for the macros the studio animates itself (FX sweeps and holds, Feel,
+// the Beats pads' re-mute), read like setTimeout / clearTimeout.
 //
-// Why this matters: setTimeout fires in wall-clock ms, decoupled from
-// what the audio engine is actually doing. That's fine in the studio
-// where audio IS realtime, but it breaks under Tone.Offline (the
-// OfflineAudioContext renders faster than realtime; a 60-second track
-// finishes in ~5 wall-clock seconds, so any setTimeout-scheduled macro
-// restore fires *long after* the render has already finished). Audio-
-// time scheduling fixes that by riding the same clock that drives the
-// synthesizers — restores fire at the right beat regardless of how
-// fast or slow the host context is rendering.
-//
-// Bonus, even in the studio: Tone.Transport callbacks are scheduled
-// against the audio context's lookahead, so they're ±0 samples instead
-// of ±10ms-ish jittered by the JS event loop.
-//
-// Behavior change worth knowing about: if a macro is fired while the
-// transport is *stopped* (user clicked a macro tile but hasn't pressed
-// play), the restore callback waits until the transport resumes. With
-// the old setTimeout it would have fired in wall-clock time regardless.
-// We accept this — musically, "this macro lasts 4 bars" should mean
-// 4 bars of music, not 4 seconds of clock. If you panic, panicMacros()
-// clears all scheduled events anyway.
+// These ran on Tone.Transport while Tone made the sound, so an offline Tone render kept its
+// macro restores on the audio clock. djrust renders offline with no page in the loop and runs
+// its own macros (song mutes, beat repeat, pan / decay / tempo moves) on its bar clock, so what
+// is left here is the studio's live animation, for which the wall clock is the right one.
 
-// Schedule `fn` to fire `delayMs` from now in audio time. Returns a
-// transport id; pass to clearAudioSched to cancel.
+/** Run `fn` `delayMs` from now. Returns a token for clearAudioSched. */
 export function schedAudio(fn, delayMs) {
-    if (typeof Tone === 'undefined' || !Tone.Transport) {
-        // Fall back to setTimeout if Tone hasn't loaded — keeps the
-        // studio responsive in the rare boot-time race. Returns the
-        // setTimeout id under a sentinel so clearAudioSched can route
-        // back to clearTimeout.
-        return { kind: 'wall', id: setTimeout(fn, delayMs) };
-    }
-    const seconds = Math.max(0, delayMs) / 1000;
-    // "+N" syntax = N seconds from transport.now(). Tone parses this
-    // string as a relative offset.
-    const id = Tone.Transport.scheduleOnce(() => fn(), `+${seconds}`);
-    return { kind: 'audio', id };
+    return { kind: 'wall', id: setTimeout(fn, Math.max(0, delayMs)) };
 }
 
-// Cancel a scheduled callback. No-op if token is null/undefined.
 export function clearAudioSched(token) {
-    if (!token) return;
-    if (token.kind === 'wall') {
-        clearTimeout(token.id);
-    } else if (token.kind === 'audio') {
-        if (typeof Tone !== 'undefined' && Tone.Transport) {
-            Tone.Transport.clear(token.id);
-        }
-    }
+    if (token?.kind === 'wall') clearTimeout(token.id);
 }
 
-// Clear every scheduled audio-time event. Used by panic to nuke any
-// in-flight macro restores in one call (cheaper + safer than tracking
-// every individual token if you've already lost references).
-export function clearAllAudioSched() {
-    if (typeof Tone !== 'undefined' && Tone.Transport) {
-        // cancel(0) clears events scheduled for transport.seconds >= 0,
-        // which is everything. Doesn't stop the transport itself.
-        Tone.Transport.cancel(0);
-    }
-}
+/** Nothing is queued but in each token; kept for its callers (stop, panic). */
+export function clearAllAudioSched() {}
 
-// True when Tone is rendering into an OfflineAudioContext (i.e. inside
-// a Tone.Offline() call). In offline mode requestAnimationFrame doesn't
-// fire, so any rAF-driven macro animation must instead pre-schedule its
-// dispatches against the audio clock via schedAudio.
-//
-// We sniff by name rather than instanceof so we don't need to import
-// the OfflineAudioContext constructor (it's a browser global — and the
-// goal is for this same code to also run under node-web-audio-api,
-// where the class name is the same but the constructor lives elsewhere).
+/** There is no offline Tone render any more: the animation is always the live one. */
 export function isOfflineContext() {
-    if (typeof Tone === 'undefined' || !Tone.getContext) return false;
-    const raw = Tone.getContext().rawContext || Tone.getContext();
-    const name = raw?.constructor?.name || '';
-    return name === 'OfflineAudioContext';
+    return false;
 }
 
-// Drive an animation by stepping `applyAt(elapsedMs)` repeatedly until
-// `durationMs` elapses. Picks the right clock for the current context:
-//
-//   - Live (real-time AudioContext): requestAnimationFrame at native
-//     frame rate. Visual sliders look smooth, engine dispatches happen
-//     whenever applyAt's own throttle says so.
-//   - Offline (OfflineAudioContext during Tone.Offline render):
-//     pre-schedules dispatches at `dispatchIntervalMs` via schedAudio,
-//     because rAF doesn't fire during offline rendering. The animation
-//     still happens — at audio-time intervals matching the live throttle.
-//
-// `applyAt` may be called many times per visual frame in live mode and
-// must be safe to call with the same `elapsedMs` more than once.
-// Returns a cancel function.
+/**
+ * Drive `applyAt(elapsedMs)` every animation frame for `durationMs` (and once at the end).
+ * Returns a cancel function.
+ */
 export function audioAnimLoop(durationMs, dispatchIntervalMs, applyAt, onCancel) {
     let cancelled = false;
-    if (isOfflineContext()) {
-        const tokens = [];
-        // Schedule applyAt at every dispatch interval AND once at the
-        // final durationMs so the "done" branch fires.
-        for (let elapsed = 0; elapsed < durationMs; elapsed += dispatchIntervalMs) {
-            const e = elapsed;
-            tokens.push(schedAudio(() => { if (!cancelled) applyAt(e); }, e));
+    const t0 = performance.now();
+    const step = (now) => {
+        if (cancelled) return;
+        const elapsed = now - t0;
+        if (elapsed >= durationMs) {
+            applyAt(durationMs);
+            return;
         }
-        tokens.push(schedAudio(() => {
-            if (!cancelled) applyAt(durationMs);
-        }, durationMs));
-        return () => {
-            cancelled = true;
-            for (const t of tokens) clearAudioSched(t);
-            if (onCancel) onCancel();
-        };
-    } else {
-        const t0 = performance.now();
-        const tick = (now) => {
-            if (cancelled) return;
-            const elapsed = now - t0;
-            if (elapsed >= durationMs) {
-                applyAt(durationMs);
-                return;
-            }
-            applyAt(elapsed);
-            requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-        return () => { cancelled = true; if (onCancel) onCancel(); };
-    }
+        applyAt(elapsed);
+        requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    return () => { cancelled = true; if (onCancel) onCancel(); };
 }

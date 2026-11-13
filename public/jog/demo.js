@@ -4,12 +4,11 @@
 //                                  (or a real MIDIInput)                     |
 //                         Petri-net marking  <-- playhead position <-- audio worklet
 //
-// Tone.js renders the net's two-bar loop offline (the net is fired for real;
-// its midi bindings are what get scheduled), and the worklet plays that
+// djrust renders the nets' two-bar loop offline (the same rings, written as a
+// beats project: the engine fires them for real), and the worklet plays that
 // render like a record. The playhead is the single clock: the marking is
 // derived from it, forwards and backwards.
 
-/* global Tone */
 import { INPULSE_200_MK3, parseJogMessage, withOverride } from './inpulse-200-mk3.js';
 import { flattenCapture, replayCapture } from './replay.js';
 import { requestMockMIDIAccess } from './mock-midi.js';
@@ -17,6 +16,7 @@ import { JogWheelSim } from './jog-sim.js';
 import { createJogAdapter } from './jog-adapter.js';
 import { mountJogWheel } from './jog-wheel-ui.js';
 import { PetriClock, demoNets, LOOP_TICKS } from './petri-clock.js';
+import { renderOffline } from '../lib/share/djrust-offline.js';
 
 // Built-in guess, overlaid with whatever calibrate.html measured and saved.
 const { profile, overridden } = withOverride(INPULSE_200_MK3);
@@ -128,46 +128,38 @@ function drawMarking() {
 
 // --- audio ------------------------------------------------------------------
 
-async function renderLoop() {
-    // Fire a fresh copy of the net through one loop and schedule what it emits.
-    const clock = new PetriClock(demoNets());
-    const events = [];
-    for (let k = 0; k < LOOP_TICKS; k++) {
-        for (const ev of clock.stepForward()) events.push({ tick: k, ...ev });
+// The demo's rings as a beats project djrust plays: drums on the drum channels, bass on 2.
+const VOICES = { kick: [10, 'drums'], snare: [11, 'drums'], hat: [12, 'drums'], bass: [2, 'bass'] };
+
+function demoProject() {
+    const nets = {};
+    for (const ring of demoNets()) {
+        const [channel, instrument] = VOICES[ring.id];
+        const places = {}, transitions = {}, arcs = [];
+        ring.places.forEach((tokens, i) => { places[`p${i}`] = { initial: [tokens], x: i * 10, y: 0 }; });
+        for (const t of ring.transitions) {
+            const tr = { x: 0, y: 0 };
+            if (t.midi) tr.midi = { note: t.midi.note, velocity: t.midi.velocity, channel, durationSteps: 1 };
+            transitions[t.id] = tr;
+            for (const a of t.inputs) arcs.push({ source: `p${a.place}`, target: t.id, weight: [a.weight] });
+            for (const a of t.outputs) arcs.push({ source: t.id, target: `p${a.place}`, weight: [a.weight] });
+        }
+        nets[ring.id] = { role: 'music', track: { channel, instrument, group: ring.id }, places, transitions, arcs };
     }
+    return { name: 'jog demo', tempo: BPM, nets };
+}
+
+async function renderLoop() {
     const loopSec = LOOP_TICKS * SEC_PER_NET_TICK;
     // Render two loop lengths, then fold the second onto the first so decay
     // tails wrap around the seam instead of being cut.
-    const rendered = await Tone.Offline(() => {
-        const out = new Tone.Limiter(-3).toDestination();
-        const voices = {
-            kick: new Tone.MembraneSynth({ octaves: 6, pitchDecay: 0.04 }).connect(out),
-            snare: new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.16, sustain: 0 } }).connect(out),
-            hat: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 }, volume: -14 }).connect(out),
-            bass: new Tone.MonoSynth({
-                oscillator: { type: 'sawtooth' },
-                filter: { Q: 3, type: 'lowpass' },
-                envelope: { attack: 0.005, decay: 0.2, sustain: 0.5, release: 0.15 },
-                filterEnvelope: { attack: 0.005, decay: 0.12, sustain: 0.3, baseFrequency: 120, octaves: 3 },
-                volume: -6,
-            }).connect(out),
-        };
-        for (const ev of events) {
-            const t = ev.tick * SEC_PER_NET_TICK;
-            const vel = ev.velocity / 127;
-            if (ev.net === 'kick') voices.kick.triggerAttackRelease('C1', 0.12, t, vel);
-            else if (ev.net === 'bass') voices.bass.triggerAttackRelease(Tone.Frequency(ev.note, 'midi').toFrequency(), SEC_PER_NET_TICK * 0.9, t, vel);
-            else voices[ev.net].triggerAttackRelease(0.05, t, vel);
+    const { samples } = await renderOffline(JSON.stringify(demoProject()), loopSec * 2, sampleRate);
+    const n = Math.round(loopSec * sampleRate);
+    const channels = [new Float32Array(n), new Float32Array(n)];
+    for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < n; i++) {
+            channels[c][i] = samples[2 * i + c] + (samples[2 * (i + n) + c] || 0);
         }
-    }, loopSec * 2);
-
-    const n = Math.round(loopSec * rendered.sampleRate);
-    const channels = [];
-    for (let c = 0; c < rendered.numberOfChannels; c++) {
-        const src = rendered.getChannelData(c);
-        const dst = new Float32Array(n);
-        for (let i = 0; i < n; i++) dst[i] = src[i] + (src[i + n] || 0);
-        channels.push(dst);
     }
     return { channels, samplesPerNetTick: n / LOOP_TICKS };
 }
@@ -178,13 +170,13 @@ let started = false;
 async function startAudio() {
     $('play').disabled = true;
     $('status').textContent = 'rendering the net…';
-    await Tone.start();
-    const ctx = Tone.getContext();
+    const ctx = new AudioContext();
+    await ctx.resume();
     sampleRate = ctx.sampleRate;
     const { channels, samplesPerNetTick } = await renderLoop();
-    await ctx.addAudioWorkletModule(new URL('./scrub-worklet.js', import.meta.url).href, 'jog-scrub');
-    node = ctx.createAudioWorkletNode('jog-scrub', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
-    Tone.connect(node, Tone.getDestination());
+    await ctx.audioWorklet.addModule(new URL('./scrub-worklet.js', import.meta.url).href);
+    node = new AudioWorkletNode(ctx, 'jog-scrub', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    node.connect(ctx.destination);
     node.port.onmessage = (e) => {
         const tickFloat = e.data.pos / samplesPerNetTick;
         // +1: the transition for step k fires as the playhead enters step k.

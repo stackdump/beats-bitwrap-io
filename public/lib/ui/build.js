@@ -8,7 +8,7 @@
 // one-line wrapper away from the original `el._buildUI()` entry point so
 // every call site stays unchanged.
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
@@ -19,6 +19,8 @@ import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.j
 import { renderDeviceMap, startDeviceLoop, stopDeviceLoop } from './device-map.js';
 import { renderScopePanel, scopeSync } from './scope.js';
 import { syncNetVisibility } from './canvas.js';
+import { buildPadsPanel } from './fx-pads.js';
+import { buildVocoderPanel } from './vocoder.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -407,6 +409,8 @@ export function buildUI(el) {
             <button class="pn-effects-btn ${el._showFx ? 'active' : ''}">FX</button>
             <button class="pn-macros-btn ${el._showMacros ? 'active' : ''}" title="Live performance macros">Macros</button>
             <button class="pn-oneshots-btn ${el._showOneShots ? 'active' : ''}" title="Beat fire pads" ${hasStingers ? '' : 'style="display:none"'}>Beats</button>
+            <button class="pn-pads-btn ${el._showPads ? 'active' : ''}" title="Effect pads: each lands on the next bar, for 1-4 bars or latched; transitions are held">Pads</button>
+            <button class="pn-vocoder-btn ${el._showVocoder ? 'active' : ''}" title="Vocoder: a synth shaped by the track, played from chord pads in its key">Vocoder</button>
             <button class="pn-autodj-btn ${el._showAutoDj ? 'active' : ''}" title="Auto-DJ: fires random macros on a cadence">Auto-DJ</button>
             <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
             <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
@@ -649,6 +653,8 @@ export function buildUI(el) {
         </div>
         <div class="pn-device-panel" style="display:${el._showDevice ? 'flex' : 'none'}"></div>
         <div class="pn-scope-panel" style="display:${el._showScope ? 'flex' : 'none'}"></div>
+        <div class="pn-pads-panel" style="display:${el._showPads ? 'flex' : 'none'}"></div>
+        <div class="pn-vocoder-panel" style="display:${el._showVocoder ? 'flex' : 'none'}"></div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
@@ -1055,6 +1061,20 @@ export function buildUI(el) {
     const fxPanel     = fx.querySelector('.pn-effects-panel');
     const mxPanel     = fx.querySelector('.pn-macros-panel');
     const osPanel     = fx.querySelector('.pn-oneshots-panel');
+    // Pads and Vocoder: djrust's effect pads and vocoder (live only, never in a share)
+    for (const [btnSel, panelSel, flag, build] of [
+        ['.pn-pads-btn', '.pn-pads-panel', '_showPads', buildPadsPanel],
+        ['.pn-vocoder-btn', '.pn-vocoder-panel', '_showVocoder', buildVocoderPanel],
+    ]) {
+        const btn = fx.querySelector(btnSel);
+        const panel = fx.querySelector(panelSel);
+        build(el, panel);
+        btn.addEventListener('click', () => {
+            el[flag] = !el[flag];
+            panel.style.display = el[flag] ? 'flex' : 'none';
+            btn.classList.toggle('active', el[flag]);
+        });
+    }
     macrosBtn.addEventListener('click', () => {
         el._showMacros = !el._showMacros;
         mxPanel.style.display = el._showMacros ? 'flex' : 'none';
@@ -1325,16 +1345,11 @@ export function buildUI(el) {
                     el._fxSavedValues[s.dataset.fx] = s.value;
                 }
             });
-            toneEngine.setReverbWet(0);
-            toneEngine.setDelayWet(0);
-            toneEngine.setDistortion(0);
-            toneEngine.setHighpassFreq(20);
-            toneEngine.setLowpassFreq(20000);
-            toneEngine.setPhaserWet(0);
-            toneEngine.setCrush(0);
+            // the sends and the master FX at their open / dry positions
+            for (const [k, v] of Object.entries({ 'reverb-wet': 0, 'delay-wet': 0, 'distortion': 0,
+                'hp-freq': 0, 'lp-freq': 100, 'phaser-wet': 0, 'crush-bits': 0 })) applyFx(k, v);
         } else {
-            // Restore saved values — skip reverb size/damp (they weren't changed,
-            // and setting dampening triggers unstable IIR filter rebuilds)
+            // Restore saved values (reverb size / damp were not changed)
             if (el._fxSavedValues) {
                 const skipOnRestore = new Set(['reverb-size', 'reverb-damp']);
                 for (const [fxName, val] of Object.entries(el._fxSavedValues)) {
@@ -1401,25 +1416,9 @@ export function buildUI(el) {
     // FX slider events - throttled to avoid audio thread overload
     let _fxThrottleId = null;
     const _fxPending = new Map();   // fxKey -> latest value awaiting engine dispatch
-    const applyFx = (fxName, val) => {
-        switch (fxName) {
-            case 'reverb-size':    toneEngine.setReverbSize(val / 100); break;
-            case 'reverb-damp':    toneEngine.setReverbDampening(10000 - (val / 100) * 9800); break;
-            case 'reverb-wet':     toneEngine.setReverbWet(val / 100); break;
-            case 'delay-time':     toneEngine.setDelayTime(val / 100); break;
-            case 'delay-feedback': toneEngine.setDelayFeedback(val / 100); break;
-            case 'delay-wet':      toneEngine.setDelayWet(val / 100); break;
-            case 'master-vol':     toneEngine.setMasterVolume(val === 0 ? -60 : -60 + (val / 100) * 60); break;
-            case 'distortion':     toneEngine.setDistortion(val / 100); break;
-            case 'master-pitch':   toneEngine.setMasterPitch(val); break;
-            case 'hp-freq':        toneEngine.setHighpassFreq(hpFreq(val)); break;
-            case 'lp-freq':        toneEngine.setLowpassFreq(lpFreq(val)); break;
-            case 'phaser-freq':    toneEngine.setPhaserFreq(val === 0 ? 0 : 0.1 + (val / 100) * 9.9); break;
-            case 'phaser-depth':   toneEngine.setPhaserDepth(val / 100); break;
-            case 'phaser-wet':     toneEngine.setPhaserWet(val / 100); break;
-            case 'crush-bits':     toneEngine.setCrush(val / 100); break;
-        }
-    };
+    // The panel's sliders in their own units, which djrust's master FX and aux bus take
+    // as they are (audio/engine.js).
+    const applyFx = (fxName, val) => audioEngine.fx(fxName, val);
     fx.addEventListener('input', (e) => {
         const slider = e.target.closest('.pn-fx-slider');
         if (!slider) return;

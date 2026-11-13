@@ -4,7 +4,7 @@
  * A music sequencer where Petri net transitions trigger MIDI notes.
  */
 
-import { toneEngine, INSTRUMENT_CONFIGS, isDrumChannel } from './audio/tone-engine.js';
+import { audioEngine } from './audio/engine.js';
 import {
     b64urlEncode, b64urlDecode,
     canonicalizeJSON, sha256,
@@ -42,7 +42,7 @@ import { isInsertRenderMode, initInsertRenderMode } from './lib/share/insert-ren
 import { recordSeen } from './lib/share/history.js';
 import { loadUploadedProject, serializeProject, downloadProject } from './lib/project/serialize.js';
 import {
-    applyProjectInstruments, prewarmPreviewInstruments, applyDefaultPans,
+    applyProjectInstruments, prewarmPreviewInstruments,
     applyProjectSync, onInstrumentsChanged,
     getAvailableInstruments as getAvailableInstrumentsFn,
     getCurrentInstruments,
@@ -75,7 +75,7 @@ import {
     scheduleReconnect, updateWsStatus, sendWs, handleWsMessage,
     onRemoteTransitionFired, humanizeNote, swingDelay, onStateSync,
 } from './lib/backend/index.js';
-import { waveEngineRequested, prepareWaveContext } from './lib/backend/wave.js';
+import { showEngineGaps } from './lib/backend/djrust.js';
 import {
     initAudio, connectMidiInputs,
     sliderBindingKey, resolveBinding,
@@ -83,7 +83,7 @@ import {
     ensureToneStarted, toggleAudioMode, refreshMidiOutputs,
     toggleMute, toggleMuteGroup, debouncedRenderMixer,
     playNote, reapplyChannelRoutings, setChannelRouting,
-    playTone, playWebMidi, setChannelInstrument,
+    playWebMidi, setChannelInstrument,
     vizColorForNet, vizSpawnParticle,
     vizStartLoop, vizStopLoop, vizDrawFrame, vizDrawTimeline,
 } from './lib/backend/audio-io.js';
@@ -182,10 +182,6 @@ class PetriNote extends HTMLElement {
 
         // Audio — Set of enabled global output modes: 'web-audio', 'web-midi'
         this._audioModes = new Set(['web-audio']);
-        // ?engine=wave — audio computed sample-by-sample from the marking
-        // in an AudioWorklet (public/wave-engine/) instead of Tone.js voices.
-        this._waveEngine = waveEngineRequested();
-        if (this._waveEngine) prepareWaveContext();
         this._audioCtx = null;
         this._midiAccess = null;
         this._midiOutputId = null; // Selected MIDI output port ID
@@ -245,6 +241,7 @@ class PetriNote extends HTMLElement {
     }
 
     connectedCallback() {
+        showEngineGaps(this);
         // Test capture hook — loaded only when ?test=1 is present in
         // the URL. Installs window.__pnTestCaptureStart/__pnTestCaptureStop
         // for headless audio analysis (scripts/test-macro-audio.py).
@@ -301,8 +298,7 @@ class PetriNote extends HTMLElement {
         // renderer. No-op when the param is absent.
         initRenderMode(this);
         // ?insert=counterMelody — page-side insert renderer that
-        // builds a Tone.Offline graph from a notes payload fetched
-        // via /api/insert-notes. Doesn't read el._project, so it
+        // renders a notes payload fetched via /api/insert-notes. Doesn't read el._project, so it
         // runs even when no share is loaded.
         if (isInsertRenderMode()) {
             initInsertRenderMode();
@@ -351,7 +347,7 @@ class PetriNote extends HTMLElement {
     }
 
     _watchAudioContextState() {
-        const ctx = window.Tone?.getContext?.()?.rawContext;
+        const ctx = audioEngine.ctx;
         if (!ctx) return;
         const sync = () => {
             if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();
@@ -678,26 +674,6 @@ class PetriNote extends HTMLElement {
     _randomToneConfig(isPerc) { return randomToneConfig(isPerc); }
     _toneNav(netId, dir) { return toneNav(this, netId, dir); }
 
-    async _testNote(netId) {
-        const net = this._project.nets[netId];
-        if (!net) return;
-        const channel = net.track?.channel || 1;
-        let note = 60;
-        if (isDrumChannel(channel)) {
-            const roleNote = { kick: 36, snare: 38, hihat: 42, clap: 39 };
-            note = roleNote[net.riffGroup] ?? roleNote[netId] ?? 36;
-        }
-        // Stinger rows: transpose by the Pitch dropdown in the Stingers panel
-        // so the Test Note button auditions with whatever pitch the user has
-        // dialed in on the Fire pad.
-        const pitchSel = this.querySelector(`.pn-os-pitch[data-macro="${netId}"]`);
-        if (pitchSel) {
-            const semi = parseInt(pitchSel.value, 10);
-            if (Number.isFinite(semi)) note += semi;
-        }
-        await this._playNote({ note, velocity: 100, duration: 200, channel });
-    }
-
     _renderTimeline() { return renderTimeline(this); }
     _updatePlayhead() { return updatePlayhead(this); }
     _updateLoopMarkers() { return updateLoopMarkers(this); }
@@ -731,7 +707,7 @@ class PetriNote extends HTMLElement {
         // until then.
         if (!midiEnabled) return;
 
-        const devices = await toneEngine.listOutputDevices();
+        const devices = await audioEngine.listOutputDevices();
 
         // Lazy-load MIDI outputs (requires user permission) — only if browser supports it
         let midiOutputs = [];
@@ -803,7 +779,7 @@ class PetriNote extends HTMLElement {
             const now = performance.now();
             if (now - _lastGenerateAt < 350) return;
             _lastGenerateAt = now;
-            toneEngine.resumeContext();
+            audioEngine.resumeContext();
             this._ensureToneStarted();
             const genre = this.querySelector('.pn-genre-select').value;
             const params = { ...(this._traitOverrides || {}) };
@@ -938,10 +914,6 @@ class PetriNote extends HTMLElement {
         // ?perf=1 shows the live perf monitor readout (lib/perf/monitor.js).
         if (new URLSearchParams(location.search).get('perf') === '1') {
             import('./lib/perf/monitor.js').then(m => m.perfHudEnable(this));
-        }
-        // ?bench=1 opens the device benchmark directly.
-        if (new URLSearchParams(location.search).get('bench') === '1') {
-            setTimeout(() => this._showBenchModal(), 500);
         }
 
         // Control category map
@@ -1472,6 +1444,8 @@ class PetriNote extends HTMLElement {
                 this._traitOverrides[k] = v;
             }
             this._currentGen = { genre: share.genre, params: { ...share.params } };
+            // a `play: "dj"` share plays its envelope in djrust while the project is unedited
+            this._djShare = share.play === 'dj' ? { envelope: share.envelope, nets: null, active: false } : null;
             // Provenance: record the source CID + any inherited parents
             // so the next Share carries this CID forward as its parent.
             // Newest-first, capped at 8 in the collector.
@@ -1642,7 +1616,7 @@ class PetriNote extends HTMLElement {
     _openMidiEditor(transitionId) { return openMidiEditor(this, transitionId); }
     _fireTransition(transitionId) { return fireTransition(this, transitionId); }
 
-    // === Audio (Tone.js) ===
+    // === Audio (djrust) ===
 
     // --- Audio/MIDI I/O + viz — thin wrappers around ./lib/backend/audio-io.js ---
 
@@ -1661,7 +1635,6 @@ class PetriNote extends HTMLElement {
     _showHelpModal() { return showHelpModal(this); }
     _showCategoryModal() { return showCategoryModal(this); }
     _showMidiMonitor() { return showMidiMonitorModal(this); }
-    _showBenchModal() { return import('./lib/ui/bench-modal.js').then(m => m.showBenchModal(this)); }
     _toggleStage() { return toggleStage(this); }
 
     _toggleAudioMode(mode) { return toggleAudioMode(this, mode); }
@@ -1669,10 +1642,9 @@ class PetriNote extends HTMLElement {
     _toggleMute(netId) { return toggleMute(this, netId); }
     _toggleMuteGroup(riffGroup) { return toggleMuteGroup(this, riffGroup); }
     _debouncedRenderMixer() { return debouncedRenderMixer(this); }
-    _playNote(midi, netId, playAt) { return playNote(this, midi, netId, playAt); }
+    _playNote(midi, netId) { return playNote(this, midi, netId); }
     _reapplyChannelRoutings() { return reapplyChannelRoutings(this); }
     _setChannelRouting(channel, value) { return setChannelRouting(this, channel, value); }
-    _playTone(midi) { return playTone(this, midi); }
     _vizColorForNet(netId) { return vizColorForNet(netId); }
     _scopeSync() { return scopeSync(this); }
     _scopeStats() { return scopeStats(this); }
@@ -1687,7 +1659,6 @@ class PetriNote extends HTMLElement {
     // --- Project sync — thin wrappers around ./lib/project/sync.js ---
     _applyProjectInstruments(project) { return applyProjectInstruments(this, project); }
     _prewarmPreviewInstruments(project) { return prewarmPreviewInstruments(this, project); }
-    _applyDefaultPans(nets) { return applyDefaultPans(this, nets); }
     _applyProjectSync(project, seamless) { return applyProjectSync(this, project, seamless); }
     _onInstrumentsChanged(instruments) { return onInstrumentsChanged(this, instruments); }
     getAvailableInstruments() { return getAvailableInstrumentsFn(); }

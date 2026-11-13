@@ -428,7 +428,7 @@ function _advanceOneTick() {
                         playAtOffsetMs: _currentTickOffsetMs,
                         tickEpochMs: _currentTickEpochMs,
                         // Audio-grid scheduling: main thread anchors
-                        // `playbackTicks` to a `Tone.now()` baseline once
+                        // `playbackTicks` to an AudioContext-clock baseline once
                         // and schedules every subsequent fire at exact
                         // grid positions. Drops setInterval jitter.
                         playbackTicks,

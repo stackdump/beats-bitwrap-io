@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -29,10 +30,11 @@ import (
 	"syscall"
 	"time"
 
+	"beats-bitwrap-io/internal/audioengine"
 	"beats-bitwrap-io/internal/audiorender"
 	"beats-bitwrap-io/internal/bench"
-	"beats-bitwrap-io/internal/telemetry"
 	"beats-bitwrap-io/internal/deploy"
+	"beats-bitwrap-io/internal/devserve"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
 	mcpserver "beats-bitwrap-io/internal/mcp"
@@ -43,6 +45,7 @@ import (
 	"beats-bitwrap-io/internal/sequencer"
 	"beats-bitwrap-io/internal/share"
 	"beats-bitwrap-io/internal/staticcache"
+	"beats-bitwrap-io/internal/telemetry"
 	"beats-bitwrap-io/internal/ws"
 )
 
@@ -53,6 +56,14 @@ var publicFS embed.FS
 // (git describe --tags --always --dirty). Local `go run` without the
 // Makefile leaves it at "dev".
 var version = "dev"
+
+// The audio engine version feed audio is rendered with, from the pin the studio loads
+// (public/djrust/version.js): every audio URL handed to a listener carries it.
+func init() {
+	if src, err := publicFS.ReadFile("public/djrust/version.js"); err != nil || !audioengine.SetFromVersionJS(src) {
+		log.Printf("audio engine: no DJRUST_VERSION in public/djrust/version.js; audio URLs carry %q", audioengine.Query())
+	}
+}
 
 func main() {
 	// MCP stdio subcommand — Claude Code / Claude Desktop wire
@@ -85,6 +96,10 @@ func main() {
 	maxStoreBytes := flag.Int64("max-store-bytes", 256<<20, "hard cap on total share-store bytes on disk")
 	putPerMin := flag.Int("put-per-min", 10, "per-IP PUT rate limit (requests per minute)")
 	globalPutPerMin := flag.Int("global-put-per-min", 120, "global PUT rate limit across all IPs (0 = disabled)")
+	// dev: https for the LAN (an AudioWorklet needs a secure context) and a local djrust build
+	tlsCert := flag.String("tls-cert", "", "serve https with this certificate (PEM); needs -tls-key (scripts/dev-cert.sh)")
+	tlsKey := flag.String("tls-key", "", "the key for -tls-cert (PEM)")
+	djrustPkg := flag.String("djrust-pkg", "", "serve a local djrust npm build at /djrust-pkg/ and load it instead of the pinned CDN copy")
 
 	// --- Server-side audio render flags ---
 	audioEnabled := flag.Bool("audio-render", false, "Enable /audio/{cid}.webm endpoint (requires headless Chromium on PATH).")
@@ -215,7 +230,7 @@ func main() {
 		if renderWebhookURL == "" {
 			return
 		}
-		audioURL := fmt.Sprintf("%s/audio/%s.webm", publicBaseURL, cid)
+		audioURL := fmt.Sprintf("%s/audio/%s.webm%s", publicBaseURL, cid, audioengine.Query())
 		event := share.BuildRenderEvent(cid, audioURL, bytes, source, time.Now())
 		if err := share.SignRenderEvent(event, operatorKey); err != nil {
 			log.Printf("render webhook sign %s: %v", cid, err)
@@ -254,6 +269,27 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
+	if *djrustPkg != "" {
+		if err := devserve.CheckPkg(*djrustPkg); err != nil {
+			log.Fatal(err)
+		}
+		mux.Handle(devserve.PkgPrefix, devserve.PkgHandler(*djrustPkg))
+		// and the studio loads it by default, instead of the pinned CDN copy
+		var src []byte
+		if *dir != "" {
+			src, err = os.ReadFile(filepath.Join(*dir, "djrust", "version.js"))
+		} else {
+			src, err = publicFS.ReadFile("public/djrust/version.js")
+		}
+		if err == nil {
+			src, err = devserve.VersionJS(src)
+		}
+		if err != nil {
+			log.Fatalf("-djrust-pkg: %v", err)
+		}
+		mux.Handle(devserve.VersionJSPath, devserve.VersionJSHandler(src))
+		log.Printf("djrust build %s at %s; the studio loads it by default", *djrustPkg, devserve.PkgPrefix)
+	}
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -383,6 +419,11 @@ func main() {
 			if err := idx.RecordAudioProvenance(cid, "renderfarm"); err != nil {
 				log.Printf("audio: tag provenance %s=renderfarm: %v", cid, err)
 			}
+			// …and made by this server's own engine (the PUT path overrides it with the
+			// uploader's X-Audio-Engine).
+			if err := idx.RecordAudioEngine(cid, audioengine.Tag()); err != nil {
+				log.Printf("audio: tag engine %s: %v", cid, err)
+			}
 			// Server-render path: this closure only runs for in-process
 			// renders (renderer.OnRenderComplete). The PUT path calls a
 			// separate onAudioReady with the right source.
@@ -460,9 +501,12 @@ func main() {
 		// index. Walk the cache and project them in. Bounded at 30s
 		// so a giant cache doesn't stall startup.
 		go backfillIndex(idx, shareStore, filepath.Join(*dataDir, "audio"))
-		tagAudioProvenance := func(cid, source string) {
+		tagAudioProvenance := func(cid, source, engine string) {
 			if err := idx.RecordAudioProvenance(cid, source); err != nil {
 				log.Printf("audio: tag provenance %s=%s: %v", cid, source, err)
+			}
+			if err := idx.RecordAudioEngine(cid, engine); err != nil {
+				log.Printf("audio: tag engine %s=%s: %v", cid, engine, err)
 			}
 		}
 		mux.Handle("/audio/", audioHandler(ar, shareStore, staticHandler, *audioEnabled, onRenderComplete, rebuildSecret, tagAudioProvenance, notifyRenderComplete))
@@ -554,7 +598,8 @@ func main() {
 			mux.HandleFunc("/api/composition-clear", compositionClearHandler(idx, compositionStore))
 			mux.HandleFunc("/api/composition-status/", compositionStatusHandler(ar, idx, compositionStore))
 			mux.HandleFunc("/api/audio-suspect", audioSuspectHandler(idx))
-			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear}, /api/composition-{mark,queue,clear,status}, /api/audio-suspect)")
+			mux.HandleFunc("/api/audio-stale", audioStaleHandler(idx))
+			log.Printf("Rebuild queue: ON (/api/rebuild-{mark,queue,clear}, /api/composition-{mark,queue,clear,status}, /api/audio-{suspect,stale})")
 		}
 		// /api/archive-missing — every CID that's in the share store but
 		// not in the rendered-audio index. Lets an offline worker drive
@@ -749,7 +794,12 @@ func main() {
 	handler := http.Handler(cors)
 	handler = recoverMiddleware(handler)
 
+	tlsConfig, err := devserve.TLSConfig(*tlsCert, *tlsKey)
+	if err != nil {
+		log.Fatalf("tls: %v", err)
+	}
 	server := &http.Server{
+		TLSConfig:    tlsConfig,
 		Addr:         *addr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
@@ -763,9 +813,21 @@ func main() {
 		if *authoring {
 			log.Printf("Authoring mode ON: /api/*, /ws, MIDI flags active")
 		}
-		log.Printf("Listening on %s", *addr)
-		fmt.Printf("beats-bitwrap-io → http://localhost%s\n", *addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		scheme := "http"
+		if tlsConfig != nil {
+			scheme = "https"
+		}
+		log.Printf("Listening on %s (%s)", *addr, scheme)
+		host := *addr
+		if strings.HasPrefix(host, ":") {
+			host = "localhost" + host
+		}
+		fmt.Printf("beats-bitwrap-io → %s://%s\n", scheme, host)
+		serve := server.ListenAndServe
+		if tlsConfig != nil {
+			serve = func() error { return server.ListenAndServeTLS("", "") }
+		}
+		if err := serve(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
@@ -1097,11 +1159,11 @@ func projectShareHandler(seq *sequencer.Sequencer, shareStore *share.Store, rebu
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cid":           cid,
-			"shortUrl":      origin + "/?cid=" + cid,
-			"bytes":         len(canonical),
-			"mirrors":       mirrors,
-			"macroBacklog":  backlogReport,
+			"cid":          cid,
+			"shortUrl":     origin + "/?cid=" + cid,
+			"bytes":        len(canonical),
+			"mirrors":      mirrors,
+			"macroBacklog": backlogReport,
 		})
 	}
 }
@@ -1132,8 +1194,8 @@ func mirrorCIDHandler(shareStore *share.Store) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cid":     req.CID,
-			"bytes":   len(canonical),
+			"cid":   req.CID,
+			"bytes": len(canonical),
 			"mirrors": mirrorCIDToHosts(req.CID, canonical, req.Hosts,
 				r.Header.Get("X-Rebuild-Secret")),
 		})
@@ -1457,6 +1519,17 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 	}
 }
 
+// uploadEngine is the engine an audio PUT says made it (X-Audio-Engine, e.g.
+// "djrust-0.2.0"), or this server's own when the header is missing or malformed.
+var audioEngineHeader = regexp.MustCompile(`^djrust-[0-9A-Za-z.+-]{1,32}$`)
+
+func uploadEngine(r *http.Request) string {
+	if e := r.Header.Get("X-Audio-Engine"); audioEngineHeader.MatchString(e) {
+		return e
+	}
+	return audioengine.Tag()
+}
+
 // --- /audio/{cid}.webm handler ---
 //
 // Validates the CID, confirms it exists in the share store (so we never
@@ -1464,10 +1537,10 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // First request for a CID waits for the realtime render; subsequent
 // requests stream the static file with HTTP Range support.
 //
-// The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
+// The /audio/ namespace is shared with public/audio/* (engine.js).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
-func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source string), onAudioReady func(cid string, bytes int64, source share.RenderEventSource)) http.Handler {
+func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source, engine string), onAudioReady func(cid string, bytes int64, source share.RenderEventSource)) http.Handler {
 	// httpErrorNoStore writes an error response with explicit no-store
 	// caching so browsers and intermediaries don't poison themselves
 	// with a transient 404/500 from this route. Without it, a probe
@@ -1584,7 +1657,7 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 				if authed {
 					source = "renderfarm"
 				}
-				tagProvenance(cid, source)
+				tagProvenance(cid, source, uploadEngine(r))
 			}
 			// Fire render.complete webhook ONLY for authenticated worker
 			// PUTs (the bake-landed event). Browser uploads are user
@@ -1639,7 +1712,9 @@ func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback ht
 		// computes it from the project's tempo + step count and posts
 		// it so /api/audio-status returns honest queue-wait projections.
 		if r.Method == http.MethodPost {
-			var body struct{ ExpectedMs int64 `json:"expectedMs"` }
+			var body struct {
+				ExpectedMs int64 `json:"expectedMs"`
+			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			if !ar.Enqueue(cid, body.ExpectedMs) {
 				// Queue is too deep (>30 min projected wait). Tell the
@@ -1838,6 +1913,7 @@ func midiMultiCloser(m *midiout.MultiOutput) io.Closer {
 	}
 	return m
 }
+
 // feedHandler answers GET /api/feed?genre=&before=<unix-ms>&limit=
 // with a JSON array of recent rendered tracks, newest first.
 func feedHandler(idx *index.DB) http.HandlerFunc {
@@ -1881,14 +1957,15 @@ func feedHandler(idx *index.DB) http.HandlerFunc {
 }
 
 // analysisHandler answers /api/analysis/{cid}.
-//   GET: public; returns the BeatsAudioAnalysis JSON-LD envelope, or
-//        404 if no row exists. No-store on the response so refreshes
-//        always reflect the latest analyzer pass.
-//   PUT: gated by X-Rebuild-Secret. Body is a BeatsAudioAnalysis
-//        JSON-LD envelope (analyzer worker output). Upsert merges
-//        non-null fields with whatever the renderer's loudnorm pass
-//        already wrote — so an analyzer run that omits LUFS keeps
-//        the in-band loudnorm measurement.
+//
+//	GET: public; returns the BeatsAudioAnalysis JSON-LD envelope, or
+//	     404 if no row exists. No-store on the response so refreshes
+//	     always reflect the latest analyzer pass.
+//	PUT: gated by X-Rebuild-Secret. Body is a BeatsAudioAnalysis
+//	     JSON-LD envelope (analyzer worker output). Upsert merges
+//	     non-null fields with whatever the renderer's loudnorm pass
+//	     already wrote — so an analyzer run that omits LUFS keeps
+//	     the in-band loudnorm measurement.
 func analysisHandler(idx *index.DB, rebuildSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cid := strings.TrimPrefix(r.URL.Path, "/api/analysis/")
@@ -1911,12 +1988,12 @@ func analysisHandler(idx *index.DB, rebuildSecret string) http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/ld+json")
 			w.Header().Set("Cache-Control", "no-store")
 			env := map[string]any{
-				"@context":         "https://beats.bitwrap.io/schema/beats-audio-analysis.context.jsonld",
-				"@type":            "BeatsAudioAnalysis",
-				"cid":              a.CID,
-				"analyzerVersion":  a.AnalyzerVersion,
-				"analyzedAt":       a.AnalyzedAt,
-				"source":           a.Source,
+				"@context":        "https://beats.bitwrap.io/schema/beats-audio-analysis.context.jsonld",
+				"@type":           "BeatsAudioAnalysis",
+				"cid":             a.CID,
+				"analyzerVersion": a.AnalyzerVersion,
+				"analyzedAt":      a.AnalyzedAt,
+				"source":          a.Source,
 			}
 			addF := func(k string, p *float64) {
 				if p != nil {
@@ -2025,6 +2102,9 @@ func featuresHandler(rebuildQueue bool) http.HandlerFunc {
 			// it, the browser worker would default to v2 regardless of
 			// server config. See generator.DefaultCohesion.
 			"cohesionDefault": generator.DefaultCohesion,
+			// The audio engine + version this server's studio plays and renders with
+			// (internal/audioengine). Render workers send it as X-Audio-Engine.
+			"audioEngine": audioengine.Tag(),
 		})
 	}
 }
@@ -2070,20 +2150,22 @@ func archiveMissingHandler(idx *index.DB, store *share.Store) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"missing":      missing,
-			"totalShares":  len(all),
-			"totalAudio":   len(rendered),
-			"limit":        limit,
-			"truncated":    len(missing) >= limit,
+			"missing":     missing,
+			"totalShares": len(all),
+			"totalAudio":  len(rendered),
+			"limit":       limit,
+			"truncated":   len(missing) >= limit,
 		})
 	}
 }
 
 // snapshotHandler streams a .tar.gz of the catalogue. Layout:
-//   o/{cid}.json       — every share envelope (always included)
-//   audio/{cid}.webm   — every cached render (when ?audio=1)
-//   index.db           — sqlite track index    (when ?db=1)
-//   bench.db           — benchmark submissions  (when ?db=1; not rebuildable)
+//
+//	o/{cid}.json       — every share envelope (always included)
+//	audio/{cid}.webm   — every cached render (when ?audio=1)
+//	index.db           — sqlite track index    (when ?db=1)
+//	bench.db           — benchmark submissions  (when ?db=1; not rebuildable)
+//
 // The envelopes are the canonical state; audio + db are derived
 // (audio is re-renderable from envelopes; db is rebuildable via
 // backfillIndex). Including them just skips reconstruction work on
@@ -3096,9 +3178,10 @@ func rebuildQueueHandler(idx *index.DB) http.HandlerFunc {
 // each CID canonically, and PUTs back with X-Rebuild-Secret.
 // Public read-only — same trust model as /api/archive-missing.
 // Query params:
-//   limit=N         (default 20, max 200) — page size.
-//   graceMins=M     (default 30) — skip CIDs uploaded in the last M minutes.
-//   includeUnknown=1 — also return rows with audio_provenance='' (pre-migration).
+//
+//	limit=N         (default 20, max 200) — page size.
+//	graceMins=M     (default 30) — skip CIDs uploaded in the last M minutes.
+//	includeUnknown=1 — also return rows with audio_provenance='' (pre-migration).
 func audioSuspectHandler(idx *index.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := 20
@@ -3131,6 +3214,34 @@ func audioSuspectHandler(idx *index.DB) http.HandlerFunc {
 			"graceMins":      graceMins,
 			"includeUnknown": includeUnknown,
 		})
+	}
+}
+
+// audioStaleHandler answers GET /api/audio-stale?limit=N: CIDs whose render was made by an
+// engine other than this server's (an older djrust, or Tone before engines were recorded),
+// oldest first. The render farm's --converge-engine sweep re-renders them. Public read-only,
+// same trust model as /api/audio-suspect.
+func audioStaleHandler(idx *index.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 20
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		engine := audioengine.Tag()
+		cids, err := idx.StaleAudioCIDs(engine, limit)
+		if err != nil {
+			log.Printf("audio-stale: %v", err)
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{"cids": cids, "engine": engine})
 	}
 }
 
@@ -3431,7 +3542,7 @@ func rssFeedHandler(idx *index.DB, publicURL string) http.HandlerFunc {
 			if t.ContentType == "BeatsComposition" {
 				audioPath = "/audio-master/"
 			}
-			audioURL := fmt.Sprintf("%s%s%s.webm", publicURL, audioPath, t.CID)
+			audioURL := fmt.Sprintf("%s%s%s.webm%s", publicURL, audioPath, t.CID, audioengine.Query())
 			pubDate := time.UnixMilli(t.RenderedAt).UTC().Format(time.RFC1123Z)
 			fmt.Fprintf(w, `  <item>`+"\n")
 			fmt.Fprintf(w, `    <title>%s</title>`+"\n", xmlEscape(title))

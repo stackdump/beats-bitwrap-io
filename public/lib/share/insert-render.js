@@ -1,21 +1,12 @@
-// Insert render — page-side entry point for PR-4.3.2 counterMelody
-// synthesis via Tone.js OfflineAudioContext. The Go side stashes a
-// note payload via POST /api/insert-notes, then chromedp navigates
-// to /?insert=counterMelody&notesId={id}&durationMs={ms}. This
-// module fetches the payload, builds a Tone.Offline graph using
-// the same ToneEngine the studio uses (so timbre matches the rest
-// of the mix), encodes the result as a 48 kHz / 16-bit / stereo
-// PCM WAV blob, and exposes it on window.__renderBlob the same way
-// render-mode.js does for share renders.
-//
-// Why a separate module rather than reusing renderToBlobOffline?
-// renderToBlobOffline reads from el._project (a fully-loaded share);
-// counterMelody isn't a share — it's a synthesised note sequence
-// that needs Tone.Offline + an instrument but no project state.
-// Sharing the WAV encoder keeps the bytes byte-identical.
+// Insert render — page-side entry point for PR-4.3.2 counterMelody synthesis. The Go side
+// stashes a note payload via POST /api/insert-notes, then chromedp navigates to
+// /?insert=counterMelody&notesId={id}&durationMs={ms}. This module fetches the payload, writes
+// the notes as a beats project (one single-token ring per voice, a transition per tick, the
+// notes bound on theirs), renders it with djrust's offline render (the same engine and voices as
+// the rest of the mix, deterministic), encodes a 48 kHz / 16-bit / stereo PCM WAV blob, and
+// exposes it on window.__renderBlob the same way render-mode.js does for share renders.
 
-import { ToneEngine } from '/audio/tone-engine.js';
-import { audioBufferToWavBlob } from './offline-render.js';
+import { renderOffline, encodeWav } from './djrust-offline.js';
 
 const PPQ = 4;
 const SAMPLE_RATE = 48000;
@@ -49,8 +40,6 @@ async function runInsertRender() {
     const notesId = params.get('notesId');
     if (!notesId) throw new Error('missing notesId');
 
-    await waitForTone();
-    const Tone = window.Tone;
 
     // Pull the note payload from the in-memory ephemeral store the
     // Go side posted to. This is the contract the worker depends on.
@@ -79,24 +68,10 @@ async function runInsertRender() {
         'type=', insertType, 'notes=', notes.length,
         'instrument=', instrument, 'durationSec=', durationSec.toFixed(3));
 
-    const buffer = await Tone.Offline(async () => {
-        const engine = new ToneEngine();
-        engine._offline = true;
-        await engine.init();
-        await engine.loadInstrument(channel, instrument);
-        for (const ev of notes) {
-            const t = (ev.tick || 0) * (tickIntervalMs / 1000);
-            const dur = ((ev.durationTicks || 4) * tickIntervalMs);
-            engine.playNote({
-                channel,
-                note: ev.note,
-                velocity: ev.velocity || 90,
-                duration: dur,
-            }, t);
-        }
-    }, durationSec, 2, SAMPLE_RATE);
-
-    const blob = audioBufferToWavBlob(buffer);
+    const project = notesProject(notes, { tempo, channel, instrument, durationSec, tickIntervalMs });
+    const { samples, version } = await renderOffline(JSON.stringify(project), durationSec, SAMPLE_RATE);
+    window.__renderInfo.engineVersion = version;
+    const blob = encodeWav(samples, SAMPLE_RATE);
     window.__renderInfo.mimeType = blob.type;
     window.__renderInfo.byteLength = blob.size;
     window.__renderBlob = await blobToBase64(blob);
@@ -112,13 +87,44 @@ function pickDefaultInstrument(insertType) {
     return 'supersaw';
 }
 
-async function waitForTone() {
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-        if (typeof window !== 'undefined' && window.Tone) return window.Tone;
-        await new Promise((r) => setTimeout(r, 100));
+/**
+ * The notes as a beats project djrust plays: each voice (the n-th note of every tick) is a ring
+ * of one place and one transition per tick, the token going round once over the render, with
+ * the notes bound on the transitions of their ticks.
+ */
+export function notesProject(notes, { tempo, channel, instrument, durationSec, tickIntervalMs }) {
+    const ticks = Math.max(1, Math.ceil(durationSec * 1000 / tickIntervalMs) + 1);
+    const byTick = new Map();
+    for (const ev of notes) {
+        const t = Math.max(0, Math.min(ticks - 1, Math.round(ev.tick || 0)));
+        if (!byTick.has(t)) byTick.set(t, []);
+        byTick.get(t).push(ev);
     }
-    throw new Error('Tone.js never loaded');
+    const voices = Math.max(1, ...[...byTick.values()].map(l => l.length));
+    const nets = {};
+    for (let v = 0; v < voices; v++) {
+        const places = {}, transitions = {}, arcs = [];
+        for (let t = 0; t < ticks; t++) {
+            places[`p${t}`] = { initial: [t === 0 ? 1 : 0], x: t * 10, y: v * 40 };
+            const ev = byTick.get(t)?.[v];
+            const tr = { x: t * 10 + 5, y: v * 40 };
+            if (ev) {
+                tr.midi = {
+                    note: ev.note, channel, velocity: ev.velocity || 90,
+                    durationSteps: Math.max(1, ev.durationTicks || 4),
+                };
+            }
+            transitions[`t${t}`] = tr;
+            arcs.push({ source: `p${t}`, target: `t${t}`, weight: [1] });
+            arcs.push({ source: `t${t}`, target: `p${(t + 1) % ticks}`, weight: [1] });
+        }
+        nets[`insert-${v}`] = {
+            role: 'music',
+            track: { channel, instrument, group: 'melody', defaultVelocity: 90 },
+            places, transitions, arcs,
+        };
+    }
+    return { name: 'insert', tempo, nets };
 }
 
 function blobToBase64(blob) {

@@ -8,7 +8,7 @@
 // share modal, and MIDI input via a Web MIDI API mock (no hardware).
 //
 // Each check asserts an observable effect (state change, engine param,
-// audio RMS via an analyser on Tone.Destination) — not just "no throw".
+// audio RMS via an analyser on the engine's master output) — not just "no throw".
 // Any uncaught exception or console.error during the run is a failure.
 //
 // Usage:
@@ -19,7 +19,9 @@ import { spawn } from 'node:child_process';
 const HOST = process.argv[2] && !process.argv[2].startsWith('--')
   ? process.argv[2] : 'http://localhost:18091';
 const VERBOSE = process.argv.includes('--verbose');
-const URL = `${HOST}/?test=1&genre=techno&seed=42`;
+// DJRUST_URL: an unreleased djrust build (the ?djrust= override), e.g. a local npm/build.sh output.
+const PKG = process.env.DJRUST_URL ? `&djrust=${encodeURIComponent(process.env.DJRUST_URL)}` : '';
+const URL = `${HOST}/?test=1&genre=techno&seed=42${PKG}`;
 const PORT = 9340;
 
 // ---------- Web MIDI mock, installed before any page script ----------
@@ -154,16 +156,22 @@ await send('Page.navigate', { url: URL });
 
 section('boot');
 {
-  const ok = await waitFor(`!!(document.querySelector('petri-note')?._project) && typeof Tone !== 'undefined'`, 30000, 500);
+  const ok = await waitFor(`!!(document.querySelector('petri-note')?._project)`, 30000, 500);
   record('app boots with project', ok);
   if (!ok) { finish(); }
-  // Analyser tap on the destination for RMS assertions.
-  await evalx(`(function(){
-    const ctx = Tone.getContext().rawContext;
-    const an = ctx.createAnalyser(); an.fftSize = 2048;
-    Tone.getDestination().output.connect(an);
-    window.__an = an; window.__buf = new Float32Array(an.fftSize);
-    window.__rms = () => { __an.getFloatTimeDomainData(__buf);
+  // Analyser tap on the engine's master output for RMS assertions (made on
+  // first use: the AudioContext exists once playback has started).
+  await evalx(`(async function(){
+    const { audioEngine } = await import('/audio/engine.js');
+    window.__engine = audioEngine;
+    window.__rms = () => {
+      if (!window.__an) {
+        if (!audioEngine.output) return 0;
+        const an = audioEngine.ctx.createAnalyser(); an.fftSize = 2048;
+        audioEngine.output.connect(an);
+        window.__an = an; window.__buf = new Float32Array(an.fftSize);
+      }
+      __an.getFloatTimeDomainData(__buf);
       let s = 0; for (const v of __buf) s += v*v; return Math.sqrt(s/__buf.length); };
     window.__peakRms = async (ms, step=60) => {
       let peak = 0; const n = Math.ceil(ms/step);
@@ -178,7 +186,7 @@ section('boot');
 // ---------- transport ----------
 section('transport');
 {
-  // First click races Tone's cold init under load — retry the click
+  // First click races the engine's cold start under load — retry the click
   // rather than waiting a fixed budget on one attempt.
   let playing = false;
   for (let i = 0; i < 3 && !playing; i++) {
@@ -187,7 +195,8 @@ section('transport');
     if (!playing) await evalx(`__el._playing && __el.querySelector('.pn-play').click(); true`);
   }
   record('play button starts playback', playing);
-  await check('audio context running', `Tone.getContext().rawContext.state === 'running'`, 8000);
+  await check('audio context running', `__engine.ctx?.state === 'running'`, 8000);
+  await check('djrust engine up', `(async () => { const d = await __el._dj; return !!d?.version; })()`, 15000);
   const peak = await evalx(`__peakRms(3000)`);
   record('audible output while playing', peak > 0.005, `peak rms=${Number(peak).toFixed(4)}`);
   // Faster bars => faster macro windows for the whole run.
@@ -262,15 +271,24 @@ for (const m of macroList) {
       feel: JSON.stringify(__el._feel || null),
       muted: __el._mutedNets ? __el._mutedNets.size : -1,
       fx: Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(','),
+      sent: __engine.macrosSent || 0,
+      errs: (__el._djrustErrors || []).length,
     }; })()`);
 
   await evalx(`${tileExpr}.click()`);
 
+  // djrust runs these itself (audio/engine.js NATIVE_MACRO_KINDS): the observable is that the
+  // engine was sent the macro and answered without an error (the worklet reports any op that
+  // did not run); a song mute also shows in the mixer's mute table.
+  const native = ['mute', 'beat-repeat', 'compound', 'pan-move', 'decay-move'].includes(m.kind);
   let effectExpr;
   switch (m.kind) {
     case 'mute':
     case 'beat-repeat':
-      effectExpr = `__el._mutedNets.size !== ${pre.muted}`;
+    case 'compound':
+    case 'pan-move':
+    case 'decay-move':
+      effectExpr = `(__engine.macrosSent || 0) > ${pre.sent}`;
       break;
     case 'fx-sweep': case 'fx-hold':
       effectExpr = `Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(',') !== ${JSON.stringify(pre.fx)}`;
@@ -285,14 +303,16 @@ for (const m of macroList) {
       // Fire pad unmutes the stinger net (or at minimum marks running).
       effectExpr = `!__el._mutedNets.has('${m.id}') || !!__el._runningMacro`;
       break;
-    case 'compound':
-      effectExpr = `__el._mutedNets.size !== ${pre.muted} || __el._tempo !== ${pre.tempo} || Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(',') !== ${JSON.stringify(pre.fx)}`;
-      break;
     default:
       effectExpr = `!!__el._runningMacro`;
   }
   const took = await waitFor(effectExpr, 6000);
   record(`${m.id}: takes effect`, took);
+  if (native) {
+    await sleep(500);
+    const errs = await evalx(`(__el._djrustErrors || []).slice(${pre.errs})`);
+    record(`${m.id}: runs in djrust`, Array.isArray(errs) && errs.length === 0, (errs || []).join(' | '));
+  }
 
   // Wait for the serial queue to release (macro complete + restored).
   const released = await waitFor(`!__el._runningMacro && (!__el._macroQueue || __el._macroQueue.length === 0)`, 20000, 200);
@@ -333,15 +353,6 @@ section('one-shots');
     record(`${pad}: audio present after fire`, peak > Math.min(0.004, base * 0.5), `base=${Number(base).toFixed(4)} peak=${Number(peak).toFixed(4)}`);
     await waitFor(`!__el._runningMacro`, 10000, 200);
   }
-  // Direct engine one-shots (laser & friends) still make sound into the mix.
-  for (const name of ['airhorn', 'laser', 'subdrop', 'booj']) {
-    const r = await evalx(`(async () => {
-      const { toneEngine } = await import('/audio/tone-engine.js');
-      toneEngine.playOneShot('${name}');
-      return await __peakRms(900);
-    })()`);
-    record(`engine one-shot ${name} audible`, r > 0.003, `peak=${Number(r).toFixed(4)}`);
-  }
 }
 
 // ---------- FX sliders drive engine params ----------
@@ -349,12 +360,15 @@ section('fx-sliders');
 {
   const sliders = await evalx(`Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx)`);
   record('fx sliders present', Array.isArray(sliders) && sliders.length >= 8, `${sliders?.length} sliders`);
-  // Spot-check the params we can read back from the engine.
+  // Each move is sent to djrust (audio/engine.js keeps what it sent) and the
+  // engine takes it without an error.
+  const sent = (key, val) => `__engine.fxValues.get('${key}') === ${val} && !(__el._djrustErrors || []).length`;
   const paramChecks = [
-    ['hp-freq', 80, `(await import('/audio/tone-engine.js')).toneEngine._hpFilter.frequency.value > 500`],
-    ['hp-freq', 0,  `(await import('/audio/tone-engine.js')).toneEngine._hpFilter.frequency.value < 100`],
-    ['lp-freq', 10, `(await import('/audio/tone-engine.js')).toneEngine._lpFilter.frequency.value < 2000`],
-    ['lp-freq', 100,`(await import('/audio/tone-engine.js')).toneEngine._lpFilter.frequency.value > 15000`],
+    ['hp-freq', 80, sent('hp-freq', 80)],
+    ['hp-freq', 0,  sent('hp-freq', 0)],
+    ['lp-freq', 10, sent('lp-freq', 10)],
+    ['lp-freq', 100, sent('lp-freq', 100)],
+    ['reverb-wet', 60, sent('reverb-wet', 60) + ' && __engine.auxOn'],
   ];
   for (const [key, val, cond] of paramChecks) {
     await evalx(`__el._setFxByKey('${key}', ${val})`);
@@ -550,18 +564,17 @@ section('midi');
 section('interrupt');
 {
   // Snapshot clean baseline.
+  const fxv = (k) => `+__el.querySelector('.pn-fx-slider[data-fx="${k}"]')?.value`;
   const base = await evalx(`(async () => {
-    const { toneEngine } = await import('/audio/tone-engine.js');
-    return { hp: Math.round(toneEngine._hpFilter.frequency.value),
-             lp: Math.round(toneEngine._lpFilter.frequency.value),
+    return { hp: ${fxv('hp-freq')},
+             lp: ${fxv('lp-freq')},
              tempo: __el._tempo,
              wet: __el.querySelector('.pn-fx-slider[data-fx="reverb-wet"]')?.value,
              puck: JSON.stringify((__el._feelState || {}).puck || null) };
   })()`);
   const restoredExpr = `(async () => {
-    const { toneEngine } = await import('/audio/tone-engine.js');
-    return Math.abs(toneEngine._hpFilter.frequency.value - ${base.hp}) < 50
-        && Math.abs(toneEngine._lpFilter.frequency.value - ${base.lp}) < 2000
+    return Math.abs(${fxv('hp-freq')} - ${base.hp}) < 3
+        && Math.abs(${fxv('lp-freq')} - ${base.lp}) < 3
         && __el._tempo === ${base.tempo}
         && __el.querySelector('.pn-fx-slider[data-fx="reverb-wet"]')?.value === ${JSON.stringify(base.wet)}
         && JSON.stringify((__el._feelState || {}).puck || null) === ${JSON.stringify(base.puck)};

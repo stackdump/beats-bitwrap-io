@@ -20,7 +20,7 @@
 // Not Track, after "Turn off" in Help (localStorage pn-telemetry=off), or
 // with ?telemetry=0. No IP is stored server-side.
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 
 const ENDPOINT = '/api/telemetry';
 const FLUSH_MS = 20000;
@@ -113,10 +113,10 @@ class Telemetry {
         if (this.buf.length >= MAX_BUFFER) this.flush(false);
     }
 
-    // Audio context + <audio> sink listeners; re-run on every play since
-    // the context can be replaced (wave mode installs its own).
+    // Audio context + <audio> sink listeners; re-run on every play (the
+    // context is made on the first one).
     hookAudio() {
-        const ctx = window.Tone?.getContext?.()?.rawContext;
+        const ctx = audioEngine.ctx;
         if (ctx && !this.hookedCtx.has(ctx)) {
             this.hookedCtx.add(ctx);
             ctx.addEventListener('statechange', () => this.add('ctx', { s: ctx.state }));
@@ -126,7 +126,7 @@ class Telemetry {
                 outputLatency: +(ctx.outputLatency || 0).toFixed(4),
             };
         }
-        const sinkEl = toneEngine._masterSink?.audioEl;
+        const sinkEl = audioEngine._sink?.audioEl;
         if (sinkEl && !this.hookedSink.has(sinkEl)) {
             this.hookedSink.add(sinkEl);
             for (const t of ['play', 'pause', 'stalled', 'waiting']) {
@@ -135,7 +135,7 @@ class Telemetry {
         }
     }
 
-    play() { this.hookAudio(); this.add('play', { engine: this.el._waveEngine ? 'wave' : 'default' }); }
+    play() { this.hookAudio(); this.add('play', { engine: 'djrust' }); }
     stop(reason) { this.add('stop', { r: reason || 'user' }); this.flush(false); }
 
     win(w) {
@@ -157,7 +157,7 @@ class Telemetry {
         const events = this.buf.splice(0, 1000);
         const body = JSON.stringify({
             v: 1, sid: this.sid, seq: this.seq++,
-            engine: this.el._waveEngine ? 'wave' : 'default',
+            engine: 'djrust',
             device: this.device, audio: this.audio || {}, events,
         });
         try {

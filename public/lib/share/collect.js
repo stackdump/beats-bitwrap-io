@@ -234,6 +234,8 @@ export function buildSharePayload(el) {
     if (Array.isArray(el._shareParents) && el._shareParents.length) {
         payload.parents = el._shareParents.slice(0, 8);
     }
+    // a `play: "dj"` share still played as such (unedited: lib/backend/djrust.js) stays one
+    if (el._djShare?.active && !el._djShare.dropped && !payload.nets) payload.play = 'dj';
     // Hand-authored escape hatch: when there's no (genre, seed) recipe to
     // reconstruct from, dump the raw nets so the share URL round-trips
     // the literal petri net authoring. Inflates the URL (≈10-100 kB

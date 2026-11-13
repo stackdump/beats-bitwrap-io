@@ -7,12 +7,13 @@
 // petri-note.js keeps one-line wrapper methods so call sites are
 // unchanged (`el._togglePlay()`, `el._sendWs(msg)`, etc.).
 
-import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
-import { routeToWave, waveLoadProject } from './wave.js';
+import { routeToDjrust, djrustLoadProject, djrustReloadProject, ensureDjrust } from './djrust.js';
+import { runControls } from './controls.js';
 import { scopeOnFire } from '../ui/scope.js';
-import { perfStart, perfStop, perfNote, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
+import { perfStart, perfStop, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { telemetryOnPlay, telemetryOnStop, telemetryEvent } from '../perf/telemetry.js';
 
 // Live perf monitor and diagnostics run exactly while the transport plays.
@@ -22,24 +23,6 @@ function syncPerf(el, reason) {
     if (el._playing) { perfStart(el); telemetryOnPlay(el); }
     else { perfStop(el); telemetryOnStop(el, reason); }
 }
-
-// Audio-clock lookahead window. Worker stamps every transition fire
-// with `playAtOffsetMs` + `tickEpochMs`; we convert to an absolute
-// AudioContext time on receipt and let Tone.js schedule the note.
-// 80 ms is small enough to stay under the AV-sync perception threshold
-// for music, large enough to absorb main-thread stalls (Auto-DJ regen,
-// macro fires, GC pauses) without dropping beats. Mirrored in
-// sequencer-worker.js — keep in sync.
-const LOOKAHEAD_MS = 80;
-
-// Voice-recycle cadence. Tone v14's PolySynth/Synth voice pools retain their
-// per-note oscillators over long continuous playback, so an hour-long loop
-// bloats the Web Audio graph (~600 leaked oscillators/min) and the render
-// thread lags. While playing we rebuild one channel's instrument on this
-// interval (round-robin via toneEngine.recycleVoices) to reclaim them —
-// bounding live oscillators instead of growing without limit. One channel
-// per tick keeps the audible blip to a single voice. See tone-engine.js.
-const VOICE_RECYCLE_MS = 12000;
 
 // --- Transport ---
 
@@ -59,20 +42,16 @@ export function cyclePlaybackMode(el) {
 
 export function togglePlay(el) {
     // Resume AudioContext immediately in user gesture (Chrome autoplay policy).
-    toneEngine.resumeContext();
+    audioEngine.resumeContext();
 
     el._playing = !el._playing;
     syncPerf(el, el._toggleReason || 'user');
     el._toggleReason = null;
 
-    // Drop the audio grid anchor. The next worker fire after a fresh
-    // play (or the silence after a stop) re-anchors against Tone.now().
-    el._audioGridStartTone = null;
-
     // After resume() settles, check if the context actually unlocked.
     if (el._playing) {
         setTimeout(() => {
-            if (el._playing && !toneEngine.isContextRunning()) {
+            if (el._playing && !audioEngine.isContextRunning()) {
                 showAudioLockBanner(el);
             } else {
                 hideAudioLockBanner(el);
@@ -87,48 +66,16 @@ export function togglePlay(el) {
 
     if (el._playing) {
         el._ensureToneStarted();
+        ensureDjrust(el);
         el._vizStartLoop();
         acquireWakeLock(el);
-        // Tone.Transport runs alongside the worker tick loop as a
-        // pure clock — it doesn't drive synthesis (the worker does
-        // that), but macros use Tone.Transport.scheduleOnce for
-        // audio-time-correct restore timers. Without starting the
-        // Transport here, those scheduled callbacks never fire.
-        try {
-            if (typeof Tone !== 'undefined' && Tone.Transport) {
-                if (Tone.Transport.state !== 'started') Tone.Transport.start();
-            }
-        } catch {}
         // Notify any sibling listeners (e.g. the CID handoff pill) so
         // they can pause their own playback to avoid double-audio.
         try { el.dispatchEvent(new CustomEvent('pn-play')); } catch {}
         setupMediaSession(el);
         installVisibilityRecovery(el);
-        // Periodic voice-pool flush so hour-long loops don't bloat the audio
-        // graph (one channel rebuilt per tick, round-robin).
-        clearInterval(el._voiceRecycleTimer);
-        el._voiceRecycleTimer = setInterval(() => {
-            if (el._playing) {
-                try { toneEngine.recycleVoices(1); } catch {}
-            }
-        }, VOICE_RECYCLE_MS);
     } else {
         el._vizStopLoop();
-        clearInterval(el._voiceRecycleTimer);
-        el._voiceRecycleTimer = null;
-        // Stop Tone.Transport FIRST, then cancel macros. Order matters:
-        // restoreFeelState's reverb flush checks Transport.state to decide
-        // between a deferred (transport-clocked) restore and a synchronous
-        // one — with the transport still 'started' it would defer, and the
-        // cancel(0) below would then delete the deferred restore, stranding
-        // reverb-wet at 0. All token restores in clearLocalMacroState are
-        // synchronous, so nothing else needs the transport alive.
-        try {
-            if (typeof Tone !== 'undefined' && Tone.Transport) {
-                Tone.Transport.cancel(0);
-                if (Tone.Transport.state === 'started') Tone.Transport.stop();
-            }
-        } catch {}
         // Cancel + restore any in-flight macro state — worker will reset
         // mute state anyway.
         el._cancelAllMacros();
@@ -151,11 +98,9 @@ export function showAudioLockBanner(el) {
     banner.className = 'pn-audio-lock-banner';
     banner.innerHTML = '<span>Audio is blocked by the browser.</span><button>Click to enable</button>';
     banner.querySelector('button').addEventListener('click', async () => {
-        toneEngine.resumeContext();
+        audioEngine.resumeContext();
         await el._ensureToneStarted();
-        // Clear any notes that may have been scheduled pre-resume.
-        try { toneEngine.panic?.(); } catch {}
-        if (toneEngine.isContextRunning()) hideAudioLockBanner(el);
+        if (audioEngine.isContextRunning()) hideAudioLockBanner(el);
     });
     el.appendChild(banner);
     el._audioLockBanner = banner;
@@ -229,14 +174,14 @@ export function installVisibilityRecovery(el) {
         }
         if (document.visibilityState === 'visible' && el._playing) {
             // Catch-up path (AFK mode only — non-AFK already stopped).
-            try { toneEngine.resumeContext(); } catch {}
+            try { audioEngine.resumeContext(); } catch {}
             if (el._worker && Number.isFinite(el._tempo)) {
                 el._worker.postMessage({ type: 'tempo', tempo: el._tempo });
             }
         } else if (document.visibilityState === 'visible') {
             // Pre-resume context so the next user-tap on Play has a
             // hot context (cheap; harmless if it was never suspended).
-            try { toneEngine.resumeContext(); } catch {}
+            try { audioEngine.resumeContext(); } catch {}
         }
     };
     document.addEventListener('visibilitychange', el._visRecoveryHandler);
@@ -462,7 +407,7 @@ export function updateWsStatus(el, connected) {
 }
 
 export function sendWs(el, msg) {
-    if (routeToWave(el, msg)) return;
+    if (routeToDjrust(el, msg)) return;
     if (el._ws?.readyState === WebSocket.OPEN) {
         el._ws.send(JSON.stringify(msg));
     } else if (el._worker) {
@@ -484,17 +429,14 @@ export function handleWsMessage(el, msg) {
             const prevTick = el._tick;
             el._tick = msg.tick || 0;
             el._tickTimestamp = performance.now();
-            // Detect loop wrap (tick jumped backward) — cut lingering notes.
-            if (el._tick < prevTick && el._playing) {
-                toneEngine.panic();
-            }
+            runControls(el, prevTick, el._tick);
             el._fireRepeatingOneShots(prevTick, el._tick);
             el._autoDjTick(prevTick, el._tick);
             onStateSync(el, msg.state);
             // Apply pending instrument changes at bar boundary.
             if (el._pendingInstruments && el._tick >= el._pendingBarTarget) {
-                toneEngine.panic();
                 el._onInstrumentsChanged(el._pendingInstruments);
+                djrustReloadProject(el);
                 el._pendingInstruments = null;
             }
             // Prefetch next track for shuffle mode at ~80% progress.
@@ -517,20 +459,12 @@ export function handleWsMessage(el, msg) {
                 el._tempo = msg.tempo;
                 el.querySelector('.pn-tempo input').value = msg.tempo;
             }
-            // Tempo change invalidates the audio grid (interval changed).
-            // Next fire re-anchors against the new tickIntervalMs.
-            el._audioGridStartTone = null;
             break;
         case 'project-sync':
             el._lastProjectJSON = msg.project; // the benchmark's "current track"
-            waveLoadProject(el, msg.project);
-            // Worker swapped projects (or just synced state) — drop
-            // the audio grid anchor so the next fire re-establishes
-            // it at Tone.now() + LOOKAHEAD against the new project.
-            el._audioGridStartTone = null;
+            djrustLoadProject(el, msg.project);
             if (el._playing) {
                 // Server swapped at bar boundary — apply seamlessly.
-                toneEngine.panic();
                 el._applyProjectSync(msg.project, true);
             } else {
                 el._applyProjectSync(msg.project, false);
@@ -580,6 +514,7 @@ export function handleWsMessage(el, msg) {
                 el._pendingBarTarget = (Math.floor(el._tick / 16) + 1) * 16;
             } else {
                 el._onInstrumentsChanged(msg.instruments);
+                djrustReloadProject(el);
             }
             break;
         case 'control-fired':
@@ -675,7 +610,6 @@ export function handleWsMessage(el, msg) {
                     const proj = el._pendingNextTrack;
                     el._pendingNextTrack = null;
                     const label = el._injectTransitionNet(proj);
-                    toneEngine.panic();
                     el._applyProjectSync(proj, false);
                     const statusEl = el.querySelector('.pn-autodj-status');
                     if (statusEl && label) statusEl.textContent = `⟳ ${label}`;
@@ -759,113 +693,11 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
     if (flashes) stageOnTransitionFired(el, netId, transitionId);
     vizEnd(VIZ.FIRE, vt0);
 
-    // Scope tab (wave engine): the worklet's tick time is when it sounds.
-    if (midi && el._waveEngine && el._scope) scopeOnFire(el, netId, midi, audioT, audioT, tick);
-
-    // Play sound locally — unless the wave engine is rendering it.
-    if (midi && !el._waveEngine) {
-        // Apply client-side humanization.
-        let m = humanizeNote(el, midi);
-        // Hit-pad live pitch: the .pn-os-pitch dropdown in the Beats
-        // panel acts as a transpose for the stinger track whenever it's
-        // unmuted — via Fire, the 1–4 hotkey, or the mixer mute button.
-        // Reading the DOM every fire keeps the dropdown as the single
-        // source of truth, no timer reconciliation needed.
-        if (typeof netId === 'string' && netId.startsWith('hit')) {
-            const pitchSel = el.querySelector(`.pn-os-pitch[data-macro="${netId}"]`);
-            const semi = parseInt(pitchSel?.value, 10);
-            if (Number.isFinite(semi) && semi !== 0) {
-                m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + semi)) };
-            }
-        }
-        // Live transpose: a runtime semitone offset set by the
-        // .pn-transpose pill (or a MIDI keybed press while
-        // transpose-listen mode is on). Applies to melodic / harmonic
-        // channels only — drums keep their fixed kit notes so the
-        // kick/snare don't slide off the wrong key when the user
-        // pivots into a new key mid-loop.
-        const xpose = el._liveTranspose | 0;
-        if (xpose !== 0 && m && !isDrumChannel(m.channel)) {
-            m = { ...m, note: Math.max(0, Math.min(127, (m.note || 0) + xpose)) };
-        }
-        // Three playback paths, picked in order of preference:
-        //  - Audio-grid path (playbackTicks + tickIntervalMs defined):
-        //    anchor `_audioGridStartTone` to a `Tone.now()` baseline
-        //    on the first fire of a playback session, then schedule
-        //    every subsequent fire at `anchor + n * tickIntervalSec`.
-        //    Audio onsets land on the AudioContext-clock grid no
-        //    matter when the worker fire arrives — immune to
-        //    setInterval jitter / Chromium throttling under load.
-        //    Re-anchors when `_audioGridStartTone` is null (set by
-        //    tempo-changed, transport stop, project swap), or when
-        //    `playbackTicks` regresses (new playback session), or when
-        //    `tickIntervalMs` changes (tempo change).
-        //  - Per-burst anchor (playAtOffsetMs only): legacy fallback
-        //    for the WS backend, which doesn't emit playbackTicks.
-        //  - Plain (no fields): legacy setTimeout-based delay.
-        if (typeof playbackTicks === 'number' && typeof tickIntervalMs === 'number') {
-            // Re-anchor when:
-            //   - first fire of a session (anchor is null);
-            //   - playbackTicks regressed (worker reset, new playback);
-            //   - tempo changed (interval changed → grid changed);
-            //   - the anchor is stale and would schedule audio in the
-            //     past. The classic case is the first Play after a fresh
-            //     page load: togglePlay calls resumeContext() async but
-            //     doesn't await it, so the very first transition-fired
-            //     can land while Tone.now() is still 0 (or a tiny
-            //     pre-unlock value). We anchor to that bogus baseline
-            //     and every scheduled note ends up "in the past" — Tone
-            //     silently drops them, no audio. Detect by checking
-            //     whether the computed playAt < Tone.now(), and if so
-            //     reset against fresh Tone.now() so subsequent fires
-            //     stay on the grid relative to the corrected anchor.
-            const candidatePlayAt = el._audioGridStartTone != null
-                ? el._audioGridStartTone
-                  + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
-                : -Infinity;
-            const stale = candidatePlayAt < toneEngine.now();
-            // Perf monitor: a stale anchor mid-session means this fire
-            // arrived too late to land on the grid — an audible hiccup.
-            const lateReanchor = stale && el._audioGridStartTone != null
-                && playbackTicks >= (el._audioGridStartPlaybackTicks ?? 0)
-                && el._audioGridTickIntervalMs === tickIntervalMs;
-            if (el._audioGridStartTone == null
-                || playbackTicks < (el._audioGridStartPlaybackTicks ?? 0)
-                || el._audioGridTickIntervalMs !== tickIntervalMs
-                || stale) {
-                el._audioGridStartTone = toneEngine.now() + LOOKAHEAD_MS / 1000;
-                el._audioGridStartPlaybackTicks = playbackTicks;
-                el._audioGridTickIntervalMs = tickIntervalMs;
-            }
-            const playAt = el._audioGridStartTone
-                + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000)
-                + swingDelay(el) / 1000;
-            perfNote(el, playAt - toneEngine.now(), lateReanchor);
-            el._playNote(m, netId, playAt);
-            if (el._scope) {
-                scopeOnFire(el, netId, m, playAt, el._audioGridStartTone
-                    + (playbackTicks - el._audioGridStartPlaybackTicks) * (tickIntervalMs / 1000), tick);
-            }
-        } else if (typeof playAtOffsetMs === 'number' && typeof tickEpochMs === 'number') {
-            if (el._lastTickEpochMs !== tickEpochMs) {
-                el._lastTickEpochMs = tickEpochMs;
-                el._burstAnchorAudio = toneEngine.now() + LOOKAHEAD_MS / 1000;
-                el._burstAnchorOffsetMs = playAtOffsetMs;
-            }
-            const playAt = el._burstAnchorAudio
-                + (playAtOffsetMs - el._burstAnchorOffsetMs) / 1000
-                + swingDelay(el) / 1000;
-            el._playNote(m, netId, playAt);
-            if (el._scope) scopeOnFire(el, netId, m, playAt, playAt, tick);
-        } else {
-            const delay = swingDelay(el);
-            if (el._scope) scopeOnFire(el, netId, m, NaN, NaN, tick);
-            if (delay > 0) {
-                setTimeout(() => el._playNote(m, netId), delay);
-            } else {
-                el._playNote(m, netId);
-            }
-        }
+    // djrust renders the sound; its fire carries the audio time it sounds at (the Scope's
+    // step grid), and still goes out over Web MIDI when that is on.
+    if (midi) {
+        if (el._scope) scopeOnFire(el, netId, midi, audioT, audioT, tick);
+        el._playNote(midi, netId);
     }
 }
 

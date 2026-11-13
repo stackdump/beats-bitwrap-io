@@ -44,6 +44,12 @@ func TestRejects(t *testing.T) {
 	if rec := post(t, h, ok); rec.Code != http.StatusNoContent {
 		t.Fatalf("valid batch = %d %s", rec.Code, rec.Body)
 	}
+	for _, engine := range []string{"wave", "djrust"} {
+		b := strings.Replace(batch("sess-00e"+engine[:1], 0, `[0,"play"]`), `"default"`, `"`+engine+`"`, 1)
+		if rec := post(t, h, b); rec.Code != http.StatusNoContent {
+			t.Errorf("engine %s: got %d %s", engine, rec.Code, rec.Body)
+		}
+	}
 	bad := map[string]string{
 		"unknown kind":  batch("sess-0002", 0, `[0,"keylog",{"k":"a"}]`),
 		"nested data":   batch("sess-0003", 0, `[0,"tap",{"on":{"x":1}}]`),

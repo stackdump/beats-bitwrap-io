@@ -12,6 +12,7 @@ import { MACROS, TRANSITION_MACRO_IDS } from './catalog.js';
 import { oneShotSpec } from '../audio/oneshots.js';
 import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
 import { clearLocalMacroState } from './effects.js';
+import { audioEngine, NATIVE_MACRO_KINDS } from '../../audio/engine.js';
 
 // Slider keys tracked by the tone reset/nav/save machinery. Pitch/Hits/
 // Instrument stay outside — they're semantic params, not tone.
@@ -122,18 +123,16 @@ export function executeMacro(el, id, opts) {
     // landed without the pulse class hanging around forever.
     const pulseMs = permanent ? Math.min(3 * el._msPerBar(), 4000) : durationMs;
 
-    if (macro.kind === 'mute') {
-        const targets = macro.targets(el);
+    if (NATIVE_MACRO_KINDS.has(macro.kind)) {
+        // djrust runs these itself, on the deck's next bar: song mutes (drop, breakdown,
+        // solo-drums, cut), beat repeat, double drop, vinyl brake and the pan / decay moves.
+        // `bars` 0 is the macro's own length (a tick-length macro, or a permanent fire, which
+        // djrust does not hold). The tempo moves stay the studio's (below): they move its tempo,
+        // which djrust follows and the tempo box shows.
+        const bars = (permanent || macro.durationUnit === 'tick') ? 0 : duration;
+        audioEngine.fireMacro(id, bars);
+        const targets = macro.kind === 'mute' ? macro.targets(el) : [];
         if (targets.length > 0) {
-            el._sendWs({
-                type: 'fire-macro',
-                macroId: `${id}-${Date.now().toString(36)}`,
-                targets,
-                durationTicks,
-                muteAction: 'mute-track',
-                // null = no auto-restore. Worker mutes and stays muted.
-                restoreAction: permanent ? null : 'unmute-track',
-            });
             const muteEls = targets
                 .map(tid => el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${tid}"] .pn-mixer-mute`)
                          || el._mixerEl?.querySelector(`.pn-mixer-row[data-riff-group="${tid}"] .pn-mixer-mute`))
@@ -153,17 +152,6 @@ export function executeMacro(el, id, opts) {
         }
         const fxEls = ops.map(op => el._fxSlider(op.fxKey)).filter(Boolean);
         el._macroPulse(fxEls, pulseMs, `fx:${id}`);
-    } else if (macro.kind === 'pan-move' || macro.kind === 'decay-move') {
-        // _channelParamMove always restores; for permanent we use a
-        // very long duration so the move sticks for the foreseeable
-        // session. (A first-class permanent path would need plumbing
-        // into channelParamMove; this is the simplest non-invasive
-        // approximation.)
-        el._channelParamMove(macro, permanent ? 24 * 60 * 60 * 1000 : durationMs);
-    } else if (macro.kind === 'beat-repeat') {
-        el._runBeatRepeat(macro, durationMs);
-    } else if (macro.kind === 'compound') {
-        el._runCompound(macro, duration, macro.durationUnit, msPerTick);
     } else if (macro.kind === 'feel-snap') {
         if (permanent) {
             cancelFeelAnim(el);
@@ -339,17 +327,13 @@ function restoreFeelState(el, snap) {
         // Reverb flush: drop wet to 0 briefly before restoring so the
         // lingering tail from the macro's larger room model doesn't
         // bleed back when wet snaps to the user's manual level.
-        // Tone.Freeverb's wet rampTo is 50ms; 180ms covers the perceptual
-        // worst of the tail on most settings without an audible click.
+        // 180ms covers the perceptual worst of the tail on most settings
+        // without an audible click.
         const targetWet = snap.fx['reverb-wet'];
         if (Number.isFinite(targetWet)) {
-            // The flush ride's on the transport clock — if the transport is
-            // stopped (restore triggered by the stop button) the deferred
-            // set would never fire and wet strands at 0. Only flush when
-            // the clock is actually running.
-            const clockRunning = isOfflineContext()
-                || (typeof Tone !== 'undefined' && Tone.Transport && Tone.Transport.state === 'started');
-            if (clockRunning) {
+            // Only flush while playing: a restore from the stop button
+            // sets the level at once.
+            if (el._playing) {
                 el._setFxByKey('reverb-wet', 0);
                 // Publish the in-flight target so a snapshot taken during
                 // the 180 ms flush window (back-to-back feel fires from an
@@ -1018,13 +1002,9 @@ export function markMacroRunning(el, id, durationMs) {
     const btn = el.querySelector(`.pn-macro-btn[data-macro="${id}"]`);
     if (btn) btn.classList.add('running');
     updateQueuedBadges(el);
-    // Wall-clock timer for the UI/queue bookkeeping. NOT schedAudio:
-    // schedAudio rides Tone.Transport, which doesn't tick while paused —
-    // so a macro fired before the user presses play (e.g. Auto-DJ
-    // transition injected on Generate) would leave the .running class
-    // and _runningMacro slot stuck forever, blocking every subsequent
-    // fireMacro behind a ghost. The macro's *audio* side still uses
-    // schedAudio for sample-accurate restores; this is just the UI tick.
+    // Wall-clock timer for the UI/queue bookkeeping: the .running class and
+    // the _runningMacro slot are released even if the macro was fired
+    // before the user pressed play.
     const ms = Math.max(100, durationMs + 40);
     const tid = setTimeout(() => {
         // Generation guard: if another fire has since replaced the slot

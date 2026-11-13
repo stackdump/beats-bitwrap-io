@@ -1285,6 +1285,7 @@
 import { recordBookmarked, unrecordBookmarked, isBookmarked }
   from '/lib/share/history.js';
 import { generateTrackName } from '/lib/generator/composer.js';
+import { AUDIO_QUERY } from '/djrust/version.js';
 
 const GENRES = [
   'ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage',
@@ -1685,7 +1686,7 @@ const fmtDur = (sec) => {
 // working.
 function audioUrlFor(cid, contentType) {
   const base = (contentType === 'BeatsComposition') ? '/audio-master/' : '/audio/';
-  return `${base}${encodeURIComponent(cid)}.webm`;
+  return `${base}${encodeURIComponent(cid)}.webm${AUDIO_QUERY}`;
 }
 
 const _durObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries) => {
@@ -3123,7 +3124,7 @@ function showCardModal(arg) {
     ? `/composition-card/${encodeURIComponent(cid)}.svg`
     : `/share-card/${encodeURIComponent(cid)}.svg`;
   editorLink.href = isComposition
-    ? `/audio-master/${encodeURIComponent(cid)}.webm`
+    ? `/audio-master/${encodeURIComponent(cid)}.webm${AUDIO_QUERY}`
     : `/?cid=${encodeURIComponent(cid)}`;
   editorLink.textContent = isComposition ? 'Download master' : 'Open in studio';
   // View-signature panel: lazy-fetch /o/{cid} and populate the raw
@@ -3178,7 +3179,7 @@ function showCardModal(arg) {
     // their master .webm so a recipient can listen without needing
     // a Compose UI client.
     const url = isComposition
-      ? `${location.origin}/audio-master/${encodeURIComponent(cid)}.webm`
+      ? `${location.origin}/audio-master/${encodeURIComponent(cid)}.webm${AUDIO_QUERY}`
       : `${location.origin}/?cid=${encodeURIComponent(cid)}`;
     const label = shareBtn.querySelector('.card-modal-share-label');
     try {
