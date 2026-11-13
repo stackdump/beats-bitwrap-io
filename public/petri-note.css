@@ -993,6 +993,8 @@ input[type="range"][data-default] {
 .pn-autodj-panel    { order: 4; }
 .pn-device-panel    { order: 5; }
 .pn-scope-panel     { order: 5; }
+.pn-pads-panel      { order: 2; }
+.pn-vocoder-panel   { order: 2; }
 
 .pn-effects-toggle {
     display: flex;
@@ -4042,3 +4044,58 @@ a.pn-stage-btn:hover { color: #fff; }
     font-size: 10px;
     color: #556677;
 }
+
+/* --- Pads (djrust's effect pads) and Vocoder ------------------------------------------------ */
+.pn-pads-panel, .pn-vocoder-panel {
+    flex-wrap: wrap;
+    gap: 14px 16px;
+    padding: 8px 12px;
+    background: #0d1b2a;
+    align-items: flex-start;
+}
+.pn-pads-group, .pn-voc-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 140px;
+}
+.pn-pads-hint { color: #9aa; font-size: 11px; }
+.pn-pads-note { text-transform: none; letter-spacing: 0; color: #678; margin-left: 4px; }
+.pn-pads-row, .pn-pads-lens { display: flex; flex-wrap: wrap; gap: 4px; }
+.pn-pads-len {
+    padding: 2px 8px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: #1a1a2e;
+    color: #bbb;
+    font-size: 11px;
+    cursor: pointer;
+}
+.pn-pads-len.active { background: #e94560; border-color: #e94560; color: #fff; }
+.pn-pad {
+    min-width: 76px;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 2px solid #0f3460;
+    border-radius: 8px;
+    background: #1a1a2e;
+    color: #eee;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+}
+.pn-pad:hover { border-color: #e94560; }
+.pn-pad[data-state="pending"] { border-color: #e94560; border-style: dashed; }
+.pn-pad[data-state="on"], .pn-pad.held { background: #e94560; border-color: #e94560; color: #fff; }
+.pn-pad[data-state="latched"] { background: #e94560; border-color: #fff; color: #fff; }
+.pn-voc-pad { min-width: 52px; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.pn-voc-pad small { font-weight: 400; color: inherit; opacity: 0.7; font-size: 10px; }
+.pn-voc-switch { font-size: 11px; color: #ccc; display: flex; gap: 4px; align-items: center; }
+.pn-voc-sound { font-size: 11px; background: #1a1a2e; color: #eee; border: 1px solid #0f3460; border-radius: 4px; }
+.pn-voc-meter { height: 4px; background: #1a1a2e; border-radius: 2px; overflow: hidden; }
+.pn-voc-meter-fill { height: 100%; width: 0; background: #e94560; transition: width 0.15s linear; }
+.pn-voc-knob { display: grid; grid-template-columns: 56px 1fr 56px; gap: 6px; align-items: center; font-size: 11px; color: #ccc; }
+.pn-voc-knob input { width: 120px; }
+.pn-voc-val { color: #9aa; text-align: right; }

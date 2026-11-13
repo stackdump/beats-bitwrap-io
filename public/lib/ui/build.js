@@ -19,6 +19,8 @@ import { saveBindingsForDevice as saveMidiBindings } from '../backend/audio-io.j
 import { renderDeviceMap, startDeviceLoop, stopDeviceLoop } from './device-map.js';
 import { renderScopePanel, scopeSync } from './scope.js';
 import { syncNetVisibility } from './canvas.js';
+import { buildPadsPanel } from './fx-pads.js';
+import { buildVocoderPanel } from './vocoder.js';
 
 // Footer metadata cache — these GETs are server-global, idempotent,
 // and stable for the page's lifetime. We fetch them once at first
@@ -407,6 +409,8 @@ export function buildUI(el) {
             <button class="pn-effects-btn ${el._showFx ? 'active' : ''}">FX</button>
             <button class="pn-macros-btn ${el._showMacros ? 'active' : ''}" title="Live performance macros">Macros</button>
             <button class="pn-oneshots-btn ${el._showOneShots ? 'active' : ''}" title="Beat fire pads" ${hasStingers ? '' : 'style="display:none"'}>Beats</button>
+            <button class="pn-pads-btn ${el._showPads ? 'active' : ''}" title="Effect pads: each lands on the next bar, for 1-4 bars or latched; transitions are held">Pads</button>
+            <button class="pn-vocoder-btn ${el._showVocoder ? 'active' : ''}" title="Vocoder: a synth shaped by the track, played from chord pads in its key">Vocoder</button>
             <button class="pn-autodj-btn ${el._showAutoDj ? 'active' : ''}" title="Auto-DJ: fires random macros on a cadence">Auto-DJ</button>
             <button class="pn-arrange-btn ${el._showArrange ? 'active' : ''}" title="Arrange: drive the composer with structure, fades, breaks, feel/macro curves">Arrange</button>
             <button class="pn-note-btn ${el._showNote ? 'active' : ''}" title="Note — short plain-text annotation attached to the share envelope">Note</button>
@@ -649,6 +653,8 @@ export function buildUI(el) {
         </div>
         <div class="pn-device-panel" style="display:${el._showDevice ? 'flex' : 'none'}"></div>
         <div class="pn-scope-panel" style="display:${el._showScope ? 'flex' : 'none'}"></div>
+        <div class="pn-pads-panel" style="display:${el._showPads ? 'flex' : 'none'}"></div>
+        <div class="pn-vocoder-panel" style="display:${el._showVocoder ? 'flex' : 'none'}"></div>
         <div class="pn-macros-panel" style="display:${el._showMacros ? 'flex' : 'none'}">
             <div class="pn-macro-group pn-macro-edit-group">
                 <div class="pn-macro-group-label">Auto-DJ</div>
@@ -1055,6 +1061,20 @@ export function buildUI(el) {
     const fxPanel     = fx.querySelector('.pn-effects-panel');
     const mxPanel     = fx.querySelector('.pn-macros-panel');
     const osPanel     = fx.querySelector('.pn-oneshots-panel');
+    // Pads and Vocoder: djrust's effect pads and vocoder (live only, never in a share)
+    for (const [btnSel, panelSel, flag, build] of [
+        ['.pn-pads-btn', '.pn-pads-panel', '_showPads', buildPadsPanel],
+        ['.pn-vocoder-btn', '.pn-vocoder-panel', '_showVocoder', buildVocoderPanel],
+    ]) {
+        const btn = fx.querySelector(btnSel);
+        const panel = fx.querySelector(panelSel);
+        build(el, panel);
+        btn.addEventListener('click', () => {
+            el[flag] = !el[flag];
+            panel.style.display = el[flag] ? 'flex' : 'none';
+            btn.classList.toggle('active', el[flag]);
+        });
+    }
     macrosBtn.addEventListener('click', () => {
         el._showMacros = !el._showMacros;
         mxPanel.style.display = el._showMacros ? 'flex' : 'none';

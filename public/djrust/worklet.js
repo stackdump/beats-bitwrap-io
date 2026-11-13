@@ -8,14 +8,19 @@
 //
 // In:  load {text, prepared?, after?} · play {on} · stop · seek {tick} · mute {netId, muted} ·
 //      tempo {bpm} · perform {action} · macro {id, bars} · aux {params} · voice {channel, tweak}
-//      (`after`: commands run right after the load lands: the studio's FX and mixer voices)
-// Out: ready · loaded {answer, ms, inline} · events {ev, at, frames, sr} · ended · error
+//      engage {id, mode} · release {id} · live {method, params} · param {name, value}
+//      (`after`: commands run right after the load lands: the studio's FX, voices and vocoder)
+// Out: ready {catalogue} · loaded {answer, ms, inline} · events {ev, at, frames, sr} ·
+//      fx {state} (what is engaged, on a change) · voc {levels, volume} (while the vocoder is on) ·
+//      ended · error
 const BUDGET = 64 << 10; // bytes of a prepared track installed per quantum (~0.3 ms of wasm)
 const TICK_EVERY = 4;    // housekeeping every 4 quanta (~10 ms at 48 kHz); render_offline matches
 const MARKING_EVERY = 5; // ring marking every 5th event read (~50 ms)
+const FX_EVERY = 10;     // engaged-effects read every 10th housekeeping (~100 ms)
+const VOC_EVERY = 20;    // vocoder levels every 20th (~200 ms), only while it is on
 // What the studio needs of the engine (djrust's `beats` facade, 0.2.0 and later).
 const FACADE = ['load_share', 'events', 'set_net_muted', 'set_tempo', 'relocate', 'perform',
-    'fire_macro', 'set_voice', 'live_op'];
+    'fire_macro', 'set_voice', 'live_op', 'engage', 'release', 'fx_state', 'vocoders', 'set_param'];
 
 export function define(djrust) {
     class DjrustProcessor extends AudioWorkletProcessor {
@@ -33,8 +38,11 @@ export function define(djrust) {
                 djrust.initSync({ module: options.processorOptions.module });
                 this.dj = new djrust.Dj(sampleRate);
                 this.dj.set_crossfader(0);
+                this.fxState = '[]';
+                this.vocOn = false;
                 this.port.postMessage({ t: 'ready', sampleRate,
-                    version: typeof djrust.engine_version === 'function' ? djrust.engine_version() : null });
+                    version: typeof djrust.engine_version === 'function' ? djrust.engine_version() : null,
+                    catalogue: typeof djrust.effects_catalogue === 'function' ? djrust.effects_catalogue() : '[]' });
             } catch (e) {
                 this.port.postMessage({ t: 'error', error: String((e && e.stack) || e) });
             }
@@ -65,10 +73,32 @@ export function define(djrust) {
                 case 'macro': this.answer(m, dj.fire_macro('A', m.id, +m.bars || 0)); break;
                 case 'aux': dj.live_op('aux', JSON.stringify({ deck: 'A', ...m.params })); break;
                 case 'voice': dj.set_voice('A', +m.channel, JSON.stringify(m.tweak)); break;
+                case 'engage': dj.engage('A', m.id, String(m.mode || 'latch')); this.readFx(); break;
+                case 'release': dj.release('A', m.id); this.readFx(); break;
+                case 'param': dj.set_param('A', m.name, +m.value); break;
+                case 'live':
+                    dj.live_op(m.method, JSON.stringify(m.params || {}));
+                    if (m.method === 'vocoder' && typeof m.params?.on === 'boolean') this.vocOn = m.params.on;
+                    break;
                 }
             } catch (e) {
                 this.port.postMessage({ t: 'error', error: `${m.t}: ${String((e && e.message) || e)}` });
             }
+        }
+
+        /** The pads' lights: what is engaged on deck A, posted when it changes. */
+        readFx() {
+            const s = this.dj.fx_state('A');
+            if (s !== this.fxState) {
+                this.fxState = s;
+                this.port.postMessage({ t: 'fx', state: s });
+            }
+        }
+
+        /** The vocoder's meters (carrier, modulator, output) and level, while it is on. */
+        readVoc() {
+            const v = JSON.parse(this.dj.vocoders()).instances?.[0];
+            if (v) this.port.postMessage({ t: 'voc', levels: v.levels, volume: v.settings?.volume });
         }
 
         /** An op that did not run says why (a macro on the wrong kind of deck, say). */
@@ -135,7 +165,10 @@ export function define(djrust) {
                 // a read with no fire and no mute / marking change says nothing new
                 const quiet = ev.startsWith('{"fires":[]') && !ev.includes('"muted"') && !ev.includes('"marking"');
                 if (!quiet) this.port.postMessage({ t: 'events', ev, at, frames: this.frames, sr: sampleRate });
-                if ((this.n / TICK_EVERY) % 25 === 0) this.checkEnded();
+                const k = this.n / TICK_EVERY;
+                if (k % 25 === 0) this.checkEnded();
+                if (k % FX_EVERY === 0) this.readFx();
+                if (this.vocOn && k % VOC_EVERY === 0) this.readVoc();
             }
             return true;
         }

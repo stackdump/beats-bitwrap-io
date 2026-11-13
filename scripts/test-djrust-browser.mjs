@@ -12,7 +12,8 @@
 // times are near the context clock; a mixer mute silences that net; the tempo control reaches
 // the engine; an FX panel slider (high-pass) and the mixer's volume change what sounds; a
 // Macros-panel macro (solo-drums) runs in djrust; stop goes back to the top; an instrument pick
-// reloads and plays on; the controls with no djrust equivalent are hidden while the FX, Macros,
+// reloads and plays on; a Pads-panel pad latches on the bar and a held transition holds; a
+// Vocoder chord pad turns the vocoder on and it speaks, also with the track pulled out; the controls with no djrust equivalent are hidden while the FX, Macros,
 // Beats, Auto-DJ, MIDI and Feel panels, the tracks view, mixer and scope stay; the share CID is
 // the one this track always had (Tone's, recorded before the engine swap: contract 1).
 
@@ -254,6 +255,79 @@ try {
     check('instrument pick reloads the engine and plays on', inst.skipped || (inst.loads >= 1 && inst.now === inst.pick && inst.fires > 0),
         JSON.stringify(inst));
 
+    // Pads panel: djrust's effects catalogue as pads; a latched pad lands on the next bar and
+    // stays until tapped again, a held transition is on while the pointer is down
+    const pads = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const { audioEngine } = await import('/audio/engine.js');
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        const bar = Math.ceil(el._msPerBar());
+        el.querySelector('.pn-pads-btn').click();
+        const panel = el.querySelector('.pn-pads-panel');
+        const count = panel.querySelectorAll('.pn-pad').length;
+        panel.querySelector('.pn-pads-head .pn-pads-len[data-len="latch"]').click();
+        const pad = panel.querySelector('.pn-pad[data-fx="build-crush"]');
+        pad.click();
+        const asked = pad.dataset.state || '';
+        await wait(bar + 400);
+        const latched = pad.dataset.state || '';
+        const active = audioEngine.fxActive.map(a => a.id + (a.latched ? ':latched' : ''));
+        pad.click();
+        await wait(bar + 400);
+        const released = pad.dataset.state || '';
+        const hold = panel.querySelector('.pn-pad[data-fx="tape_stop"]');
+        const opts = { bubbles: true, pointerId: 1, isPrimary: true };
+        hold.dispatchEvent(new PointerEvent('pointerdown', opts));
+        await wait(bar + 400);
+        const held = audioEngine.fxActive.some(a => a.id === 'tape_stop');
+        hold.dispatchEvent(new PointerEvent('pointerup', opts));
+        await wait(bar + 400);
+        const let_go = !audioEngine.fxActive.some(a => a.id === 'tape_stop');
+        el.querySelector('.pn-pads-btn').click();
+        return { count, asked, latched, active, released, held, let_go, errors: el._djrustErrors || [] };
+    })()`);
+    check('Pads panel shows djrust\'s effects catalogue', pads.count >= 30, `${pads.count} pads`);
+    check('a latched pad lands on the bar and lets go on a second tap',
+        pads.asked === 'pending' && pads.latched === 'latched' && pads.active.includes('build-crush:latched') && pads.released === '' && !pads.errors.length,
+        JSON.stringify(pads));
+    check('a held transition pad is on while held', pads.held && pads.let_go, JSON.stringify({ held: pads.held, let_go: pads.let_go }));
+    await sleep(1500); // the tape stop's tail
+
+    // Vocoder panel: the synth shaped by the track, played from a chord pad in the key
+    const voc = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const { audioEngine } = await import('/audio/engine.js');
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        el.querySelector('.pn-vocoder-btn').click();
+        const panel = el.querySelector('.pn-vocoder-panel');
+        const chords = [...panel.querySelectorAll('.pn-voc-pad')].map(p => p.textContent.trim());
+        const opts = { bubbles: true, pointerId: 2, isPrimary: true };
+        const pad = panel.querySelector('.pn-voc-pad[data-pad="0"]');
+        let vocMsgs = 0;
+        const off = audioEngine.on('voc', () => vocMsgs++);
+        pad.dispatchEvent(new PointerEvent('pointerdown', opts));
+        await wait(900);
+        const on = panel.querySelector('.pn-voc-on').checked;
+        const levels = audioEngine.vocLevels;
+        const only = panel.querySelector('.pn-voc-only');
+        only.checked = true; only.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(500);
+        const alone = await window.__measure();
+        const trackVol = audioEngine.trackVolume;
+        pad.dispatchEvent(new PointerEvent('pointerup', opts));
+        only.checked = false; only.dispatchEvent(new Event('change', { bubbles: true }));
+        const box = panel.querySelector('.pn-voc-on');
+        box.checked = false; box.dispatchEvent(new Event('change', { bubbles: true }));
+        off();
+        el.querySelector('.pn-vocoder-btn').click();
+        return { chords, on, vocMsgs, levels, alonePeak: alone.peak, trackVol, restored: audioEngine.trackVolume, errors: el._djrustErrors || [] };
+    })()`);
+    check('Vocoder chord pads are the key\'s triads', voc.chords.length === 7, voc.chords.join(' '));
+    check('a chord pad turns the vocoder on and it speaks', voc.on && voc.vocMsgs > 0 && voc.levels?.output > 0.01 && !voc.errors.length,
+        JSON.stringify({ on: voc.on, msgs: voc.vocMsgs, levels: voc.levels, errors: voc.errors }));
+    check('"vocoder only" keeps the vocoder sounding without the track', voc.trackVol === 0 && voc.alonePeak > 0.01 && voc.restored > 0,
+        `track level ${voc.trackVol} → ${voc.restored}, peak ${voc.alonePeak?.toFixed(3)}`);
+
     // hidden vs kept controls
     const ui = await cdp.evaluate(`(() => {
         const el = document.querySelector('petri-note');
@@ -264,7 +338,7 @@ try {
         const keep = ['.pn-effects-btn', '.pn-macros-btn', '.pn-oneshots-btn', '.pn-autodj-btn', '.pn-midi-btn',
             '.pn-feel-open', '.pn-fx-bypass', '.pn-fx-reset', '.pn-macro-panic', '.pn-scope-btn', '.pn-arrange-btn',
             '.pn-stage-btn', '.pn-mixer-mute', '.pn-mixer-instrument', '.pn-mixer-vol', '.pn-mixer-cutoff',
-            '.pn-mixer-decay', '.pn-genre-select'];
+            '.pn-mixer-decay', '.pn-genre-select', '.pn-pads-btn', '.pn-vocoder-btn'];
         return { leaked: hide.filter(shown), missing: keep.filter(s => !shown(s)) };
     })()`);
     check('controls with no djrust equivalent are hidden', ui.leaked.length === 0, ui.leaked.join(' '));

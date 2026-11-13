@@ -57,6 +57,26 @@ class AudioEngine {
         this.fxValues = new Map();   // key → slider value, only the ones moved from djrust's own
         this.voices = new Map();     // channel → tweak object
         this.auxOn = false;          // the reverb / delay bus is in use (see fx())
+        // the effect pads: djrust's catalogue (from the worklet's ready) and what is engaged now
+        this.catalogue = [];
+        this.fxActive = [];          // [{id, latched, pending}], from the worklet's `fx`
+        // the vocoder: the settings sent so far (one object, replayed whole), and its meters
+        this.voc = {};
+        this.vocLevels = null;
+        this._listeners = new Map(); // 'fx' | 'voc' | 'ready' → Set of callbacks
+    }
+
+    /** Call `fn` on `what` ('fx': pad lights changed, 'voc': vocoder meters, 'ready'). */
+    on(what, fn) {
+        if (!this._listeners.has(what)) this._listeners.set(what, new Set());
+        this._listeners.get(what).add(fn);
+        return () => this._listeners.get(what)?.delete(fn);
+    }
+
+    emit(what, arg) {
+        for (const fn of this._listeners.get(what) || []) {
+            try { fn(arg); } catch (e) { console.warn(`[audio] ${what} listener:`, e); }
+        }
     }
 
     // --- context -------------------------------------------------------------------------------
@@ -243,6 +263,56 @@ class AudioEngine {
 
     voiceCommands() {
         return [...this.voices].map(([channel, tweak]) => ({ t: 'voice', channel, tweak }));
+    }
+
+    // --- effect pads (djrust's effects catalogue, engaged on the track's next bar) -----------------
+
+    /** Engage catalogue effect `id`: `mode` is 'momentary', 'latch' or a number of bars. */
+    engage(id, mode = 'latch') {
+        this.send({ t: 'engage', id, mode: String(mode) });
+    }
+
+    /** Let go of `id` (a held pad lifted, a latch or a running pad tapped again). */
+    release(id) {
+        this.send({ t: 'release', id });
+    }
+
+    /** The worklet's `fx` report: what is engaged now. */
+    setFxActive(state) {
+        try { this.fxActive = JSON.parse(state) || []; } catch { this.fxActive = []; }
+        this.emit('fx', this.fxActive);
+    }
+
+    // --- the vocoder: djrust's synth as the carrier, the track as the modulator ----------------
+
+    /**
+     * Vocoder settings (djrust's `vocoder` live op: `on`, `notes`, any knob by name, `modulator`,
+     * `carrier`). Kept, so a fresh engine gets the same vocoder.
+     */
+    vocoder(params) {
+        Object.assign(this.voc, params);
+        if (params.on === false) this.vocLevels = null;
+        this.send({ t: 'live', method: 'vocoder', params });
+    }
+
+    /** Load one of the synth's factory sounds (djrust `eurosynth::FACTORY_PRESETS`) by name. */
+    vocoderSound(name) {
+        this.vocSound = name;
+        this.send({ t: 'live', method: 'target', params: { id: 'vocoderSwitch', args: { op: 'preset', preset: name } } });
+    }
+
+    /** The track's own level into the mix (the vocoder still hears it: its modulator is pre-fader). */
+    trackLevel(v) {
+        this.trackVolume = v;
+        this.send({ t: 'param', name: 'volume', value: v });
+    }
+
+    vocoderCommands() {
+        const out = [];
+        if (this.vocSound) out.push({ t: 'live', method: 'target', params: { id: 'vocoderSwitch', args: { op: 'preset', preset: this.vocSound } } });
+        if (Object.keys(this.voc).length) out.push({ t: 'live', method: 'vocoder', params: { ...this.voc } });
+        if (this.trackVolume != null) out.push({ t: 'param', name: 'volume', value: this.trackVolume });
+        return out;
     }
 }
 

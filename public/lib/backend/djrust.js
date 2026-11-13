@@ -107,6 +107,8 @@ export function ensureDjrust(el) {
             serial: 0, lastNets: null,
             post: (m, transfer = []) => node.port.postMessage(m, transfer),
         };
+        try { audioEngine.catalogue = JSON.parse(ready.catalogue || '[]'); } catch { audioEngine.catalogue = []; }
+        audioEngine.emit('ready', dj);
         node.port.onmessage = (ev) => onEngineMessage(el, dj, ev.data);
         node.connect(audioEngine.output);
         audioEngine.attach(dj.post);
@@ -179,7 +181,7 @@ function loadProject(el, dj, project, force = false) {
         muted: [...(el._mutedNets || [])], bpm: el._tempo || project.tempo || 0,
         playing: !!el._playing,
         // the studio's FX and mixer voices, put back on the project as it lands
-        after: [...audioEngine.fxCommands(), ...audioEngine.voiceCommands()],
+        after: [...audioEngine.fxCommands(), ...audioEngine.voiceCommands(), ...audioEngine.vocoderCommands()],
     };
     if (!dj.composer) { dj.post(m); return; }
     dj.pending ||= new Map();
@@ -265,6 +267,13 @@ function onEngineMessage(el, dj, msg) {
             // a reload while playing picks up where the old project was
             if (el._playing && el._tick > 0) dj.post({ t: 'seek', tick: el._tick });
         }
+        return;
+    case 'fx':
+        audioEngine.setFxActive(msg.state);
+        return;
+    case 'voc':
+        audioEngine.vocLevels = msg.levels;
+        audioEngine.emit('voc', msg);
         return;
     case 'ended':
         el._handleWsMessage?.({ type: 'playback-complete' });
