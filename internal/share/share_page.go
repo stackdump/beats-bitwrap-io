@@ -33,6 +33,7 @@ import (
 	"strings"
 	texttemplate "text/template"
 
+	"beats-bitwrap-io/internal/audioengine"
 	"beats-bitwrap-io/internal/generator"
 
 	qrcode "github.com/skip2/go-qrcode"
@@ -283,7 +284,7 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		shareURL := fmt.Sprintf("%s/?cid=%s", origin, cid)
 		cardPNG := fmt.Sprintf("%s/share-card/%s.png", origin, cid)
 		cardSVG := fmt.Sprintf("%s/share-card/%s.svg", origin, cid)
-		audioURL := fmt.Sprintf("%s/audio/%s.webm", origin, cid)
+		audioURL := fmt.Sprintf("%s/audio/%s.webm%s", origin, cid, audioengine.Query())
 		if userTitle != "" {
 			shareURL += "&title=" + urlQueryEscape(userTitle)
 			cardPNG += "?title=" + urlQueryEscape(userTitle)

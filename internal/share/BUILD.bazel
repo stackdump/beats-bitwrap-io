@@ -27,6 +27,7 @@ go_library(
     importpath = "beats-bitwrap-io/internal/share",
     visibility = ["//:__subpackages__"],
     deps = [
+        "//internal/audioengine",
         "//internal/generator",
         "@com_github_decred_dcrd_dcrec_secp256k1_v4//ecdsa",
         "@com_github_fogleman_gg//:gg",

@@ -43,6 +43,9 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE tracks ADD COLUMN signer_address   TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tracks ADD COLUMN content_type     TEXT NOT NULL DEFAULT 'BeatsShare'`,
 		`ALTER TABLE tracks ADD COLUMN audio_provenance TEXT NOT NULL DEFAULT ''`,
+		// The audio engine + version that made the render (internal/audioengine,
+		// e.g. "djrust-0.2.0"); '' = before engines were recorded (Tone.js).
+		`ALTER TABLE tracks ADD COLUMN audio_engine     TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = s.Exec(alter)
 	}
@@ -150,6 +153,44 @@ func (d *DB) RecordAudioProvenance(cid, source string) error {
 		return fmt.Errorf("index: record audio provenance: %w", err)
 	}
 	return nil
+}
+
+// RecordAudioEngine tags the most recent /audio/{cid}.webm render with the engine and version
+// that made it (internal/audioengine.Tag, e.g. "djrust-0.2.0"). Audio is a function of (CID,
+// engine version), so StaleAudioCIDs can find renders a newer engine should redo.
+func (d *DB) RecordAudioEngine(cid, engine string) error {
+	if cid == "" {
+		return errors.New("index: empty cid")
+	}
+	if _, err := d.sql.Exec(`UPDATE tracks SET audio_engine = ? WHERE cid = ?`, engine, cid); err != nil {
+		return fmt.Errorf("index: record audio engine: %w", err)
+	}
+	return nil
+}
+
+// StaleAudioCIDs returns CIDs whose render was made by an engine other than `engine` (older
+// versions, and the empty engine of renders from before engines were recorded), oldest first.
+func (d *DB) StaleAudioCIDs(engine string, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := d.sql.Query(
+		`SELECT cid FROM tracks WHERE audio_engine != ? ORDER BY rendered_at ASC LIMIT ?`,
+		engine, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("index: stale query: %w", err)
+	}
+	defer rows.Close()
+	cids := make([]string, 0, limit)
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, fmt.Errorf("index: stale scan: %w", err)
+		}
+		cids = append(cids, cid)
+	}
+	return cids, rows.Err()
 }
 
 // SuspectAudioCIDs returns CIDs whose latest /audio/{cid}.webm was

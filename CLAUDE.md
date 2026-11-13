@@ -370,6 +370,29 @@ Verify empty: `curl -sS https://beats.bitwrap.io/api/feed` → `[]`.
 
 To **also** purge every shared CID, follow the **belt-and-suspenders pattern** in the Archival section below — capture three independent backup copies first; auto-restore handles per-link recovery as users visit them. Don't bare-`rm -rf data/o` without that capture; deleting the share store is the only operation in this codebase that can produce permanently-unrecoverable state.
 
+### Moving feed audio to a new engine version
+
+Audio is a function of (share CID, engine version): the pin in `public/djrust/version.js` is the version, the server reads it at startup (`internal/audioengine`), and every audio URL handed to a listener carries it as `?v=djrust-<version>` (RSS enclosures, `og:audio`, the feed player, the welcome card, webhook and MCP links), because `/audio/{cid}.webm` is served `immutable`. Each render's engine is recorded in `tracks.audio_engine` (uploads say it with `X-Audio-Engine`; the worker sends its local server's `/api/features` `audioEngine`). `GET /api/audio-stale` lists CIDs not rendered by the current engine; `process-rebuild-queue.py --converge-engine --watch` re-renders them (the worker's local checkout must be on the same pin, or it refuses).
+
+The Tone → djrust move (0.2.0) is a backup and purge, re-rendered over time (Matt, 2026-11-12) — after djrust is on npm and this branch is deployed:
+
+```bash
+export S=$(ssh pflow.dev "cat ~/Workspace/beats-bitwrap-io/data/.rebuild-secret")
+# 1. back up the Tone renders (heavy snapshot: audio + db), on the box and off it
+curl -fsS -X POST -H "X-Rebuild-Secret: $S" \
+     "https://beats.bitwrap.io/api/snapshot-persist?label=pre-djrust-0.2.0&audio=1&db=1"
+scp pflow.dev:~/Workspace/beats-bitwrap-io/data/snapshots/beats-snapshot-*-pre-djrust-0.2.0.tgz ~/beats-backups/
+# 2. purge the audio and the index (shares stay); the index is rebuilt from the store
+ssh pflow.dev "~/services stop beats-bitwrap"
+ssh pflow.dev "cd ~/Workspace/beats-bitwrap-io && rm -rf data/audio data/audio-master && rm -f data/index.db"
+ssh pflow.dev "~/services start beats-bitwrap"
+# 3. re-render: the farm's archive sweep renders shares that have no audio
+#    (compositions' masters come back through scripts/process-composition-queue.py)
+BEATS_REBUILD_SECRET=$S ./scripts/process-rebuild-queue.py --archive --watch
+```
+
+A later engine bump needs no purge: move the pin, deploy, and run `--converge-engine`.
+
 ### Rebuild queue (off-host audio repair)
 
 Listeners flag a feed card with broken/stuck audio via the ⟳ button — the server records the CID in `data/index.db.rebuild_queue`, and an off-host worker (`scripts/process-rebuild-queue.py`) picks it up, re-renders, uploads, and clears the row. Live in production (prod's `~/services` invokes the binary with `-rebuild-queue`); ⟳ is hidden when the flag is off.

@@ -26,6 +26,7 @@
 
 import { audioEngine } from '../../audio/engine.js';
 import { ensureDjrust } from '../backend/djrust.js';
+import { DJRUST_VERSION } from '../../djrust/version.js';
 
 const PPQ = 4;            // mirrors sequencer-worker.js
 const TAIL_MS = 1500;     // capture reverb / release tail past last tick
@@ -173,7 +174,8 @@ export async function uploadBlob(cid, blob) {
     try {
         const r = await fetch(`/audio/${encodeURIComponent(cid)}.webm`, {
             method: 'PUT',
-            headers: { 'Content-Type': blob.type || 'audio/webm' },
+            // audio is a function of (CID, engine version): say which engine made it
+            headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Audio-Engine': `djrust-${DJRUST_VERSION}` },
             body: blob,
         });
         if (!r.ok) {

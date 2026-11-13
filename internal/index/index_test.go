@@ -2,6 +2,7 @@ package index
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -208,4 +209,36 @@ func itoa(n int64) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+func TestAudioEngineAndStale(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	payload := []byte(`{"@type":"BeatsShare","v":1,"genre":"techno","seed":1,"tempo":124}`)
+	now := time.Now().UnixMilli()
+	for i, cid := range []string{"ztone", "zold", "zcur"} {
+		if err := db.RecordRenderAt(cid, payload, 1000, now-int64(3-i)*60000); err != nil {
+			t.Fatalf("record %s: %v", cid, err)
+		}
+	}
+	// ztone: never tagged (a Tone render from before engines were recorded)
+	if err := db.RecordAudioEngine("zold", "djrust-0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordAudioEngine("zcur", "djrust-0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := db.StaleAudioCIDs("djrust-0.2.0", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(stale, ","); got != "ztone,zold" {
+		t.Fatalf("stale for djrust-0.2.0 = %q, want ztone,zold (oldest first)", got)
+	}
+	if err := db.RecordAudioEngine("", "x"); err == nil {
+		t.Fatal("empty cid accepted")
+	}
 }

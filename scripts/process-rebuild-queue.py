@@ -95,6 +95,39 @@ def fetch_audio_suspect(remote: str, limit: int = 50, grace_mins: int = 30,
         return []
 
 
+def fetch_audio_stale(remote: str, limit: int = 20) -> tuple[list[str], str]:
+    """Return (cids, engine): CIDs whose render was made by an engine other than the
+    remote's (an older djrust, or Tone before engines were recorded). Drives the
+    --converge-engine sweep after an engine bump."""
+    code, body = http("GET", f"{remote}/api/audio-stale?limit={limit}", timeout=30)
+    if code != 200:
+        print(f"  ! audio-stale HTTP {code}", file=sys.stderr)
+        return [], ""
+    try:
+        payload = json.loads(body)
+        return payload.get("cids", []), payload.get("engine", "")
+    except json.JSONDecodeError:
+        return [], ""
+
+
+_engine_cache: dict[str, str] = {}
+
+
+def engine_of(host: str) -> str:
+    """The audio engine + version a beats server plays and renders with (/api/features
+    audioEngine, e.g. "djrust-0.2.0"); "" when the server is too old to say."""
+    if host not in _engine_cache:
+        code, body = http("GET", f"{host}/api/features", timeout=15)
+        engine = ""
+        if code == 200:
+            try:
+                engine = json.loads(body).get("audioEngine", "") or ""
+            except json.JSONDecodeError:
+                pass
+        _engine_cache[host] = engine
+    return _engine_cache[host]
+
+
 def post_rebuild_clear(remote: str, cid: str) -> None:
     """Best-effort clear; archive mode skips this since archive CIDs
     were never enqueued, so there's no row to drop."""
@@ -233,6 +266,10 @@ def process_one(cid: str, local: str, remote: str, min_bytes: int,
     headers = {"Content-Type": "audio/webm"}
     if rebuild_secret:
         headers["X-Rebuild-Secret"] = rebuild_secret
+    # Audio is a function of (CID, engine version): tell the remote which engine made it.
+    engine = engine_of(local)
+    if engine:
+        headers["X-Audio-Engine"] = engine
     code, body = http("PUT", f"{remote}/audio/{cid}.webm", webm,
                       headers, timeout=120)
     if code not in (200, 201):
@@ -348,6 +385,11 @@ def main():
                     help="Also re-render legacy (pre-migration) audio whose provenance "
                          "is unknown. Default: skip — only re-render audio explicitly "
                          "tagged 'browser'.")
+    ap.add_argument("--converge-engine", action="store_true",
+                    help="Engine sweep: re-render CIDs whose audio was made by an engine other than "
+                         "the remote's (/api/audio-stale: an older djrust, or Tone) and PUT them back "
+                         "with X-Rebuild-Secret. The local server must run the remote's engine. "
+                         "Runs on --converge-interval; use with --watch.")
     ap.add_argument("--converge-interval", type=float, default=1800.0,
                     help="Seconds between converge sweeps in --watch mode (default 1800s).")
     ap.add_argument("--delete", metavar="CID", action="append", default=[],
@@ -407,8 +449,30 @@ def main():
     # rebuild-queue's 30 s). Tracks when the next sweep is due.
     next_converge_at = 0.0  # 0 = run immediately on first loop
 
+    if args.converge_engine:
+        if not rebuild_secret:
+            print("! --converge-engine requires --secret or BEATS_REBUILD_SECRET to overwrite "
+                  "existing audio", file=sys.stderr)
+            sys.exit(2)
+        le, re_ = engine_of(args.local), engine_of(args.remote)
+        if not le or le != re_:
+            print(f"! --converge-engine: the local server renders with {le or 'an unknown engine'} "
+                  f"but {args.remote} is on {re_ or 'an unknown engine'}; update the local checkout",
+                  file=sys.stderr)
+            sys.exit(2)
+
     while True:
         now = time.time()
+        if args.converge_engine and now >= next_converge_at:
+            cids, engine = fetch_audio_stale(args.remote, args.converge_limit)
+            if cids:
+                print(f"converge-engine: {len(cids)} CIDs not yet rendered by {engine}")
+                for cid in cids:
+                    process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
+            else:
+                print(f"converge-engine: every render is {engine} ({args.remote})")
+            if not args.converge:
+                next_converge_at = time.time() + args.converge_interval
         if args.converge and now >= next_converge_at:
             if not rebuild_secret:
                 print("! --converge requires --secret or BEATS_REBUILD_SECRET to overwrite "
@@ -434,7 +498,7 @@ def main():
                 print(f"collection fully archived ({args.remote})")
             for cid in cids:
                 process_one(cid, args.local, args.remote, args.min_bytes, rebuild_secret)
-        elif not args.converge:
+        elif not args.converge and not args.converge_engine:
             queue = fetch_queue(args.remote)
             if not queue:
                 print(f"queue empty ({args.remote})")

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"beats-bitwrap-io/internal/audioengine"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/share"
 
@@ -193,7 +194,7 @@ func startRenderAndMirror(cid string, canonical []byte, budget time.Duration, wa
 			// call and surfacing a generic error that swallows the CID.
 			// For waits beyond this, callers poll get_render_status —
 			// that's the primitive built for the long path.
-			audioURL := fmt.Sprintf("%s/audio/%s.webm", mirror, cid)
+			audioURL := fmt.Sprintf("%s/audio/%s.webm%s", mirror, cid, audioengine.Query())
 			if waited, ok := waitForAudio(mirror, cid, 50*time.Second); ok {
 				return fmt.Sprintf("\nRendered by farm in %s — playable at %s.", waited.Round(time.Second), audioURL)
 			}
@@ -341,7 +342,7 @@ func handleGetRenderStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
 			out["state"] = "ready"
-			out["url"] = mirror + "/audio/" + cid + ".webm"
+			out["url"] = mirror + "/audio/" + cid + ".webm" + audioengine.Query()
 			if cl := resp.Header.Get("Content-Length"); cl != "" {
 				if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
 					out["bytes"] = n

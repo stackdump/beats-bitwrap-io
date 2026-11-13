@@ -207,6 +207,7 @@ go_library(
     importpath = "beats-bitwrap-io",
     visibility = ["//visibility:private"],
     deps = [
+        "//internal/audioengine",
         "//internal/audiorender",
         "//internal/bench",
         "//internal/deploy",

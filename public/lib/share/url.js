@@ -14,6 +14,7 @@ import { buildSharePayload } from './collect.js';
 import { signEnvelope, localEd25519PublicKey, ownerDelete } from './sign.js';
 import { recordShared, recordRendered } from './history.js';
 import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from './client-render.js';
+import { AUDIO_QUERY } from '../../djrust/version.js';
 
 // --- URL parsing ---
 
@@ -507,7 +508,7 @@ function expectedRenderMs(el) {
 //   - missing: nothing in flight → "Render now" button
 function wireShareAudioStatus(el, overlay, cid, titleInput) {
     const audioBlock = overlay.querySelector('.pn-share-audio');
-    const audioUrl = `${location.origin}/audio/${cid}.webm`;
+    const audioUrl = `${location.origin}/audio/${cid}.webm${AUDIO_QUERY}`;
     const statusUrl = `/api/audio-status?cid=${cid}`;
     const expectedMs = expectedRenderMs(el);
     let pollTimer = null, tickTimer = null;

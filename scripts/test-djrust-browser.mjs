@@ -275,6 +275,29 @@ try {
 
     const errs = cdp.logs.filter(l => /EXC|\[djrust\].*(error|unavailable)|Uncaught/i.test(l));
     check('no page errors', errs.length === 0, errs.slice(0, 5).join(' | '));
+
+    // the feed renderer's page modes: ?render=1 records djrust's output, ?render=offline is
+    // djrust's render_offline (the same bytes every time for one engine version)
+    const renderMode = async (mode) => {
+        await cdp.send('Page.navigate', { url: `${HOST}/?${TRACK}&render=${mode}&maxMs=3000${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}` });
+        for (let i = 0; i < 150; i++) {
+            await sleep(200);
+            const done = await cdp.evaluate(`!!window.__renderDone`).catch(() => false);
+            if (done) break;
+        }
+        return cdp.evaluate(`(async () => {
+            const b64 = window.__renderBlob || '';
+            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(x => x.toString(16).padStart(2, '0')).join('');
+            return { error: window.__renderError, info: window.__renderInfo, bytes: bytes.length, hash };
+        })()`);
+    };
+    const live = await renderMode('1');
+    check('?render=1 records the djrust engine', !live.error && live.bytes > 5000 && live.info?.engine === 'djrust' && live.info?.engineVersion,
+        `${live.bytes} bytes ${live.info?.mimeType} ${live.info?.engine}@${live.info?.engineVersion} ${live.error || ''}`);
+    const off1 = await renderMode('offline'), off2 = await renderMode('offline');
+    check('?render=offline is deterministic', !off1.error && off1.bytes > 100000 && off1.hash === off2.hash,
+        `${off1.bytes} bytes, ${off1.info?.speedupX}× realtime, ${off1.hash.slice(0, 16)} vs ${off2.hash.slice(0, 16)} ${off1.error || ''}`);
     if (process.env.VERBOSE) console.log(cdp.logs.join('\n'));
     cdp.close();
 } catch (e) {

@@ -9,6 +9,7 @@ import { renderCurrentCard } from '../share/card.js';
 import { openAiPromptModal } from './ai-prompt.js';
 import { listHistory, clearHistory } from '../share/history.js';
 import { renderToBlob, downloadBlob, uploadBlob, isClientRenderSupported } from '../share/client-render.js';
+import { AUDIO_QUERY } from '../../djrust/version.js';
 
 export function openMidiEditor(el, transitionId) {
     const net = el._getActiveNet();
@@ -439,7 +440,7 @@ export function showWelcomeCard(el, force = false) {
     const cid = (new URLSearchParams(location.search).get('cid') || '')
         .replace(/[^a-zA-Z0-9]/g, '');
     if (cid) {
-        const audioUrl = `${location.origin}/audio/${cid}.webm`;
+        const audioUrl = `${location.origin}/audio/${cid}.webm${AUDIO_QUERY}`;
         const fname = (urlTitle || `beats-${cid.slice(0, 12)}`)
             .replace(/[^\w\-. ]+/g, '_').slice(0, 60) + '.webm';
         const slot = overlay.querySelector('.pn-welcome-modal > div:last-child');
@@ -492,7 +493,7 @@ export function attachCidHandoffPill(el) {
     const dismissKey = `pn-handoff-dismissed-${cid}`;
     try { if (sessionStorage.getItem(dismissKey)) return; } catch {}
     if (document.querySelector('.pn-cid-handoff')) return; // idempotent
-    const audioUrl = `${location.origin}/audio/${cid}.webm`;
+    const audioUrl = `${location.origin}/audio/${cid}.webm${AUDIO_QUERY}`;
     fetch(audioUrl, { method: 'HEAD' }).then(r => {
         if (!r.ok) return;
         const pill = document.createElement('div');
