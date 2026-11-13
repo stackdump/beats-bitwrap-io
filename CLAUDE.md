@@ -305,11 +305,11 @@ When smoke-testing with Playwright against local, pass `-public public` so lib/*
 The audio engine runs in an AudioWorklet, which browsers only give to a **secure context**: https, or http on `localhost` / `127.0.0.1`. Opened as `http://<LAN IP>:<port>/` from another device, Chrome has no `AudioContext.audioWorklet` at all and the engine cannot start (the studio says so in a banner, in the console and in the Pads panel: `engineUnsupported` in `lib/backend/djrust.js`). djrust does not use SharedArrayBuffer, so no COOP / COEP headers (cross-origin isolation) are needed.
 
 ```bash
-make dev-lan LAN_IP=192.168.1.243 DJRUST_PKG=../djrust/npm/pkg   # → https://192.168.1.243:18443/?djrust=/djrust-pkg/
+make dev-lan LAN_IP=192.168.1.243 DJRUST_PKG=../djrust/npm/pkg   # → https://192.168.1.243:18443/
 ```
 
 - `scripts/dev-cert.sh <IP or name>...` makes a local CA once and a server certificate signed by it (localhost, 127.0.0.1 and the names given; 397 days), in `~/.config/beats-dev-cert/` (`BEATS_DEV_CERT_DIR`). Rerun it for a new address; the CA stays, so devices need not trust anything new. `ca-key.pem` never leaves the machine.
-- Server flags: `-tls-cert` / `-tls-key` serve https; `-djrust-pkg <dir>` serves a local djrust npm build at `/djrust-pkg/` on the same origin (no second server, CORS or certificate), opened with `?djrust=/djrust-pkg/`. Neither is used in production (nginx terminates TLS; the engine is the pinned CDN copy).
+- Server flags: `-tls-cert` / `-tls-key` serve https; `-djrust-pkg <dir>` serves a local djrust npm build at `/djrust-pkg/` on the same origin (no second server, CORS or certificate) and rewrites `/djrust/version.js` so every page loads it instead of the pinned CDN copy (no `?djrust=` needed; the version and audio query stay as pinned). Neither is used on beats.bitwrap.io (nginx terminates TLS; the engine is the pinned CDN copy).
 - **Trust the CA once per device** (copy `~/.config/beats-dev-cert/ca.pem` over: a USB stick, Drive, or `python3 -m http.server` in that directory, then download it on the device):
   - **ChromeOS:** Settings → Privacy and security → Security → Manage certificates (or `chrome://certificate-manager`) → *Local certificates* → *Custom* / *Installed by you* → Trusted certificates → **Import** → pick `ca.pem` → tick **Trust this certificate for identifying websites** → OK. Reload the studio tab. (Older ChromeOS: `chrome://settings/certificates` → *Authorities* → Import, same tick box.)
   - **Android:** Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate.

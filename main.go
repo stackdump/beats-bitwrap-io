@@ -99,7 +99,7 @@ func main() {
 	// dev: https for the LAN (an AudioWorklet needs a secure context) and a local djrust build
 	tlsCert := flag.String("tls-cert", "", "serve https with this certificate (PEM); needs -tls-key (scripts/dev-cert.sh)")
 	tlsKey := flag.String("tls-key", "", "the key for -tls-cert (PEM)")
-	djrustPkg := flag.String("djrust-pkg", "", "serve a local djrust npm build at /djrust-pkg/ (open the studio with ?djrust=/djrust-pkg/)")
+	djrustPkg := flag.String("djrust-pkg", "", "serve a local djrust npm build at /djrust-pkg/ and load it instead of the pinned CDN copy")
 
 	// --- Server-side audio render flags ---
 	audioEnabled := flag.Bool("audio-render", false, "Enable /audio/{cid}.webm endpoint (requires headless Chromium on PATH).")
@@ -274,7 +274,21 @@ func main() {
 			log.Fatal(err)
 		}
 		mux.Handle(devserve.PkgPrefix, devserve.PkgHandler(*djrustPkg))
-		log.Printf("djrust build %s at %s (open with ?djrust=%s)", *djrustPkg, devserve.PkgPrefix, devserve.PkgPrefix)
+		// and the studio loads it by default, instead of the pinned CDN copy
+		var src []byte
+		if *dir != "" {
+			src, err = os.ReadFile(filepath.Join(*dir, "djrust", "version.js"))
+		} else {
+			src, err = publicFS.ReadFile("public/djrust/version.js")
+		}
+		if err == nil {
+			src, err = devserve.VersionJS(src)
+		}
+		if err != nil {
+			log.Fatalf("-djrust-pkg: %v", err)
+		}
+		mux.Handle(devserve.VersionJSPath, devserve.VersionJSHandler(src))
+		log.Printf("djrust build %s at %s; the studio loads it by default", *djrustPkg, devserve.PkgPrefix)
 	}
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {

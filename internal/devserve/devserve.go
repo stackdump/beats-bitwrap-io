@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // PkgPrefix is where a local djrust build is served: open the studio with ?djrust=/djrust-pkg/.
@@ -29,6 +30,30 @@ func PkgHandler(dir string) http.Handler {
 			w.Header().Set("Content-Type", "application/wasm")
 		}
 		files.ServeHTTP(w, r)
+	})
+}
+
+// VersionJSPath is the module that names where the studio loads djrust from.
+const VersionJSPath = "/djrust/version.js"
+
+var cdnLine = regexp.MustCompile(`(?m)^export const DJRUST_CDN = .*;$`)
+
+// VersionJS rewrites public/djrust/version.js so DJRUST_CDN is the local build at PkgPrefix: a
+// server run with -djrust-pkg plays that build on every page (feed, share links) without
+// ?djrust=. DJRUST_VERSION and the audio query are left alone. It fails if the line is missing.
+func VersionJS(src []byte) ([]byte, error) {
+	if !cdnLine.Match(src) {
+		return nil, errors.New("no DJRUST_CDN line in version.js")
+	}
+	return cdnLine.ReplaceAll(src, []byte("export const DJRUST_CDN = '"+PkgPrefix+"'; // -djrust-pkg")), nil
+}
+
+// VersionJSHandler serves the rewritten version.js, never cached.
+func VersionJSHandler(js []byte) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Write(js)
 	})
 }
 

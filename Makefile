@@ -19,14 +19,14 @@ dev:
 # The studio over https on the LAN, for other devices (an AudioWorklet needs a secure context;
 # http on a LAN address is not one). Makes the certificate first (scripts/dev-cert.sh); trust
 # its CA once per device (CLAUDE.md, "LAN dev server over https"). DJRUST_PKG=<djrust/npm/pkg>
-# also serves a local engine build at /djrust-pkg/ (open with ?djrust=/djrust-pkg/).
+# also serves a local engine build at /djrust-pkg/, which the studio then loads by default.
 #   make dev-lan LAN_IP=192.168.1.243 [LAN_PORT=18443] [DJRUST_PKG=../djrust/npm/pkg]
 LAN_PORT ?= 18443
 DEV_CERT_DIR ?= $(HOME)/.config/beats-dev-cert
 dev-lan:
 	@test -n "$(LAN_IP)" || { echo "LAN_IP=<this machine's LAN address> is needed"; exit 2; }
 	@BEATS_DEV_CERT_DIR=$(DEV_CERT_DIR) scripts/dev-cert.sh $(LAN_IP)
-	@echo "open https://$(LAN_IP):$(LAN_PORT)/$(if $(DJRUST_PKG),?djrust=/djrust-pkg/)"
+	@echo "open https://$(LAN_IP):$(LAN_PORT)/"
 	go run -ldflags "-X main.version=$(VERSION)" . -addr $(LAN_IP):$(LAN_PORT) -public public \
 	  -tls-cert $(DEV_CERT_DIR)/server.pem -tls-key $(DEV_CERT_DIR)/server-key.pem \
 	  $(if $(DJRUST_PKG),-djrust-pkg $(DJRUST_PKG))

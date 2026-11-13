@@ -28,7 +28,9 @@ export function djrustBase() {
         const o = new URLSearchParams(location.search).get('djrust');
         if (o) return new URL(o.endsWith('/') ? o : o + '/', location.href).href;
     } catch {}
-    return DJRUST_CDN;
+    // absolute, since the worklet's blob module cannot resolve a path (a server run with
+    // -djrust-pkg names its own /djrust-pkg/ here)
+    try { return new URL(DJRUST_CDN, location.href).href; } catch { return DJRUST_CDN; }
 }
 
 // --- what is hidden (no djrust equivalent; not faked) ----------------------------------------

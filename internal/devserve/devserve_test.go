@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,6 +43,22 @@ func TestPkgHandler(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PkgPrefix+"../devserve.go", nil))
 	if rec.Code == 200 {
 		t.Error("served a file outside the package directory")
+	}
+}
+
+func TestVersionJS(t *testing.T) {
+	src := []byte("export const DJRUST_VERSION = '0.2.0';\nexport const DJRUST_CDN = `https://cdn.jsdelivr.net/npm/djrust@${DJRUST_VERSION}/`;\nexport const AUDIO_QUERY = `?v=djrust-${DJRUST_VERSION}`;\n")
+	out, err := VersionJS(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "export const DJRUST_CDN = '/djrust-pkg/';") || strings.Contains(s, "jsdelivr") ||
+		!strings.Contains(s, "DJRUST_VERSION = '0.2.0'") || !strings.Contains(s, "AUDIO_QUERY") {
+		t.Fatalf("rewrite:\n%s", s)
+	}
+	if _, err := VersionJS([]byte("export const X = 1;")); err == nil {
+		t.Fatal("a version.js without DJRUST_CDN was accepted")
 	}
 }
 
