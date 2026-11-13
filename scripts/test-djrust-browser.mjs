@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 //
-// Browser test for ?engine=djrust: headless Chrome over raw CDP (no npm), as
-// test-wave-browser.mjs.
+// Browser test for the studio's audio engine (djrust): headless Chrome over raw CDP (no npm).
 //
 //   ./beats-bitwrap-io -addr :18090 -public public -data /tmp/djrust-data &
 //   # an unreleased engine: serve a local djrust/npm/build.sh output and point at it
 //   scripts/serve-djrust-pkg.py ../djrust/npm/pkg 18095 &
 //   node scripts/test-djrust-browser.mjs http://localhost:18090 [http://127.0.0.1:18095/]
 //
-// Asserts, with the flag: djrust boots in an AudioWorklet and plays the studio's project (ticks
-// advance, fires name the project's own nets, the output is not silent, Tone plays no note);
-// fires' audio times are near the context clock; a mixer mute silences that net; the tempo
-// control reaches the engine; stop goes back to the top; unported controls are hidden while the
-// tracks view, mixer mutes and scope stay; the share payload and CID are the same as without
-// the flag. Without the flag the studio still plays through Tone.
+// Asserts: djrust boots in an AudioWorklet and plays the studio's project (ticks advance, fires
+// name the project's own nets, the output is not silent, no Tone on the page); fires' audio
+// times are near the context clock; a mixer mute silences that net; the tempo control reaches
+// the engine; an FX panel slider (high-pass) and the mixer's volume change what sounds; a
+// Macros-panel macro (solo-drums) runs in djrust; stop goes back to the top; an instrument pick
+// reloads and plays on; the controls with no djrust equivalent are hidden while the FX, Macros,
+// Beats, Auto-DJ, MIDI and Feel panels, the tracks view, mixer and scope stay; the share CID is
+// the one this track always had (Tone's, recorded before the engine swap: contract 1).
 
 import { spawn } from 'node:child_process';
 import { computeCidForJsonLd, gzipToB64Url } from '../public/lib/share/codec.js';
@@ -25,6 +26,8 @@ const CHROME = process.env.CHROME || 'google-chrome';
 // One self-contained share link, so both engines open the same track.
 const ENVELOPE = { '@context': 'https://beats.bitwrap.io/schema/beats-share', '@type': 'BeatsShare', v: 1, genre: 'techno', seed: 42 };
 const TRACK = `cid=${await computeCidForJsonLd(ENVELOPE)}&z=${await gzipToB64Url(JSON.stringify(ENVELOPE))}`;
+// The share CID the studio built for this track while Tone was the engine (main, 2026-11-12).
+const TONE_SHARE_CID = 'z4EBG9j7qQ7roSUE3vjCFtwGaLVNuUCiTc9VzxPV5jQbs8snKoZ';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -81,17 +84,15 @@ async function boot(cdp, query) {
         if (ok) break;
     }
     await sleep(2000); // generate → project-sync settles
-    // Count Tone notes and the fires the page is told about, then press play.
+    // Count the fires the page is told about, then press play.
     await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
-        const { toneEngine } = await import('/audio/tone-engine.js');
-        window.__toneNotes = 0;
-        const orig = toneEngine.playNote.bind(toneEngine);
-        toneEngine.playNote = (...a) => { window.__toneNotes++; return orig(...a); };
+        const { audioEngine } = await import('/audio/engine.js');
+        window.__engine = audioEngine;
         window.__fires = [];
         const h = el._handleWsMessage.bind(el);
         el._handleWsMessage = (m) => {
-            if (m.type === 'transition-fired') window.__fires.push({ net: m.netId, t: m.transitionId, audioT: m.audioT, now: window.Tone.getContext().rawContext.currentTime });
+            if (m.type === 'transition-fired') window.__fires.push({ net: m.netId, t: m.transitionId, ch: m.midi?.channel, audioT: m.audioT, now: audioEngine.now() });
             return h(m);
         };
         await el._ensureToneStarted();
@@ -111,43 +112,47 @@ try {
     cdp = await connect(await cdpTarget());
     await cdp.send('Runtime.enable');
 
-    // --- default engine: the share this track makes without the flag ---
-    await boot(cdp, TRACK);
-    await sleep(3000);
-    const tone = await cdp.evaluate(`({ toneNotes: window.__toneNotes, tick: document.querySelector('petri-note')._tick })`);
-    check('default engine plays through Tone', tone.toneNotes > 0 && tone.tick > 0, JSON.stringify(tone));
-    const shareTone = await shareOf(cdp);
-
-    // --- djrust ---
-    await boot(cdp, `engine=djrust&${TRACK}${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}`);
+    await boot(cdp, `${TRACK}${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}`);
     const up = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
         const t0 = performance.now();
         for (let i = 0; i < 150 && !el._dj; i++) await new Promise(r => setTimeout(r, 100));
         const dj = el._dj ? await el._dj.catch(e => ({ error: String(e) })) : null;
-        return { flag: el._djrustEngine, error: el._djrustError || dj?.error || null, version: dj?.version,
-                 composer: !!dj?.composer, ms: Math.round(performance.now() - t0) };
+        return { up: !!dj && !dj.error, error: el._djrustError || dj?.error || null, version: dj?.version,
+                 composer: !!dj?.composer, tone: typeof window.Tone, ms: Math.round(performance.now() - t0) };
     })()`);
-    check('djrust engine boots', up.flag && up.version && !up.error, JSON.stringify(up));
-    if (!up.flag) throw new Error('djrust did not start: ' + up.error);
+    check('djrust engine boots', up.up && up.version && !up.error, JSON.stringify(up));
+    check('no Tone on the page', up.tone === 'undefined', up.tone);
+    if (!up.up) throw new Error('djrust did not start: ' + up.error);
     const shareDj = await shareOf(cdp); // before any mute / tempo change
     await sleep(4000);
 
     const play = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
         const dj = await el._dj;
-        const an = dj.ctx.createAnalyser(); an.fftSize = 2048;
-        dj.node.connect(an);
-        let peak = 0;
-        for (let k = 0; k < 20; k++) {
-            await new Promise(r => setTimeout(r, 50));
-            const buf = new Float32Array(an.fftSize); an.getFloatTimeDomainData(buf);
-            for (const x of buf) peak = Math.max(peak, Math.abs(x));
-        }
+        // the master output, after the studio's volume (what the speakers get)
+        const an = dj.ctx.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0;
+        window.__engine.output.connect(an);
+        window.__an = an;
+        // peak and the energy below 200 Hz over ~1 s of the master output
+        window.__measure = async () => {
+            let peak = 0, low = 0, n = 0;
+            const bin = (hz) => Math.round(hz / (dj.ctx.sampleRate / an.fftSize));
+            for (let k = 0; k < 20; k++) {
+                await new Promise(r => setTimeout(r, 50));
+                const buf = new Float32Array(an.fftSize); an.getFloatTimeDomainData(buf);
+                for (const x of buf) peak = Math.max(peak, Math.abs(x));
+                const f = new Float32Array(an.frequencyBinCount); an.getFloatFrequencyData(f);
+                for (let i = 1; i <= bin(200); i++) low += Math.pow(10, f[i] / 10);
+                n++;
+            }
+            return { peak, low: low / n };
+        };
+        const { peak } = await window.__measure();
         const nets = Object.keys(el._project.nets);
         const fired = [...new Set(window.__fires.map(f => f.net))];
         const lead = window.__fires.slice(-40).map(f => f.audioT - f.now);
-        return { tick: el._tick, toneNotes: window.__toneNotes, fires: window.__fires.length, peak,
+        return { tick: el._tick, fires: window.__fires.length, peak,
                  fired, foreign: fired.filter(n => !nets.includes(n)), load: el._djrustLoad,
                  leadMin: Math.min(...lead), leadMax: Math.max(...lead), playing: el._playing, stats: el._djrustStats };
     })()`);
@@ -155,7 +160,6 @@ try {
     check('fires reach the page', play.fires > 20, `${play.fires} fires from ${play.fired.length} nets`);
     check("fires name the studio project's nets", play.foreign.length === 0, play.foreign.join(','));
     check('output is not silent', play.peak > 0.01, `peak ${play.peak.toFixed(3)}`);
-    check('Tone plays no note', play.toneNotes === 0, `${play.toneNotes}`);
     check('fire audio times are near the context clock', play.leadMin > -0.25 && play.leadMax < 0.1,
         `audioT − now in [${play.leadMin?.toFixed(3)}, ${play.leadMax?.toFixed(3)}] s`);
     check('project installed', !!play.load, JSON.stringify(play.load));
@@ -173,6 +177,51 @@ try {
     await sleep(1500);
     const tempo = await cdp.evaluate(`document.querySelector('petri-note')._djrustTempo`);
     check('tempo control reaches the engine', Math.abs(tempo - 150) < 0.5, `engine tempo ${tempo}`);
+
+    // FX panel: the high-pass all the way up takes the low end out of the master
+    const fxLow = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const slider = el.querySelector('.pn-fx-slider[data-fx="hp-freq"]');
+        const set = (v) => { slider.value = String(v); slider.dispatchEvent(new Event('input', { bubbles: true })); };
+        const before = await window.__measure();
+        set(100);
+        await new Promise(r => setTimeout(r, 600));
+        const after = await window.__measure();
+        set(0);
+        await new Promise(r => setTimeout(r, 600));
+        return { before: before.low, after: after.low, errors: el._djrustErrors || [] };
+    })()`);
+    check('FX panel high-pass reaches the engine', fxLow.before > 0 && fxLow.after < fxLow.before * 0.1 && !fxLow.errors.length,
+        `low-band energy ${fxLow.before.toExponential(2)} → ${fxLow.after.toExponential(2)} ${fxLow.errors.join(' ')}`);
+
+    // mixer volume: every row at 0 is the voices' floor
+    const vol = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const sels = [...el.querySelectorAll('.pn-mixer-vol')];
+        const set = (v) => sels.forEach(s => { s.value = String(v); s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true })); });
+        const before = await window.__measure();
+        set(0);
+        await new Promise(r => setTimeout(r, 400));
+        const after = await window.__measure();
+        set(80);
+        await new Promise(r => setTimeout(r, 400));
+        return { rows: sels.length, before: before.peak, after: after.peak };
+    })()`);
+    check('mixer volume reaches the engine', vol.rows > 0 && vol.after < vol.before * 0.2,
+        `${vol.rows} rows, peak ${vol.before.toFixed(3)} → ${vol.after.toFixed(3)}`);
+
+    // Macros panel: solo-drums runs in djrust (song mute on the bar): only drum channels fire
+    const macro = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        el._fireMacro('solo-drums', { duration: 4 });
+        await new Promise(r => setTimeout(r, Math.ceil(el._msPerBar()) + 300)); // past the next bar
+        window.__fires = [];
+        await new Promise(r => setTimeout(r, 1200));
+        const chans = window.__fires.map(f => f.ch);
+        return { fires: chans.length, tonal: chans.filter(c => !(c >= 10 && c <= 15)).length, errors: el._djrustErrors || [] };
+    })()`);
+    check('Macros panel solo-drums runs in djrust', macro.fires > 0 && macro.tonal === 0 && !macro.errors.length, JSON.stringify(macro));
+    await sleep(Math.ceil(4 * 60000 / 150) + 500); // let the 4 bars run out
 
     // stop → top, play again
     await cdp.evaluate(`document.querySelector('petri-note')._togglePlay()`);
@@ -208,17 +257,21 @@ try {
     // hidden vs kept controls
     const ui = await cdp.evaluate(`(() => {
         const el = document.querySelector('petri-note');
-        const shown = (s) => [...el.querySelectorAll(s)].some(n => getComputedStyle(n).display !== 'none');
-        const hide = ['.pn-effects-btn', '.pn-macros-btn', '.pn-autodj-btn', '.pn-midi-btn', '.pn-device-btn',
-            '.pn-feel-open', '.pn-fx-bypass', '.pn-macro-panic', '.pn-mixer-slider-group', '.pn-mixer-test', '.pn-mixer-output'];
-        const keep = ['.pn-scope-btn', '.pn-arrange-btn', '.pn-stage-btn', '.pn-mixer-mute', '.pn-mixer-instrument', '.pn-genre-select'];
+        // laid out at all (a hidden ancestor hides it too)
+        const shown = (s) => [...el.querySelectorAll(s)].some(n => n.getClientRects().length > 0);
+        const hide = ['.pn-mixer-pan', '.pn-mixer-locut', '.pn-mixer-loreso', '.pn-mixer-reso', '.pn-mixer-test',
+            '.pn-transpose', '.pn-loop-mode-select', '.pn-crop-bar-btn', '.pn-scope-model-only', '.pn-bench-open'];
+        const keep = ['.pn-effects-btn', '.pn-macros-btn', '.pn-oneshots-btn', '.pn-autodj-btn', '.pn-midi-btn',
+            '.pn-feel-open', '.pn-fx-bypass', '.pn-fx-reset', '.pn-macro-panic', '.pn-scope-btn', '.pn-arrange-btn',
+            '.pn-stage-btn', '.pn-mixer-mute', '.pn-mixer-instrument', '.pn-mixer-vol', '.pn-mixer-cutoff',
+            '.pn-mixer-decay', '.pn-genre-select'];
         return { leaked: hide.filter(shown), missing: keep.filter(s => !shown(s)) };
     })()`);
-    check('unported controls are hidden', ui.leaked.length === 0, ui.leaked.join(' '));
-    check('tracks view, mixer mutes and scope stay', ui.missing.length === 0, ui.missing.join(' '));
+    check('controls with no djrust equivalent are hidden', ui.leaked.length === 0, ui.leaked.join(' '));
+    check('the panels, tracks view, mixer and scope stay', ui.missing.length === 0, ui.missing.join(' '));
 
-    check('share payload and CID unchanged by the engine', shareDj.cid === shareTone.cid,
-        shareDj.cid === shareTone.cid ? shareDj.cid : `tone ${shareTone.cid} ${shareTone.payload}\n     djrust ${shareDj.cid} ${shareDj.payload}`);
+    check("share CID is the track's own (Tone's)", shareDj.cid === TONE_SHARE_CID,
+        shareDj.cid === TONE_SHARE_CID ? shareDj.cid : `got ${shareDj.cid} ${shareDj.payload}`);
 
     const errs = cdp.logs.filter(l => /EXC|\[djrust\].*(error|unavailable)|Uncaught/i.test(l));
     check('no page errors', errs.length === 0, errs.slice(0, 5).join(' | '));

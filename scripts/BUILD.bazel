@@ -14,17 +14,14 @@ nodejs_test(
     visibility = ["//visibility:public"],
 )
 
-# Wave engine: determinism, P-invariants, ring spectrum, executor parity.
-# The test spawns wave-render.mjs and a --expose-gc child with the same
-# hermetic node (process.execPath), so both are staged here.
+# lib/net.js: P-invariants, executor parity with the worker, and the control-net plan
+# (lib/backend/controls.js). Pure ES modules under public/lib/.
 nodejs_test(
-    name = "wave_engine_test",
+    name = "net_test",
     data = [
-        "test-wave-engine.mjs",
-        "wave-render.mjs",
+        "test-net.mjs",
         "//:js_generator_srcs",
-        "//:js_wave_engine_srcs",
     ],
-    entry_point = "test-wave-engine.mjs",
+    entry_point = "test-net.mjs",
     visibility = ["//visibility:public"],
 )

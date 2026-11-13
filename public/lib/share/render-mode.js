@@ -1,5 +1,6 @@
-// Render mode (?render=1). Headless-friendly playback path used by the
-// Go renderer (chromedp). Thin wrapper around `client-render.js`:
+// Render mode (?render=1, ?render=offline). Headless-friendly playback path used by the
+// Go renderer (chromedp). Thin wrapper around `client-render.js` (realtime: djrust's worklet
+// recorded) and `offline-render.js` (djrust's deterministic offline render):
 // waits for the project to load, then runs `renderToBlob` and
 // base64-stuffs the result into `window.__renderBlob` so chromedp can
 // read it out via `Runtime.evaluate`. The capture pipeline itself
@@ -15,6 +16,7 @@
 import { renderToBlob } from './client-render.js';
 import { renderToBlobOffline, isOfflineRenderMode } from './offline-render.js';
 import { applyRenderMuteOpts } from '../backend/audio-io.js';
+import { DJRUST_VERSION } from '../../djrust/version.js';
 
 const PPQ = 4;                // mirrors sequencer-worker.js
 const POLL_INTERVAL_MS = 100; // how often we check for project readiness
@@ -46,7 +48,6 @@ export function initRenderMode(el) {
 }
 
 async function runRender(el) {
-    await waitForTone();
     await waitForReady(el);
     const maxMs = readMaxMs();
     const { solo, mute } = readMuteOpts();
@@ -65,6 +66,9 @@ async function runRender(el) {
         totalSteps,
         tempo,
         ppq: PPQ,
+        // the audio is a function of (share CID, engine version): the feed keys renders by it
+        engine: 'djrust',
+        engineVersion: DJRUST_VERSION,
         tickIntervalMs,
         durationMs: totalSteps * tickIntervalMs,
         cappedByMax: maxMs > 0 && totalSteps * tickIntervalMs > maxMs,
@@ -88,6 +92,7 @@ async function runRender(el) {
             offlineWallMs: out.offlineWallMs,
             speedupX: out.speedupX,
             eventCount: out.eventCount,
+            engineVersion: out.engineVersion,
         };
         console.log('[render-mode] offline render done',
                     'wallMs=', out.offlineWallMs, 'speedup=', out.speedupX + 'x',
@@ -104,14 +109,6 @@ async function runRender(el) {
     window.__renderDone = true;
 }
 
-async function waitForTone() {
-    const deadline = Date.now() + READY_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        if (typeof window !== 'undefined' && window.Tone) return window.Tone;
-        await sleep(POLL_INTERVAL_MS);
-    }
-    throw new Error('Tone.js never loaded');
-}
 
 async function waitForReady(el) {
     // We need the project loaded; the structure is optional (loop-only

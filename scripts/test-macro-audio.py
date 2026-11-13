@@ -5,7 +5,7 @@ Per-test pipeline (parallelizable across N workers):
   1. Launch a Chromium tab via Playwright.
   2. Load the studio with ?test=1 (installs the capture hook) and a
      fixed seed/genre so output is reproducible across runs.
-  3. Press play, start the capture tap on Tone.Destination.
+  3. Press play, start the capture tap on the engine's master output.
   4. After PRE seconds, fire the macro under test.
   5. Capture for DURING seconds (the macro window), then more for POST
      (back-to-baseline window).
@@ -17,7 +17,7 @@ Per-test pipeline (parallelizable across N workers):
      Compare windows — confirm the macro had AND lost effect.
 
 Each test runs in its own browser context so workers don't interfere.
-Capture is realtime (Tone.Transport drives the audio clock), so an
+Capture is realtime (djrust renders in the AudioWorklet), so an
 N-second clip costs N seconds wall-time per worker. Eight workers in
 parallel ≈ 8x throughput.
 
@@ -188,7 +188,7 @@ def run_one(spec: MacroSpec, host: str, headed: bool, debug_dir: Path | None,
                     el.querySelector('.pn-play')?.click();
                 }
             """)
-            # Let Tone start, then a beat to settle.
+            # Let the engine start, then a beat to settle.
             page.wait_for_timeout(800)
             # capture-start is async (worklet module load).
             page.evaluate("async () => { await window.__pnTestCaptureStart(); }")

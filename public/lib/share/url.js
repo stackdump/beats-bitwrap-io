@@ -533,7 +533,7 @@ function wireShareAudioStatus(el, overlay, cid, titleInput) {
             <audio controls preload="none" src="${audioUrl}" style="width:100%;height:32px"></audio>
             <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:6px;font-size:12px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
         `;
-        // Stop the live Tone.js engine before pre-rendered audio
+        // Stop the live engine before pre-rendered audio
         // starts — otherwise the user hears both at once. The webm
         // is the canonical audio for an already-rendered share.
         audioBlock.querySelector('audio').addEventListener('play', () => {

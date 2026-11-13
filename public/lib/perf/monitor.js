@@ -5,7 +5,7 @@
 //   long     long-animation-frame (LoAF) blocking time, longtask fallback
 //   viz      ms spent inside the visualization itself, per path:
 //            timeline canvas · Stage loop · net canvas · per-fire flashes
-//   notes    default (Tone) engine: scheduling margin of every note —
+//   notes    (the old Tone engine) scheduling margin of every note —
 //            late (scheduled in the past → the audio grid re-anchors, an
 //            audible hiccup) and tight (< 10 ms of margin)
 //   waveLag  wave engine: how far the page's view trails the audio thread
@@ -221,7 +221,7 @@ export function perfReport(el) {
     const avg = (k) => +(h.reduce((s, w) => s + (w[k] || 0), 0) / h.length).toFixed(1);
     return {
         windows: h.length, level: LEVELS[el._perf.level], pref: el._perf.pref,
-        engine: el._waveEngine ? 'wave' : el._djrustEngine ? 'djrust' : 'default',
+        engine: 'djrust',
         vizWindows: n(w => w.cause === 'visualization'), otherWindows: n(w => w.cause === 'other'),
         lateNotes: h.reduce((s, w) => s + w.late, 0), notes: h.reduce((s, w) => s + w.notes, 0),
         avgFps: avg('fps'), avgVizSharePct: avg('vizSharePct'), avgBlockingMsPerS: avg('blockingMsPerS'),

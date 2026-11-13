@@ -1,34 +1,26 @@
-// djrust engine glue (`?engine=djrust`). The default (Tone) engine is untouched: every function
-// here is a no-op unless el._djrustEngine is set.
+// The studio's audio engine: djrust (github.com/stackdump/djrust, MIT), the pinned npm package in
+// public/djrust/version.js, in an AudioWorklet.
 //
-// djrust (github.com/stackdump/djrust, MIT, the pinned npm package in public/djrust/version.js)
-// replaces the sound under the studio's own UI. As with ?engine=wave, the sequencer Worker keeps
-// composing (generate, shuffle, arrange, ring resize, project-sync) and is never told to play:
-// the project it composed is loaded into a djrust AudioWorklet as a raw-nets share (the engine
-// plays exactly that project), transport / tempo / mutes / seeks go to the worklet, and the
-// worklet's fires, ticks, mutes and marking are replayed into the normal handlers, so the tracks
-// view, mixer, Stage and Scope draw from the audio being computed.
+// The sequencer Worker keeps composing (generate, shuffle, arrange, ring resize, project-sync) and
+// is never told to play: the project it composed is loaded into the djrust worklet as a raw-nets
+// share (the engine plays exactly that project), transport / tempo / mutes / seeks go to the
+// worklet, and the worklet's fires, ticks, mutes and marking are replayed into the normal
+// handlers, so the tracks view, mixer, Stage and Scope draw from the audio being computed. The
+// studio's controls go through audio/engine.js (FX panel, macros, mixer voices), which this
+// module wires to the worklet and replays after every project load.
 //
-// The adapter half (installDjrustAdapter) keeps the `toneEngine` singleton the views import:
-// what makes sound becomes a no-op, the master analyser and volume read djrust's output, and
-// every control with no djrust equivalent yet is hidden rather than left doing nothing:
-// FX / Macros / Beats / Auto-DJ / MIDI / Device panels, Feel, FX bypass / reset / panic, loop
-// mode and crop, the mixer's per-channel tone controls, tone presets, test note and output
-// device, and the Scope's model views (per-instrument kernels are a Tone render).
+// A few controls have no djrust equivalent and are hidden rather than left doing nothing:
+// the mixer's pan, lo-cut and resonance sliders and its test note, live transpose (the header
+// pill and the Beats pads' Pit), the loop mode and crop, and the Scope's model views (their
+// per-instrument kernels were Tone renders).
 //
 // Dev: ?djrust=<base URL of a djrust npm build, ending in />, e.g. a local
 // `djrust/npm/build.sh` output served with CORS (scripts/serve-djrust-pkg.py).
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioEngine } from '../../audio/engine.js';
 import { DJRUST_CDN, DJRUST_VERSION } from '../../djrust/version.js';
 import { perfWaveLag } from '../perf/monitor.js';
-
-const PARAM = 'engine';
-
-export function djrustEngineRequested() {
-    try { return new URLSearchParams(location.search).get(PARAM) === 'djrust'; }
-    catch { return false; }
-}
+import { planProjectControls } from './controls.js';
 
 /** Where the djrust package is: the pinned CDN copy, or a dev override. */
 export function djrustBase() {
@@ -39,46 +31,19 @@ export function djrustBase() {
     return DJRUST_CDN;
 }
 
-const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
-
-/**
- * Give Tone a native AudioContext before any Tone node exists, so the worklet module (ES
- * imports) can be added to the same context the studio graph uses. As ?engine=wave does.
- */
-export function prepareDjrustContext() {
-    const T = window.Tone;
-    if (!T || typeof AudioContext === 'undefined') return;
-    const latencyHint = isMobile() ? 'playback' : 'interactive';
-    try { T.setContext(new T.Context(new AudioContext({ latencyHint }))); }
-    catch (err) { console.warn('djrust engine: could not install a native AudioContext', err); }
-}
-
-// --- what is hidden while djrust plays (no equivalent yet; ported later, not faked) ---------
+// --- what is hidden (no djrust equivalent; not faked) ----------------------------------------
 
 const HIDDEN = [
-    '.pn-effects-btn', '.pn-effects-panel',          // master FX chain
-    '.pn-macros-btn', '.pn-macros-panel',            // macro catalogue → djrust live ops: not mapped
-    '.pn-oneshots-btn', '.pn-oneshots-panel',        // stinger pads fire macros
-    '.pn-autodj-btn', '.pn-autodj-panel',            // Auto-DJ fires macros
-    '.pn-midi-btn', '.pn-midi-panel',                // Web MIDI in / out
-    '.pn-device-btn', '.pn-device-panel',            // APC mini (MIDI)
-    '.pn-fx-bypass', '.pn-fx-reset', '.pn-macro-panic',
-    '.pn-feel-open',                                 // Feel morphs FX + swing/humanize live
+    // the mixer's pan, lo-cut and resonances: no live djrust strip pan / filter (label and slider)
+    ...['pan', 'locut', 'loreso', 'reso'].map(k => `.pn-mixer-slider-group:has(> .pn-mixer-${k})`),
+    '.pn-mixer-test',                                // test note: the engine plays nets, not notes
+    '.pn-transpose', '.pn-mixer-slider-group:has(> .pn-os-pitch)', // live transpose: notes play as written
     '.pn-loop-mode-select', '.pn-crop-bar-btn',      // worker conflict modes / loop region
-    // mixer: per-channel tone (Tone synth params), presets, test note, output device
-    '.pn-mixer-slider-group', '.pn-mixer-output', '.pn-mixer-save', '.pn-mixer-test',
-    '.pn-mixer-tone-reset', '.pn-mixer-tone-prev', '.pn-mixer-tone-next', '.pn-mixer-preset',
-    // scope: the model views and the model/measured toggle (per-instrument Tone.Offline kernels)
-    '.pn-scope-model-only',
+    '.pn-scope-model-only',                          // Scope model views (Tone kernels)
 ];
-const BLOCKED_KEYS = new Set(['f', 'j', 'p', 'b', 'r']);
 
-/** Keyboard shortcuts of hidden controls do nothing while djrust plays. */
-export function djrustBlocksKey(el, k) {
-    return !!el._djrustEngine && BLOCKED_KEYS.has(k);
-}
-
-function installHiddenStyle(el) {
+/** connectedCallback: hide what djrust has no equivalent for (a constructor may not add a class). */
+export function showEngineGaps(el) {
     el.classList.add('pn-engine-djrust');
     if (document.getElementById('pn-engine-djrust-style')) return;
     const st = document.createElement('style');
@@ -87,69 +52,7 @@ function installHiddenStyle(el) {
     document.head.appendChild(st);
 }
 
-/** connectedCallback: hide what djrust has no equivalent for (a constructor may not add a class). */
-export function showDjrustEngine(el) {
-    if (el._djrustEngine) installHiddenStyle(el);
-}
-
-// --- the toneEngine adapter -----------------------------------------------------------------
-
-const patched = new Map();
-
-function patch(name, fn) {
-    if (!patched.has(name)) patched.set(name, toneEngine[name]);
-    toneEngine[name] = fn;
-}
-
-/**
- * Keep the `toneEngine` surface the views use, with djrust underneath: nothing Tone would
- * play sounds (djrust renders every fire itself), panic is the engine's own business, and the
- * analyser the Stage reads taps djrust's output gain (`_waveGain`, which setMasterVolume and the
- * Scope already follow for the worklet engines).
- */
-export function installDjrustAdapter(el) {
-    if (!el._djrustEngine) return;
-    const none = () => {};
-    patch('playNote', none);
-    patch('playOneShot', none);
-    patch('playOneShotInstrument', none);
-    patch('panic', none);
-    patch('getMasterAnalyser', (type = 'waveform', size = 1024) => {
-        const src = toneEngine._waveGain;
-        if (!src || typeof Tone === 'undefined') return null;
-        const key = `${type === 'fft' ? 'fft' : 'waveform'}:${size}`;
-        el._djrustAnalysers ||= new Map();
-        if (el._djrustAnalysers.has(key)) return el._djrustAnalysers.get(key);
-        try {
-            const a = new Tone.Analyser(type === 'fft' ? 'fft' : 'waveform', size);
-            a.smoothing = type === 'fft' ? 0.6 : 0;
-            Tone.connect(src, a);
-            el._djrustAnalysers.set(key, a);
-            return a;
-        } catch { return null; }
-    });
-}
-
-/** Put Tone back (djrust failed to start): the studio plays as if the flag were off. */
-function uninstallDjrustAdapter(el) {
-    for (const [name, fn] of patched) toneEngine[name] = fn;
-    patched.clear();
-    el.classList.remove('pn-engine-djrust');
-}
-
 // --- the engine -----------------------------------------------------------------------------
-
-function connectOutput(node, ctx) {
-    const gain = ctx.createGain();
-    const db = toneEngine._masterVolume ? toneEngine._masterVolume.volume.value : -12;
-    gain.gain.value = Math.pow(10, db / 20);
-    node.connect(gain);
-    // Phones: keep Tone's MediaStream → <audio> sink (keeps iOS playing through screen lock).
-    gain.connect(toneEngine._masterSink?.streamDest || ctx.destination);
-    toneEngine._waveGain = gain;
-    // Tone's master chain is silent now; stop the audio thread pulling it.
-    try { toneEngine._masterComp?.disconnect(); } catch {}
-}
 
 async function compileWasm(url) {
     try { return await WebAssembly.compileStreaming(fetch(url)); }
@@ -185,11 +88,11 @@ async function startComposer(base, module, sampleRate) {
     }
 }
 
-function ensureDjrust(el) {
+/** Start the engine (once): the worklet on the studio's AudioContext, and the composer Worker. */
+export function ensureDjrust(el) {
     if (el._dj) return el._dj;
     el._dj = (async () => {
-        await el._ensureToneStarted?.();
-        const ctx = window.Tone.getContext().rawContext;
+        const ctx = audioEngine.context();
         const base = djrustBase();
         const module = await compileWasm(base + 'djrust_bg.wasm');
         await ctx.audioWorklet.addModule(bootstrapUrl(base));
@@ -201,30 +104,40 @@ function ensureDjrust(el) {
         });
         const dj = {
             node, ctx, base, version: ready.version || DJRUST_VERSION, composer: null,
-            serial: 0, lastNets: null, playing: false,
+            serial: 0, lastNets: null,
             post: (m, transfer = []) => node.port.postMessage(m, transfer),
         };
         node.port.onmessage = (ev) => onEngineMessage(el, dj, ev.data);
-        connectOutput(node, ctx);
+        node.connect(audioEngine.output);
+        audioEngine.attach(dj.post);
         dj.composer = await startComposer(base, module, ctx.sampleRate);
         if (dj.composer) dj.composer.onmessage = (ev) => onComposerMessage(el, dj, ev.data);
         console.log(`[djrust] engine ${dj.version} from ${base}${dj.composer ? ' (composer Worker)' : ''}`);
         if (el._lastProjectJSON) loadProject(el, dj, el._lastProjectJSON, true);
         return dj;
     })();
-    el._dj.catch((err) => fallBackToTone(el, err));
+    el._dj.catch((err) => engineFailed(el, err));
     return el._dj;
 }
 
-/** djrust could not start (no network, an engine without the beats facade): play with Tone. */
-function fallBackToTone(el, err) {
-    console.warn('[djrust] engine unavailable, falling back to Tone:', err?.message || err);
-    el._djrustEngine = false;
-    el._djrustError = String(err?.message || err);
+/** djrust could not start (no network, a blocked CDN, an engine without the beats facade). */
+function engineFailed(el, err) {
+    const why = String(err?.message || err);
+    console.error('[djrust] the audio engine did not start:', why);
+    el._djrustError = why;
     el._dj = null;
-    uninstallDjrustAdapter(el);
-    if (el._lastProjectJSON) el._worker?.postMessage({ type: 'project-load', project: el._lastProjectJSON });
-    if (el._playing) el._worker?.postMessage({ type: 'transport', action: 'play' });
+    if (el._engineErrorBanner) return;
+    const banner = document.createElement('div');
+    banner.className = 'pn-audio-lock-banner pn-engine-error';
+    banner.innerHTML = '<span>The audio engine did not load.</span><button>Retry</button>';
+    banner.title = why;
+    banner.querySelector('button').addEventListener('click', () => {
+        banner.remove();
+        el._engineErrorBanner = null;
+        ensureDjrust(el);
+    });
+    el.appendChild(banner);
+    el._engineErrorBanner = banner;
 }
 
 /** The text a deck plays for the studio's project: the project plus its genre and seed. */
@@ -242,11 +155,14 @@ function loadProject(el, dj, project, force = false) {
         return;
     }
     dj.lastNets = nets;
+    planProjectControls(el, project);
     const serial = ++dj.serial;
     const m = {
         t: 'load', serial, text: projectText(el, project),
         muted: [...(el._mutedNets || [])], bpm: el._tempo || project.tempo || 0,
         playing: !!el._playing,
+        // the studio's FX and mixer voices, put back on the project as it lands
+        after: [...audioEngine.fxCommands(), ...audioEngine.voiceCommands()],
     };
     if (!dj.composer) { dj.post(m); return; }
     dj.pending ||= new Map();
@@ -268,14 +184,13 @@ function onComposerMessage(el, dj, r) {
  * reach the worker), false to forward it as usual.
  */
 export function routeToDjrust(el, msg) {
-    if (!el._djrustEngine) return false;
     const send = (m) => ensureDjrust(el).then(dj => dj.post(m)).catch(() => {});
     switch (msg.type) {
     case 'transport':
         if (msg.action === 'play') send({ t: 'play', on: true });
         else if (msg.action === 'pause') send({ t: 'play', on: false });
         else if (msg.action === 'stop') send({ t: 'stop' });
-        return true; // the worker never plays while djrust does
+        return true; // the worker never plays
     case 'seek':
         send({ t: 'seek', tick: msg.tick });
         return true;
@@ -297,8 +212,12 @@ export function routeToDjrust(el, msg) {
         djrustReloadProject(el);
         return false;
     case 'fire-macro':
+        return true; // macros run in djrust (audio/engine.js fireMacro), not as worker control nets
+    case 'cancel-macros':
+        send({ t: 'perform', action: { op: 'panic' } });
+        return false;
     case 'loop':
-        return true; // hidden controls; nothing to send
+        return true; // hidden: djrust plays the whole project
     }
     return false;
 }
@@ -308,13 +227,13 @@ export function routeToDjrust(el, msg) {
  * makes to it in place (an instrument pick, a shuffle) rather than through a project-sync.
  */
 export function djrustReloadProject(el) {
-    if (!el._djrustEngine || !el._dj || !el._project) return;
+    if (!el._dj || !el._project) return;
     el._dj.then(dj => loadProject(el, dj, el._project, true)).catch(() => {});
 }
 
 /** Called on every project-sync from the worker. */
 export function djrustLoadProject(el, project) {
-    if (!el._djrustEngine || !el._dj) return;
+    if (!el._dj) return;
     el._dj.then(dj => loadProject(el, dj, project)).catch(() => {});
 }
 
@@ -334,6 +253,8 @@ function onEngineMessage(el, dj, msg) {
         el._handleWsMessage?.({ type: 'playback-complete' });
         return;
     case 'error':
+        (el._djrustErrors ||= []).push(msg.error);
+        if (el._djrustErrors.length > 50) el._djrustErrors.shift();
         console.warn('[djrust]', msg.error);
         return;
     }

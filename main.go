@@ -1464,7 +1464,7 @@ func audioStatusHandler(ar *audiorender.Renderer) http.HandlerFunc {
 // First request for a CID waits for the realtime render; subsequent
 // requests stream the static file with HTTP Range support.
 //
-// The /audio/ namespace is shared with public/audio/* (tone-engine.js etc).
+// The /audio/ namespace is shared with public/audio/* (engine.js).
 // Anything that doesn't match /audio/{cid}.webm falls through to the
 // static handler so existing module imports keep working.
 func audioHandler(ar *audiorender.Renderer, shareStore *share.Store, fallback http.Handler, enableServerRender bool, onIngest func(cid string), rebuildSecret string, tagProvenance func(cid, source string), onAudioReady func(cid string, bytes int64, source share.RenderEventSource)) http.Handler {

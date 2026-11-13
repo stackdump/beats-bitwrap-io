@@ -1,4 +1,4 @@
-// The djrust engine's live half, in an AudioWorklet (`?engine=djrust`). The studio's sequencer
+// The studio's audio engine, live half, in an AudioWorklet: djrust. The studio's sequencer
 // Worker still composes; this thread plays the project it composed on deck A and reports what it
 // played, so the tracks view, mixer and scope draw from the audio being computed.
 //
@@ -6,13 +6,16 @@
 // pinned djrust glue from the CDN and this file, then calls define(djrust): a worklet cannot
 // import() a URL chosen at run time, the bootstrap can name it.
 //
-// In:  load {text, prepared?} · play {on} · stop · seek {tick} · mute {netId, muted} · tempo {bpm}
+// In:  load {text, prepared?, after?} · play {on} · stop · seek {tick} · mute {netId, muted} ·
+//      tempo {bpm} · perform {action} · macro {id, bars} · aux {params} · voice {channel, tweak}
+//      (`after`: commands run right after the load lands: the studio's FX and mixer voices)
 // Out: ready · loaded {answer, ms, inline} · events {ev, at, frames, sr} · ended · error
 const BUDGET = 64 << 10; // bytes of a prepared track installed per quantum (~0.3 ms of wasm)
 const TICK_EVERY = 4;    // housekeeping every 4 quanta (~10 ms at 48 kHz); render_offline matches
 const MARKING_EVERY = 5; // ring marking every 5th event read (~50 ms)
-// What the studio needs of the engine (djrust's `beats` facade); an older package falls back to Tone.
-const FACADE = ['load_share', 'events', 'set_net_muted', 'set_tempo', 'relocate'];
+// What the studio needs of the engine (djrust's `beats` facade, 0.2.0 and later).
+const FACADE = ['load_share', 'events', 'set_net_muted', 'set_tempo', 'relocate', 'perform',
+    'fire_macro', 'set_voice', 'live_op'];
 
 export function define(djrust) {
     class DjrustProcessor extends AudioWorkletProcessor {
@@ -58,10 +61,19 @@ export function define(djrust) {
                 case 'seek': dj.relocate('A', Math.max(0, m.tick | 0)); break;
                 case 'mute': dj.set_net_muted('A', m.netId, !!m.muted); break;
                 case 'tempo': dj.set_tempo('A', +m.bpm); break;
+                case 'perform': this.answer(m, dj.perform('A', JSON.stringify(m.action))); break;
+                case 'macro': this.answer(m, dj.fire_macro('A', m.id, +m.bars || 0)); break;
+                case 'aux': dj.live_op('aux', JSON.stringify({ deck: 'A', ...m.params })); break;
+                case 'voice': dj.set_voice('A', +m.channel, JSON.stringify(m.tweak)); break;
                 }
             } catch (e) {
                 this.port.postMessage({ t: 'error', error: `${m.t}: ${String((e && e.message) || e)}` });
             }
+        }
+
+        /** An op that did not run says why (a macro on the wrong kind of deck, say). */
+        answer(m, a) {
+            if (a && a !== 'done') this.port.postMessage({ t: 'error', error: `${m.t} ${m.id || m.action?.op || ''}: ${a}` });
         }
 
         inline(m) {
@@ -79,6 +91,7 @@ export function define(djrust) {
             const dj = this.dj;
             for (const id of m.muted || []) dj.set_net_muted('A', id, true);
             if (m.bpm) dj.set_tempo('A', +m.bpm);
+            for (const c of m.after || []) this.onCmd(c);
             if (m.playing) dj.set_playing('A', true);
         }
 

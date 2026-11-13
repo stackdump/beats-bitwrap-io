@@ -21,7 +21,7 @@
 //
 // Band edges match beats-py analysis.py (and scripts/analyze-audio.py).
 
-import { toneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN, isDrumChannel } from '../../audio/tone-engine.js';
+import { isDrumChannel } from '../../audio/engine.js';
 
 export const BANDS = [[20, 80], [80, 250], [250, 2000], [2000, 6000], [6000, 16000]];
 export const BAND_LABELS = ['sub', 'low', 'lomid', 'himid', 'high'];
@@ -61,10 +61,7 @@ function patchHash(inst) {
         let src = '';
         // 'custom' patches are a `create(dest)` function: hash its source too,
         // and the normalisation gain, so editing either invalidates the cache.
-        try {
-            src = JSON.stringify(INSTRUMENT_CONFIGS[inst] || inst, (k, v) => typeof v === 'function' ? String(v) : v)
-                + '|' + (INSTRUMENT_GAIN[inst] || 0);
-        } catch { src = String(inst); }
+        src = String(inst);
         h = strHash(src);
         patchHashes.set(inst, h);
     }
@@ -172,15 +169,8 @@ function analyseHit(data, start, sr) {
 }
 
 /**
- * Render every missing kernel in one Tone.Offline pass: a fresh ToneEngine
- * (the same patches, INSTRUMENT_GAIN normalisation and channel strip as
- * live) with the reverb/delay sends at 0, one hit per SEG_S.
- *
- * Tone.Offline swaps Tone's global context for the duration of its
- * callback. That is safe for the live engine only because the callback
- * never yields to the event loop (every instrument here is a synth or a
- * 'custom' graph — no sample fetches), so no worker message can run while
- * the offline context is current. Sampler/players patches are skipped.
+ * Render every missing kernel. These were one hit per instrument through Tone's patches, which
+ * djrust has no per-note render for, so this makes none (see the return below).
  *
  * specs: [{ key, inst, channel, note, durMs }]
  */
@@ -190,34 +180,12 @@ export async function renderKernels(specs) {
     const seen = new Set();
     for (const s of specs) {
         if (mem.has(s.key) || seen.has(s.key)) continue;
-        const type = INSTRUMENT_CONFIGS[s.inst]?.type;
-        if (type === 'sampler' || type === 'players') continue;
         seen.add(s.key);
         todo.push(s);
     }
-    if (!todo.length || typeof Tone === 'undefined' || !Tone.Offline) return 0;
-    const { ToneEngine } = await import('../../audio/tone-engine.js');
-    const buffer = await Tone.Offline(async () => {
-        const engine = new ToneEngine();
-        engine._offline = true;
-        await engine.init();
-        engine.setReverbWet?.(0);
-        engine.setDelayWet?.(0);
-        const chans = new Map();
-        for (const s of todo) if (!chans.has(s.channel)) chans.set(s.channel, s.inst);
-        // Two parts on one channel share its instrument live too.
-        await Promise.all([...chans].map(([ch, inst]) => engine.loadInstrument(ch, inst)));
-        todo.forEach((s, i) => {
-            engine.playNote({ channel: s.channel, note: s.note, velocity: 100, duration: s.durMs }, i * SEG_S + HIT_AT);
-        });
-    }, todo.length * SEG_S + 0.1, 1, SR);
-    const data = buffer.getChannelData(0);
-    todo.forEach((s, i) => {
-        const k = analyseHit(data, Math.round(i * SEG_S * SR), SR);
-        mem.set(s.key, k);
-    });
-    saveLocal();
-    return todo.length;
+    // The kernels were one hit per instrument rendered through Tone's patches; djrust has no
+    // per-note render to take them from, so none are made (scope.js hides the model views).
+    return 0;
 }
 
 // --- FX response ------------------------------------------------------------
@@ -282,14 +250,12 @@ function applyFilter(out, off, st, sr) {
  * filter-state objects.
  */
 export function fxResponse(out, channels, sr = SR) {
-    const master = [
-        filterState(toneEngine._hpFilter, 'highpass', 20),
-        filterState(toneEngine._lpFilter, 'lowpass', 20000),
-    ];
+    // djrust's filters are not read back yet: open (|H|² = 1)
+    const master = [null, null];
     for (const ch of channels) {
         const off = (ch & 31) * NR;
         for (let j = 0; j < NR; j++) out[off + j] = 1;
-        const strip = toneEngine._channelStrips?.get(ch);
+        const strip = null;
         if (strip) {
             const db = readParam(strip.volume?.volume, 0);
             const g2 = Math.pow(10, db / 10);

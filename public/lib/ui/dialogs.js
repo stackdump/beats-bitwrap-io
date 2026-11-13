@@ -454,7 +454,7 @@ export function showWelcomeCard(el, force = false) {
                     <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
                     <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
                 `;
-                // Stop the Tone.js engine if the user starts the
+                // Stop the live engine if the user starts the
                 // pre-rendered audio — same track played twice over
                 // each other otherwise.
                 block.querySelector('audio').addEventListener('play', () => {
@@ -724,8 +724,6 @@ export function showHelpModal(el) {
             <h2>Performance Guide <span class="pn-help-version" style="font-size:0.55em;color:#777;font-weight:400;letter-spacing:0.04em;margin-left:6px">loading…</span></h2>
 
             <h3>This device</h3>
-            <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Crackle or late hits? Measure how much audio headroom this device has for each engine.
-                <button type="button" class="pn-bench-open" style="margin-left:6px">Benchmark this device</button></p>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">Anonymous diagnostics help fix playback on phones: which part of the page you tap (not where or what),
                 focus / screen changes, audio timing and late notes, with a random id that resets every visit. No IP is stored.
                 Off automatically with Do Not Track / Global Privacy Control.
@@ -908,7 +906,7 @@ export function showHelpModal(el) {
             <h3>Built With</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Macros inject transient control nets that fire their restore action on a tick-locked terminal transition.</p>
             <ul>
-                <li><b><a href="https://tonejs.github.io/" target="_blank" rel="noopener" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
+                <li><b><a href="https://github.com/stackdump/djrust" target="_blank" rel="noopener" style="color:#0af">djrust</a></b> &mdash; the audio engine: plays the Petri nets in an AudioWorklet (WebAssembly)</li>
                 <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms as token rings</li>
                 <li><b><button class="pn-help-category pn-link-btn" style="color:#0af">Control category map &rarr;</button></b> &mdash; diagram of how <code>beat</code> fans out through generators, instruments, macros, and control actions</li>
             </ul>
@@ -935,10 +933,6 @@ export function showHelpModal(el) {
         const render = () => { btn.textContent = t.telemetryAllowed() ? 'Diagnostics on — turn off' : 'Diagnostics off — turn on'; };
         render();
         btn.addEventListener('click', () => { t.setTelemetryEnabled(el, !t.telemetryAllowed()); render(); });
-    });
-    overlay.querySelector('.pn-bench-open')?.addEventListener('click', () => {
-        overlay.remove();
-        el._showBenchModal();
     });
     overlay.focus();
 

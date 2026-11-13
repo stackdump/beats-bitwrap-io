@@ -1,12 +1,5 @@
-// One-shot instrument catalog + tone-shaping dropdown tables.
-// Values are raw engine params so they can be forwarded to
-// `toneEngine.playOneShot` / `playOneShotInstrument` without remapping.
-//
-// kind='custom': routed to toneEngine.playOneShot (hardcoded airhorn/laser/…)
-// kind='note':   routed to toneEngine.playOneShotInstrument which spins up a
-//                throwaway synth instance, runs it through the one-shot chain,
-//                and disposes after the tail. `note` is the default MIDI pitch
-//                the Pitch dropdown transposes from.
+// One-shot instrument catalog + tone-shaping dropdown tables: the Beats pads' instrument picker
+// (a stinger net's track.instrument, which djrust plays) and their labels.
 
 export const ONESHOT_INSTRUMENTS = [
     // --- Stingers / FX ---

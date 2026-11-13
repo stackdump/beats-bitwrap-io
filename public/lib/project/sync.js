@@ -7,7 +7,7 @@
 // Extracted from petri-note.js. Functions take the custom element
 // as first arg; petri-note.js keeps one-line class-method wrappers.
 
-import { toneEngine, INSTRUMENT_CONFIGS } from '../../audio/tone-engine.js';
+import { INSTRUMENT_NAMES } from '../../audio/engine.js';
 import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
 import { injectTransitionNet } from '../macros/runtime.js';
 import { clearLocalMacroState } from '../macros/effects.js';
@@ -18,19 +18,13 @@ export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
     let usedTrackInstruments = false;
 
-    // Try pooled promote first (preview pre-warmed the synth → pointer
-    // swap, no Tone allocation on the audio-scheduling thread). Fall
-    // through to loadInstrument only for channels that weren't prewarmed.
+    // djrust plays each net's own track.instrument; the studio keeps the
+    // channel → instrument map for the mixer.
     for (const [, net] of Object.entries(nets)) {
         if (net.track?.instrument && net.role !== 'control') {
             const ch = net.track.channel || 1;
             const inst = net.track.instrument;
             el._channelInstruments[ch] = inst;
-            if (el._toneStarted) {
-                if (!toneEngine.promotePooledInstrument(ch, inst)) {
-                    toneEngine.loadInstrument(ch, inst);
-                }
-            }
             usedTrackInstruments = true;
         }
     }
@@ -42,57 +36,13 @@ export function applyProjectInstruments(el, project) {
         for (const [ch, inst] of Object.entries(genreInst)) {
             const chNum = parseInt(ch);
             el._channelInstruments[chNum] = inst;
-            if (el._toneStarted) {
-                if (!toneEngine.promotePooledInstrument(chNum, inst)) {
-                    toneEngine.loadInstrument(chNum, inst);
-                }
-            }
         }
     }
-    // Drop anything still pooled (preview channels we didn't end up
-    // using) so memory doesn't grow across regens.
-    if (el._toneStarted) toneEngine.clearPool();
-
-    // Subtle default pan spread per track role.
-    applyDefaultPans(el, nets);
 }
 
-// Build the next track's synths into the tone-engine pool one-at-a-time
-// while the current track still plays. Awaiting each keeps Tone.js
-// allocations serialized so each individual hitch is tiny.
-export async function prewarmPreviewInstruments(el, project) {
-    if (!el._toneStarted || !project?.nets) return;
-    const seen = new Set();
-    for (const net of Object.values(project.nets)) {
-        if (net.role === 'control') continue;
-        const inst = net.track?.instrument;
-        const ch = net.track?.channel;
-        if (!inst || ch == null) continue;
-        const key = `${ch}:${inst}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        try { await toneEngine.preloadInstrument(ch, inst); }
-        catch (err) { console.warn('preloadInstrument failed:', err); }
-    }
-}
-
-export function applyDefaultPans(el, nets) {
-    // CC10 values: 64 = center. Offsets below are gentle (±24 max).
-    const ROLE_PAN = {
-        kick:   64, snare: 60, hihat: 84, clap: 44,
-        bass:   64, melody: 54,
-        harmony: 74, arp: 80,
-        hit1: 40, hit2: 88, hit3: 56, hit4: 72,
-    };
-    for (const [id, net] of Object.entries(nets)) {
-        if (net.role === 'control') continue;
-        const ch = net.track?.channel;
-        if (ch == null) continue;
-        const key = net.riffGroup || id;
-        const pan = ROLE_PAN[key] ?? 64;
-        if (pan !== 64) toneEngine.controlChange(ch, 10, pan);
-    }
-}
+// djrust composes the next project's install off the audio thread (its composer Worker), so
+// there is nothing to warm ahead of a swap.
+export async function prewarmPreviewInstruments() {}
 
 // Apply a buffered project-sync (called immediately or at bar boundary).
 export function applyProjectSync(el, project, seamless = false) {
@@ -286,11 +236,6 @@ export function onInstrumentsChanged(el, instruments) {
         net.track.instrument = instrumentName;
         const ch = net.track.channel || 1;
         el._channelInstruments[ch] = instrumentName;
-        if (el._toneStarted) {
-            if (!toneEngine.promotePooledInstrument(ch, instrumentName)) {
-                toneEngine.loadInstrument(ch, instrumentName);
-            }
-        }
     }
 
     el._renderMixer();
@@ -298,7 +243,7 @@ export function onInstrumentsChanged(el, instruments) {
 }
 
 export function getAvailableInstruments() {
-    return Object.keys(INSTRUMENT_CONFIGS).sort();
+    return [...INSTRUMENT_NAMES].sort();
 }
 
 export function getCurrentInstruments(el) {

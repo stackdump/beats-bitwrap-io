@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 //
 // Browser smoke test for the Scope tab (public/lib/ui/scope.js) — headless
-// Chrome over raw CDP (no npm, same approach as test-wave-browser.mjs).
+// Chrome over raw CDP (no npm).
 //
 //   ./beats-bitwrap-io -addr :18094 -public public -data /tmp/scope-data &
 //   node scripts/test-scope-browser.mjs [http://localhost:18094] [screenshot-dir]
+//   DJRUST_URL=http://127.0.0.1:18095/ …   (an unreleased engine: ?djrust= override)
 //
-// Asserts, for the default engine and ?engine=wave: playback starts, the
-// Scope tab opens, the model kernel table renders, every view draws a
-// non-empty canvas, model bands fill while playing, the measured path and
-// residual work when toggled, the loop stops when the tab closes, and no
-// console errors / exceptions are raised. While the tab is open the net
+// Asserts, desktop and at phone width: playback starts, the Scope tab opens,
+// the views djrust keeps (live, raster) draw a non-empty canvas, the model
+// views (spectro, bands: Tone kernels) are hidden, the loop stops when the
+// tab closes, and no console errors / exceptions are raised. While the tab is open the net
 // workspace (ring + timeline dots) must be hidden and not painted, with
 // state (tick, fire history) still advancing; closing restores and repaints
 // it. On a loop project (no structure — the site default) the raster must
@@ -26,6 +26,7 @@ const SHOTS = process.argv[3] || '';
 const PORT = 9343;
 const CHROME = process.env.CHROME || 'google-chrome';
 const PLAY_MS = +(process.env.SCOPE_PLAY_MS || 9000);
+const PKG = process.env.DJRUST_URL ? `&djrust=${encodeURIComponent(process.env.DJRUST_URL)}` : '';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -102,7 +103,7 @@ async function shot(cdp, name) {
 
 async function run(cdp, label, query, shots, opts = {}) {
     cdp.errors.length = 0;
-    await cdp.send('Page.navigate', { url: `${HOST}/?${query}` });
+    await cdp.send('Page.navigate', { url: `${HOST}/?${query}${PKG}` });
     for (let i = 0; i < 100; i++) {
         await sleep(200);
         const ok = await cdp.evaluate(`(() => { const el = document.querySelector('petri-note'); return !!(el && el._project && Object.keys(el._project.nets||{}).length); })()`).catch(() => false);
@@ -113,22 +114,17 @@ async function run(cdp, label, query, shots, opts = {}) {
         const el = document.querySelector('petri-note');
         document.querySelectorAll('.pn-welcome-overlay').forEach(n => n.remove());
         await el._ensureToneStarted();
+        await el._dj;
         if (!el._playing) el._togglePlay();
         el.querySelector('.pn-scope-btn').click();
     })()`);
-    // Kernel table: rendered once per instrument/patch, then cached.
-    let status = '';
-    for (let i = 0; i < 60; i++) {
-        await sleep(250);
-        status = await cdp.evaluate(`document.querySelector('.pn-scope-status')?.textContent || ''`);
-        if (/kernels/.test(status) && !/rendering/.test(status)) break;
-    }
-    check(`${label}: kernel table ready`, /model · \d+ kernels/.test(status), status);
-    await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
     await sleep(PLAY_MS);
+    const hiddenViews = await cdp.evaluate(`[...document.querySelectorAll('.pn-scope-model-only')]
+        .filter(n => getComputedStyle(n).display !== 'none').map(n => n.dataset.view || n.className)`);
+    check(`${label}: model views (Tone kernels) are hidden`, hiddenViews.length === 0, hiddenViews.join(' '));
 
     const out = {};
-    for (const view of ['live', 'spectro', 'bands', 'raster']) {
+    for (const view of ['live', 'raster']) {
         await cdp.evaluate(`document.querySelector('.pn-scope-views button[data-view="${view}"]').click()`);
         await sleep(view === 'raster' ? 1500 : 1200);
         const ink = await cdp.evaluate(INK);
@@ -164,20 +160,8 @@ async function run(cdp, label, query, shots, opts = {}) {
         return { stats: st, running: s.running, bars: s.maxBar + 1, fires: s.fires, playing: el._playing,
                  perf: el._perf?.last?.vizMs || null };
     })()`);
-    // The model-only default for comparison screenshots.
-    if (shots) {
-        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
-        for (const view of ['spectro', 'bands']) {
-            await cdp.evaluate(`document.querySelector('.pn-scope-views button[data-view="${view}"]').click()`);
-            await sleep(800);
-            out[view + '-model'] = await shot(cdp, `${shots}-${view}-model`);
-        }
-        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
-    }
     check(`${label}: scope loop running while open + playing`, st.running && st.playing);
     check(`${label}: fires reach the scope`, st.fires > 20, `${st.fires} fires`);
-    check(`${label}: model bands fill bar by bar`, st.bars >= 2, `${st.bars} bars`);
-    check(`${label}: model vs measured stats computed`, st.stats.bars >= 2, JSON.stringify(st.stats.bands.map(b => [b.band, b.corr, b.rmsResidualDb])));
     // Closing the tab stops the loop and drops the analyser tap.
     const closed = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
@@ -206,8 +190,7 @@ try {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1600, deviceScaleFactor: 1, mobile: false });
     const results = {};
     // genre=techno&seed=42 loads in the site default loop mode (no structure).
-    results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42', { loop: true });
-    results.wave = await run(cdp, 'wave', 'engine=wave&genre=techno&seed=42', null, { loop: true });
+    results.desktop = await run(cdp, 'desktop', 'genre=techno&seed=42', 'techno42', { loop: true });
     // Phone width: layout must not overflow.
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
     results.mobile = await run(cdp, 'mobile', 'genre=techno&seed=42', SHOTS ? 'mobile' : null, { loop: true });

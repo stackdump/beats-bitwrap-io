@@ -16,7 +16,7 @@
 //            the IR (4 dB/step below that band's loudest bar) — MODEL by
 //            default: Σ over the bar's events of the same product
 //   Raster   μ for the whole arrangement: the project's nets ticked offline
-//            (wave-engine/net.js, the worker's deterministic executor),
+//            (lib/net.js, the worker's deterministic executor),
 //            sections marked; computed lazily, once per project. A loop
 //            project (no structure) is ticked for one cycle: until every
 //            net's marking and the mute table are back where they started,
@@ -37,7 +37,7 @@
 // keep accumulating while playing once the kernel table exists, so the
 // bands are complete when the tab is reopened. Hot paths reuse typed arrays.
 
-import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
+import { audioEngine, isDrumChannel } from '../../audio/engine.js';
 import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { vizColorForNet } from '../backend/audio-io.js';
 import { sectionGroupForNet } from './mixer.js';
@@ -52,9 +52,10 @@ const VIEWS = [
     ['bands', 'Bands', 'Per-bar band energy, IR digits 0-9 (4 dB/step below each band\'s loudest bar)'],
     ['raster', 'Raster', 'Score raster μ of the whole arrangement, sections marked'],
 ];
-// Views drawn from per-instrument model kernels (Tone.Offline renders); hidden under
-// ?engine=djrust (lib/backend/djrust.js) until djrust has its own.
+// Views drawn from per-instrument model kernels (they were Tone renders; djrust has none), so
+// hidden (lib/backend/djrust.js) until they read the measured spectrum instead.
 const MODEL_VIEWS = new Set(['spectro', 'bands']);
+const MODEL_KERNELS = false; // see ensureKernels
 const VIZ_MIN_FRAME_MS = [1000 / 30, 1000 / 15, 1000 / 8, 1000 / 4];
 const GROUP_ORDER = ['drums', 'percussion', 'bass', 'chords', 'harmony', 'lead', 'melody', 'arp', 'pad', 'texture', 'stinger'];
 const FALLBACK_COLORS = ['#00d2ff', '#2ecc71', '#9b59b6', '#f5a623', '#4a90d9', '#ff6b6b', '#1abc9c', '#e67e22'];
@@ -133,7 +134,7 @@ function state(el) {
 
 const ema = (prev, v) => prev ? prev * 0.9 + v * 0.1 : v;
 const tickSecOf = (el) => { const t = el._tempo; return 60 / ((fin(t) && t > 0 ? t : 120) * 4); };
-function rawCtx() { try { return window.Tone?.getContext?.()?.rawContext || null; } catch { return null; } }
+function rawCtx() { return audioEngine.ctx || null; }
 function ctxNow() { const c = rawCtx(); return c && fin(c.currentTime) ? c.currentTime : 0; }
 
 // --- project → lanes ------------------------------------------------------
@@ -193,13 +194,18 @@ function buildLanes(el) {
 }
 
 function laneInstrument(lane) {
-    return toneEngine.getChannelInstrument?.(lane.channel) || lane.inst || (lane.drum ? 'drums' : 'piano');
+    return lane.inst || (lane.drum ? 'drums' : 'piano');
 }
 
-/** Build the per-lane kernel tables; render whatever the cache lacks. */
+/**
+ * Build the per-lane kernel tables; render whatever the cache lacks. The kernels were renders of
+ * Tone's patches, so with djrust there are none: the model views (Spectro, Bands) are hidden
+ * (lib/backend/djrust.js) until they read the measured spectrum instead.
+ */
 function ensureKernels(el) {
     const s = state(el);
-    if (!s.opened || !s.lanes.length) return;
+    s.kernelStatus = '';
+    if (!MODEL_KERNELS || !s.opened || !s.lanes.length) return;
     const specsByLane = s.lanes.map(l => laneKernelSpecs(l, laneInstrument(l)));
     const assemble = () => {
         let ready = 0;
@@ -372,8 +378,8 @@ function specAdvance(s, step, tickSec) {
 // --- analyser (live waveform always; FFT only when "measured" is on) -------
 
 function analyserSource() {
-    // Wave engine (lean): worklet → _waveGain → out, Tone's master unhooked.
-    return toneEngine._waveGain || toneEngine._masterComp || null;
+    // djrust's worklet → the master gain → out
+    return audioEngine.output || null;
 }
 
 function ensureAnalyser(s) {
@@ -382,13 +388,13 @@ function ensureAnalyser(s) {
     if (s.an && s.anSrc === src) return s.an;
     detachAnalyser(s);
     try {
-        const ctx = window.Tone.getContext();
+        const ctx = audioEngine.ctx;
         const an = ctx.createAnalyser();
         an.fftSize = FFT_SIZE;
         an.smoothingTimeConstant = 0;
         // Read-only tap: an AnalyserNode has no outputs connected, so the
         // audio path is unchanged.
-        window.Tone.connect(src, an);
+        src.connect(an);
         s.an = an; s.anSrc = src; s.readT = 0;
         const sr = ctx.sampleRate || 44100;
         if (s.binSr !== sr) {
@@ -410,7 +416,7 @@ function ensureAnalyser(s) {
 
 function detachAnalyser(s) {
     if (!s.an) return;
-    try { window.Tone.disconnect(s.anSrc, s.an); } catch { try { s.anSrc?.disconnect?.(s.an); } catch {} }
+    try { s.anSrc?.disconnect?.(s.an); } catch {}
     s.an = null; s.anSrc = null;
 }
 
@@ -1053,7 +1059,7 @@ function drawBands(el, s, ctx) {
 // --- raster ------------------------------------------------------------------
 
 async function computeRaster(el, s) {
-    const { compileProject, tick } = await import('../../wave-engine/net.js');
+    const { compileProject, tick } = await import('../net.js');
     const t0 = performance.now();
     const g = compileProject(el._project);
     // Arranged track: the structure's length. Loop project (no structure —

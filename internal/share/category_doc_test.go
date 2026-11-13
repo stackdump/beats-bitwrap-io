@@ -24,7 +24,7 @@ func TestCategoryDiagramInSync(t *testing.T) {
 		ControlActions int
 		Genres         int
 	}{
-		Instruments:    countInstrumentConfigs(t, filepath.Join(root, "public/audio/tone-engine.js")),
+		Instruments:    countInstrumentNames(t, filepath.Join(root, "public/audio/engine.js")),
 		Oneshots:       countOneshots(t, filepath.Join(root, "public/lib/audio/oneshots.js")),
 		Macros:         countMacros(t, filepath.Join(root, "public/lib/macros/catalog.js")),
 		ControlActions: countControlActions(t, filepath.Join(root, "internal/share/beats-share.schema.json")),
@@ -81,21 +81,20 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// countInstrumentConfigs counts top-level keys in the `INSTRUMENT_CONFIGS = {
-// ... };` object literal, matching the `    'name': {` pattern used in the
-// file (4-space indent, single-quoted string key).
-func countInstrumentConfigs(t *testing.T, path string) int {
+// countInstrumentNames counts the quoted names in the `INSTRUMENT_NAMES = [
+// ... ];` array literal (the instruments the mixer offers and djrust plays).
+func countInstrumentNames(t *testing.T, path string) int {
 	body := readFile(t, path)
-	start := strings.Index(body, "const INSTRUMENT_CONFIGS = {")
+	start := strings.Index(body, "INSTRUMENT_NAMES = [")
 	if start < 0 {
-		t.Fatalf("INSTRUMENT_CONFIGS not found in %s", path)
+		t.Fatalf("INSTRUMENT_NAMES not found in %s", path)
 	}
-	end := strings.Index(body[start:], "\n};")
+	end := strings.Index(body[start:], "\n];")
 	if end < 0 {
-		t.Fatalf("closing \\n}; not found for INSTRUMENT_CONFIGS in %s", path)
+		t.Fatalf("closing \\n]; not found for INSTRUMENT_NAMES in %s", path)
 	}
-	block := body[start : start+end]
-	re := regexp.MustCompile(`(?m)^    '[a-z][a-z0-9-]*':\s*\{`)
+	block := body[start+len("INSTRUMENT_NAMES = [") : start+end]
+	re := regexp.MustCompile(`'[a-z0-9][a-z0-9-]*'`)
 	return len(re.FindAllString(block, -1))
 }
 

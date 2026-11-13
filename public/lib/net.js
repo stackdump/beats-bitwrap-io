@@ -11,7 +11,7 @@
  * loop/seek, drift. Those control actions are reported, not applied.
  */
 
-import { parseProject } from '../lib/pflow.js';
+import { parseProject } from './pflow.js';
 
 export const A_NONE = 0, A_MUTE = 1, A_UNMUTE = 2, A_TOGGLE = 3,
     A_MUTE_NOTE = 4, A_UNMUTE_NOTE = 5, A_TOGGLE_NOTE = 6,

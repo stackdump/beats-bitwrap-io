@@ -20,12 +20,11 @@
 //   node scripts/test-djrust-parity.mjs [--seeds N]
 //   DJRUST_PKG=../djrust/npm/pkg make test-djrust-parity
 
-import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { loadDjrust } from './lib/djrust-pkg.mjs';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { compose } from '../public/lib/generator/composer.js';
 import { parseProject, canonicalProjectJSON } from '../public/lib/pflow.js';
 import { computeCidForJsonLd } from '../public/lib/share/codec.js';
@@ -44,31 +43,6 @@ const GENRES = ['ambient', 'blues', 'bossa', 'country', 'dnb', 'dubstep', 'edm',
 // '' is a loop (no structure); the rest are the share envelope's `structure` values.
 const STRUCTURES = ['', 'ab', 'drop', 'build', 'jam', 'minimal', 'standard', 'extended'];
 
-async function loadDjrust() {
-    let dir = process.env.DJRUST_PKG;
-    if (!dir) {
-        dir = mkdtempSync(path.join(tmpdir(), 'djrust-pkg-'));
-        const url = `https://registry.npmjs.org/djrust/-/djrust-${DJRUST_VERSION}.tgz`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`${url}: ${res.status} (unpublished? set DJRUST_PKG to a local build)`);
-        const tgz = path.join(dir, 'pkg.tgz');
-        writeFileSync(tgz, Buffer.from(await res.arrayBuffer()));
-        const t = spawnSync('tar', ['xzf', tgz, '-C', dir], { encoding: 'utf8' });
-        if (t.status !== 0) throw new Error('tar: ' + t.stderr);
-        dir = path.join(dir, 'package');
-    }
-    const glue = path.join(dir, 'djrust.js');
-    if (!existsSync(glue)) throw new Error(`no djrust.js in ${dir}`);
-    const m = await import(pathToFileURL(glue).href);
-    m.initSync({ module: readFileSync(path.join(dir, 'djrust_bg.wasm')) });
-    for (const fn of ['compose_model_cid', 'compose_project', 'share_cid']) {
-        if (typeof m[fn] !== 'function') {
-            throw new Error(`djrust in ${dir} has no ${fn}(): it predates the beats facade ` +
-                '(djrust feat/beats-facade); the gate needs a release that includes it');
-        }
-    }
-    return { m, dir };
-}
 
 const sha = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
 
@@ -78,7 +52,7 @@ function firstDiff(a, b) {
     return `at byte ${i}:\n    js:     …${a.slice(Math.max(0, i - 60), i + 80)}\n    djrust: …${b.slice(Math.max(0, i - 60), i + 80)}`;
 }
 
-const { m: dj, dir } = await loadDjrust();
+const { m: dj, dir } = await loadDjrust(['compose_model_cid', 'compose_project', 'share_cid']);
 const version = typeof dj.engine_version === 'function' ? dj.engine_version() : '?';
 console.log(`djrust ${version} from ${dir}; ${GENRES.length} genres × ${STRUCTURES.length} structures × ${SEEDS} seeds`);
 

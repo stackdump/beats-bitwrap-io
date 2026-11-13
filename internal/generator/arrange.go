@@ -1030,8 +1030,7 @@ func injectCounterMelodyGate(proj *pflow.Project, starts []counterSectionStart, 
 }
 
 // counterMelodyDefaultInstrument picks a curated counter voice. Both
-// keys are confirmed present in public/audio/tone-engine.js's
-// INSTRUMENT_CONFIGS.
+// keys are in public/audio/engine.js's INSTRUMENT_NAMES.
 func counterMelodyDefaultInstrument(register string) string {
 	if register == "below" {
 		return "sub-bass"
