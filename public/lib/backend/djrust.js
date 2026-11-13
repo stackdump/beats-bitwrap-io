@@ -140,8 +140,25 @@ function engineFailed(el, err) {
     el._engineErrorBanner = banner;
 }
 
-/** The text a deck plays for the studio's project: the project plus its genre and seed. */
+/**
+ * The text a deck plays for the studio's project: the project plus its genre and seed, played
+ * as written; or, for a `play: "dj"` share whose project is still the one composed for it, the
+ * share's envelope, which djrust composes itself with the DJ pass (the same nets: the pass
+ * rewrites notes, never places, transitions or arcs). Any edit plays as written from then on.
+ */
 function projectText(el, project) {
+    const dj = el._djShare;
+    if (dj && !dj.dropped) {
+        const nets = JSON.stringify(project.nets || {});
+        if (dj.nets == null) dj.nets = nets; // the first project composed for the share
+        dj.active = dj.nets === nets;
+        if (dj.active) return JSON.stringify(dj.envelope);
+        dj.dropped = true; // edited: as written from here on
+    }
+    return asWrittenText(el, project);
+}
+
+function asWrittenText(el, project) {
     const genre = el.querySelector?.('.pn-genre-select')?.value || el._currentGen?.genre;
     const seed = el._currentGen?.params?.seed;
     return JSON.stringify({ ...project, genre, ...(Number.isFinite(seed) ? { seed } : {}) });

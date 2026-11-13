@@ -292,6 +292,25 @@ try {
             return { error: window.__renderError, info: window.__renderInfo, bytes: bytes.length, hash };
         })()`);
     };
+    // a play: "dj" share (as the Android app shares a track it composed): djrust composes the
+    // envelope itself with the DJ pass, on the same nets the tracks view draws, and a re-share
+    // keeps it a dj share
+    const DJ = { ...ENVELOPE, play: 'dj' };
+    const djTrack = `cid=${await computeCidForJsonLd(DJ)}&z=${await gzipToB64Url(JSON.stringify(DJ))}`;
+    await boot(cdp, `${djTrack}${PKG ? '&djrust=' + encodeURIComponent(PKG) : ''}`);
+    await sleep(4000);
+    const dj = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const nets = Object.keys(el._project?.nets || {});
+        const fired = [...new Set(window.__fires.map(f => f.net))];
+        const p = await el._buildSharePayload();
+        return { active: !!el._djShare?.active, fires: window.__fires.length, foreign: fired.filter(n => !nets.includes(n)),
+                 play: p.play || null, errors: el._djrustErrors || [] };
+    })()`);
+    check('a play: "dj" share plays in djrust on the studio\'s nets', dj.active && dj.fires > 10 && dj.foreign.length === 0 && !dj.errors.length,
+        JSON.stringify(dj));
+    check('a dj share re-shares as one', dj.play === 'dj', String(dj.play));
+
     const live = await renderMode('1');
     check('?render=1 records the djrust engine', !live.error && live.bytes > 5000 && live.info?.engine === 'djrust' && live.info?.engineVersion,
         `${live.bytes} bytes ${live.info?.mimeType} ${live.info?.engine}@${live.info?.engineVersion} ${live.error || ''}`);

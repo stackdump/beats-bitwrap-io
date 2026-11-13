@@ -175,6 +175,10 @@ export function shareFromPayload(payload, cid) {
         // from. Carried forward by the Share collector when the user
         // re-shares so the parent CID isn't lost.
         parents: Array.isArray(payload.parents) ? payload.parents : null,
+        // `play: "dj"`: djrust's DJ sound (a track a DJ app shared as it played it). The engine
+        // is handed the envelope itself while the project is unedited (lib/backend/djrust.js).
+        play: payload.play === 'dj' && !payload.nets ? 'dj' : null,
+        envelope: payload,
     };
 }
 

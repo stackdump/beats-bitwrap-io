@@ -1444,6 +1444,8 @@ class PetriNote extends HTMLElement {
                 this._traitOverrides[k] = v;
             }
             this._currentGen = { genre: share.genre, params: { ...share.params } };
+            // a `play: "dj"` share plays its envelope in djrust while the project is unedited
+            this._djShare = share.play === 'dj' ? { envelope: share.envelope, nets: null, active: false } : null;
             // Provenance: record the source CID + any inherited parents
             // so the next Share carries this CID forward as its parent.
             // Newest-first, capped at 8 in the collector.

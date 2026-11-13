@@ -138,6 +138,10 @@
         "endTick":   { "type": "integer", "minimum": 1 }
       }
     },
+    "play": {
+      "description": "How the share plays. Absent: as written (the composed or authored project, synth voices): beats.bitwrap.io's own sound. \"dj\": djrust's DJ sound, the musicality pass over the composed (genre, seed, structure, traits) track, as a DJ app (the djrust Android app) played it; only with genre + seed, never with nets.",
+      "enum": ["dj"]
+    },
     "nets": {
       "description": "Optional full petri-net bundle. When present, the share boot path loads these nets directly and SKIPS the generator — used to round-trip hand-authored or heavily-edited projects that can't be recreated from (genre, seed) alone. Keys are net IDs; values are the same shape emitted by /api/project (track, places, transitions, arcs, role, riffGroup).",
       "type": ["object", "null"],

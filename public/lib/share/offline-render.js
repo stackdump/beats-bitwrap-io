@@ -22,6 +22,8 @@ export function isOfflineRenderMode() {
 
 /** The project text djrust plays for the studio (as lib/backend/djrust.js loads it). */
 export function studioProjectText(el) {
+    // a `play: "dj"` share still unedited renders as djrust's DJ pass of its envelope
+    if (el._djShare?.active && !el._djShare.dropped) return JSON.stringify(el._djShare.envelope);
     const genre = el.querySelector?.('.pn-genre-select')?.value || el._currentGen?.genre;
     const seed = el._currentGen?.params?.seed;
     const tempo = el._tempo || el._project.tempo;
