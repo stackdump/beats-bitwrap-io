@@ -272,6 +272,38 @@ comparison with Tone; a production build (`make build` embeds `public/`, includi
 the full djrust test suite (only `djwasm`'s own tests and the existing djengine checks were run; no
 djengine file changed).
 
+### 9.1 Re-assessment before a default flip (2026-11-14)
+
+Asked to make djrust the default and remove Tone. Re-ran the phase-1 gates on a fresh build
+(`make djrust-wasm` reproduced the locked sha256 `a98d5ee5…`; `make test-djrust`, `make test-djrust-browser`,
+`go test ./...` all green), then measured which studio controls take audible effect in each engine
+(`scripts/probe-djrust-gaps.mjs`, headless Chrome, techno/42, RMS + spectral centroid of the output
+before/after; ratio after/before):
+
+| Control | Tone (default) | djrust | Verdict |
+|---|---|---|---|
+| FX `lp-freq` → 5 | centroid ×0.63 | ×1.03 | **no effect** in djrust |
+| FX `distortion` → 100 | RMS ×4.75 | ×1.00 | **no effect** |
+| FX `master-vol` → 5 | RMS ×0.006 | ×0.006 | works |
+| macro `cut` (8 ticks) | RMS ×0.008 | ×1.06 | **no effect** |
+| macro `sweep-lp` | centroid ×0.61 | ×1.06 | **no effect** |
+| macro `solo-drums` | RMS ×0.75 | ×1.01 | **no effect** |
+| mute every music net | RMS ×0.02 | ×0.10 | works |
+| tempo 120 → 60 | works | works | works |
+| 19 genres, seed 7 | — | all play, no errors | works |
+| Stage opens | — | no exceptions | works |
+
+Further, from the code: `client-render.js` (render farm + "Download audio") and `test-hooks.js` record
+from `Tone.getDestination()`, which the lean djrust path bypasses (worklet → gain → `ctx.destination`),
+so a flipped render farm would bake **silent** `.webm`s; `instrument-change`, `seek`, swing/humanize,
+transpose and hit pads are not routed to the worklet; the scope kernels still use `Tone.Offline`.
+
+**Conclusion:** phase 1 does what it claims (a working flag), but phases 3–5 are the prerequisites of a
+flip, not polish. Removing Tone today would delete the FX panel, every macro and Auto-DJ, and the render
+farm's audio. The flip stays blocked on §10 #1 (licence), §10 #6 (where the wasm is built for deploy —
+it is git-ignored, so pflow.dev's `make build` would serve a page that silently falls back to the JS wave
+engine) and phases 3–5.
+
 ## 10. Decisions for Matt
 
 1. **Licence / visibility of djrust** (§8). Blocks any deploy of the flag.
