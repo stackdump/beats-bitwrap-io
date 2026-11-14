@@ -4,7 +4,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
-        djrust-wasm test-djrust test-djrust-browser \
+        djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -90,6 +90,7 @@ test:
 	@$(MAKE) --no-print-directory test-cohesion-parity
 	@$(MAKE) --no-print-directory test-model-parity
 	@$(MAKE) --no-print-directory test-wave
+	@$(MAKE) --no-print-directory check-djrust-pin
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and
@@ -209,12 +210,32 @@ wave-bench:
 	node scripts/wave-bench.mjs
 
 # --- djrust engine (?engine=djrust) — public/djrust/ -------------------------------------
-# The Rust engine as WebAssembly in the same worklet slot as the JS wave engine. The .wasm is
-# built from a djrust-vevr-se checkout ($$DJRUST_DIR, default ../djrust-vevr-se) and not
-# committed; djrust.lock records which build the tests ran against. See
-# docs/MIGRATION-djrust-wasm.md.
+# The Rust engine as WebAssembly in the same worklet slot as the JS wave engine. The module is the
+# `djwasm` npm package (github.com/stackdump/djrust, cabi/, MIT), loaded from jsDelivr at the exact
+# version + SRI hash in public/djrust/pin.js, so the deploy never builds Rust. loader.js /
+# worklet.js are that package's glue, vendored byte for byte. See docs/MIGRATION-djrust-wasm.md.
+#   djrust-wasm        build ../djrust ($$DJRUST_DIR) into public/djrust/djwasm.wasm (git-ignored;
+#                      tests and the page's local fallback)
+#   djrust-pin         same, and re-pin pin.js + the glue to that build
+#   djrust-publish     publish the pinned version to npm (needs npm login), then verify jsDelivr
+#   check-djrust-pin   offline: vendored glue = the pin (part of make test)
+#   djrust-verify-cdn  online: jsDelivr serves the pinned bytes
+DJRUST_DIR ?= ../djrust
 djrust-wasm:
-	@./scripts/build-djrust-wasm.sh
+	@DJRUST_DIR=$(DJRUST_DIR) ./scripts/build-djrust-wasm.sh
+
+djrust-pin:
+	@DJRUST_DIR=$(DJRUST_DIR) ./scripts/build-djrust-wasm.sh --pin
+
+djrust-publish: djrust-wasm
+	@$(DJRUST_DIR)/cabi/publish.sh
+	@node scripts/djrust-pin.mjs verify
+
+check-djrust-pin:
+	@node scripts/djrust-pin.mjs check
+
+djrust-verify-cdn:
+	@node scripts/djrust-pin.mjs verify
 
 # Live parity against this repo's own JS: generator bytes + CIDs, audio, ticks, markings, the worklet
 # without TextEncoder. Node only.

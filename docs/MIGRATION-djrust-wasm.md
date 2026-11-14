@@ -2,6 +2,10 @@
 
 **Status 2026-11-12: plan + phase 1 on branch `djrust-wasm-phase1`. Nothing is pushed or deployed.**
 
+**2026-11-14:** the module now comes from the public, MIT [`stackdump/djrust`](https://github.com/stackdump/djrust)
+(`cabi/`, npm package `djwasm`) and the page loads it from jsDelivr with a pinned SRI hash (§4, §8).
+No private source is compiled into it any more.
+
 One engine everywhere: the Rust engine in [`djrust-vevr-se`](https://github.com/stackdump/djrust-vevr-se)
 (`djengine`) already runs the Swift DJ app's generator and wave engine on Linux. This plan runs
 the same code in the browser as WebAssembly, so `public/lib/generator/*.js`, the JS wave engine
@@ -20,7 +24,7 @@ below is a W-phase, it says so.
 | **Shares stay deterministic** | The note stream is a pure function of `(genre, seed, structure, overrides)`; djengine has no clock and uses `libm` for every transcendental, so the audio is a pure function too — bit-identical on every target and every browser, which the JS wave engine cannot promise (`ROADMAP-wave.md` "Cross-engine float"). | 5 of 6 test renders bit-identical to the JS wave engine, the 6th within 6e-8; two wasm instances render identical bytes; Chrome's offline render equals Node's byte for byte. Firefox / Safari **not yet run** (§9). |
 | **`BeatsShare` v1 envelope and the CID scheme stay compatible** | Nothing in the envelope, the schema or the canonicalisation changes. The engine choice is a URL flag, never a payload field. The Rust CID code (CIDv1, dag-json, sha2-256, base58btc; model CID = hex sha256 of `canonicalProjectJSON`) is the same bytes as `codec.js` / `seal.go`. | 152 compositions (19 genres × 2 seeds × loop/standard × default/`v1` cohesion) return the same project document **byte for byte** and the same model CID as this repo's live JS. djrust's own fixtures add the 304-project matrix, trait overrides and 542 Go-generator cases. **No CID changes anywhere in phases 1–5.** §6 lists exactly where one could. |
 | **Go/JS parity tests keep passing until the JS path is retired** | Nothing Go or JS under test is edited. `go test ./...`, `make test-wave`, `make test-model-parity` / `//tools/parity`, `//scripts:cohesion_parity_test` are the gate on every phase. When the JS generator is retired (phase 7) the parity legs move to Go↔Rust, which djrust already has as `go.json` (§5.1). | `go test ./...` green; `test-wave-engine`, `test-sw`, `test-cohesion-parity`, `test-wave-browser` green on this branch. |
-| **Only public, reuse-licensed sources** | Nothing was copied from outside the two repos. The wasm's dependency closure is `sha2`, `miniz_oxide`, `libm`, `once_cell` and their dependencies: all MIT, Apache-2.0, Zlib or 0BSD (checked with `cargo metadata`, 2026-11-12). No SoundFonts, Apple content or samples are in the browser build (`djhost`'s SF2 / EXS code is not in `djwasm`). The A/B harness (phase 3) renders from the two engines themselves, so it needs no third-party audio either. | The one thing that is **not** public and reuse-licensed is djrust itself (private, `UNLICENSED`): §8. |
+| **Only public, reuse-licensed sources** | Nothing was copied from outside the two repos. The wasm's dependency closure is `sha2`, `miniz_oxide`, `libm`, `once_cell` and their dependencies: all MIT, Apache-2.0, Zlib or 0BSD (checked with `cargo metadata`, 2026-11-12). No SoundFonts, Apple content or samples are in the browser build (`djhost`'s SF2 / EXS code is not in `djwasm`). The A/B harness (phase 3) renders from the two engines themselves, so it needs no third-party audio either. | Since 2026-11-14 the module is built from public, MIT `stackdump/djrust` only (§8). |
 
 ## 2. What is where today
 
@@ -120,7 +124,10 @@ engine-side equivalents for most, which is the main reason to take it instead of
 
 ## 4. The WASM build
 
-`crates/djwasm` in djrust (branch `djwasm-phase1`, commit `0f8f11d`) is a `cdylib` over `djengine`.
+`cabi/` in the public [`stackdump/djrust`](https://github.com/stackdump/djrust) (MIT) is a `cdylib` over the
+`djrust` crate (`default-features = false`). It is the phase-1 `crates/djwasm` (private djrust-vevr-se,
+`0f8f11d`) moved there unchanged except that `djw_info` reports `"engine":"djrust"`; built against public
+djrust 0.2.0 it passes every `make test-djrust` and `make test-djrust-browser` check.
 
 - **Plain C ABI, no wasm-bindgen, no npm.** An `AudioWorkletGlobalScope` has no `TextEncoder` /
   `TextDecoder`, which wasm-bindgen's generated glue needs, and this repo has no bundler. The whole glue
@@ -137,13 +144,25 @@ engine-side equivalents for most, which is the main reason to take it instead of
   `panic="abort"`, stripped; `wasm-opt` is not installed and not used, so there is probably 10–20% left).
   The whole `djengine` is in it (decks, journal, session models are dead-code-eliminated only as far as
   the linker can prove).
-- **Build:** `make djrust-wasm` → `scripts/build-djrust-wasm.sh` → djrust's `tools/build-wasm.sh`
-  (`$DJRUST_DIR`, default `../djrust-vevr-se`). Output `public/djrust/djwasm.wasm` is **git-ignored**; the
-  committed `public/djrust/djrust.lock` names the djrust commit and the sha256 the tests ran against
-  (`scripts/build-djrust-wasm.sh --check`). Not claimed reproducible across machines: panic strings embed
-  paths; `--remap-path-prefix` is the fix and has not been tried.
-- **Not done:** Bazel target (needs a Rust toolchain in the graph; `make` only), CI job for it in this repo
-  (it needs a checkout of a private repo; djrust's own CI builds the wasm).
+- **Delivery (§10 #6, decided 2026-11-14):** the npm package `djwasm` (built by djrust's `cabi/build.sh`,
+  versioned to djrust: `djwasm@0.2.0` is djrust 0.2.0) holds `djwasm.wasm`, `loader.js`, `worklet.js`,
+  `node.js` and `hashes.json` (sha256 + SRI of each). The page fetches the wasm from
+  `https://cdn.jsdelivr.net/npm/djwasm@<version>/djwasm.wasm` with the `integrity` in
+  `public/djrust/pin.js` — the same pattern as `@pflow-xyz/engine` — so pflow.dev's `make build` never
+  needs Rust. `loader.js` / `worklet.js` here are the package's own files, vendored byte for byte (an
+  AudioWorklet module cannot be loaded with SRI, so the glue is served same-origin); `pin.js` records their
+  sha256 and `make check-djrust-pin` (part of `make test`) fails on an in-place edit. If the CDN fetch fails
+  the page tries a local `public/djrust/djwasm.wasm` (`make djrust-wasm`, git-ignored), then the JS wave
+  engine. jsDelivr rather than cdnjs.com: cdnjs only lists libraries that pass its popularity/curation
+  review and mirrors them on its own schedule, so a new version could not be published and pinned in one
+  step; jsDelivr serves any npm version within minutes and is the CDN the ecosystem already pins.
+- **Build / publish:** `make djrust-wasm` (build `../djrust`, `$DJRUST_DIR`), `make djrust-pin` (re-pin to that
+  build), `make djrust-publish` (djrust's `cabi/publish.sh`: `npm publish`, wait for jsDelivr, then
+  `make djrust-verify-cdn`). The build is reproducible: no `wasm-opt`, `--remap-path-prefix` on the checkout,
+  cargo registry and sysroot; two checkouts at different paths gave the same sha256 (`cfcd9cf4…`). Publish
+  from the toolchain the pin was built with, or `djrust-verify-cdn` will catch the difference.
+- **Not done:** Bazel target (needs a Rust toolchain in the graph; `make` only); a CI job for the wasm here
+  (djrust's own `cargo test` in `cabi/` covers the surface).
 - **Known cost carried over from the JS engine:** `load` compiles the project on the audio thread
   (JSON parse + lane build; a 3 MB arranged track is the worst case). djengine's `transfer` feature
   (compile in one instance, install in another, built for "a Web Worker running a second wasm
@@ -232,14 +251,13 @@ render farm's authoring server) is untouched by phases 1–6. It stays the secon
 byte-parity with JS until phase 7; after that it is held to Rust by the same fixtures. Replacing it with
 the wasm module (Go can host it with a pure-Go wasm runtime) is possible and out of scope here.
 
-## 8. Licence and visibility (needs a decision before anything ships)
+## 8. Licence and visibility (decided 2026-11-14)
 
-- beats-bitwrap-io is MIT and public. `djrust-vevr-se` is private and its crates are `license =
-  "UNLICENSED"`. A page that loads `djwasm.wasm` distributes a compiled form of that source to every
-  visitor, so before deploy someone with the authority has to either license `djengine` + `djwasm`
-  (MIT would match beats), or keep the module out of the public site. Not a technical question.
-- Phase 1 therefore **does not commit the `.wasm` binary** (it is git-ignored) and the flag degrades to the
-  JS wave engine when the file is absent. Nothing in this repo's history contains djrust source.
+- beats-bitwrap-io is MIT and public. Phase 1's module compiled in two crates from the private,
+  `UNLICENSED` djrust-vevr-se: `djengine` and `djwasm`. Decision: djrust is MIT. `djengine`'s public twin is
+  [`stackdump/djrust`](https://github.com/stackdump/djrust) (MIT; npm `djrust`), and `djwasm` moved into it as
+  `cabi/` (with Matt's go-ahead), so the module served to visitors is built from public, MIT source only.
+- The `.wasm` is still not committed here: it is fetched from the pinned npm version (§4).
 - `PORTING.md` records the EXS / Apple Loops / `MuseScore_General.sf2` constraints. None of those are in
   `djwasm`. If sampled voices are ever added to the browser build they must come from a public,
   reuse-licensed SoundFont.
@@ -302,11 +320,12 @@ transpose and hit pads are not routed to the worklet; the scope kernels still us
 flip, not polish. Removing Tone today would delete the FX panel, every macro and Auto-DJ, and the render
 farm's audio. The flip stays blocked on §10 #1 (licence), §10 #6 (where the wasm is built for deploy —
 it is git-ignored, so pflow.dev's `make build` would serve a page that silently falls back to the JS wave
-engine) and phases 3–5.
+engine) and phases 3–5. *(Later the same day #1 and #6 were decided and done: §8, §4. Phases 3–5 still block the flip; Tone stays.)*
 
 ## 10. Decisions for Matt
 
-1. **Licence / visibility of djrust** (§8). Blocks any deploy of the flag.
+1. ~~Licence / visibility of djrust~~ — **decided 2026-11-14:** MIT; the module is built from public
+   `stackdump/djrust` (§8).
 2. **Which engine plays an existing share** (`ROADMAP-wave.md` W-12): everything flips and the converge
    sweep rebakes the feed, or an `engine` envelope field pins old shares to Tone (the only case where a share
    CID would change, §6). Changing this *before public release* is cheap; after it the field is a permanent
@@ -315,14 +334,17 @@ engine) and phases 3–5.
    data can be split per engine. One-line change, but it is a server deploy.
 4. **D-1 re-decision** with `djwasm` in the measurements (§7).
 5. **Go generator's future** after the JS one is retired (§7): keep as an oracle, or replace by the wasm.
-6. **Where the wasm is built for deploy:** pflow.dev has no Rust toolchain in `make build` today. Either
-   build on valoper and ship the `.wasm` (hash pinned by `djrust.lock`), or add the toolchain; plus
-   whether the module is served from the app, or from `cdn.stackdump.com` like `wave-engine/bench.html`.
+6. ~~Where the wasm is built for deploy~~ — **decided 2026-11-14:** built from `stackdump/djrust`, published as
+   npm `djwasm`, loaded from jsDelivr at the version + SRI in `public/djrust/pin.js` (§4).
 
 ## 11. Running it
 
 ```bash
-make djrust-wasm                 # builds ../djrust-vevr-se (branch djwasm-phase1) → public/djrust/djwasm.wasm + djrust.lock
+make djrust-wasm                 # builds ../djrust (cabi/) → public/djrust/djwasm.wasm (local fallback + tests)
+make djrust-pin                  # …and re-pin public/djrust/pin.js + the vendored glue to that build
+make djrust-publish              # npm publish djwasm@<djrust version>, then check jsDelivr serves the pin
+make check-djrust-pin            # offline: vendored glue = the pin (in make test)
+make djrust-verify-cdn           # online: jsDelivr serves the pinned bytes
 make test-djrust                 # node: parity against this repo's live JS
 make test-djrust-browser         # headless Chrome over CDP (builds the server first)
 make dev                         # then open  http://localhost:8089/?engine=djrust&genre=techno&seed=42

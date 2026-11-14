@@ -11,19 +11,42 @@
  * (lib/backend/wave.js) falls back to the JS wave engine.
  *
  * `opts.processorOptions` is passed to the processor ({project, play, tempo, quiet}: load and
- * start at construction, for offline renders). `opts.wasmUrl` overrides where djwasm.wasm comes
- * from (default: beside this file; `?djrust-wasm=URL` on the page sets it, which the browser
- * test uses to prove the fallback).
+ * start at construction, for offline renders).
+ *
+ * Where djwasm.wasm comes from: the pinned `djwasm` npm version on jsDelivr, fetched with its SRI
+ * hash (pin.js), so pflow.dev never builds Rust. When that fails (offline, CDN down, a hash
+ * mismatch) a local build beside this file is tried (`make djrust-wasm`, git-ignored; same
+ * origin). `opts.wasmUrl` replaces both (`?djrust-wasm=URL` on the page sets it, which the
+ * browser test uses to prove the fallback). `handle.wasmSource` says which one loaded.
  */
+
+import PIN from './pin.js';
 
 const READY_TIMEOUT_MS = 10000;
 
+async function fetchWasm(override) {
+    const tries = override
+        ? [{ url: override, init: { cache: 'no-cache' }, source: 'override' }]
+        : [
+            { url: PIN.url, init: { integrity: PIN.integrity, mode: 'cors', credentials: 'omit' }, source: `cdn djwasm@${PIN.version}` },
+            { url: new URL('./djwasm.wasm', import.meta.url), init: { cache: 'no-cache' }, source: 'local' },
+        ];
+    const errs = [];
+    for (const t of tries) {
+        try {
+            const res = await fetch(t.url, t.init);
+            if (!res.ok) { errs.push(`${t.source}: HTTP ${res.status}`); continue; }
+            return { bytes: await res.arrayBuffer(), source: t.source };
+        } catch (err) {
+            errs.push(`${t.source}: ${err && err.message || err}`);
+        }
+    }
+    throw new Error(`djwasm.wasm: ${errs.join('; ')}`);
+}
+
 export async function createDjrustEngine(ctx, connectTo, opts = {}) {
-    const url = opts.wasmUrl || new URL('./djwasm.wasm', import.meta.url);
     // Fetch before touching the audio graph: a missing module costs nothing then.
-    const res = await fetch(url, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`djwasm.wasm: HTTP ${res.status} (build it: make djrust-wasm)`);
-    const bytes = await res.arrayBuffer();
+    const { bytes, source } = await fetchWasm(opts.wasmUrl);
 
     await ctx.audioWorklet.addModule(new URL('./worklet.js', import.meta.url));
     const make = (processorOptions) => new AudioWorkletNode(ctx, 'djrust-engine', {
@@ -43,6 +66,7 @@ export async function createDjrustEngine(ctx, connectTo, opts = {}) {
         node,
         info: null,
         viaModule,
+        wasmSource: source,
         onmessage: null,
         post(msg) { node.port.postMessage(msg); },
         dispose() { try { node.disconnect(); } catch {} node.port.onmessage = null; },

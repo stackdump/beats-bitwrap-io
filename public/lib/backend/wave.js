@@ -45,6 +45,7 @@ async function createEngine(el, ctx) {
             const dj = await createDjrustEngine(ctx, connect, { wasmUrl: djrustWasmUrl() });
             el._engineName = 'djrust';
             el._djrustInfo = dj.info;
+            el._djrustSource = dj.wasmSource;
             return dj;
         } catch (err) {
             console.warn('djrust engine unavailable, using the JS wave engine instead:', err);

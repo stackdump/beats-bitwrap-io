@@ -1,5 +1,5 @@
 /**
- * loader.js — the JS half of djwasm's C ABI (djrust-vevr-se, crates/djwasm).
+ * loader.js — the JS half of djwasm's C ABI (stackdump/djrust, cabi/).
  *
  * djwasm is the djrust Rust engine compiled to WebAssembly. It is a plain C ABI, not
  * wasm-bindgen: an AudioWorklet's global scope has no TextEncoder / TextDecoder, which

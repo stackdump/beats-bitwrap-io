@@ -15,5 +15,5 @@ __pycache__/
 # macro-audio harness failure artifacts
 test-out/
 
-# djrust engine build output (built from a private repo; public/djrust/djrust.lock is committed)
+# djrust engine local build (make djrust-wasm); production loads the pinned npm version, public/djrust/pin.js
 public/djrust/djwasm.wasm
