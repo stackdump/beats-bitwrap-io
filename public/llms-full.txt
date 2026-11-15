@@ -190,10 +190,10 @@ and survive independently of this app. Discover them via
 
 ## Related
 
-- https://bitwrap.io — parent project: Petri nets as ZK containers (editor,
-  prover, Solidity generation).
+- https://bitwrap.io — the music-apps site: beats, dj, djrust and the
+  music-genre ontology (https://bitwrap.io/llms.txt).
 - https://pflow.xyz — visual Petri net editor; canonical source of the shared
   browser Petri-net modules (`petri-sim.js`, `petri-solver.js`, …) and its
   own `llms.txt`.
 - https://book.pflow.xyz — Petri nets as a universal abstraction.
-- https://github.com/pflow-xyz/beats-bitwrap-io — source.
+- https://github.com/stackdump/beats-bitwrap-io — source.
