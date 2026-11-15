@@ -86,6 +86,8 @@ export async function createDjrustEngine(ctx, connectTo, opts = {}) {
     const handle = {
         node,
         info: null,
+        features: null,
+        flags: null,
         viaModule,
         wasmSource: source,
         onmessage: null,
@@ -97,7 +99,14 @@ export async function createDjrustEngine(ctx, connectTo, opts = {}) {
         const timer = setTimeout(() => reject(new Error('djrust engine did not start')), READY_TIMEOUT_MS);
         node.port.onmessage = (e) => {
             const m = e.data;
-            if (m.type === 'ready') { clearTimeout(timer); handle.info = m.info; resolve(); }
+            if (m.type === 'ready') {
+                clearTimeout(timer);
+                handle.info = m.info;
+                // The running module's djw_features / init flags (absent on djwasm 0.2.0's worklet).
+                handle.features = Number.isInteger(m.features) ? m.features : null;
+                handle.flags = Number.isInteger(m.flags) ? m.flags : null;
+                resolve();
+            }
             else if (m.type === 'error' && !handle.info) { clearTimeout(timer); reject(new Error(m.message)); }
             else if (handle.onmessage) handle.onmessage(m);
         };

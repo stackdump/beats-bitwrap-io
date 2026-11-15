@@ -3,13 +3,13 @@
 // `make check-djrust-pin` (offline) and `make djrust-verify-cdn` (online). Never a range or latest.
 export default {
     "package": "djwasm",
-    "version": "0.2.0",
-    "url": "https://cdn.jsdelivr.net/npm/djwasm@0.2.0/djwasm.wasm",
-    "integrity": "sha384-6SPciOYrcKGwLtnKHxqda9NzqXu+q+Ztxte104iTQefEW9gD/RClnUWEtp20cM9r",
-    "sha256": "cfcd9cf4a1b51f186bb93e893406adfdd7ca712b09a10303da8a73ce29b30bca",
-    "bytes": 854162,
+    "version": "0.3.0",
+    "url": "https://cdn.jsdelivr.net/npm/djwasm@0.3.0/djwasm.wasm",
+    "integrity": "sha384-U3nH5yAOeyhbHB8fmraLQk+IUEh8xYX2Calt0ir87UydofPP88W9bKr7zI5dLXX5",
+    "sha256": "6c4f006f12e8cd579d2c2c0e1037b96422d5d1ae0d81fb0f2fa645b2d5c3cef6",
+    "bytes": 901807,
     "glue": {
-        "loader.js": "3eb8661614570170895c3d92028c4bd62b188e731f789c385a2d8813801698da",
-        "worklet.js": "602abe9dd67134e4735b7f9670605c57c335addfc591719695e1480d1822ff3a"
+        "loader.js": "e8bc8964d3c3ef6f8f94cc7f17975d97566c2b630b4e5c62ade678fb08baa29c",
+        "worklet.js": "c8610a036f2e500ad9cea87ec3a2a9781e803d6deb9576e943e288d5ac4b60f0"
     }
 };

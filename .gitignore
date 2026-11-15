@@ -17,3 +17,5 @@ test-out/
 
 # djrust engine local build (make djrust-wasm); production loads the pinned npm version, public/djrust/pin.js
 public/djrust/djwasm.wasm
+# frozen djwasm 0.2.0 (wasm + its glue) for gates that run it beside the pin: scripts/djrust-ref.mjs fetch
+/.djrust-ref/

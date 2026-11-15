@@ -2,8 +2,8 @@
 //
 // djrust-cpu.mjs — audio-thread cost of the djwasm engine per 128-frame quantum, in Node.
 //
-//   node scripts/djrust-cpu.mjs --record [--force]      # measure the pinned module → scripts/djrust-cpu-baseline.json
-//   node scripts/djrust-cpu.mjs --check [--wasm P]      # gate a module (default $DJRUST_WASM) against the pin
+//   node scripts/djrust-cpu.mjs --record [--force]      # measure the 0.2.0 reference → scripts/djrust-cpu-baseline.json
+//   node scripts/djrust-cpu.mjs --check [--wasm P]      # gate a module (default $DJRUST_WASM, else the pin) against 0.2.0
 //   node scripts/djrust-cpu.mjs [--wasm P]              # measure and print only
 //   make test-djrust-cpu                                # = --check, skips when no module is present
 //
@@ -23,14 +23,18 @@
 //             lp-freq 40), when the module has one. Absent on 0.2.0.
 //   setInstrument  djw_set_instrument cost, when present (0.5.0+). Reported, not gated.
 //
+// The reference is djwasm 0.2.0 itself (scripts/djrust-ref.mjs: .djrust-ref/djwasm@0.2.0/, git-ignored,
+// never served; `node scripts/djrust-ref.mjs fetch` downloads it from jsDelivr and checks its hashes).
+// Until the 0.3.0 re-pin it was the pin; the pin moved on, the reference did not.
+//
 // --check gates:
-//   idle mean and p99 within +5% of the pinned 0.2.0. Both modules are measured in the same
+//   idle mean and p99 within +5% of djwasm 0.2.0. Both modules are measured in the same
 //     process, in lockstep (one quantum each in turn) over 5 rounds, median round each. The recorded baseline is printed for
 //     context only, because absolute times on a shared host drift between runs.
 //   feature p99 < 25% of the budget (0.667 ms);
 //   seek: the worst single djw_seek(3000) over every project and repetition < 2.0 ms, and at
 //     least one project really reaches tick 3000 (so a seek that long was timed at all);
-//   memory growth under control churn = 0 bytes, and bytes per load no more than the pin's.
+//   memory growth under control churn = 0 bytes, and bytes per load no more than 0.2.0's.
 // Exit 0 pass, 1 fail, 2 no module.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -38,7 +42,8 @@ import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-import { resolveModule, newEngine, composeProject, lowerEnvelope, feedFiles, FEED_DIR, PINNED_WASM, pinnedSha, missingModule } from './djrust-golden.mjs';
+import { resolveModule, newEngine, composeProject, lowerEnvelope, feedFiles, FEED_DIR, missingModule } from './djrust-golden.mjs';
+import { REF, REF_DIR, refStatus } from './djrust-ref.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const BASELINE_PATH = join(here, 'djrust-cpu-baseline.json');
@@ -100,7 +105,7 @@ function neutralCalls(dj) {
  *   controls  mute / tempo / every neutral feature export, every 2 s, with no loads. Must not
  *             grow at all after the first 2 s.
  *   loads     the same plus a project swap every 2 s. Bytes per load are reported, and --check
- *             holds the candidate to no more than the pin.
+ *             holds the candidate to no more than 0.2.0.
  */
 function memoryChurn(mod, texts) {
     const every = Math.round(2 * SR / BLOCK), total = Math.round(60 * SR / BLOCK);
@@ -278,23 +283,23 @@ async function main(argv) {
     }
     const texts = projects();
     if (a.record) {
-        const mod = await resolveModule(a.wasm || PINNED_WASM);
-        if (!mod) { console.error(`djrust-cpu: no module at ${a.wasm || PINNED_WASM}`); return 2; }
-        const pin = await pinnedSha();
-        if (mod.sha256 !== pin.sha256 && !a.force) {
-            console.error(`djrust-cpu --record: ${mod.wasmPath} is not the pinned djwasm@${pin.version}; the baseline is the pin (--force to override)`);
+        const mod = await resolveModule(a.wasm || REF_DIR);
+        if (!mod) { console.error(`djrust-cpu: no module at ${a.wasm || REF_DIR} (node scripts/djrust-ref.mjs fetch)`); return 2; }
+        const pin = { version: REF.version };
+        if (mod.sha256 !== REF.files['djwasm.wasm'] && !a.force) {
+            console.error(`djrust-cpu --record: ${mod.wasmPath} is not djwasm@${REF.version}; the baseline is that reference (--force to override)`);
             return 1;
         }
         const [idle] = idleCompare([mod], texts);
         const m = measureAll(mod, texts, idle);
         const out = {
             about: 'djwasm cost per 128-frame quantum in Node on the recording host (scripts/djrust-cpu.mjs). Context for --check, which ' +
-                're-measures the pin beside the candidate rather than trusting these absolute numbers.',
+                're-measures this 0.2.0 reference beside the candidate rather than trusting these absolute numbers.',
             module: { version: pin.version, sha256: mod.sha256 },
             recorded: new Date().toISOString().slice(0, 10),
             host: { cpu: cpus()[0] && cpus()[0].model, cores: cpus().length, node: process.version },
             method: { sampleRate: SR, block: BLOCK, warmupQuanta: WARM, measureQuanta: MEASURE, rounds: ROUNDS, stat: 'median over rounds of each statistic; lockstep with any compared module' },
-            gates: { idleTolerance: IDLE_TOL, featureP99FractionOfBudget: FEATURE_FRAC, seekMaxMs: SEEK_MAX_MS, memoryControlChurnGrowthBytes: 0, memoryPerLoad: 'no more than the pin' },
+            gates: { idleTolerance: IDLE_TOL, featureP99FractionOfBudget: FEATURE_FRAC, seekMaxMs: SEEK_MAX_MS, memoryControlChurnGrowthBytes: 0, memoryPerLoad: 'no more than 0.2.0' },
             ...m,
         };
         writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 1) + '\n');
@@ -308,32 +313,33 @@ async function main(argv) {
         printMeasure(`${mod.wasmPath} (sha256 ${mod.sha256.slice(0, 16)}…)`, measureAll(mod, texts, idle));
         return 0;
     }
-    const base = await resolveModule(PINNED_WASM);
-    const pin = await pinnedSha();
-    if (!base || base.sha256 !== pin.sha256) {
-        // (skippable only when nothing was named: a named candidate must be measured)
-        if (a.skipMissing && !(a.wasm || process.env.DJRUST_WASM)) {
-            console.log(`djrust-cpu --check: SKIP, needs the pinned djwasm@${pin.version} at ${PINNED_WASM} to measure beside the candidate`);
+    const ref = refStatus();
+    if (!ref.ok) {
+        // (skippable only when the reference is absent and nothing was named: a named candidate must
+        // be measured, and a reference with the wrong bytes is never a skip)
+        if (!ref.present && a.skipMissing && !(a.wasm || process.env.DJRUST_WASM)) {
+            console.log(`djrust-cpu --check: SKIP, needs djwasm@${REF.version} to measure beside the candidate: ${ref.why}`);
             return 0;
         }
-        console.error(`djrust-cpu --check: FAIL, needs the pinned djwasm@${pin.version} at ${PINNED_WASM} to measure beside the candidate`);
+        console.error(`djrust-cpu --check: FAIL, needs djwasm@${REF.version} to measure beside the candidate: ${ref.why}`);
         return 2;
     }
+    const base = await resolveModule(REF_DIR);
     const [bIdle, cIdle] = idleCompare([base, mod], texts);
     const m = measureAll(mod, texts, cIdle);
-    printMeasure(`candidate ${mod.wasmPath} (sha256 ${mod.sha256.slice(0, 16)}…)`, m);
+    printMeasure(`candidate ${mod.wasmPath} (sha256 ${mod.sha256.slice(0, 16)}…) against djwasm@${REF.version} (${base.wasmPath})`, m);
     let fails = 0;
     const gate = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} — ${detail}`); if (!ok) fails++; };
     for (const [id, c] of Object.entries(cIdle)) {
         const b = bIdle[id];
-        gate(`idle ${id} mean within +${Math.round((IDLE_TOL - 1) * 100)}% of the pin`, c.mean <= b.mean * IDLE_TOL,
+        gate(`idle ${id} mean within +${Math.round((IDLE_TOL - 1) * 100)}% of ${REF.version}`, c.mean <= b.mean * IDLE_TOL,
             `${c.mean} vs ${b.mean} ms (×${(c.mean / b.mean).toFixed(3)})`);
-        gate(`idle ${id} p99 within +${Math.round((IDLE_TOL - 1) * 100)}% of the pin`, c.p99 <= b.p99 * IDLE_TOL,
+        gate(`idle ${id} p99 within +${Math.round((IDLE_TOL - 1) * 100)}% of ${REF.version}`, c.p99 <= b.p99 * IDLE_TOL,
             `${c.p99} vs ${b.p99} ms (×${(c.p99 / b.p99).toFixed(3)})`);
     }
     gate('memory does not grow over 60 s of control churn (no loads)', m.memory.controls.growth === 0, `${m.memory.controls.growth} B`);
     const bm = memoryChurn(base, texts.map(([, t]) => t)).loads;
-    gate('memory per djw_load is no worse than the pin', m.memory.loads.bytesPerLoad <= bm.bytesPerLoad,
+    gate(`memory per djw_load is no worse than ${REF.version}`, m.memory.loads.bytesPerLoad <= bm.bytesPerLoad,
         `${m.memory.loads.bytesPerLoad} vs ${bm.bytesPerLoad} B per load (0.2.0 never reuses load memory)`);
     if (typeof m.feature !== 'string') gate('feature-active p99 under 25% of the budget', m.feature.p99 < BUDGET_MS * FEATURE_FRAC, `${m.feature.p99} ms`);
     else console.log(`skip feature-active p99 — ${m.feature}`);

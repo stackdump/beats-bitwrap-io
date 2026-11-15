@@ -3,11 +3,9 @@
 //
 // These used to ride Tone.Transport so macro restores fired on the audio
 // clock (and under Tone.Offline). Tone is gone; the djrust engine runs
-// macros natively in its runner (`WaveRunner::fire_macro`), which is where
-// audio-clock timing comes back once macros are routed to it (rebuild
-// item, docs/MIGRATION-djrust-wasm.md §12). Until then these are
-// wall-clock timers, which is what the studio had before the Transport
-// change; there is no offline macro render path any more.
+// timed macros on its own clock (djwasm 0.3.0+, lib/macros/runtime.js
+// executeMacro), so what is left here is page bookkeeping on wall-clock
+// timers: UI pulses, stinger windows, the page-side animations.
 
 const pending = new Set();
 
@@ -32,54 +30,30 @@ export function clearAllAudioSched() {
     pending.clear();
 }
 
-// There is no offline (OfflineAudioContext) macro render any more.
+// Kept for its importers (lib/ui/controllers.js): there is no page-side
+// offline macro render. Offline renders run macros in the engine itself
+// (control nets with controlMacros on; lib/share/offline-render.js).
 export function isOfflineContext() { return false; }
 
-// Drive an animation by stepping `applyAt(elapsedMs)` repeatedly until
-// `durationMs` elapses. Picks the right clock for the current context:
-//
-//   - Live (real-time AudioContext): requestAnimationFrame at native
-//     frame rate. Visual sliders look smooth, engine dispatches happen
-//     whenever applyAt's own throttle says so.
-//   - Offline (an OfflineAudioContext render; none exists since Tone left):
-//     pre-schedules dispatches at `dispatchIntervalMs` via schedAudio,
-//     because rAF doesn't fire during offline rendering. The animation
-//     still happens — at audio-time intervals matching the live throttle.
-//
-// `applyAt` may be called many times per visual frame in live mode and
-// must be safe to call with the same `elapsedMs` more than once.
-// Returns a cancel function.
+// Drive an animation by stepping `applyAt(elapsedMs)` on
+// requestAnimationFrame until `durationMs` elapses (then once more with
+// durationMs, so the "done" branch runs). `applyAt` may be called many
+// times per visual frame and must be safe to call with the same
+// `elapsedMs` more than once; throttling engine dispatches is its job
+// (`dispatchIntervalMs` documents its interval). Returns a cancel function.
 export function audioAnimLoop(durationMs, dispatchIntervalMs, applyAt, onCancel) {
     let cancelled = false;
-    if (isOfflineContext()) {
-        const tokens = [];
-        // Schedule applyAt at every dispatch interval AND once at the
-        // final durationMs so the "done" branch fires.
-        for (let elapsed = 0; elapsed < durationMs; elapsed += dispatchIntervalMs) {
-            const e = elapsed;
-            tokens.push(schedAudio(() => { if (!cancelled) applyAt(e); }, e));
+    const t0 = performance.now();
+    const tick = (now) => {
+        if (cancelled) return;
+        const elapsed = now - t0;
+        if (elapsed >= durationMs) {
+            applyAt(durationMs);
+            return;
         }
-        tokens.push(schedAudio(() => {
-            if (!cancelled) applyAt(durationMs);
-        }, durationMs));
-        return () => {
-            cancelled = true;
-            for (const t of tokens) clearAudioSched(t);
-            if (onCancel) onCancel();
-        };
-    } else {
-        const t0 = performance.now();
-        const tick = (now) => {
-            if (cancelled) return;
-            const elapsed = now - t0;
-            if (elapsed >= durationMs) {
-                applyAt(durationMs);
-                return;
-            }
-            applyAt(elapsed);
-            requestAnimationFrame(tick);
-        };
+        applyAt(elapsed);
         requestAnimationFrame(tick);
-        return () => { cancelled = true; if (onCancel) onCancel(); };
-    }
+    };
+    requestAnimationFrame(tick);
+    return () => { cancelled = true; if (onCancel) onCancel(); };
 }

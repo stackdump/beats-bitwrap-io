@@ -11,7 +11,7 @@ import { audioHost } from '../../audio/host.js';
 import { isDrumChannel } from '../../audio/instruments.js';
 import { MACROS } from '../macros/catalog.js';
 import { stageOnTransitionFired, stageOnMuteStateChange, stageSetVisualizer } from '../ui/stage.js';
-import { routeToWave, waveLoadProject } from './wave.js';
+import { routeToWave, waveLoadProject, probeEngineFeatures, engineRunsControlMacros } from './wave.js';
 import { scopeOnFire } from '../ui/scope.js';
 import { perfStart, perfStop, vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { telemetryOnPlay, telemetryOnStop, telemetryEvent } from '../perf/telemetry.js';
@@ -281,6 +281,9 @@ export function connectBackend(el) {
     } else {
         connectWorker(el);
     }
+    // Ask the djrust module what it runs (lib/backend/wave.js), so the
+    // macros it runs show before the first Play. Off the boot path.
+    setTimeout(() => probeEngineFeatures(el), 0);
 }
 
 export function connectWorker(el) {
@@ -531,7 +534,13 @@ export function handleWsMessage(el, msg) {
             // baked-in macro through the main-thread queue. Canonical
             // field is `macro` (per schema); `targetNet` is accepted as
             // a legacy fallback.
-            if (msg.control?.action === 'fire-macro') {
+            //
+            // When the engine runs control nets' macros itself (djwasm
+            // CONTROL_MACROS, turned on at engine start with the disabled
+            // list), it has already fired this one: the page only shows it,
+            // from the engine's macro-fired event (lib/macros/runtime.js
+            // onEngineMacroEvent). Firing it here too would run it twice.
+            if (msg.control?.action === 'fire-macro' && !engineRunsControlMacros(el)) {
                 const macroId = msg.control.macro || msg.control.targetNet;
                 if (macroId) {
                     const opts = {};
@@ -605,8 +614,11 @@ export function handleWsMessage(el, msg) {
                 }
             }
             // Mirror onto _project.initialMutes so MIDI panel reads
-            // the current state when rendering pad indicators.
-            if (el._project) el._project.initialMutes = [...el._mutedNets];
+            // the current state when rendering pad indicators. Not while the
+            // engine holds a macro (lib/backend/wave.js macroHeld): its
+            // mutes are the macro's for a few bars, not the track's, and the
+            // share collector reads initialMutes.
+            if (el._project && !(msg.source === 'engine' && msg.macroHeld)) el._project.initialMutes = [...el._mutedNets];
             // Re-apply manual mutes to server (manual overrides auto).
             for (const nid of el._manualMutedNets) {
                 if (!el._mutedNets.has(nid)) {

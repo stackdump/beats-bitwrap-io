@@ -1,5 +1,5 @@
 {
- "about": "djwasm cost per 128-frame quantum in Node on the recording host (scripts/djrust-cpu.mjs). Context for --check, which re-measures the pin beside the candidate rather than trusting these absolute numbers.",
+ "about": "djwasm cost per 128-frame quantum in Node on the recording host (scripts/djrust-cpu.mjs). Context for --check, which re-measures this 0.2.0 reference beside the candidate rather than trusting these absolute numbers.",
  "module": {
   "version": "0.2.0",
   "sha256": "cfcd9cf4a1b51f186bb93e893406adfdd7ca712b09a10303da8a73ce29b30bca"
@@ -23,7 +23,7 @@
   "featureP99FractionOfBudget": 0.25,
   "seekMaxMs": 2,
   "memoryControlChurnGrowthBytes": 0,
-  "memoryPerLoad": "no more than the pin"
+  "memoryPerLoad": "no more than 0.2.0"
  },
  "budgetMs": 2.6667,
  "idle": {

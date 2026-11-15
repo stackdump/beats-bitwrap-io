@@ -18,9 +18,42 @@
  *   const report = ticks && dj.report();       // {tick, fired, controls} of the last tick
  *
  * The ABI version this file speaks is ABI; instantiate() refuses a module that differs.
+ *
+ * Studio controls (djwasm 0.3.0 and later; ABI 1, additive). Every one is feature-detected
+ * by its export, so this loader still drives djwasm 0.2.0: there `features` is 0, the reads
+ * return 0 / [] and the controls answer ERR_UNSUPPORTED ("the page does it") or do nothing.
+ *
+ *   dj.features & FEATURE.NET_MACROS           // what the module runs (djw_features)
+ *   dj.initWith(sampleRate, FLAG.GROOVE);      // construction flags (djw_init_with)
+ *   dj.fireMacro('drop', -1);                  // 0, or ERR_UNSUPPORTED: the page runs it
+ *   dj.releaseMacro(id); dj.panic();
+ *   dj.macroMask; dj.frame; dj.tempo;          // scalar reads, allocation free
+ *   dj.setControlMacros(true); dj.setMacroDisabled('cut', true);
+ *   dj.eventCount && dj.events();              // [{k, id, src, res, frame, tick[, bpm]}]
+ *   dj.seek(tick); dj.setGroove(swing, humanize);
+ *   dj.keys();                                 // the key tables (djw_keys), once, cached
+ *
+ * Nothing here is called on the default path: an instance that never uses them renders
+ * djwasm 0.2.0's bytes.
  */
 
 export const ABI = 1;
+
+/** Error codes of the C ABI. */
+export const ERR_ARG = -1;
+export const ERR_NOT_READY = -2;
+/** A catalog id (or flag) the module knows but does not run, or an export it lacks. */
+export const ERR_UNSUPPORTED = -3;
+
+/** djw_features() bits (djrust wave::studio::feature). A module without the export: all 0. */
+export const FEATURE = Object.freeze({
+    SEEK: 1, NET_MACROS: 2, CONTROL_MACROS: 4, GROOVE: 8, FRAME_CLOCK: 16, EVENTS: 32,
+    FX: 64, MASTER_MACROS: 128, AUX_MACROS: 256, VOICE: 512, STRIKE: 1024, INSTRUMENT: 2048,
+    TRANSPOSE: 4096, LOOP: 8192, STINGER_VOICES: 16384, ROUTES: 32768,
+});
+
+/** djw_init_with() flags. */
+export const FLAG = Object.freeze({ GROOVE: 1, STINGER_VOICES: 2 });
 
 // --- UTF-8 -----------------------------------------------------------------------------
 
@@ -111,8 +144,15 @@ export class DjWasm {
         this._buf = null; // memory.buffer the cached views belong to
         this._l = this._r = null;
         this.maxBlock = 0;
+        this.flags = 0; // the construction flags the instance runs with
+        // A wasm i64 arrives as a BigInt; a module without the export is djwasm 0.2.0.
+        this.features = exports.djw_features ? Number(exports.djw_features()) : 0;
+        this._keys = undefined;
         if (exports.djw_install_panic_hook) exports.djw_install_panic_hook();
     }
+
+    /** Does the module run `bit` (a FEATURE value)? */
+    has(bit) { return (this.features & bit) !== 0; }
 
     /** The out buffer as a string (valid until the next call that writes it). */
     _out() {
@@ -173,6 +213,22 @@ export class DjWasm {
         const n = this.x.djw_init(sampleRate);
         if (n < 0) throw new Error(`djwasm: ${this._out()}`);
         this.maxBlock = n;
+        this.flags = 0;
+        this._buf = null;
+        return n;
+    }
+
+    /**
+     * init() with construction flags (FLAG.GROOVE). Flags 0 is exactly init(). A module without
+     * djw_init_with (0.2.0) is initialised plainly: `this.flags` then says 0, and the caller can
+     * tell the flag did not take.
+     */
+    initWith(sampleRate, flags = 0) {
+        if (!flags || !this.x.djw_init_with) return this.init(sampleRate);
+        const n = this.x.djw_init_with(sampleRate, flags >>> 0);
+        if (n < 0) throw new Error(`djwasm: ${this._out()}`);
+        this.maxBlock = n;
+        this.flags = flags >>> 0;
         this._buf = null;
         return n;
     }
@@ -232,4 +288,82 @@ export class DjWasm {
     get tick() { return this.x.djw_tick(); }
     get tempo() { return this.x.djw_tempo(); }
     get playing() { return this.x.djw_playing() === 1; }
+
+    // --- studio controls (0.3.0+; feature-detected, see the header) ---
+
+    /** The key tables (djw_keys), parsed once; null on a module without them. Allocates. */
+    keys() {
+        if (this._keys === undefined) {
+            this._keys = this.x.djw_keys ? JSON.parse(this._text(this.x.djw_keys())) : null;
+        }
+        return this._keys;
+    }
+
+    /** The engine frame clock (djw_frame); 0 on a module without one. */
+    get frame() { return this.x.djw_frame ? this.x.djw_frame() : 0; }
+
+    /** The net macros in effect, as bits (djw_macro_mask); 0 on a module without them. */
+    get macroMask() { return this.x.djw_macro_mask ? Number(this.x.djw_macro_mask()) : 0; }
+
+    /** Events waiting in the engine's ring (djw_event_count). */
+    get eventCount() { return this.x.djw_event_count ? this.x.djw_event_count() : 0; }
+
+    /**
+     * Drain the event ring: [{k, id, src, res, frame, tick[, bpm]}], oldest first. [] when
+     * nothing waits (no call into the module then) or the module has no ring. Allocates.
+     */
+    events() {
+        const x = this.x;
+        if (!x.djw_events || !x.djw_event_count || x.djw_event_count() === 0) return [];
+        return JSON.parse(this._text(x.djw_events()));
+    }
+
+    /** `id` (a catalog string) to `fn(ptr, len)`, or ERR_UNSUPPORTED when the export is absent. */
+    _idCall(name, id, ...rest) {
+        const f = this.x[name];
+        if (!f) return ERR_UNSUPPORTED;
+        return this._withText(String(id), (p, n) => f(p, n, ...rest));
+    }
+
+    /**
+     * Fire catalog macro `id` for `duration` in its own unit (bars; ticks for cut), -1 for its
+     * default. 0: the engine runs it. ERR_UNSUPPORTED: the page must run it (a master or aux
+     * macro in 0.3, a hit pad, a permanent net macro, or a module without macros). ERR_ARG: no
+     * such id. ERR_NOT_READY: no project.
+     */
+    fireMacro(id, duration = -1) {
+        const d = Number.isFinite(duration) ? Math.trunc(duration) : -1;
+        return this._idCall('djw_fire_macro', id, d < -1 ? -2 : d);
+    }
+
+    /** Let go of a latched macro: 0, ERR_UNSUPPORTED (page-side) or ERR_ARG. */
+    releaseMacro(id) { return this._idCall('djw_release_macro', id); }
+
+    /** Restore every macro effect now (no-op with nothing running, or without the export). */
+    panic() { if (this.x.djw_panic) this.x.djw_panic(); }
+
+    /** Control nets' fire-macro run in the engine (true) or are only reported (false, default). */
+    setControlMacros(on) {
+        if (!this.x.djw_set_control_macros) return false;
+        this.x.djw_set_control_macros(on ? 1 : 0);
+        return true;
+    }
+
+    /** Put a catalog id on (or off) the list a control net may not fire. 0, ERR_ARG or ERR_UNSUPPORTED. */
+    setMacroDisabled(id, disabled = true) { return this._idCall('djw_set_macro_disabled', id, disabled ? 1 : 0); }
+
+    /**
+     * Move the net to `tick` now (stop, cut tails, replay silently, resume if playing). The tick
+     * reached, or ERR_ARG / ERR_NOT_READY, or ERR_UNSUPPORTED without the export. O(tick).
+     */
+    seek(tick) { return this.x.djw_seek ? this.x.djw_seek(Number(tick)) : ERR_UNSUPPORTED; }
+
+    /**
+     * Swing and humanize 0..100 for the playing project. They move notes only on an instance
+     * made with initWith(sr, FLAG.GROOVE); a project swapped in later brings its own values, so
+     * send them again after a swap. 0, ERR_ARG, ERR_NOT_READY or ERR_UNSUPPORTED.
+     */
+    setGroove(swing, humanize) {
+        return this.x.djw_set_groove ? this.x.djw_set_groove(Number(swing), Number(humanize)) : ERR_UNSUPPORTED;
+    }
 }

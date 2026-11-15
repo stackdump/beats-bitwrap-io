@@ -5,6 +5,10 @@ Matt decided the flip no longer waits for phases 3–5. Losing features for a wh
 they are rebuilt on djrust afterwards. Every feature switched off for this is listed in **§12** with
 what it needs. Not merged to main; merging deploys.
 
+**Pin 2026-11-15 (branch `djrust-net-clock`, studio plan step 3): `public/djrust/pin.js` names
+`djwasm@0.3.0`** (sha256 `6c4f006f…`, 901,807 B), built from djrust `beats-studio` 44a6eda. Until
+it is on npm the page falls back to the local build; see "Re-pinned to 0.3.0" at the end of §12.
+
 *Earlier: plan + phase 1 on `djrust-wasm-phase1` (2026-11-12), the default-flip re-assessment on
 `djrust-default`, CDN delivery on `djrust-cdn`. `djrust-only` is built on `djrust-cdn`.*
 
@@ -383,14 +387,14 @@ envelope, schema or canonicalisation changed, so **no share or model CID changed
 
 ### Switched off: the rebuild list
 
-Hidden by one stylesheet and guarded in code, all from `public/lib/ui/engine-gaps.js`. To bring a
+Hidden by one stylesheet and guarded in code, all from `public/lib/ui/engine-gaps.js`. **Net macros, Auto-DJ, seek, groove routing and offline macros are wired on 0.3.0:** see "Page wired to 0.3.0" at the end of this section. To bring a
 feature back, route it to the engine and delete its entry there. Share collectors and appliers are
 untouched, so a share carrying `fx` / `autoDj` / macro settings still round-trips byte for byte; the
 settings just do nothing yet.
 
 | # | Feature | State now | What it needs from djrust / djwasm |
 |---|---|---|---|
-| R-1 | **Macros** (~35, Macros panel, Panic, MIDI-pad / key / control-net `fire-macro`, `macroCurve`) | panel hidden; `fireMacro` returns early | export `WaveRunner::fire_macro` (`NetMacro` / `MasterMacro`) in the C ABI, a `fire-macro` worklet message; restore `sched.js` to the audio clock or drop it. `make test-audio` comes back (it is parked; `make test-audio-parked` runs it). |
+| R-1 | **Macros** (~35, Macros panel, Panic, MIDI-pad / key / control-net `fire-macro`, `macroCurve`) | panel hidden on a module without macros; `fireMacro` returns early for a macro the engine does not run. **0.3.0: the 9 net macros run in the engine** ("Page wired to 0.3.0"). | export `WaveRunner::fire_macro` (`NetMacro` / `MasterMacro`) in the C ABI, a `fire-macro` worklet message; restore `sched.js` to the audio clock or drop it. `make test-audio` comes back (it is parked; `make test-audio-parked` runs it). |
 | R-2 | **Auto-DJ** (panel, regen, transition macros in shuffle mode) | panel hidden; `autoDjTick` returns early (still gated by `engine-gaps.js` until the 0.3.0 wiring). **Page part done (djrust-gates):** `wave.js` `feedWaveTick` runs `_autoDjTick` and `_fireRepeatingOneShots` once per wave-tick (first tick after a transport change is a baseline; a lower tick is a wrap, passed through as `(prev, tick)`), and the forwarded state-sync (`fromWave`) no longer runs them a second time; the worker's `mute-state` yields to the worklet's `mutedNets` (only its own changes since its last report are applied), so mutes the engine's control nets hold are not overwritten. Gate: `make test-wave-tick-feed` (in `make test`). | R-1 (Mute/Tempo pools, busy check = `macroMask != 0`). Regen (a new Generate) could return before R-1. |
 | R-3 | **Master FX**: reverb, delay, drive, pitch, HP/LP, phaser, crush, Bypass, Reset | groups hidden; master volume stays (it is the host gain) | export `fx::master_chain` + `WaveOptions::extended()` and per-param messages; idle cost ≈ 0 (W-10). Feel's lp blend and `feelCurve` ride on this. |
 | R-4 | **Channel strip**: per-channel pan / volume / HP / HPR / LP / LPR / decay | slider groups hidden | per-lane voice settings in djwasm. Default role pans (`applyDefaultPans`) are no-ops until then. |
@@ -405,7 +409,7 @@ settings just do nothing yet.
 | R-13 | **Benchmark** | **Done (djrust-gates).** New cases G (djrust worklet → destination, 48 kHz), H (same at 24 kHz) and I (djrust DSP-only on the main thread); the quick run is G; reports carry `engineVersion: "djrust@<crate>"`. `internal/bench` adds the columns with an idempotent `PRAGMA table_info`-guarded migration, builds Insert/List from `Cases`, and a test keeps `bench-core.js`'s case ids a subset of `bench.Cases`. Gates: `go test ./internal/bench` (old-schema migration, fresh = migrated, client-subset) and `make test-wave-browser` (bench modal: quick run is G, report and stored row name `djrust@…`). **Deploy order:** the server must ship before clients send G/H/I (one binary, so one deploy of main is safe). | nothing. |
 | R-14 | **Telemetry engine label** | **Done (djrust-gates).** The server accepts `djrust` (`telemetry.Engines` = default / wave / djrust); the client sends it via `engineLabel(el)` (`lib/perf/monitor.js`), and the perf verdict treats djrust like wave (audio off the main thread). Old rows keep their `wave` label until the 30-day retention ages them out. Gates: `go test ./internal/telemetry` (`TestEngineLabels`) and `make test-wave-browser` (the summary has a `desktop × djrust` group). | nothing. |
 | R-15 | **WS backend** (`data-backend="ws"`, Go sequencer) | **compose-only, by decision (option a, 2026-11-14).** `/ws` (authoring only) generates, shuffles, arranges and loads projects; transport is consumed by `routeToWave` and plays in the worklet, so the Go sequencer never plays and server-side MIDI out (`-midi*`) is not clocked from a `/ws` page. | nothing. Option (b), streaming the worklet's ticks to `/ws` for hardware MIDI, only if Matt asks; a Go clock (c) is rejected (two clocks drift). |
-| R-16 | **Offline render extras** (master FX, macros, swing in `?render=offline`) | not rendered (the Tone renderer had them) | R-1, R-3, R-8. |
+| R-16 | **Offline render extras** (master FX, macros, swing in `?render=offline`) | **0.3.0: mutes always, net macros + `macrosDisabled` on an opt-in, groove on an explicit override** ("Page wired to 0.3.0"); master FX not rendered | R-3 (master FX). |
 
 **Before merging this to main:** `djwasm@0.2.0` is live on jsDelivr (verified 2026-11-14,
 `make djrust-verify-cdn`), so production loads the module without a local build. Then decide §10 #2:
@@ -457,3 +461,105 @@ djwasm 0.3.0 "net clock" candidate (step 2, djrust worktree `djrust-beats-studio
   non-default duration (beats holds drop's default for the second half; the engine holds the chosen
   duration) and for tape-stop (the page rounds bpm to an integer, max |Δ| ≈ 0.49 bpm; the engine's
   ease curve is otherwise exact). All other net macros match the worker tick for tick.
+
+### Re-pinned to 0.3.0 (branch `djrust-net-clock`, 2026-11-15)
+
+`DJRUST_DIR=../djrust-beats-studio make djrust-pin` rebuilt djrust `beats-studio` 44a6eda to the
+bytes staged for npm: `djwasm.wasm` sha256 `6c4f006f12e8cd57…` (901,807 B, SRI
+`sha384-U3nH5yAO…`), `loader.js` `e8bc8964…`, `worklet.js` `c8610a03…`, each equal to `cabi/pkg`.
+`public/djrust/node.js` is beats' own page handle (CDN + SRI, local fallback, `loadDjwasmModule`),
+not the package's `node.js`, so it is not in `pin.js`'s glue list and stays as it is.
+
+- **0.2.0 is now a reference, not the pin.** `test-djrust-golden` / `test-djrust-neutral` still hold
+  every render to `scripts/djrust-golden.json` (0.2.0 bytes). The two gates that run the 0.2.0
+  module itself, `test-djrust-cpu` (idle cost and memory side by side) and `test-djwasm-030`
+  (compat), read it from `.djrust-ref/djwasm@0.2.0/` (wasm + its own glue; git-ignored, outside
+  `public/`, never served). `make djrust-ref` (`scripts/djrust-ref.mjs fetch`) downloads it from
+  jsDelivr; every use re-checks its three sha256s, and a wrong file fails rather than skips.
+- **Wiring:** see "Page wired to 0.3.0" below. The re-pin alone kept the 0.2.0 call sequence; the
+  wiring keeps the default path bit-identical too (golden, neutral and render-freeze gates).
+- **Before merging:** `make djrust-verify-cdn` must pass. On 2026-11-15 it fails with HTTP 404:
+  npm `djwasm` dist-tags are `latest: 0.2.0`; 0.3.0 is not published yet.
+
+| Gate (on the 0.3.0 pin) | Result |
+|---|---|
+| `make check-djrust-pin` | ok, djwasm@0.3.0, glue matches |
+| `make test-djrust` | all checks passed (worklet ready says crate 0.3.0) |
+| `make test-djrust-golden`, `make test-djrust-neutral` | 282/282 bit-identical to 0.2.0; neutral with 7 controls present |
+| `make test-djrust-cpu` / `djrust-cpu.mjs --check` against 0.2.0 | idle within ×0.985–1.011; memory 0 B growth under churn, 1,430,493 vs 11,256,373 B per load; seek worst 0.57–0.61 ms in 3 of 4 runs, **1 of 4 runs red** on one outlier (3.73 ms on a feed track, median there 0.32 ms) |
+| `make test-djrust-browser` | all pass, tri-render = golden; module source `local` (CDN 404) |
+| `make test-e2e`, `go test ./...`, `scripts/cid-freeze.sh` | 43/43, pass, pass |
+| `make djrust-verify-cdn` | **fails** (HTTP 404, not published) |
+
+### Page wired to 0.3.0 (branch `djrust-net-clock`, studio plan step 3, 2026-11-15)
+
+- **Engine gaps follow the module, not the version.** `wave.js` `probeEngineFeatures` reads
+  `djw_features` from the same module the engine loads (and the running worklet's `ready` message,
+  `node.js` `handle.features`, wins over that probe); `engine-gaps.js` hides exactly the macros
+  `catalog.js` `engineRunsMacro(id, features)` says it cannot run. Mask 0 (0.2.0) gives the old
+  stylesheet; 0.3.0 shows the 9 net macros, Auto-DJ and Panic; master / aux macros unhide by
+  themselves once a module reports MASTER_MACROS / AUX_MACROS. The Beats pads (hit1-hit4: Fire,
+  Repeat) are page work on every engine (a stinger unmute for N bars, `catalog.js`
+  `macroRunnable`) and are never sent to the engine as a fire.
+- **R-1a.** A timed fire is one `{type:'fire-macro', id, duration}` to the worklet and the UI only
+  pulses; it never falls back to the worker. A permanent (∞) fire stays page-side (plain per-target
+  mutes, the old tempo path). The serial slot is released by `macro-restored` (or a mask of 0 for 3
+  ticks, with a wall-timer backstop). Panic sends `panic`. The engine gets `control-macros {on,
+  disabled}` at start and on every disabled-set change; `control-fired` in `backend/index.js` is
+  then UI-only, so nothing fires twice, and control fires show from the engine's `macro-fired`.
+  Behaviour change: control and macroCurve fires bypass the page's serial `_macroQueue`.
+  A stop, or Panic while stopped, with an engine macro held puts the page's own state back, since a
+  stopped engine posts no tick: the mutes become the worker's set plus manual mutes, and `el._tempo`
+  / the BPM box become `el._project.tempo` (`wave.js` `settleStoppedEngine`); the engine's
+  `engine-tempo` events are followed too. While the engine holds a macro its mutes are not mirrored
+  into `el._project.initialMutes`, which the share collector reads.
+- **R-2.** Auto-DJ picks only macros the engine runs; busy = engine `macroMask` != 0 or a running /
+  queued slot. It draws only from pools `engine-gaps.js` shows (`catalog.js` `autoDjPoolLive`):
+  the Transition pool is offered once the engine runs at least half of its curated spread, so on
+  0.3.0 (tape-stop only) it is hidden and unused rather than "tape-stop at every track change"; the
+  Beats pool shows (the pads are page work). **Auto-DJ never runs on a render page** (`?render=1`,
+  `?render=offline`; `wave.js` `isRenderPage`): 9 feed envelopes carry `autoDj.run=true` (one,
+  `z4EBG9j2iDv3LU…` ambient, with the Transition pool and no `macrosDisabled`; seven with a 32/64-bar
+  regen), and a realtime farm bake records the live engine, so with Auto-DJ on, those bakes would
+  carry random macros and a regenerated track. Live listeners get Auto-DJ back on 0.3.0, as R-2
+  intends. **Whether a farm bake should ever carry Auto-DJ is a decision for Matt** (with 1 and 5).
+- **R-9.** A seek while playing goes to the engine (answered by `seeked`); stopped, it goes to the
+  worker as before; Play from a playhead past 0 seeks the engine first.
+- **R-8.** Groove (FLAG.GROOVE via processorOptions) engages live only on an explicit override:
+  `grooveOverride` in `wave.js` (a share's swing / humanize off the genre's composed default, or a
+  slider move). Every share carries both fields, so the schema cannot tell a choice from a stale
+  value; under this rule 2 of the 52 feed envelopes (house, 0/10 against 20/15:
+  `z4EBG9jA6NzmRN…`, `z4EBG9j6vq5meg…`) engage groove live. **Decision 1 for Matt.** A render
+  page never takes a share's groove (the realtime farm records this live engine), so their farm
+  bakes stay 0.2.0's.
+- **R-16.** `offline-render.js` puts everything in processorOptions (`offlineEngineOptions`; the
+  50 ms mute sleep is gone). With no opt-in it sends the 0.2.0 call sequence. Control macros and
+  `macrosDisabled` go in only on `opts.controlMacros` or `?render-macros=1`; groove only on
+  `opts.groove` / a session slider move (`el._grooveOverride.source === 'session'`), never from a
+  share's fields, even off the genre default (that would re-groove 33 of 52 feed bakes at their
+  fields' values, and the two house envelopes even under the live rule). An earlier cut of this
+  wiring did take a share-sourced override in the farm's `renderToBlobOffline(el, {maxMs})` call;
+  `test-djrust-render-freeze` now boots every envelope through `waveLoadProject` and makes exactly
+  that call, and `test-djrust-browser` FARM BOOT checks the worklet's processorOptions keys on the
+  real `?render=offline` boot of all 52. Only `examples/voltage-rush.json` (a control net firing `beat-repeat`) would bake
+  differently with control macros on. **Decision 5 for Matt**; no farm URL opts in today.
+- **Still hidden** (need djwasm 0.4.0): master FX, the FX / Pitch / Feel / Pan / Shape macros and
+  their Auto-DJ pools.
+
+| Gate (step 3, 0.3.0 pin, wiring in place) | Result |
+|---|---|
+| `make check-djrust-pin` | ok, djwasm@0.3.0, glue matches |
+| `go test ./... -count=1`, `make test-model-parity`, `make test-cohesion-parity` | pass |
+| `scripts/cid-freeze.sh` | pass (7 examples, 52 feed envelopes) |
+| `make test-djrust` | all checks passed |
+| `make test-djrust-golden`, `make test-djrust-neutral` | 282/282 bit-identical to 0.2.0 (neutral: 7 controls) |
+| `node scripts/djrust-cpu.mjs --check` | all cpu gates passed |
+| `make test-djrust-page-macros` (now in `test-djrust-node`) | all pass (26 cases, incl. Beats pads, pool rule, render page, stop / Panic settle, offline groove) |
+| `make test-djrust-render-freeze` (feed corpus booted through `waveLoadProject`, the farm's own `renderToBlobOffline(el, {maxMs})` call) | 277 checks = the 0.2.0 golden (incl. 52 "farm opts: only `mutes`") |
+| `make test-djrust-browser` | all pass: gaps (0.3.0 and the 0.2.0 reference), page fire, Beats pads, stop mid macro, double-fire guard, offline macros, tri-render = golden, FARM BOOT (52 envelopes × `?render=offline` and `?render=1`) |
+| `make test-wave-browser`, `make test-scope-browser` | pass |
+| `make test-e2e` | 47/47 (engine-gaps follow the feature mask) |
+| `make test-audio TEST_AUDIO_WORKERS=8` | 4/4: cut, breakdown, drop, half-time take effect, recover, run once, held for the length asked (during windows 3.36 / 3.35 / 3.05 / 1.46 s) |
+| `make probe-djrust-gaps` (trap:42) | cut 0.75 (unfired control 1.03), solo-drums 0.84 (control 0.97): < 1.0, ≥ 0.05 below control, one page macro-fired each |
+| `bazel test //...`, `bazel run //:gazelle -- -mode=diff` | 16 pass; no diff |
+| `make djrust-verify-cdn` | **fails** (HTTP 404: 0.3.0 not on npm yet) |

@@ -7,11 +7,13 @@
 //
 // The package directory (or a .wasm inside one) gives both the module and its glue (loader.js,
 // worklet.js). $DJRUST_GLUE overrides where the glue comes from. The served public/djrust/ files
-// (the pinned 0.2.0) are never touched; the pinned module is used as the 0.2.0 reference.
+// are never touched. The 0.2.0 reference is djwasm 0.2.0 itself from scripts/djrust-ref.mjs
+// (.djrust-ref/djwasm@0.2.0/, git-ignored; `node scripts/djrust-ref.mjs fetch`), hash-checked: it
+// was the pin until the 0.3.0 re-pin.
 //
 // Sections (each a set of ok/FAIL checks; exit 1 on any FAIL):
 //   keys        djw_features / djw_keys equal the 0.3.0 export spec
-//   compat      the new loader + worklet still drive djwasm 0.2.0 (the pin): golden bytes, every
+//   compat      the new loader + worklet still drive djwasm 0.2.0 (the reference): golden bytes, every
 //               new call a no-op / ERR_UNSUPPORTED, a stamped script lands on its quantum
 //   hooks       worklet test hooks: script = q-stamped port messages = unstamped messages at the
 //               quantum; at-stamps on the frame clock; tapHash = crypto sha256; assertQuantum
@@ -37,7 +39,8 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-import { renderCase, composeProject, readGolden, PINNED_WASM, ROOT, BLOCK } from './djrust-golden.mjs';
+import { renderCase, composeProject, readGolden, ROOT, BLOCK } from './djrust-golden.mjs';
+import { REF_DIR, REF_WASM, refStatus } from './djrust-ref.mjs';
 import { buildScript as buildScript020 } from './djrust-script.mjs';
 import { arrangeWithOpts } from '../public/lib/generator/arrange.js';
 import { MACROS } from '../public/lib/macros/catalog.js';
@@ -312,7 +315,8 @@ async function sectionKeys(mod) {
 }
 
 async function sectionCompat(mod, pinned) {
-    if (!pinned) { check('compat: the pinned 0.2.0 module is present (public/djrust/djwasm.wasm)', false); return; }
+    if (!pinned.mod) { check(`compat: the djwasm 0.2.0 reference is present (${REF_WASM})`, false, pinned.why); return; }
+    pinned = pinned.mod;
     // new glue, old module
     const old = { ...pinned, loader: mod.loader, workletPath: mod.workletPath };
     const dj = old.loader.instantiateSync(old.module);
@@ -780,7 +784,8 @@ async function main(argv) {
     if (a.list) { console.log(sections.join('\n')); return 0; }
     const mod = await loadPackage(a.wasm || process.env.DJRUST_WASM);
     if (!mod) { console.error('test-djwasm-030: DJRUST_WASM must name a djwasm package dir (or a .wasm beside its loader.js / worklet.js)'); return 2; }
-    const pinned = existsSync(PINNED_WASM) ? await withGlue(PINNED_WASM, join(ROOT, 'public', 'djrust')) : null;
+    const ref = refStatus();
+    const pinned = ref.ok ? { mod: await withGlue(REF_WASM, REF_DIR) } : { why: ref.why };
     console.log(`test-djwasm-030: ${mod.wasmPath} (sha256 ${mod.sha256.slice(0, 16)}…, ${mod.bytes.length} B), glue ${mod.glueDir}`);
     const worker = await workerHarness();
     const t0 = Date.now();

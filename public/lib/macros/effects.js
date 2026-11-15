@@ -8,9 +8,17 @@
 // DOM queries (`el._fxSlider`, `el._setFxValue`), worker send
 // (`el._sendWs`), and musical state (`el._musicNets`, `el._mutedNets`,
 // `el._msPerBar`, `el._tempo`, `el._setTempo`).
+//
+// On djrust a timed macro runs in the engine, as one message
+// (lib/macros/runtime.js executeMacro → lib/backend/wave.js
+// engineFireMacro): Beat Repeat, Double Drop and the tempo hold / sweep /
+// anchor no longer step the worker or the tempo from here. These page
+// implementations are what a permanent (∞) fire and a module that ran
+// macros page-side would use; clearLocalMacroState is shared by both.
 
 import { MACROS } from './catalog.js';
-import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
+import { schedAudio, clearAudioSched, audioAnimLoop } from './sched.js';
+import { enginePanic } from '../backend/wave.js';
 
 export function fxSweep(el, fxKey, toValue, durationMs) {
     const slider = el._fxSlider(fxKey);
@@ -32,9 +40,7 @@ export function fxSweep(el, fxKey, toValue, durationMs) {
     const DISPATCH_INTERVAL = 120;
     let lastDispatch = -DISPATCH_INTERVAL;
 
-    // Compute target value at any elapsed time. Pure function of inputs
-    // so it's safe to call from rAF (live) and from pre-scheduled audio
-    // callbacks (offline).
+    // Compute target value at any elapsed time. Pure function of inputs.
     const valueAt = (elapsed) => {
         if (elapsed < rampDown) {
             return start + (toValue - start) * (elapsed / rampDown);
@@ -47,11 +53,8 @@ export function fxSweep(el, fxKey, toValue, durationMs) {
         if (token.cancelled) return;
         const done = elapsed >= durationMs;
         const v = valueAt(elapsed);
-        // Live mode: throttle engine dispatches; do visual-only updates
-        // between dispatches. Offline mode: every applyAt call is already
-        // a dispatch interval, so dispatch every time.
-        const offline = isOfflineContext();
-        const dispatch = offline || done || (elapsed - lastDispatch >= DISPATCH_INTERVAL);
+        // Throttle engine dispatches; do visual-only updates between them.
+        const dispatch = done || (elapsed - lastDispatch >= DISPATCH_INTERVAL);
         if (dispatch) {
             el._setFxValue(slider, v);
             lastDispatch = elapsed;
@@ -227,7 +230,7 @@ export function tempoSweep(el, finalBpm, durationMs) {
             el._tempoAnim = null;
             return;
         }
-        if (elapsed - lastDispatch >= DISPATCH_INTERVAL || isOfflineContext()) {
+        if (elapsed - lastDispatch >= DISPATCH_INTERVAL) {
             const t = Math.min(1, elapsed / durationMs);
             const eased = 1 - Math.pow(1 - t, 2);
             const bpm = startBpm + (target - startBpm) * eased;
@@ -276,7 +279,7 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
         }
         const t = (elapsed - sustainMs) / tailMs;
         const v = toValue + (start - toValue) * t;
-        if (elapsed - lastDispatch >= DISPATCH_INTERVAL || isOfflineContext()) {
+        if (elapsed - lastDispatch >= DISPATCH_INTERVAL) {
             el._setFxValue(slider, v);
             lastDispatch = elapsed;
         } else {
@@ -292,6 +295,11 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
 // before it gets to fire — and by cancelAllMacros (the transport-stop
 // path), which does notify the worker.
 //
+// It does tell the djrust engine: a {type:'panic'} restores every macro the
+// engine holds (its mutes, its tempo) at once. Every path through here wants
+// that (stop, Panic, a new project, whose own control nets fire only after
+// it). A module without macros ignores it (lib/backend/wave.js enginePanic).
+//
 // Cancelling is not enough: every animation family must also RESTORE its
 // pre-fire snapshot, otherwise stopping playback mid-macro strands the
 // swept state (HP filter left up = thin/near-silent mix, tempo stuck at
@@ -300,11 +308,14 @@ export function fxHold(el, fxKey, toValue, durationMs, tailFrac = 0.6) {
 // is carried on each animation token so this function needs no knowledge
 // of who created it.
 export function clearLocalMacroState(el) {
+    enginePanic(el);
     if (el._runningTimer) {
         clearAudioSched(el._runningTimer);
         el._runningTimer = null;
     }
     el._runningMacro = null;
+    el._runningEngine = null;
+    el._engineHeld?.clear();
     el._macroQueue = [];
 
     // Break any beat-repeat loop (token-guard exits on next scheduled fire)

@@ -24,13 +24,49 @@
 //    scripts/fixtures/capture-worklet.js, every render quantum is 128 frames, and the offline
 //    render on the nominal schedule equals scripts/djrust-golden.json. DJRUST_WASM selects the
 //    module for all four (the page gets its bytes; the glue is the served public/djrust/).
+//
+// djwasm 0.3.0 page wiring (plan step 3; docs/MIGRATION-djrust-wasm.md §12):
+//  - ENGINE GAPS, feature-detected: on the served module a macro tile is shown exactly when the
+//    engine runs its group (NET_MACROS / MASTER_MACROS / AUX_MACROS); on djwasm 0.2.0 (the
+//    hash-checked reference, .djrust-ref/, served to the page by a throwaway CORS server through
+//    ?djrust-wasm=) every macro tile, the Macros and Auto-DJ buttons are hidden and _fireMacro
+//    sends nothing — the pre-0.3.0 assertion, kept for the module it describes;
+//  - PAGE FIRE: el._fireMacro('cut') posts one {type:'fire-macro'} to the worklet, nothing to the
+//    worker, and one macro-fired (source page, result 0) comes back, then macro-restored;
+//  - DOUBLE-FIRE GUARD: a control net firing cut and drop every 32 ticks, played live: exactly one
+//    macro-fired (source control) per engine-reported control fire, same id and tick, and the
+//    page posts no fire-macro of its own (backend/index.js control-fired is UI-only for ids the
+//    engine ran);
+//  - OFFLINE MACROS (R-16): a macroCurve arrangement (cut at the intro, solo-drums at the
+//    buildup) rendered by renderProjectOffline(project, {controlMacros: true, macrosDisabled})
+//    has the sha the Node script render (test-djwasm-030 renderDirect, same options) has; with
+//    every catalog id disabled it is djwasm 0.2.0's render of the same project, and the golden
+//    arr:techno:42:curves@48000 rendered that way is the golden.
+//  - BEATS PADS: a visible Fire pad does something on the served engine: clicking hit1 unmutes its
+//    stinger (one {type:'mute', muted:false} to the worklet) and never asks the engine to fire it;
+//  - STOP MID MACRO: stopping while the engine runs breakdown leaves no macro mute on the page
+//    (el._mutedNets, el._project.initialMutes, which a share carries), and while it runs those
+//    mutes are not in initialMutes; stopping during half-time puts el._tempo and the BPM box back
+//    to the project tempo, so the next nudge commits project tempo + 1;
+//  - FARM BOOT (the render-farm freeze on the page's real boot path): every feed-corpus envelope
+//    booted as the farm boots it. ?render=offline: the worklet's processorOptions keys are only
+//    module / mutes / play / project / quiet / tempo (no groove flags, swing, humanize or control
+//    macros). ?render=1 (the realtime farm records the live engine): the live engine is made with
+//    no init flags, and no fire-macro, groove or release-macro reaches the worklet (a panic with
+//    nothing in effect is a no-op in the engine and is allowed), nor a generate,
+//    generate-preview or project-queue the worker, during the render or when Auto-DJ is ticked
+//    across a 2-bar cadence and a 32-bar regen boundary afterwards. FARM_ONLY=<regex> narrows it.
+// The page contract these assume: el._wave resolves to the worklet handle (post, onmessage);
+// renderProjectOffline takes controlMacros / macrosDisabled and passes them as processorOptions.
 
 import { spawn } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { instantiate } from '../public/djrust/loader.js';
+import { instantiate, FEATURE } from '../public/djrust/loader.js';
 
 const HOST = process.argv[2] || 'http://localhost:18095';
 const PORT = Number(process.env.CDP_PORT) || 9342; // CDP; the Makefile passes CDP_PORT
@@ -286,6 +322,440 @@ async function triRender(cdp) {
     console.log(`tri-render summary: ${JSON.stringify({ module: mod.sha256, scripts: summary })}`);
 }
 
+// --- djwasm 0.3.0 page wiring ---------------------------------------------------------------
+
+/** The served module's feature bits and key tables (the page plays these bytes). */
+async function servedEngine() {
+    const dj = await instantiate(readFileSync(wasmPath));
+    return { features: dj.features, keys: dj.keys() };
+}
+
+/** Macro-panel tile ids the engine runs: the rule lib/ui/engine-gaps.js must follow. */
+function runnableTiles(eng) {
+    const k = eng.keys;
+    const out = new Set();
+    if (!k) return out;
+    if (eng.features & FEATURE.NET_MACROS) for (const id of k.macros.net) out.add(id);
+    if (eng.features & FEATURE.MASTER_MACROS) for (const id of k.macros.master) out.add(id);
+    if (eng.features & FEATURE.AUX_MACROS) for (const id of k.macros.aux) out.add(id);
+    return out;
+}
+
+/**
+ * Page-side probe: open the Macros panel and report which tiles are visible, then fire `fireId`
+ * through el._fireMacro while counting what reaches the worklet (handle.post) and the worker
+ * (el._sendWs), and collect the engine's replies for `waitMs`.
+ */
+const PAGE_MACRO_PROBE = (fireId, opts, waitMs) => `(async () => {
+    const el = document.querySelector('petri-note');
+    const vis = (n) => !!n && (n.checkVisibility ? n.checkVisibility({ visibilityProperty: true }) : n.getClientRects().length > 0);
+    const btn = el.querySelector('.pn-macros-btn');
+    if (btn && !el._showMacros) btn.click();
+    await new Promise(r => setTimeout(r, 200));
+    const tiles = {};
+    for (const b of el.querySelectorAll('.pn-macros-panel .pn-macro-btn[data-macro]')) tiles[b.dataset.macro] = vis(b);
+    const out = { tiles, macrosBtn: vis(btn), autodjBtn: vis(el.querySelector('.pn-autodj-btn')) };
+    const w = el._wave ? await el._wave : null;
+    const posts = [], worker = [], events = [], masks = [];
+    const origPost = w && w.post, origMsg = w && w.onmessage, origSend = el._sendWs;
+    if (w) {
+        w.post = (m) => { if (m && /macro|panic/.test(m.type)) posts.push(m); return origPost.call(w, m); };
+        w.onmessage = (m) => {
+            if (m && /^macro-|^engine-tempo/.test(m.type)) events.push(m);
+            if (m && m.type === 'wave-tick' && typeof m.macroMask === 'number') masks.push(m.macroMask);
+            return origMsg && origMsg(m);
+        };
+    }
+    el._sendWs = (m) => { if (m && m.type === 'fire-macro') worker.push(m); return origSend.call(el, m); };
+    try {
+        el._fireMacro(${JSON.stringify(fireId)}, ${JSON.stringify(opts)});
+        await new Promise(r => setTimeout(r, ${waitMs}));
+    } finally {
+        el._sendWs = origSend;
+        if (w) { w.post = origPost; w.onmessage = origMsg; }
+    }
+    Object.assign(out, { posts, worker, events, maxMask: masks.reduce((a, b) => Math.max(a, b), 0),
+        lastMask: masks.length ? masks[masks.length - 1] : null, runningMark: !!el._runningMacro });
+    return out;
+})()`;
+
+/** Throwaway CORS server for the hash-checked djwasm 0.2.0 reference (it is never under public/). */
+async function serveRef() {
+    const { REF_WASM, refStatus } = await import('./djrust-ref.mjs');
+    const st = refStatus();
+    if (!st.ok) return { why: st.why };
+    const bytes = readFileSync(REF_WASM);
+    const srv = createServer((req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        if (req.url.startsWith('/djwasm.wasm')) { res.writeHead(200, { 'Content-Type': 'application/wasm' }); res.end(bytes); }
+        else { res.writeHead(404); res.end(); }
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    return { url: `http://127.0.0.1:${srv.address().port}/djwasm.wasm`, close: () => srv.close() };
+}
+
+/** ENGINE GAPS (feature-detected) and PAGE FIRE on the playing default page, then the page on 0.2.0. */
+async function engineGapsAndPageFire(cdp) {
+    const eng = await servedEngine();
+    const want = runnableTiles(eng);
+    const p = await cdp.evaluate(PAGE_MACRO_PROBE('cut', { duration: 8 }, 2500));
+    const ids = Object.keys(p.tiles);
+    const wrong = ids.filter((id) => p.tiles[id] !== want.has(id));
+    check(`gaps: a macro tile is shown exactly when the engine runs it (features 0x${eng.features.toString(16)}: ${want.size} runnable, ${ids.length} tiles)`,
+        ids.length > 0 && wrong.length === 0,
+        wrong.length ? `wrong: ${wrong.map((id) => `${id}=${p.tiles[id] ? 'shown' : 'hidden'}`).join(' ')}` : '');
+    check('gaps: the Macros and Auto-DJ buttons are shown exactly when the engine runs macros',
+        want.size === 0 ? (!p.macrosBtn && !p.autodjBtn) : (p.macrosBtn && p.autodjBtn), JSON.stringify({ macros: p.macrosBtn, autodj: p.autodjBtn }));
+    if (!(eng.features & FEATURE.NET_MACROS)) {
+        check('page fire: the served module runs net macros (NET_MACROS)', false, `features ${eng.features}`);
+    } else {
+        const cutBit = eng.keys.maskBits.net + eng.keys.macros.net.indexOf('cut');
+        const fires = p.posts.filter((m) => m.type === 'fire-macro');
+        const fired = p.events.filter((e) => e.type === 'macro-fired' && e.id === 'cut');
+        const restored = p.events.filter((e) => e.type === 'macro-restored' && e.id === 'cut');
+        check('page fire: el._fireMacro(cut, 8 ticks) posts exactly one fire-macro to the worklet and nothing to the worker',
+            fires.length === 1 && fires[0].id === 'cut' && Number(fires[0].duration) === 8 && p.worker.length === 0,
+            JSON.stringify({ worklet: p.posts, worker: p.worker }));
+        check('page fire: exactly one macro-fired comes back (source page, result 0), then one macro-restored',
+            fired.length === 1 && fired[0].source === 'page' && fired[0].result === 0 && restored.length === 1, JSON.stringify(p.events));
+        check('page fire: the wave-tick macroMask carries the cut bit while it runs and is clear after',
+            (p.maxMask & (2 ** cutBit)) !== 0 && p.lastMask === 0, `max ${p.maxMask} last ${p.lastMask} cut bit ${cutBit}`);
+    }
+
+    // The same page on djwasm 0.2.0: it runs no macro, so every tile is hidden and nothing is sent.
+    const ref = await serveRef();
+    if (!ref.url) { check('gaps on 0.2.0: the djwasm 0.2.0 reference is present (make djrust-ref)', false, ref.why); return; }
+    try {
+        const r = await run(cdp, `djrust-wasm=${encodeURIComponent(ref.url)}&genre=techno&seed=42`);
+        check('gaps on 0.2.0: the page plays the djwasm 0.2.0 reference', r.engine === 'djrust' && r.source === 'override' && r.tick > 8,
+            JSON.stringify({ engine: r.engine, source: r.source, tick: r.tick, err: r.err }));
+        const q = await cdp.evaluate(PAGE_MACRO_PROBE('cut', {}, 800));
+        const shown = Object.keys(q.tiles).filter((id) => q.tiles[id]);
+        check('gaps on 0.2.0: every macro tile and the Macros / Auto-DJ buttons are hidden',
+            Object.keys(q.tiles).length > 0 && shown.length === 0 && !q.macrosBtn && !q.autodjBtn,
+            JSON.stringify({ shown, macros: q.macrosBtn, autodj: q.autodjBtn }));
+        check('gaps on 0.2.0: firing a macro does nothing (no worklet or worker message, nothing marked running)',
+            q.posts.length === 0 && q.worker.length === 0 && !q.runningMark, JSON.stringify({ worklet: q.posts, worker: q.worker }));
+    } finally {
+        // Leave a page without ?djrust-wasm= (offline-render.js reads the override off the URL).
+        await cdp.send('Page.navigate', { url: `${HOST}/djrust/pin.js` });
+        await sleep(500);
+        ref.close();
+    }
+}
+
+/** BEATS PADS: a visible Fire pad acts on the served engine (page-side stinger unmute). */
+async function beatsPads(cdp) {
+    await run(cdp, 'genre=techno&seed=42');
+    const r = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const vis = (n) => !!n && (n.checkVisibility ? n.checkVisibility({ visibilityProperty: true }) : n.getClientRects().length > 0);
+        const btn = el.querySelector('.pn-oneshots-btn');
+        if (!vis(btn)) return { btn: false };
+        if (!el._showOneShots) btn.click();
+        await new Promise(r => setTimeout(r, 200));
+        const pad = el.querySelector('.pn-os-fire[data-macro="hit1"]');
+        const w = await el._wave;
+        const posts = [];
+        const orig = w.post;
+        w.post = (m) => { if (m && /mute|macro/.test(m.type)) posts.push(m); return orig.call(w, m); };
+        const wasMuted = el._mutedNets.has('hit1');
+        try { pad.click(); await new Promise(r => setTimeout(r, 400)); } finally { w.post = orig; }
+        return { btn: true, pad: vis(pad), wasMuted, posts, nowMuted: el._mutedNets.has('hit1') };
+    })()`);
+    if (!r.btn) { check('beats pads: the Beats button is shown on techno/42 (it has stinger nets)', false); return; }
+    const unmute = r.posts.filter((m) => m.type === 'mute' && m.netId === 'hit1' && m.muted === false);
+    check('beats pads: a visible Fire pad (hit1) unmutes its stinger in the engine and fires nothing there',
+        r.pad && r.wasMuted && unmute.length >= 1 && !r.posts.some((m) => m.type === 'fire-macro') && !r.nowMuted,
+        JSON.stringify(r));
+}
+
+/** STOP MID MACRO: the page's mutes and tempo after a stop while the engine holds a macro. */
+async function stopMidMacro(cdp) {
+    for (const [id, opts] of [['breakdown', { duration: 8 }], ['half-time', { duration: 8 }]]) {
+        await run(cdp, 'genre=techno&seed=42');
+        const r = await cdp.evaluate(`(async () => {
+            const el = document.querySelector('petri-note');
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const before = [...el._mutedNets].sort();
+            const tempo0 = el._project.tempo;
+            el._fireMacro(${JSON.stringify(id)}, ${JSON.stringify(opts)});
+            await sleep(900);
+            const during = { muted: [...el._mutedNets].sort(), initial: [...(el._project.initialMutes || [])].sort(), tempo: el._tempo };
+            el._togglePlay();
+            await sleep(1500);
+            const after = { playing: el._playing, muted: [...el._mutedNets].sort(), initial: [...(el._project.initialMutes || [])].sort(),
+                tempo: el._tempo, box: Number(el.querySelector('.pn-tempo input')?.value) };
+            el._setTempo(el._tempo + 1);
+            return { before, tempo0, during, after, nudged: el._project.tempo };
+        })()`);
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (id === 'breakdown') {
+            const took = r.during.muted.filter((n) => !r.before.includes(n));
+            check('stop mid macro: breakdown muted tracks while it ran, and they are not in initialMutes meanwhile',
+                took.length > 0 && !took.some((n) => r.during.initial.includes(n)), JSON.stringify({ took, during: r.during }));
+            check('stop mid macro: after a stop no breakdown mute is left on the page (mixer, initialMutes)',
+                !r.after.playing && same(r.after.muted, r.before) && !took.some((n) => r.after.initial.includes(n)), JSON.stringify(r));
+        } else {
+            check('stop mid macro: half-time moved the tempo, and a stop puts el._tempo and the BPM box back',
+                r.during.tempo !== r.tempo0 && r.after.tempo === r.tempo0 && r.after.box === r.tempo0 && r.nudged === r.tempo0 + 1,
+                JSON.stringify(r));
+        }
+    }
+}
+
+/** ?cid=…&z=… for a share-v1 envelope (lib/share/codec.js shape: base64url of the gzipped JSON). */
+function inlineShareQuery(cid, bytes) {
+    return `cid=${cid}&z=${gzipSync(bytes).toString('base64url')}`;
+}
+
+// Installed before any page script on every farm-boot navigation: records the djrust worklet's
+// processorOptions keys and what the page posts to it and to the sequencer worker.
+const FARM_HOOK = `(() => {
+    const farm = window.__farm = { engines: [], posts: [], worker: [] };
+    const AWN = window.AudioWorkletNode;
+    if (!AWN) return;
+    window.AudioWorkletNode = class extends AWN {
+        constructor(ctx, name, o) {
+            super(ctx, name, o);
+            if (name !== 'djrust-engine') return;
+            const po = (o && o.processorOptions) || {};
+            farm.engines.push({ offline: typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext,
+                keys: Object.keys(po).sort(), flags: po.flags ?? null });
+            const port = this.port, pm = port.postMessage.bind(port);
+            port.postMessage = (m, t) => { if (m && m.type) farm.posts.push(m.type === 'load' || m.type === 'wasm' ? { type: m.type } : m); return pm(m, t); };
+        }
+    };
+    const wp = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (m, t) { if (m && m.type) farm.worker.push(m.type); return wp.call(this, m, t); };
+    // The boot is over when render-mode.js publishes __renderInfo.started (the share has been
+    // generated or loaded): worker messages from then on are the render's own.
+    let info;
+    Object.defineProperty(window, '__renderInfo', { configurable: true,
+        get: () => info,
+        set: (v) => { info = v; if (v && v.started && farm.workerMark === undefined) farm.workerMark = farm.worker.length; } });
+})();`;
+
+const OFFLINE_KEYS = new Set(['module', 'mutes', 'play', 'project', 'quiet', 'tempo']);
+// A panic is not on the list: the stop / project-sync paths post one, and with no macro in effect
+// the engine touches nothing (djrust studio.rs panic: `if self.runner.macro_active()`).
+const BAD_POSTS = new Set(['fire-macro', 'groove', 'release-macro']);
+const BAD_WORKER = new Set(['generate', 'generate-preview', 'project-queue', 'fire-macro']);
+
+async function farmPage(cdp, query) {
+    await cdp.send('Page.navigate', { url: `${HOST}/?${query}` });
+    for (let i = 0; i < 300; i++) {
+        await sleep(100);
+        const done = await cdp.evaluate('window.__renderDone === true').catch(() => false);
+        if (done) break;
+    }
+    return cdp.evaluate(`(() => ({ done: window.__renderDone === true, err: window.__renderError || null,
+        mode: window.__renderInfo && window.__renderInfo.mode, farm: window.__farm || null }))()`);
+}
+
+/** FARM BOOT: each feed envelope booted exactly as the farm boots it (see the header). */
+async function farmBoot(cdp) {
+    const dir = join(here, 'fixtures', 'feed-corpus');
+    const only = process.env.FARM_ONLY ? new RegExp(process.env.FARM_ONLY) : null;
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json') && (!only || only.test(f))).sort();
+    const { identifier } = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: FARM_HOOK }).then((r) => r.result);
+    const offBad = [], liveBad = [];
+    let n = 0;
+    const t0 = Date.now();
+    try {
+        for (const f of files) {
+            const cid = f.slice(0, -5);
+            const q = inlineShareQuery(cid, readFileSync(join(dir, f)));
+            // ?render=offline: the processorOptions the bake makes the engine with.
+            const o = await farmPage(cdp, `${q}&render=offline&maxMs=400`);
+            const eng = o.farm?.engines.filter((e) => e.offline) || [];
+            const keys = eng.map((e) => e.keys.join(','));
+            const okOff = o.done && !o.err && o.mode === 'offline' && eng.length === 1
+                && eng[0].keys.every((k) => OFFLINE_KEYS.has(k)) && ['play', 'project', 'quiet', 'tempo'].every((k) => eng[0].keys.includes(k));
+            if (!okOff) offBad.push(`${cid.slice(0, 14)} ${JSON.stringify({ done: o.done, err: o.err, mode: o.mode, keys })}`);
+            // ?render=1: the live engine the realtime farm records; then tick Auto-DJ across a cadence
+            // and a regen boundary as playback would.
+            const r = await farmPage(cdp, `${q}&render=1&maxMs=600`);
+            const after = await cdp.evaluate(`(async () => {
+                const el = document.querySelector('petri-note');
+                el._autoDjTick?.(32 * 16 - 20, 32 * 16 + 2);
+                await new Promise(r => setTimeout(r, 300));
+                return { posts: window.__farm.posts, worker: window.__farm.worker, workerMark: window.__farm.workerMark,
+                    autodj: !!el.querySelector('.pn-autodj-enable')?.checked };
+            })()`).catch((e) => ({ error: e.message }));
+            const live = r.farm?.engines.filter((e) => !e.offline) || [];
+            const badPosts = (after.posts || []).filter((m) => BAD_POSTS.has(m.type)).map((m) => m.type + (m.id ? `:${m.id}` : ''));
+            // From the render's start on (the boot itself sends the share's generate).
+            const mark = Number.isInteger(after.workerMark) ? after.workerMark : 0;
+            const badWorker = (after.worker || []).slice(mark).filter((t) => BAD_WORKER.has(t));
+            const okLive = r.done && !r.err && r.mode === 'realtime' && !after.error && live.length >= 1
+                && live.every((e) => !e.flags) && badPosts.length === 0 && badWorker.length === 0;
+            if (!okLive) liveBad.push(`${cid.slice(0, 14)} ${JSON.stringify({ done: r.done, err: r.err, mode: r.mode, flags: live.map((e) => e.flags), badPosts, badWorker, autodj: after.autodj, error: after.error })}`);
+            n++;
+        }
+    } finally {
+        await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+    }
+    const secs = ((Date.now() - t0) / 1000).toFixed(0);
+    check(`farm boot (?render=offline): every feed envelope (${n}) bakes with only module/mutes/play/project/quiet/tempo — ${secs} s`,
+        n > 0 && offBad.length === 0, offBad.slice(0, 6).join(' | '));
+    check(`farm boot (?render=1): every feed envelope (${n}) records a live engine with no init flags, no fire-macro/groove/release-macro and no Auto-DJ regen`,
+        n > 0 && liveBad.length === 0, liveBad.slice(0, 6).join(' | '));
+}
+
+/** techno/42 loop plus a control net 'pulse-ctl' that fires cut (2 ticks) at 8 and drop (1 bar) at 20 of every 32 ticks. */
+async function pulseProject() {
+    const { composeProject } = await import('./djrust-golden.mjs');
+    const p = composeProject('techno', 42, 'loop');
+    const N = 32, places = {}, transitions = {}, arcs = [];
+    for (let i = 0; i < N; i++) {
+        places[`pp${i}`] = { initial: [i === 0 ? 1 : 0], x: 40 * i, y: 0 };
+        transitions[`pt${i}`] = { x: 40 * i + 20, y: 40 };
+        arcs.push({ source: `pp${i}`, target: `pt${i}`, weight: [1], inhibit: false });
+        arcs.push({ source: `pt${i}`, target: `pp${(i + 1) % N}`, weight: [1], inhibit: false });
+    }
+    transitions.pt8.control = { action: 'fire-macro', macro: 'cut', macroBars: 2 };
+    transitions.pt20.control = { action: 'fire-macro', macro: 'drop', macroBars: 1 };
+    p.nets['pulse-ctl'] = { role: 'control', track: { channel: 1, defaultVelocity: 100, instrument: '', instrumentSet: [] }, places, transitions, arcs };
+    return p;
+}
+
+/**
+ * DOUBLE-FIRE GUARD. With control macros on, the engine dispatches a control net's fire-macro
+ * itself; the page still sees the control in the wave-tick and must not fire it again. The
+ * taps go on before the engine's first message (see the comment at Play).
+ */
+async function doubleFireGuard(cdp) {
+    const project = await pulseProject();
+    await cdp.send('Page.navigate', { url: `${HOST}/?genre=techno&seed=42` });
+    for (let i = 0; i < 100; i++) {
+        await sleep(200);
+        if (await cdp.evaluate(`!!document.querySelector('petri-note')?._project?.nets?.kick`).catch(() => false)) break;
+    }
+    await sleep(1500);
+    const r = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        el._sendWs({ type: 'project-load', project: ${JSON.stringify(project)} });
+        for (let i = 0; i < 50 && !el._waveProject?.nets?.['pulse-ctl']; i++) await new Promise(r => setTimeout(r, 100));
+        if (!el._waveProject?.nets?.['pulse-ctl']) return { error: 'the pulse project never reached the engine handle (no project-sync)' };
+        // The worker can answer a project-load with more than one project-sync; one landing after
+        // Play is a swap at the bar (the tick restarts). Let them settle first.
+        await new Promise(r => setTimeout(r, 1500));
+        await el._ensureToneStarted();
+        // Play sets el._wave synchronously; the taps go on in the continuation of awaiting it,
+        // before any worklet message can be delivered (those are tasks; the first fire is at tick 8).
+        if (!el._playing) el._togglePlay();
+        const w = await el._wave;
+        const controls = [], events = [], posts = [], worker = [], masks = [];
+        const origPost = w.post, origMsg = w.onmessage, origSend = el._sendWs;
+        w.post = (m) => { if (m && /macro|panic/.test(m.type)) posts.push(m); return origPost.call(w, m); };
+        w.onmessage = (m) => {
+            if (m && m.type === 'wave-tick') {
+                for (const [netId, , c] of m.controls || []) {
+                    if (c && c.action === 'fire-macro') controls.push({ netId, id: c.macro || c.macroId || c.targetNet, tick: m.tick });
+                }
+                if (typeof m.macroMask === 'number') masks.push(m.macroMask);
+            } else if (m && /^macro-/.test(m.type)) events.push({ type: m.type, id: m.id, source: m.source, result: m.result, tick: m.tick });
+            return origMsg && origMsg(m);
+        };
+        el._sendWs = (m) => { if (m && m.type === 'fire-macro') worker.push(m); return origSend.call(el, m); };
+        try {
+            await new Promise(r => setTimeout(r, 9000));
+            if (el._playing) el._togglePlay();
+            await new Promise(r => setTimeout(r, 300));
+        } finally { w.post = origPost; w.onmessage = origMsg; el._sendWs = origSend; }
+        return { controls, events, posts, worker, maxMask: masks.reduce((a, b) => Math.max(a, b), 0), tick: el._tick };
+    })()`);
+    if (r.error) { check('double-fire guard: setup', false, r.error); return; }
+    const key = (x) => `${x.id}@${x.tick}`;
+    const ctl = r.controls.map(key).sort();
+    const firedCtl = r.events.filter((e) => e.type === 'macro-fired' && e.source === 'control');
+    const firedPage = r.events.filter((e) => e.type === 'macro-fired' && e.source !== 'control');
+    const ids = new Set(r.controls.map((c) => c.id));
+    check('double-fire guard: the control net fired cut and drop several times', ctl.length >= 4 && ids.has('cut') && ids.has('drop'),
+        `${ctl.length} control fires: ${ctl.join(' ')}`);
+    check('double-fire guard: exactly one macro-fired (source control, result 0) per control fire, same id and tick',
+        JSON.stringify(firedCtl.map(key).sort()) === JSON.stringify(ctl) && firedCtl.every((e) => e.result === 0),
+        `controls ${ctl.join(' ')} | macro-fired ${firedCtl.map((e) => `${key(e)}:${e.result}`).sort().join(' ')}`);
+    check('double-fire guard: the page fires none of them again (no page macro-fired, no fire-macro to the worklet or worker)',
+        firedPage.length === 0 && r.posts.filter((m) => m.type === 'fire-macro').length === 0 && r.worker.length === 0,
+        JSON.stringify({ page: firedPage, worklet: r.posts, worker: r.worker }));
+    check('double-fire guard: the engine held the macros (macroMask non-zero while they ran)', r.maxMask > 0, `max mask ${r.maxMask}`);
+}
+
+/** The macroCurve arrangement for the offline checks: cut at the intro (tick 1), solo-drums at the buildup (tick 65). */
+async function macroCurveProject() {
+    const { composeProject } = await import('./djrust-golden.mjs');
+    const { arrangeWithOpts } = await import('../public/lib/generator/arrange.js');
+    const p = composeProject('techno', 42, 'standard');
+    arrangeWithOpts(p, 'techno', '', { overlayOnly: true,
+        macroCurve: [{ section: 'intro', macro: 'cut', bars: 4 }, { section: 'buildup', macro: 'solo-drums', bars: 2 }] });
+    return p;
+}
+
+/** renderProjectOffline in the page → sha256 of the interleaved f32 L,R (what djrust-golden hashes). */
+const OFFLINE_SHA = (text, opts) => `(async () => {
+    const { renderProjectOffline } = await import('/lib/share/offline-render.js');
+    const { buffer } = await renderProjectOffline(JSON.parse(${JSON.stringify(text)}), ${JSON.stringify(opts)});
+    const L = buffer.getChannelData(0), R = buffer.getChannelData(1);
+    const inter = new Float32Array(2 * L.length);
+    for (let i = 0; i < L.length; i++) { inter[2 * i] = L[i]; inter[2 * i + 1] = R[i]; }
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', inter));
+    return { sha: Array.from(h, b => b.toString(16).padStart(2, '0')).join(''), frames: L.length };
+})()`;
+
+/** OFFLINE MACROS (R-16): control macros and macrosDisabled in renderProjectOffline. */
+async function offlineMacros(cdp) {
+    const T = await import('./test-djwasm-030.mjs');
+    const { renderCase, readGolden } = await import('./djrust-golden.mjs');
+    const { REF_WASM, refStatus } = await import('./djrust-ref.mjs');
+    const mod = await T.loadPackage(join(here, '..', 'public', 'djrust'));
+    const text = JSON.stringify(await macroCurveProject());
+    const SR = 48000, SECONDS = 12, blocks = SECONDS * SR / 128;
+    const node = (options) => T.renderDirect(mod, { name: 'offline-macros', sr: SR, blocks, text, options, steps: [] }, { collectEvents: true });
+    const off = node({});
+    const none = node({ controlMacros: true, macrosDisabled: [] });
+    const solo = node({ controlMacros: true, macrosDisabled: ['solo-drums'] });
+    const all = node({ controlMacros: true, macrosDisabled: T.CATALOG_IDS });
+    const ev = (r) => r.events.map((e) => `${e.k}:${e.id}@${e.tick}`).join(' ');
+    // The Node oracle discriminates: the fire moves the audio, and a disabled id is honoured.
+    check('offline macros (Node): cut fires, solo-drums is skipped when disabled, all disabled = control macros off',
+        solo.audio !== off.audio && solo.audio !== none.audio && all.audio === off.audio
+        && /fired:cut@1\b/.test(ev(solo)) && /skipped:solo-drums@65\b/.test(ev(solo)) && /fired:solo-drums@65\b/.test(ev(none)),
+        `disabled [solo-drums]: ${ev(solo)} | none disabled: ${ev(none)}`);
+    // djwasm 0.2.0 ignores fire-macro, so it is the exact oracle for "every id disabled".
+    const st = refStatus();
+    let ref020 = null;
+    if (st.ok) {
+        const refMod = await T.withGlue(REF_WASM, dirname(REF_WASM));
+        ref020 = renderCase(refMod, { id: 'offline-macros', blocks, seconds: {}, build: () => ({ text, steps: [] }) }, SR, { streams: false }).audio;
+    }
+    check('offline macros (Node): djwasm 0.2.0 renders the project as the 0.3.0 engine does with control macros off',
+        ref020 === off.audio, ref020 ? `${ref020.slice(0, 12)} vs ${off.audio.slice(0, 12)}` : st.why);
+
+    await cdp.send('Page.navigate', { url: `${HOST}/djrust/pin.js` });
+    await sleep(500);
+    const base = { durationSec: SECONDS, sampleRate: SR, controlMacros: true };
+    let pSolo, pAll, pCurves;
+    try {
+        pSolo = await cdp.evaluate(OFFLINE_SHA(text, { ...base, macrosDisabled: ['solo-drums'] }));
+        pAll = await cdp.evaluate(OFFLINE_SHA(text, { ...base, macrosDisabled: T.CATALOG_IDS }));
+    } catch (err) { check('offline macros: renderProjectOffline in the page', false, err.message); return; }
+    check('offline macros: a macroCurve share with macrosDisabled renders offline = the Node script render (12 s, 48 kHz)',
+        pSolo.sha === solo.audio,
+        `page ${pSolo.sha.slice(0, 16)} node ${solo.audio.slice(0, 16)} (node with control macros off ${off.audio.slice(0, 16)}), ${pSolo.frames} frames`);
+    check('offline macros: with every macro disabled the offline render = djwasm 0.2.0\'s render',
+        pAll.sha === off.audio && (ref020 === null || pAll.sha === ref020), `page ${pAll.sha.slice(0, 16)} 0.2.0 ${(ref020 || off.audio).slice(0, 16)}`);
+    const golden = readGolden();
+    const want = golden.cases['arr:techno:42:curves@48000'];
+    const curves = JSON.stringify(T.curvesProject());
+    try {
+        pCurves = await cdp.evaluate(OFFLINE_SHA(curves, { durationSec: want.frames / SR, sampleRate: SR, controlMacros: true, macrosDisabled: T.CATALOG_IDS }));
+    } catch (err) { check('offline macros: renderProjectOffline of the golden curves case', false, err.message); return; }
+    check(`offline macros: golden arr:techno:42:curves with every macro disabled renders offline = the golden (djwasm@${golden.module.version})`,
+        pCurves.sha === want.audio && pCurves.frames === want.frames, `${pCurves.sha.slice(0, 12)} vs ${want.audio.slice(0, 12)}, ${pCurves.frames} frames`);
+}
+
 try {
     const cdp = await connect(await cdpTarget());
     await cdp.send('Runtime.enable');
@@ -322,9 +792,6 @@ try {
             await new Promise(r => setTimeout(r, 50)); const b = new Float32Array(an.fftSize); an.getFloatTimeDomainData(b);
             for (const x of b) { s += x * x; n++; } } return Math.sqrt(s / n); };
         out.before = await rms();
-        // A fired macro is a no-op (no worker message, no running mark).
-        let sent = 0; const orig = el._sendWs.bind(el); el._sendWs = (m) => { if (m.type === 'fire-macro') sent++; return orig(m); };
-        el._fireMacro('cut'); out.macroSent = sent; out.macroRunning = !!el._runningMacro; el._sendWs = orig;
         // Master volume is the host gain.
         const vol = el.querySelector('.pn-fx-slider[data-fx="master-vol"]');
         vol.value = 5; vol.dispatchEvent(new Event('input', { bubbles: true }));
@@ -340,14 +807,21 @@ try {
         for (const id of music) el._sendWs({ type: 'mute', netId: id, muted: false });
         return out;
     })()`);
-    check('gaps: macros, Auto-DJ, FX bypass, reverb and the channel strip are hidden; master volume is shown',
-        !gaps.macros && !gaps.autodj && !gaps.bypass && !gaps.reverb && !gaps.strip && gaps.masterVol, JSON.stringify(gaps));
-    check('gaps: firing a macro does nothing (no worker message, nothing marked running)',
-        gaps.macroSent === 0 && !gaps.macroRunning);
+    // Macros and Auto-DJ are feature-detected since djwasm 0.3.0 (engineGapsAndPageFire below);
+    // master FX and the channel strip stay hidden until the engine has FX / VOICE.
+    const served = await servedEngine();
+    const fxHidden = !(served.features & FEATURE.FX), stripHidden = !(served.features & FEATURE.VOICE);
+    check(`gaps: FX bypass and reverb are ${fxHidden ? 'hidden' : 'shown'}, the channel strip ${stripHidden ? 'hidden' : 'shown'} (features 0x${served.features.toString(16)}); master volume is shown`,
+        gaps.bypass === !fxHidden && gaps.reverb === !fxHidden && gaps.strip === !stripHidden && gaps.masterVol, JSON.stringify(gaps));
     check('engine: master volume reaches the output', gaps.before > 0.005 && gaps.quiet < gaps.before * 0.1,
         `rms ${gaps.before?.toFixed(4)} → ${gaps.quiet?.toFixed(4)}`);
     check('engine: muting every music net silences the output', gaps.muted < gaps.before * 0.25,
         `rms ${gaps.before?.toFixed(4)} → ${gaps.muted?.toFixed(4)}`);
+
+    // --- djwasm 0.3.0: macro tiles by feature, a page fire, and the same page on 0.2.0 ---
+    await engineGapsAndPageFire(cdp);
+    await beatsPads(cdp);
+    await stopMidMacro(cdp);
 
     // --- the browser renders what Node renders ---
     if (d.project) {
@@ -454,8 +928,15 @@ try {
             JSON.stringify({ engine: l.engine, tick: l.tick, err: l.err }));
     }
 
+    // --- djwasm 0.3.0: control fires are not fired twice; macros in offline renders (R-16) ---
+    await doubleFireGuard(cdp);
+    await offlineMacros(cdp);
+
     // --- TRI-RENDER: one sha256 per live script, four ways (see triRender above) ---
     await triRender(cdp);
+
+    // --- FARM BOOT: the feed corpus on the page's real boot path, as the render farm boots it ---
+    await farmBoot(cdp);
 
     cdp.close();
 } catch (err) {

@@ -5,9 +5,10 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
         djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
-        test-djrust-golden test-djrust-neutral test-djrust-cpu cid-freeze \
+        test-djrust-golden test-djrust-neutral test-djrust-cpu djrust-ref cid-freeze \
         test-djrust-node test-scope-kernels test-insert-render test-wave-tick-feed test-crop \
         test-djwasm-030 test-djwasm-030-browser test-djrust-newglue \
+        probe-djrust-gaps test-djrust-page-macros test-djrust-render-freeze \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -98,40 +99,44 @@ test:
 	@$(MAKE) --no-print-directory test-djrust-golden
 	@$(MAKE) --no-print-directory test-djrust-node
 
-# Headless macro-audio verification. Boots a local server (no audio
-# render needed — capture happens inside the test browser tabs) and
-# runs scripts/test-macro-audio.py against it across N parallel
-# Chromium tabs. Requires `pip install playwright numpy scipy` and
-# `playwright install chromium`.
-TEST_AUDIO_PORT := 18091
-TEST_AUDIO_DATA := /tmp/beats-test-audio-data
+# Headless macro-audio verification on the djrust engine. Boots a local
+# server and runs scripts/test-macro-audio.py against it across N parallel
+# browsers: each fires one net macro through the page (el._fireMacro) and
+# captures the audio host's master losslessly through a capture AudioWorklet
+# (lib/test-hooks.js), then asserts cut, breakdown, drop and half-time take
+# effect and recover, and that the engine ran each exactly once.
+# Requires Python with playwright + numpy (`python3 -m venv V && V/bin/pip
+# install playwright numpy`; PYTHON=V/bin/python). The system google-chrome
+# is used when Playwright's own Chromium is not installed.
+# The port must be free: 18091 is cdn-stackdump-com's on valoper and pflow.dev, and a test server
+# that cannot bind would leave the browsers talking to whatever holds the port (the recipe refuses).
+PYTHON ?= python3
+TEST_AUDIO_PORT ?= 18097
+TEST_AUDIO_DATA := /tmp/beats-test-audio-data-$(TEST_AUDIO_PORT)
 TEST_AUDIO_WORKERS ?= 4
-#
-# PARKED: every case in scripts/test-macro-audio.py fires a macro, and macros
-# are not on the djrust engine yet (docs/MIGRATION-djrust-wasm.md §12). The
-# capture side (lib/test-hooks.js) already records djrust's output, so the
-# suite comes back unchanged when macros are routed to the engine; until
-# then this target refuses instead of reporting failures that are known.
-# `make test-audio-parked` runs it anyway.
-test-audio:
-	@echo "test-audio is parked: macros are not on the djrust engine yet (docs/MIGRATION-djrust-wasm.md §12)"; exit 2
-
-test-audio-parked: build
+test-audio: build
 	@rm -rf $(TEST_AUDIO_DATA) && mkdir -p $(TEST_AUDIO_DATA)
+	@if curl -s -o /dev/null http://localhost:$(TEST_AUDIO_PORT)/ 2>/dev/null; then \
+	    echo "test-audio: something already answers on :$(TEST_AUDIO_PORT); pick a free TEST_AUDIO_PORT"; exit 1; fi
 	@echo "starting test server on :$(TEST_AUDIO_PORT)"
-	@./$(BINARY) -authoring -addr :$(TEST_AUDIO_PORT) -data $(TEST_AUDIO_DATA) -public public > /tmp/beats-test-audio.log 2>&1 & echo $$! > /tmp/beats-test-audio.pid
+	@./$(BINARY) -addr :$(TEST_AUDIO_PORT) -data $(TEST_AUDIO_DATA) -public public > /tmp/beats-test-audio-$(TEST_AUDIO_PORT).log 2>&1 & echo $$! > /tmp/beats-test-audio-$(TEST_AUDIO_PORT).pid
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 	    curl -fsS -o /dev/null http://localhost:$(TEST_AUDIO_PORT)/ && break; sleep 0.5; \
 	done
-	@trap 'kill $$(cat /tmp/beats-test-audio.pid) 2>/dev/null; rm -f /tmp/beats-test-audio.pid' EXIT; \
-	  ./scripts/test-macro-audio.py --host http://localhost:$(TEST_AUDIO_PORT) --workers $(TEST_AUDIO_WORKERS) $(TEST_AUDIO_ARGS)
+	@kill -0 $$(cat /tmp/beats-test-audio-$(TEST_AUDIO_PORT).pid) 2>/dev/null || { \
+	    echo "test-audio: the test server did not start on :$(TEST_AUDIO_PORT) (port in use?)"; \
+	    tail -3 /tmp/beats-test-audio-$(TEST_AUDIO_PORT).log; exit 1; }
+	@trap 'kill $$(cat /tmp/beats-test-audio-$(TEST_AUDIO_PORT).pid) 2>/dev/null; rm -f /tmp/beats-test-audio-$(TEST_AUDIO_PORT).pid' EXIT; \
+	  $(PYTHON) scripts/test-macro-audio.py --host http://localhost:$(TEST_AUDIO_PORT) --workers $(TEST_AUDIO_WORKERS) $(TEST_AUDIO_ARGS)
 
 # Full UI e2e — drives the controls (transport, panels, master volume,
 # keyboard shortcuts, mixer, Feel, generate/shuffle/genre, share, mocked
 # Web MIDI) and checks the Tone-era features are off, through the real DOM
 # in headless Chrome via raw CDP. No Python deps — node >= 20 +
-# google-chrome. Boots its own server on :18096.
-TEST_E2E_PORT := 18096
+# google-chrome. Boots its own server on :18096 (TEST_E2E_PORT); Chrome's
+# debugging port is TEST_E2E_CDP_PORT, so a run can sit beside another suite.
+TEST_E2E_PORT ?= 18096
+TEST_E2E_CDP_PORT ?= 9340
 TEST_E2E_DATA := /tmp/beats-test-e2e-data
 test-e2e: build
 	@rm -rf $(TEST_E2E_DATA) && mkdir -p $(TEST_E2E_DATA)
@@ -141,7 +146,7 @@ test-e2e: build
 	    curl -fsS -o /dev/null http://localhost:$(TEST_E2E_PORT)/ && break; sleep 0.5; \
 	done
 	@trap 'kill $$(cat /tmp/beats-test-e2e.pid) 2>/dev/null; rm -f /tmp/beats-test-e2e.pid' EXIT; \
-	  node scripts/test-e2e-controls.mjs http://localhost:$(TEST_E2E_PORT) $(TEST_E2E_ARGS)
+	  CDP_PORT=$(TEST_E2E_CDP_PORT) node scripts/test-e2e-controls.mjs http://localhost:$(TEST_E2E_PORT) $(TEST_E2E_ARGS)
 
 # Rebuild + resubmit the official collection with structure=extended.
 # Boots a local authoring server with chromedp realtime render, runs
@@ -267,13 +272,38 @@ test-djrust-browser: build
 	@./$(BINARY) -addr :$(DJRUST_BROWSER_PORT) -public public -data /tmp/djrust-browser-data-$(DJRUST_BROWSER_PORT) >/tmp/djrust-browser-server-$(DJRUST_BROWSER_PORT).log 2>&1 & \
 	  pid=$$!; sleep 2; CDP_PORT=$(CDP_PORT) node scripts/test-djrust-browser.mjs http://localhost:$(DJRUST_BROWSER_PORT); rc=$$?; kill $$pid; exit $$rc
 
+# --- djwasm 0.3.0 page wiring (plan step 3) ---------------------------------------------------
+#   probe-djrust-gaps          the gap scoreboard in headless Chrome (boots its own server; ports
+#                              overridable); gate: cut and solo-drums fired through the page are audible
+#                              (rms ratio < 1.0)
+#   test-djrust-page-macros    scripts/test-djrust-page-macros.mjs (Node only, no server: page-side
+#                              macro routing, engine gaps, seek, groove); part of test-djrust-node;
+#                              PAGE_MACROS_ARGS are passed through
+#   test-djrust-render-freeze  scripts/test-djrust-render-freeze.mjs (Node: the feed corpus through the
+#                              real offline-render path = the golden; the render-farm freeze, ~80 s);
+#                              RENDER_FREEZE_ARGS are passed through
+PROBE_PORT ?= 18136
+PROBE_CDP_PORT ?= 9343
+probe-djrust-gaps: build
+	@./$(BINARY) -addr :$(PROBE_PORT) -public public -data /tmp/djrust-probe-data-$(PROBE_PORT) >/tmp/djrust-probe-server-$(PROBE_PORT).log 2>&1 & \
+	  pid=$$!; sleep 2; CDP_PORT=$(PROBE_CDP_PORT) node --no-warnings scripts/probe-djrust-gaps.mjs http://localhost:$(PROBE_PORT); rc=$$?; kill $$pid; exit $$rc
+
+test-djrust-page-macros:
+	@node --no-warnings scripts/test-djrust-page-macros.mjs $(PAGE_MACROS_ARGS)
+
+test-djrust-render-freeze:
+	@node --no-warnings scripts/test-djrust-render-freeze.mjs --skip-missing $(RENDER_FREEZE_ARGS)
+
 # --- djrust gates (docs/MIGRATION-djrust-wasm.md §12 plan, step 0) ---------------------------
 # The module under test is $$DJRUST_WASM (a .wasm file or a djrust cabi/pkg dir), else the local
 # public/djrust/djwasm.wasm. Every gate skips with a notice when there is no module.
 #   test-djrust-golden   the ABI-1 call sequence must reproduce scripts/djrust-golden.json (djwasm
 #                        0.2.0) on audio, ticks, report, marking and muted (part of make test)
 #   test-djrust-neutral  the same corpus with every new control sent at its neutral value
-#   test-djrust-cpu      per-quantum cost and memory against the pinned 0.2.0, measured side by side
+#   test-djrust-cpu      per-quantum cost and memory against djwasm 0.2.0, measured side by side
+#                        (the 0.2.0 reference: make djrust-ref, .djrust-ref/, git-ignored, never served)
+#   djrust-ref           fetch djwasm@0.2.0 from jsDelivr into .djrust-ref/djwasm@0.2.0/, hash-checked
+#   test-djrust-render-freeze  (above) the feed corpus through the page's offline-render path = the golden
 #   cid-freeze           CID-deciding files unchanged; examples + feed-corpus CIDs recompute (part of make test)
 test-djrust-golden:
 	@node --no-warnings scripts/djrust-golden.mjs check --skip-missing
@@ -283,6 +313,9 @@ test-djrust-neutral:
 
 test-djrust-cpu:
 	@node --no-warnings scripts/djrust-cpu.mjs --check --skip-missing
+
+djrust-ref:
+	@node scripts/djrust-ref.mjs fetch
 
 cid-freeze:
 	@./scripts/cid-freeze.sh
@@ -294,7 +327,7 @@ cid-freeze:
 #   test-wave-tick-feed  wave-tick feeds Auto-DJ / repeating one-shots once per tick; worker mutes yield
 #                        to the engine's (no wasm needed)
 #   test-crop            crop through the real worker + handleWsMessage + djwasm, swapped at the bar
-test-djrust-node: test-scope-kernels test-insert-render test-wave-tick-feed test-crop
+test-djrust-node: test-scope-kernels test-insert-render test-wave-tick-feed test-crop test-djrust-page-macros
 
 test-scope-kernels:
 	@node --no-warnings scripts/test-scope-kernels.mjs --skip-missing

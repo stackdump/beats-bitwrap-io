@@ -11,9 +11,14 @@
 // master FX beyond volume and Auto-DJ were Tone features and are switched
 // off until they are rebuilt on djrust (lib/ui/engine-gaps.js,
 // docs/MIGRATION-djrust-wasm.md §12); their sections here are replaced by
-// checks that they are off. Bring the old sections back from git history
-// (scripts/test-e2e-controls.mjs before the djrust-only branch) as each
-// feature lands.
+// checks that they are off. Macros are feature-detected: the engine-gaps
+// section follows the loaded module's djw_features mask (el._engineFeatures).
+// On a module that runs net macros (djwasm 0.3.0, NET_MACROS) the Macros /
+// Auto-DJ / Panic controls are shown and a fired macro posts exactly one
+// fire-macro to the worklet; on one that runs none (0.2.0) they are hidden
+// and a fired macro does nothing. Bring the old sections back from git
+// history (scripts/test-e2e-controls.mjs before the djrust-only branch) as
+// each feature lands.
 //
 // Each check asserts an observable effect (state change, engine param,
 // audio RMS via an analyser on the host master) — not just "no throw".
@@ -25,10 +30,10 @@
 import { spawn } from 'node:child_process';
 
 const HOST = process.argv[2] && !process.argv[2].startsWith('--')
-  ? process.argv[2] : 'http://localhost:18091';
+  ? process.argv[2] : 'http://localhost:18096';
 const VERBOSE = process.argv.includes('--verbose');
 const URL = `${HOST}/?test=1&genre=techno&seed=42`;
-const PORT = 9340;
+const PORT = Number(process.env.CDP_PORT) || 9340;
 
 // ---------- Web MIDI mock, installed before any page script ----------
 // Provides one fake input ("Mock Pad") and one fake output. Tests inject
@@ -235,13 +240,48 @@ for (const [btn, panel] of [
 section('engine-gaps');
 {
   const shown = (sel) => `(function(){ const n = __el.querySelector('${sel}'); return !!n && getComputedStyle(n).display !== 'none'; })()`;
-  for (const sel of ['.pn-macros-btn', '.pn-autodj-btn', '.pn-fx-bypass', '.pn-fx-reset', '.pn-macro-panic',
-                     '.pn-effects-panel .pn-fx-group:nth-child(2)', '.pn-mixer-slider-group', '.pn-mixer-test']) {
-    record(`${sel} hidden`, (await evalx(shown(sel))) === false);
+  // The module's feature mask (lib/backend/wave.js probeEngineFeatures, started when the backend connects).
+  const features = await evalx(`(async () => { if (__el._engineFeaturesProbe) await __el._engineFeaturesProbe; return __el._engineFeatures | 0; })()`);
+  const NET_MACROS = 2; // public/djrust/loader.js FEATURE.NET_MACROS
+  const runsMacros = (features & NET_MACROS) !== 0;
+  record(`engine feature mask known (0x${(features | 0).toString(16)})`, Number.isInteger(features));
+  const macroSels = ['.pn-macros-btn', '.pn-autodj-btn', '.pn-macro-panic'];
+  const alwaysOff = ['.pn-fx-bypass', '.pn-fx-reset',
+                     '.pn-effects-panel .pn-fx-group:nth-child(2)', '.pn-mixer-slider-group', '.pn-mixer-test'];
+  for (const sel of macroSels) {
+    record(`${sel} ${runsMacros ? 'shown (NET_MACROS)' : 'hidden'}`, (await evalx(shown(sel))) === runsMacros);
   }
+  for (const sel of alwaysOff) record(`${sel} hidden`, (await evalx(shown(sel))) === false);
   record('master volume shown', (await evalx(shown('.pn-effects-panel .pn-fx-group:first-child'))) === true);
-  await evalx(`__el._fireMacro('cut')`);
-  record('a fired macro does nothing', (await evalx(`!__el._runningMacro`)) === true);
+  if (!runsMacros) {
+    await evalx(`__el._fireMacro('cut')`);
+    record('a fired macro does nothing', (await evalx(`!__el._runningMacro`)) === true);
+  } else {
+    // A timed fire runs in the engine: one fire-macro to the worklet, nothing to the worker.
+    const wasPlaying = await evalx(`__el._playing`);
+    if (!wasPlaying) { await evalx(`__el.querySelector('.pn-play').click()`); }
+    const up = await waitFor(`!!__el._wave && __el._playing`, 8000);
+    record('engine up for a macro fire', up);
+    const r = await evalx(`(async () => {
+      const w = await __el._wave; const posts = [], worker = [];
+      const origPost = w.post, origSend = __el._sendWs;
+      w.post = (m) => { if (m && /macro|panic/.test(m.type)) posts.push(m); return origPost.call(w, m); };
+      __el._sendWs = (m) => { if (m && m.type === 'fire-macro') worker.push(m); return origSend.call(__el, m); };
+      let running = false;
+      try {
+        __el._fireMacro('cut');
+        running = __el._runningMacro === 'cut';
+        await new Promise(r => setTimeout(r, 300));
+      } finally { w.post = origPost; __el._sendWs = origSend; }
+      return { running, posts, worker };
+    })()`);
+    const fires = r.posts.filter(m => m.type === 'fire-macro');
+    record('a fired macro marks running', r.running === true);
+    record('a fired macro posts exactly one fire-macro to the worklet and nothing to the worker',
+      fires.length === 1 && fires[0].id === 'cut' && r.worker.length === 0, JSON.stringify({ worklet: r.posts, worker: r.worker }));
+    record('the running macro is released', await waitFor(`!__el._runningMacro`, 8000));
+    if (!wasPlaying) { await evalx(`__el.querySelector('.pn-play').click()`); await waitFor(`!__el._playing`, 4000); }
+  }
 }
 
 // ---------- master volume (the host gain) ----------

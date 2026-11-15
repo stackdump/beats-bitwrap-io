@@ -145,6 +145,43 @@ export const MACROS = [
     { id: 'hit4', group: 'One-Shot', kind: 'one-shot', label: 'Hit 4', defaultDuration: 1, durationOpts: [1, 2, 3, 4, 5], durationLabel: 'hit', durationUnit: 'bar', sound: 'booj',    pitchOpts: [-12, -7, -5, -3, 0, 3, 5, 7, 12], defaultPitch: 0 },
 ];
 
+// --- Which macros the djrust engine runs ---
+//
+// djwasm sorts the catalog into four kinds (djw_keys().macros): `net` macros
+// run in the runner (mutes and tempo, djwasm 0.3.0 "net clock"), `master`
+// and `aux` macros in the master chain and aux bus (djwasm 0.4.0), and the
+// `hit` pads stay page-side. The module says what it runs in its feature
+// mask (djw_features), so the page never assumes a version: a macro is live
+// exactly when its kind's feature bit is set. A module without the mask
+// (djwasm 0.2.0) runs none, which is the studio before macros came back.
+//
+// The table is the engine's own (djw_keys of the pinned module);
+// scripts/test-djrust-page-macros.mjs fails if the two drift apart.
+export const ENGINE_MACRO_KIND = Object.freeze({
+    'drop': 'net', 'breakdown': 'net', 'solo-drums': 'net', 'cut': 'net', 'double-drop': 'net',
+    'beat-repeat': 'net', 'half-time': 'net', 'tape-stop': 'net', 'tempo-anchor': 'net',
+    'sweep-lp': 'master', 'sweep-hp': 'master', 'reverb-wash': 'master', 'riser': 'master',
+    'build-crush': 'master', 'phaser-drone': 'master', 'filter-res': 'master', 'octave-up': 'master',
+    'octave-down': 'master', 'pitch-bend': 'master', 'vinyl-brake': 'master', 'feel-chill': 'master',
+    'feel-drive': 'master', 'feel-ambient': 'master', 'feel-euphoric': 'master', 'feel-build': 'master',
+    'feel-wind-down': 'master', 'feel-reset': 'master',
+    'ping-pong': 'aux', 'hard-left': 'aux', 'hard-right': 'aux', 'auto-pan': 'aux', 'mono': 'aux',
+    'delay-throw': 'aux', 'dub-delay': 'aux', 'cathedral': 'aux', 'tighten': 'aux', 'loosen': 'aux',
+    'pulse': 'aux',
+    'hit1': 'hit', 'hit2': 'hit', 'hit3': 'hit', 'hit4': 'hit',
+});
+
+// The djw_features() bit each kind needs (public/djrust/loader.js FEATURE:
+// NET_MACROS, MASTER_MACROS, AUX_MACROS). `hit` has none: the pads are page
+// work the engine does not take.
+export const ENGINE_KIND_FEATURE = Object.freeze({ net: 2, master: 128, aux: 256 });
+
+/** Does an engine with feature mask `features` run catalog macro `id`? */
+export function engineRunsMacro(id, features) {
+    const bit = ENGINE_KIND_FEATURE[ENGINE_MACRO_KIND[id]];
+    return !!bit && ((features | 0) & bit) === bit;
+}
+
 // Curated picks for "Transition" pool — fires only on Auto-DJ regen
 // boundaries. Chosen to resolve naturally on a downbeat (sweeps that
 // end open, washes that decay, risers that land) rather than random
@@ -154,3 +191,36 @@ export const TRANSITION_MACRO_IDS = new Set([
     'riser', 'sweep-hp', 'sweep-lp', 'reverb-wash', 'cathedral',
     'delay-throw', 'dub-delay', 'tape-stop', 'phaser-drone',
 ]);
+
+/**
+ * Can the studio run catalog macro `id` on an engine with feature mask
+ * `features`? The engine's own kinds as engineRunsMacro says; the `hit` pads
+ * (the Beats panel's Fire / Repeat) are page work on any engine: they unmute
+ * a stinger net for N bars and mute it again, plain mutes every djwasm takes.
+ */
+export function macroRunnable(id, features) {
+    if (ENGINE_MACRO_KIND[id] === 'hit') return true;
+    return engineRunsMacro(id, features);
+}
+
+/**
+ * Is Auto-DJ pool `pool` (the .pn-autodj-pool values) live on an engine with
+ * `features`? One rule for lib/ui/engine-gaps.js (which pools are shown) and
+ * lib/macros/runtime.js (which pools Auto-DJ draws from), so a hidden pool is
+ * never drawn from.
+ *   Beats       the hit pads (page work: always).
+ *   Transition  a curated spread of sweeps, washes, throws and one tape stop,
+ *               picked for variety at a track change. It is offered only when
+ *               the engine runs at least half of it: filtered down to what a
+ *               net-macro engine runs (djwasm 0.3.0: tape-stop alone) it
+ *               would be "tape stop at every change", not a transition pool.
+ *   the rest    a catalog group: live when any of its macros runs.
+ */
+export function autoDjPoolLive(pool, features) {
+    if (pool === 'Beats') return MACROS.some(m => m.kind === 'one-shot' && macroRunnable(m.id, features));
+    if (pool === 'Transition') {
+        const ids = [...TRANSITION_MACRO_IDS];
+        return 2 * ids.filter(id => macroRunnable(id, features)).length >= ids.length;
+    }
+    return MACROS.some(m => m.group === pool && m.kind !== 'one-shot' && macroRunnable(m.id, features));
+}
