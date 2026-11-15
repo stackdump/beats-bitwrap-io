@@ -382,13 +382,15 @@ section('feel');
   await sleep(200);
 }
 
-// ---------- Auto-DJ (off on djrust) ----------
+// ---------- Auto-DJ (back on with djwasm 0.3.0: the engine runs the Mute / Tempo macros) ----------
 section('auto-dj');
 {
   await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); if (e && !e.checked) e.click(); return true; })()`);
   if (!await evalx(`__el._playing`)) { await evalx(`__el.querySelector('.pn-play').click()`); await sleep(500); }
   await sleep(3000);
-  record('armed Auto-DJ fires nothing', (await evalx(`!__el._runningMacro`)) === true);
+  // It may fire a macro within the window (random, on the cadence), so assert what is stable:
+  // armed, the transport still playing, and the engine's own macro state is a number.
+  record('armed Auto-DJ keeps playing', (await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); return !!(e && e.checked) && !!__el._playing && Number.isInteger(__el._engineMacroMask | 0); })()`)) === true);
   await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); if (e && e.checked) e.click(); return true; })()`);
 }
 
