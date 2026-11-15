@@ -1,6 +1,12 @@
 # Moving beats.bitwrap.io onto the djrust engine (WASM), and off Tone.js
 
-**Status 2026-11-12: plan + phase 1 on branch `djrust-wasm-phase1`. Nothing is pushed or deployed.**
+**Status 2026-11-14 (branch `djrust-only`): Tone.js is gone. djrust is the studio's only engine.**
+Matt decided the flip no longer waits for phases 3–5. Losing features for a while is acceptable;
+they are rebuilt on djrust afterwards. Every feature switched off for this is listed in **§12** with
+what it needs. Not merged to main; merging deploys.
+
+*Earlier: plan + phase 1 on `djrust-wasm-phase1` (2026-11-12), the default-flip re-assessment on
+`djrust-default`, CDN delivery on `djrust-cdn`. `djrust-only` is built on `djrust-cdn`.*
 
 **2026-11-14:** the module now comes from the public, MIT [`stackdump/djrust`](https://github.com/stackdump/djrust)
 (`cabi/`, npm package `djwasm`) and the page loads it from jsDelivr with a pinned SRI hash (§4, §8).
@@ -202,8 +208,10 @@ page (lib/backend/wave.js)                     AudioWorklet 'djrust-engine' (pub
   as `public/wave-engine/README.md`; `bench-core.js` should get a djrust column before any flip.
 - *Allocation.* `djw_process` allocates nothing (buffers sized in `djw_init`); tick reporting allocates,
   about 8 times a second, like the JS worklet.
-- *Tone is still loaded* in `?engine=djrust`: it owns the `AudioContext` (`prepareWaveContext`) and the
-  mixer sliders. It plays no notes (tested). Removing it is phase 7.
+- *Tone is gone* (branch `djrust-only`). `public/audio/host.js` owns the native `AudioContext`, the
+  master gain the worklet connects to, the phone `<audio>` sink, output-device choice and a read-only
+  analyser. There is no JS wave engine fallback any more: if the module cannot be fetched (CDN and
+  local both fail), the page shows "Audio engine failed to load" and nothing plays.
 
 ## 6. Share compatibility, and exactly where a CID could change
 
@@ -351,3 +359,71 @@ make dev                         # then open  http://localhost:8089/?engine=djru
 ```
 
 djrust side: `cargo test -p djwasm`; `tools/build-wasm.sh`; `tools/gates.sh full` builds the module for wasm32.
+
+## 12. Tone removed: what was switched off, and what each needs to come back (2026-11-14)
+
+Branch `djrust-only` (from `djrust-cdn`) deletes `public/audio/tone-engine.js` and the Tone.js `<script>`
+on every page (studio, `wave-engine/bench.html`, `jog/demo.html`). djrust is the only engine on every
+studio URL; the old `?engine=djrust` / `?engine=wave` links still open it. Nothing in the share
+envelope, schema or canonicalisation changed, so **no share or model CID changed** (§6).
+
+### What replaced Tone
+
+| Was | Now |
+|---|---|
+| `tone-engine.js` (AudioContext, master chain, 71 instruments) | `public/audio/host.js` (`audioHost`): native AudioContext, master gain, phone `<audio>` sink, output device, analyser. Every other old method is a named no-op that logs once, so call sites keep working. |
+| `INSTRUMENT_CONFIGS` (names + patches) | `public/audio/instruments.js`: `INSTRUMENT_NAMES` (the same 71 names, so every saved share keeps a valid name) + `isDrumChannel`. `category_doc_test.go` counts this list. |
+| JS wave engine as fallback | none. `public/wave-engine/` stays as the parity oracle for `make test-djrust` and the bench. |
+| `lib/share/offline-render.js` (Tone.Offline, 880 lines) | the djrust worklet in an `OfflineAudioContext` (~140 lines), WAV out. `?render=offline` works and matches the live engine byte for byte. |
+| `lib/share/client-render.js` / `?render=1` / "Download audio" | records `audioHost.output` (the djrust output). **Works**, so the render farm's realtime path now bakes djrust audio. |
+| `lib/test-hooks.js` (Tone.Recorder) | MediaRecorder on `audioHost.output`. |
+| `lib/macros/sched.js` (Tone.Transport) | wall-clock timers (macros are off, see below). |
+| Jog lab (`public/jog/`) Tone synths | a native Web Audio kit (kick, snare, hat, bass) in an OfflineAudioContext. |
+| Group mutes | now expanded per net and sent to the worklet (`mute-group` never reached it before); lock mutes are re-sent after each project load; the worker's mute state is handed over when the engine starts (render-mode solo/mute). |
+
+### Switched off: the rebuild list
+
+Hidden by one stylesheet and guarded in code, all from `public/lib/ui/engine-gaps.js`. To bring a
+feature back, route it to the engine and delete its entry there. Share collectors and appliers are
+untouched, so a share carrying `fx` / `autoDj` / macro settings still round-trips byte for byte; the
+settings just do nothing yet.
+
+| # | Feature | State now | What it needs from djrust / djwasm |
+|---|---|---|---|
+| R-1 | **Macros** (~35, Macros panel, Panic, MIDI-pad / key / control-net `fire-macro`, `macroCurve`) | panel hidden; `fireMacro` returns early | export `WaveRunner::fire_macro` (`NetMacro` / `MasterMacro`) in the C ABI, a `fire-macro` worklet message; restore `sched.js` to the audio clock or drop it. `make test-audio` comes back (it is parked; `make test-audio-parked` runs it). |
+| R-2 | **Auto-DJ** (panel, regen, transition macros in shuffle mode) | panel hidden; `autoDjTick` returns early | R-1. Regen (a new Generate) could return before R-1. |
+| R-3 | **Master FX**: reverb, delay, drive, pitch, HP/LP, phaser, crush, Bypass, Reset | groups hidden; master volume stays (it is the host gain) | export `fx::master_chain` + `WaveOptions::extended()` and per-param messages; idle cost ≈ 0 (W-10). Feel's lp blend and `feelCurve` ride on this. |
+| R-4 | **Channel strip**: per-channel pan / volume / HP / HPR / LP / LPR / decay | slider groups hidden | per-lane voice settings in djwasm. Default role pans (`applyDefaultPans`) are no-ops until then. |
+| R-5 | **Live instrument change** (mixer dropdown, `»` rotate, Shuffle's `instruments-changed`) | dropdown shown as a label, not clickable; shuffle updates the UI only | a worklet message that swaps one lane's voice without a project reload (a reload resets the tick at the next bar). |
+| R-6 | **Instrument tone tools**: test note ♫, tone presets ★, tone reset / prev / random | hidden | a "play one note on lane N" message; presets need per-lane voice settings (R-4). |
+| R-7 | **One-shot synths** (airhorn, laser, …; `kind: 'custom'` / `'note'` in `lib/audio/oneshots.js`) | silent (no-op) | stinger voices in the engine. Hit pads that unmute stinger *nets* still work. |
+| R-8 | **Swing / humanize, live transpose, hit-pad pitch** | not applied to audio (they never reached the wave engine either); still applied to Web MIDI out | engine-side swing/humanize/transpose (`WaveOptions` / live keys). |
+| R-9 | **Seek, loop region, crop** | the worker seeks, the worklet does not | `catch_up` / `align` in the ABI (phase 4). |
+| R-10 | **Per-channel audio output devices** | throws, logged; per-channel MIDI routing still works | multiple worklet outputs or one engine per output. Whole-master output device works. |
+| R-11 | **Scope model views** (kernels, model bands/spectrogram, residual) | model off; **measured on by default**; the status says so | render kernels as one hit per instrument through the worklet in an OfflineAudioContext (`renderKernels` in `scope-model.js`); expose filter state for the FX response. |
+| R-12 | **Insert render** (`?insert=counterMelody`, Go `internal/audiorender` inserts) | page reports an error | wrap the note list in a one-net project and render it like `offline-render.js` (`renderNotesOffline` in `insert-render.js`). |
+| R-13 | **Benchmark** | Tone cases A/B/F removed from the page (server still accepts them for old rows); C/D/E run the JS wave engine, which is not the studio engine any more | a djrust case: new id in `internal/bench` (schema column) and `bench-core.js`. |
+| R-14 | **Telemetry engine label** | djrust reports as `wave` | §10 #3: accept `djrust` server-side. |
+| R-15 | **WS backend** (`data-backend="ws"`, Go sequencer) | composes only; the Go sequencer is never told to play | stream the worklet's ticks to `/ws` or drop the WS playback path. |
+| R-16 | **Offline render extras** (master FX, macros, swing in `?render=offline`) | not rendered (the Tone renderer had them) | R-1, R-3, R-8. |
+
+**Before merging this to main:** `djwasm@0.2.0` is live on jsDelivr (verified 2026-11-14,
+`make djrust-verify-cdn`), so production loads the module without a local build. Then decide §10 #2:
+the feed's cached `.webm`s were baked from Tone, and the render farm will now bake djrust audio
+(take `/api/snapshot-persist?label=pre-djrust-flip&audio=1` first).
+
+### Gates on `djrust-only` (valoper, 2026-11-14)
+
+| Gate | Result |
+|---|---|
+| `go test ./...` | pass |
+| `bazel test //...` (16 targets) + `bazel run //:gazelle -- -mode=diff` | pass, clean (the djrust and scope files were missing from `embedsrcs` since `djrust-cdn`; added) |
+| `make test-djrust` (Node parity vs this repo's JS) | pass |
+| `make test-djrust-browser` (rewritten: no Tone on the page, module from `cdn djwasm@0.2.0`, offline bytes = Node, no-module error, bytes path, gaps hidden, master volume and mutes reach the engine, legacy links) | 18/18 pass |
+| `make test-wave` (wave-engine oracle + service worker), `test-cohesion-parity`, `test-model-parity`, `check-djrust-pin`, `djrust-verify-cdn` | pass |
+| `make test-wave-browser` (studio smoke: playback, phone `<audio>` sink, perf monitor, telemetry, visibility, welcome card, bench) | pass. Also fixed its data-dir mismatch for the telemetry secret. |
+| `make test-scope-browser` | pass (model checks swapped for "model off, measured on") |
+| `make test-e2e` | 43/43 (macro / one-shot / FX / Auto-DJ / interrupt sections replaced by "is off" checks; bring them back from history as R-1…R-7 land) |
+| `scripts/probe-djrust-gaps.mjs` (now the rebuild scoreboard) | master volume ×0.006, mute all ×0.11, tempo 60 ×0.73 work; lp-freq, distortion, cut, sweep-lp, solo-drums read ~1.0 (R-1, R-3); all 19 genres play, no errors; Stage opens |
+
+Not run: Firefox, Safari, phones (same caveat as §9).

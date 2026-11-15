@@ -6,10 +6,11 @@
 //   ./beats-bitwrap-io -addr :18094 -public public -data /tmp/scope-data &
 //   node scripts/test-scope-browser.mjs [http://localhost:18094] [screenshot-dir]
 //
-// Asserts, for the default engine and ?engine=wave: playback starts, the
-// Scope tab opens, the model kernel table renders, every view draws a
-// non-empty canvas, model bands fill while playing, the measured path and
-// residual work when toggled, the loop stops when the tab closes, and no
+// Asserts, on the djrust engine (desktop and phone width): playback starts,
+// the Scope tab opens with the measured path on (the model kernels came
+// from Tone.Offline and are not rendered on djrust yet, so the status says
+// the model is off — a rebuild item), every view draws a non-empty canvas,
+// bands fill while playing, the loop stops when the tab closes, and no
 // console errors / exceptions are raised. While the tab is open the net
 // workspace (ring + timeline dots) must be hidden and not painted, with
 // state (tick, fire history) still advancing; closing restores and repaints
@@ -116,15 +117,15 @@ async function run(cdp, label, query, shots, opts = {}) {
         if (!el._playing) el._togglePlay();
         el.querySelector('.pn-scope-btn').click();
     })()`);
-    // Kernel table: rendered once per instrument/patch, then cached.
+    // No kernels on djrust yet: the status says the model is off, measured is on.
     let status = '';
     for (let i = 0; i < 60; i++) {
         await sleep(250);
         status = await cdp.evaluate(`document.querySelector('.pn-scope-status')?.textContent || ''`);
-        if (/kernels/.test(status) && !/rendering/.test(status)) break;
+        if (/model off/.test(status)) break;
     }
-    check(`${label}: kernel table ready`, /model · \d+ kernels/.test(status), status);
-    await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
+    check(`${label}: model off (no djrust kernels yet), measured on`, /model off/.test(status)
+        && await cdp.evaluate(`document.querySelector('.pn-scope-measured input').checked`), status);
     await sleep(PLAY_MS);
 
     const out = {};
@@ -164,20 +165,9 @@ async function run(cdp, label, query, shots, opts = {}) {
         return { stats: st, running: s.running, bars: s.maxBar + 1, fires: s.fires, playing: el._playing,
                  perf: el._perf?.last?.vizMs || null };
     })()`);
-    // The model-only default for comparison screenshots.
-    if (shots) {
-        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
-        for (const view of ['spectro', 'bands']) {
-            await cdp.evaluate(`document.querySelector('.pn-scope-views button[data-view="${view}"]').click()`);
-            await sleep(800);
-            out[view + '-model'] = await shot(cdp, `${shots}-${view}-model`);
-        }
-        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
-    }
     check(`${label}: scope loop running while open + playing`, st.running && st.playing);
     check(`${label}: fires reach the scope`, st.fires > 20, `${st.fires} fires`);
-    check(`${label}: model bands fill bar by bar`, st.bars >= 2, `${st.bars} bars`);
-    check(`${label}: model vs measured stats computed`, st.stats.bars >= 2, JSON.stringify(st.stats.bands.map(b => [b.band, b.corr, b.rmsResidualDb])));
+    check(`${label}: bands fill bar by bar`, st.bars >= 2, `${st.bars} bars`);
     // Closing the tab stops the loop and drops the analyser tap.
     const closed = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
@@ -207,7 +197,6 @@ try {
     const results = {};
     // genre=techno&seed=42 loads in the site default loop mode (no structure).
     results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42', { loop: true });
-    results.wave = await run(cdp, 'wave', 'engine=wave&genre=techno&seed=42', null, { loop: true });
     // Phone width: layout must not overflow.
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
     results.mobile = await run(cdp, 'mobile', 'genre=techno&seed=42', SHOTS ? 'mobile' : null, { loop: true });

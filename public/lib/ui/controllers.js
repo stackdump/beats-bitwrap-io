@@ -7,7 +7,7 @@
 //   - _macroPulse chase-light animation driver
 //   - _channelParamMove for per-channel pan/decay animation
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
 import { audioAnimLoop, isOfflineContext } from '../macros/sched.js';
 import {
     CORNERS,
@@ -225,7 +225,7 @@ export function openTraitEditor(el, param) {
         el._feelTraitLocks.add(param);
         close();
         updateTraits(el);
-        toneEngine.resumeContext();
+        audioHost.resumeContext();
         el._ensureToneStarted();
         const params = { ...el._traitOverrides };
         const structure = el.querySelector('.pn-structure-select')?.value;
@@ -702,9 +702,9 @@ export function channelParamMove(el, macro, durationMs) {
             const snap = {};
             for (const ch of chans) {
                 if (kind === 'pan-move') {
-                    snap[ch] = toneEngine._channelStrips?.get?.(ch)?.panner?.pan?.value ?? 0;
+                    snap[ch] = audioHost._channelStrips?.get?.(ch)?.panner?.pan?.value ?? 0;
                 } else {
-                    snap[ch] = toneEngine._channelStrips?.get?.(ch)?.decay ?? 1.0;
+                    snap[ch] = audioHost._channelStrips?.get?.(ch)?.decay ?? 1.0;
                 }
             }
             return snap;
@@ -717,9 +717,9 @@ export function channelParamMove(el, macro, durationMs) {
     const apply = (ch, v) => {
         if (kind === 'pan-move') {
             const cc = Math.max(0, Math.min(127, Math.round((v + 1) * 63.5)));
-            toneEngine.controlChange(ch, 10, cc);
+            audioHost.controlChange(ch, 10, cc);
         } else {
-            toneEngine.setChannelDecay(ch, v);
+            audioHost.setChannelDecay(ch, v);
         }
     };
     const restore = () => {

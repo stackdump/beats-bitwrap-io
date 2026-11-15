@@ -20,7 +20,7 @@
 // Not Track, after "Turn off" in Help (localStorage pn-telemetry=off), or
 // with ?telemetry=0. No IP is stored server-side.
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
 
 const ENDPOINT = '/api/telemetry';
 const FLUSH_MS = 20000;
@@ -116,7 +116,7 @@ class Telemetry {
     // Audio context + <audio> sink listeners; re-run on every play since
     // the context can be replaced (wave mode installs its own).
     hookAudio() {
-        const ctx = window.Tone?.getContext?.()?.rawContext;
+        const ctx = audioHost.getContext();
         if (ctx && !this.hookedCtx.has(ctx)) {
             this.hookedCtx.add(ctx);
             ctx.addEventListener('statechange', () => this.add('ctx', { s: ctx.state }));
@@ -126,7 +126,7 @@ class Telemetry {
                 outputLatency: +(ctx.outputLatency || 0).toFixed(4),
             };
         }
-        const sinkEl = toneEngine._masterSink?.audioEl;
+        const sinkEl = audioHost._masterSink?.audioEl;
         if (sinkEl && !this.hookedSink.has(sinkEl)) {
             this.hookedSink.add(sinkEl);
             for (const t of ['play', 'pause', 'stalled', 'waiting']) {

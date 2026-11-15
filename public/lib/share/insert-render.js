@@ -1,20 +1,19 @@
 // Insert render — page-side entry point for PR-4.3.2 counterMelody
-// synthesis via Tone.js OfflineAudioContext. The Go side stashes a
-// note payload via POST /api/insert-notes, then chromedp navigates
-// to /?insert=counterMelody&notesId={id}&durationMs={ms}. This
-// module fetches the payload, builds a Tone.Offline graph using
-// the same ToneEngine the studio uses (so timbre matches the rest
-// of the mix), encodes the result as a 48 kHz / 16-bit / stereo
-// PCM WAV blob, and exposes it on window.__renderBlob the same way
-// render-mode.js does for share renders.
+// synthesis. The Go side stashes a note payload via POST
+// /api/insert-notes, then chromedp navigates to
+// /?insert=counterMelody&notesId={id}&durationMs={ms}. This module fetches
+// the payload, renders it offline and exposes a 48 kHz / 16-bit / stereo
+// WAV on window.__renderBlob the way render-mode.js does for shares.
 //
-// Why a separate module rather than reusing renderToBlobOffline?
-// renderToBlobOffline reads from el._project (a fully-loaded share);
-// counterMelody isn't a share — it's a synthesised note sequence
-// that needs Tone.Offline + an instrument but no project state.
-// Sharing the WAV encoder keeps the bytes byte-identical.
+// NOT AVAILABLE on the djrust engine yet (rebuild item,
+// docs/MIGRATION-djrust-wasm.md §12). The old path built a Tone.Offline
+// graph with one ToneEngine instrument. The djrust equivalent is to wrap
+// the note list in a one-net project (a ring of `durationTicks` steps with
+// the notes bound to their ticks) and render it through the worklet in an
+// OfflineAudioContext, as offline-render.js does for shares. Until then
+// the page reports an error, which the Go side (internal/audiorender)
+// surfaces as a failed insert render.
 
-import { ToneEngine } from '/audio/tone-engine.js';
 import { audioBufferToWavBlob } from './offline-render.js';
 
 const PPQ = 4;
@@ -49,8 +48,6 @@ async function runInsertRender() {
     const notesId = params.get('notesId');
     if (!notesId) throw new Error('missing notesId');
 
-    await waitForTone();
-    const Tone = window.Tone;
 
     // Pull the note payload from the in-memory ephemeral store the
     // Go side posted to. This is the contract the worker depends on.
@@ -79,22 +76,7 @@ async function runInsertRender() {
         'type=', insertType, 'notes=', notes.length,
         'instrument=', instrument, 'durationSec=', durationSec.toFixed(3));
 
-    const buffer = await Tone.Offline(async () => {
-        const engine = new ToneEngine();
-        engine._offline = true;
-        await engine.init();
-        await engine.loadInstrument(channel, instrument);
-        for (const ev of notes) {
-            const t = (ev.tick || 0) * (tickIntervalMs / 1000);
-            const dur = ((ev.durationTicks || 4) * tickIntervalMs);
-            engine.playNote({
-                channel,
-                note: ev.note,
-                velocity: ev.velocity || 90,
-                duration: dur,
-            }, t);
-        }
-    }, durationSec, 2, SAMPLE_RATE);
+    const buffer = await renderNotesOffline({ channel, instrument, notes, tickIntervalMs, durationSec });
 
     const blob = audioBufferToWavBlob(buffer);
     window.__renderInfo.mimeType = blob.type;
@@ -112,13 +94,10 @@ function pickDefaultInstrument(insertType) {
     return 'supersaw';
 }
 
-async function waitForTone() {
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-        if (typeof window !== 'undefined' && window.Tone) return window.Tone;
-        await new Promise((r) => setTimeout(r, 100));
-    }
-    throw new Error('Tone.js never loaded');
+// The rebuild goes here (see the header). Kept as one function so the
+// payload handling above stays as it is.
+async function renderNotesOffline(_spec) {
+    throw new Error('insert render is not available on the djrust engine yet');
 }
 
 function blobToBase64(blob) {

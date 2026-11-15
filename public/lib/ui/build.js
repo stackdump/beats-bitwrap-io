@@ -8,7 +8,8 @@
 // one-line wrapper away from the original `el._buildUI()` entry point so
 // every call site stays unchanged.
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { applyEngineGaps } from './engine-gaps.js';
+import { audioHost } from '../../audio/host.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
 import { hpFreq, lpFreq, qCurve } from './mixer-sliders.js';
@@ -213,6 +214,7 @@ function applyArrangeFromPanel(el, panel) {
 
 export function buildUI(el) {
     el.innerHTML = '';
+    applyEngineGaps(el.ownerDocument);
     el.classList.toggle('pn-midi-enabled', el._audioModes.has('web-midi'));
 
     // Header
@@ -1325,13 +1327,13 @@ export function buildUI(el) {
                     el._fxSavedValues[s.dataset.fx] = s.value;
                 }
             });
-            toneEngine.setReverbWet(0);
-            toneEngine.setDelayWet(0);
-            toneEngine.setDistortion(0);
-            toneEngine.setHighpassFreq(20);
-            toneEngine.setLowpassFreq(20000);
-            toneEngine.setPhaserWet(0);
-            toneEngine.setCrush(0);
+            audioHost.setReverbWet(0);
+            audioHost.setDelayWet(0);
+            audioHost.setDistortion(0);
+            audioHost.setHighpassFreq(20);
+            audioHost.setLowpassFreq(20000);
+            audioHost.setPhaserWet(0);
+            audioHost.setCrush(0);
         } else {
             // Restore saved values — skip reverb size/damp (they weren't changed,
             // and setting dampening triggers unstable IIR filter rebuilds)
@@ -1403,21 +1405,21 @@ export function buildUI(el) {
     const _fxPending = new Map();   // fxKey -> latest value awaiting engine dispatch
     const applyFx = (fxName, val) => {
         switch (fxName) {
-            case 'reverb-size':    toneEngine.setReverbSize(val / 100); break;
-            case 'reverb-damp':    toneEngine.setReverbDampening(10000 - (val / 100) * 9800); break;
-            case 'reverb-wet':     toneEngine.setReverbWet(val / 100); break;
-            case 'delay-time':     toneEngine.setDelayTime(val / 100); break;
-            case 'delay-feedback': toneEngine.setDelayFeedback(val / 100); break;
-            case 'delay-wet':      toneEngine.setDelayWet(val / 100); break;
-            case 'master-vol':     toneEngine.setMasterVolume(val === 0 ? -60 : -60 + (val / 100) * 60); break;
-            case 'distortion':     toneEngine.setDistortion(val / 100); break;
-            case 'master-pitch':   toneEngine.setMasterPitch(val); break;
-            case 'hp-freq':        toneEngine.setHighpassFreq(hpFreq(val)); break;
-            case 'lp-freq':        toneEngine.setLowpassFreq(lpFreq(val)); break;
-            case 'phaser-freq':    toneEngine.setPhaserFreq(val === 0 ? 0 : 0.1 + (val / 100) * 9.9); break;
-            case 'phaser-depth':   toneEngine.setPhaserDepth(val / 100); break;
-            case 'phaser-wet':     toneEngine.setPhaserWet(val / 100); break;
-            case 'crush-bits':     toneEngine.setCrush(val / 100); break;
+            case 'reverb-size':    audioHost.setReverbSize(val / 100); break;
+            case 'reverb-damp':    audioHost.setReverbDampening(10000 - (val / 100) * 9800); break;
+            case 'reverb-wet':     audioHost.setReverbWet(val / 100); break;
+            case 'delay-time':     audioHost.setDelayTime(val / 100); break;
+            case 'delay-feedback': audioHost.setDelayFeedback(val / 100); break;
+            case 'delay-wet':      audioHost.setDelayWet(val / 100); break;
+            case 'master-vol':     audioHost.setMasterVolume(val === 0 ? -60 : -60 + (val / 100) * 60); break;
+            case 'distortion':     audioHost.setDistortion(val / 100); break;
+            case 'master-pitch':   audioHost.setMasterPitch(val); break;
+            case 'hp-freq':        audioHost.setHighpassFreq(hpFreq(val)); break;
+            case 'lp-freq':        audioHost.setLowpassFreq(lpFreq(val)); break;
+            case 'phaser-freq':    audioHost.setPhaserFreq(val === 0 ? 0 : 0.1 + (val / 100) * 9.9); break;
+            case 'phaser-depth':   audioHost.setPhaserDepth(val / 100); break;
+            case 'phaser-wet':     audioHost.setPhaserWet(val / 100); break;
+            case 'crush-bits':     audioHost.setCrush(val / 100); break;
         }
     };
     fx.addEventListener('input', (e) => {

@@ -1,4 +1,4 @@
-// Audio + MIDI I/O — Tone.js bootstrap, Web MIDI input/output, MIDI CC
+// Audio + MIDI I/O — audio host bootstrap, Web MIDI input/output, MIDI CC
 // slider bindings + pad macro bindings, mute + debounced mixer render,
 // per-channel routing + output device selection, and the viz particle
 // stream + rolling-timeline painter that draws under the Petri ring.
@@ -7,7 +7,7 @@
 // first arg; petri-note.js keeps one-line class-method wrappers.
 
 import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
 import { resolveDurationMs } from '../pflow.js';
 import { apcSync } from './apc-mini-mk2.js';
 import { scopeSync } from '../ui/scope.js';
@@ -16,7 +16,7 @@ import { scopeSync } from '../ui/scope.js';
 
 export async function initAudio(el) {
     // Audio state already initialized in constructor.
-    // Tone.js requires user gesture to start — handled in ensureToneStarted.
+    // The AudioContext needs a user gesture to start — handled in ensureToneStarted.
     connectMidiInputs(el);
 }
 
@@ -414,21 +414,23 @@ export function handleMidiNoteOn(el, note) {
     }
 }
 
-// --- Tone.js bootstrap ---
+// --- Audio host bootstrap ---
+// (Named ensureToneStarted for the existing el._ensureToneStarted call sites;
+// it starts the native AudioContext the djrust worklet runs in.)
 
 export async function ensureToneStarted(el) {
     if (el._toneStarted) return;
     if (el._toneInitPromise) return el._toneInitPromise;
     el._toneInitPromise = (async () => {
         try {
-            await toneEngine.init();
+            await audioHost.init();
             // Apply initial master volume from slider (default 80% = -12 dB).
             const initVol = parseInt(el.querySelector('[data-fx="master-vol"]')?.value || '80');
             const initDb = initVol === 0 ? -60 : -60 + (initVol / 100) * 60;
-            toneEngine.setMasterVolume(initDb);
+            audioHost.setMasterVolume(initDb);
             el._toneStarted = true;
             // Keep banner in sync with context state.
-            const ctx = window.Tone?.getContext?.()?.rawContext;
+            const ctx = audioHost.getContext();
             if (ctx && !el._ctxListenerBound) {
                 el._ctxListenerBound = true;
                 ctx.addEventListener('statechange', () => {
@@ -440,16 +442,10 @@ export async function ensureToneStarted(el) {
             if (ctx && ctx.state !== 'running' && el._playing) {
                 el._showAudioLockBanner();
             }
-            const loads = Object.entries(el._channelInstruments).map(
-                ([ch, inst]) => toneEngine.loadInstrument(parseInt(ch), inst)
-            );
-            await Promise.all(loads);
-            // Channel strips now exist — push the current mixer state onto them.
-            el._applyMixerStateToEngine();
             await reapplyChannelRoutings(el);
             el._populateAudioOutputs();
         } catch (e) {
-            console.error('Failed to start Tone.js:', e);
+            console.error('Failed to start the audio context:', e);
         }
     })();
     return el._toneInitPromise;
@@ -624,8 +620,8 @@ export function debouncedRenderMixer(el) {
 
 export async function playNote(el, midi, netId, playAt) {
     // Beat-relative durations (midi.durationSteps) resolve to ms against
-    // the LIVE tempo here — once, for every downstream consumer (Tone.js
-    // and Web MIDI note-off both take ms). Legacy ms bindings pass
+    // the LIVE tempo here — once, for every downstream consumer (Web MIDI
+    // note-off takes ms). Legacy ms bindings pass
     // through unchanged.
     if (midi && midi.durationSteps > 0) {
         midi = { ...midi, duration: resolveDurationMs(midi, el._tempo || 120) };
@@ -633,25 +629,13 @@ export async function playNote(el, midi, netId, playAt) {
     const channel = midi.channel || 1;
     if (netId && (el._mutedNets.has(netId) || el._manualMutedNets.has(netId))) return;
     if (el._mutedChannels.has(channel)) return;
-    // Drop notes while AudioContext is suspended.
-    if (el._toneStarted && !toneEngine.isContextRunning()) return;
-
+    // Audio is the djrust worklet's job; this path is Web MIDI output only.
     const routing = el._channelRouting.get(channel);
     if (routing?.kind === 'midi') {
         await playWebMidi(el, midi, routing.id);
         return;
     }
-    if (routing?.kind === 'audio') {
-        await playTone(el, midi, playAt);
-        return;
-    }
-
-    // Global fallback: honor whichever modes are enabled.
-    if (el._audioModes.has('web-audio')) {
-        await playTone(el, midi, playAt);
-    } else if (el._audioModes.has('web-midi')) {
-        await playWebMidi(el, midi);
-    }
+    if (el._audioModes.has('web-midi')) await playWebMidi(el, midi);
 }
 
 export async function reapplyChannelRoutings(el) {
@@ -670,7 +654,7 @@ export async function setChannelRouting(el, channel, value) {
     // value: '' | 'audio:<deviceId>' | 'midi:<portId>'
     if (!value) {
         el._channelRouting.delete(channel);
-        try { await toneEngine.setChannelOutputDevice(channel, ''); } catch (err) { console.warn(err); }
+        try { await audioHost.setChannelOutputDevice(channel, ''); } catch (err) { console.warn(err); }
         return;
     }
     const sep = value.indexOf(':');
@@ -679,19 +663,14 @@ export async function setChannelRouting(el, channel, value) {
 
     if (kind === 'audio') {
         el._channelRouting.set(channel, { kind, id });
-        try { await toneEngine.setChannelOutputDevice(channel, id); }
+        try { await audioHost.setChannelOutputDevice(channel, id); }
         catch (err) { console.warn('setChannelOutputDevice failed:', err); }
     } else if (kind === 'midi') {
         if (!el._midiAccess) await refreshMidiOutputs(el);
         el._channelRouting.set(channel, { kind, id });
         // Release any audio-sink routing for this channel.
-        try { await toneEngine.setChannelOutputDevice(channel, ''); } catch {}
+        try { await audioHost.setChannelOutputDevice(channel, ''); } catch {}
     }
-}
-
-export async function playTone(el, midi, playAt) {
-    if (!el._toneStarted) await ensureToneStarted(el);
-    toneEngine.playNote(midi, playAt);
 }
 
 export async function playWebMidi(el, midi, portIdOverride) {
@@ -718,9 +697,9 @@ export async function playWebMidi(el, midi, portIdOverride) {
 
 export async function setChannelInstrument(el, channel, instrumentType) {
     el._channelInstruments[channel] = instrumentType;
-    if (el._toneStarted) {
-        await toneEngine.loadInstrument(channel, instrumentType);
-    }
+    // The engine plays the instrument named in the project's track; a live
+    // change is not routed to the worklet yet (rebuild item).
+    await audioHost.loadInstrument(channel, instrumentType);
 }
 
 // --- Visualization ---

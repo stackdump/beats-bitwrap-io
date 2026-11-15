@@ -3,12 +3,20 @@
 //
 // Drives headless Chrome over raw CDP (no deps — node >= 20) against a
 // running server and exercises every user-facing control through the real
-// DOM: transport, panels, all macros, one-shot Fire pads, FX sliders,
-// keyboard shortcuts, mixer, Feel, Auto-DJ, generate/shuffle/genre, the
-// share modal, and MIDI input via a Web MIDI API mock (no hardware).
+// DOM: transport, panels, master volume, keyboard shortcuts, mixer, Feel,
+// generate/shuffle/genre, the share modal, and MIDI input via a Web MIDI
+// API mock (no hardware).
+//
+// The audio engine is the djrust worklet. Macros, one-shot synths, the
+// master FX beyond volume and Auto-DJ were Tone features and are switched
+// off until they are rebuilt on djrust (lib/ui/engine-gaps.js,
+// docs/MIGRATION-djrust-wasm.md §12); their sections here are replaced by
+// checks that they are off. Bring the old sections back from git history
+// (scripts/test-e2e-controls.mjs before the djrust-only branch) as each
+// feature lands.
 //
 // Each check asserts an observable effect (state change, engine param,
-// audio RMS via an analyser on Tone.Destination) — not just "no throw".
+// audio RMS via an analyser on the host master) — not just "no throw".
 // Any uncaught exception or console.error during the run is a failure.
 //
 // Usage:
@@ -154,14 +162,17 @@ await send('Page.navigate', { url: URL });
 
 section('boot');
 {
-  const ok = await waitFor(`!!(document.querySelector('petri-note')?._project) && typeof Tone !== 'undefined'`, 30000, 500);
+  const ok = await waitFor(`!!(document.querySelector('petri-note')?._project)`, 30000, 500);
   record('app boots with project', ok);
   if (!ok) { finish(); }
-  // Analyser tap on the destination for RMS assertions.
-  await evalx(`(function(){
-    const ctx = Tone.getContext().rawContext;
+  record('Tone.js is not on the page', await evalx(`typeof Tone === 'undefined'`));
+  // Analyser tap on the host master for RMS assertions.
+  await evalx(`(async function(){
+    const { audioHost } = await import('/audio/host.js');
+    const ctx = audioHost.getContext();
+    window.__ctx = ctx;
     const an = ctx.createAnalyser(); an.fftSize = 2048;
-    Tone.getDestination().output.connect(an);
+    audioHost.output.connect(an);
     window.__an = an; window.__buf = new Float32Array(an.fftSize);
     window.__rms = () => { __an.getFloatTimeDomainData(__buf);
       let s = 0; for (const v of __buf) s += v*v; return Math.sqrt(s/__buf.length); };
@@ -178,7 +189,7 @@ section('boot');
 // ---------- transport ----------
 section('transport');
 {
-  // First click races Tone's cold init under load — retry the click
+  // First click races the engine's cold start under load — retry the click
   // rather than waiting a fixed budget on one attempt.
   let playing = false;
   for (let i = 0; i < 3 && !playing; i++) {
@@ -187,10 +198,11 @@ section('transport');
     if (!playing) await evalx(`__el._playing && __el.querySelector('.pn-play').click(); true`);
   }
   record('play button starts playback', playing);
-  await check('audio context running', `Tone.getContext().rawContext.state === 'running'`, 8000);
+  await check('audio context running', `__ctx.state === 'running'`, 8000);
+  await check('djrust engine running', `__el._engineName === 'djrust'`, 8000);
   const peak = await evalx(`__peakRms(3000)`);
   record('audible output while playing', peak > 0.005, `peak rms=${Number(peak).toFixed(4)}`);
-  // Faster bars => faster macro windows for the whole run.
+  // Faster bars for the whole run.
   await evalx(`__el._setTempo(240)`);
   await check('tempo set to 240', `__el._tempo === 240`, 2000);
 }
@@ -199,9 +211,7 @@ section('transport');
 section('panels');
 for (const [btn, panel] of [
   ['.pn-effects-btn', '.pn-effects-panel'],
-  ['.pn-macros-btn', '.pn-macros-panel'],
   ['.pn-oneshots-btn', '.pn-oneshots-panel'],
-  ['.pn-autodj-btn', '.pn-autodj-panel'],
   ['.pn-arrange-btn', '.pn-arrange-panel'],
   ['.pn-note-btn', '.pn-note-panel'],
   ['.pn-midi-btn', '.pn-midi-panel'],
@@ -221,156 +231,29 @@ for (const [btn, panel] of [
     return p && (getComputedStyle(p).display !== 'none') === ${!!before}; })()`, 3000);
 }
 
-// ---------- every macro through its real DOM tile ----------
-section('macros');
-const macroList = await evalx(`(async () => {
-  const { MACROS } = await import('/lib/macros/catalog.js');
-  return MACROS.map(m => ({ id: m.id, kind: m.kind, group: m.group }));
-})()`);
-record('macro catalog loads', Array.isArray(macroList) && macroList.length > 20, `${macroList?.length} macros`);
-
-// Ensure macro + beats panels are open so the tiles exist, and clear any
-// user-persisted disabled marks so every tile actually fires.
-await evalx(`(function(){
-  localStorage.removeItem('pn-macros-disabled');
-  __el._macrosDisabled = new Set();
-  return true; })()`);
-
-// Per-kind observable assertions. Every macro must (a) not throw, (b) show
-// its observable effect, (c) release the serial queue (running mark clears).
-for (const m of macroList) {
-  const tileExpr = `__el.querySelector('.pn-macro-btn[data-macro="${m.id}"]')`;
-  const hasTile = await evalx(`!!${tileExpr}`);
-  if (!hasTile) { record(`${m.id}: tile present`, false); continue; }
-
-  // Shrink duration to the minimum the tile offers so the test stays fast.
-  await evalx(`(function(){
-    const sel = __el.querySelector('.pn-macro-bars[data-macro="${m.id}"]');
-    if (sel && sel.options.length) sel.value = sel.options[0].value;
-    const ossel = __el.querySelector('.pn-os-bars[data-macro="${m.id}"]');
-    if (ossel && ossel.options.length) ossel.value = ossel.options[0].value;
-    return true; })()`);
-
-  // tempo-anchor snaps to the genre default — make sure we're off it so
-  // the effect is observable.
-  if (m.kind === 'tempo-anchor') await evalx(`__el._setTempo(203)`);
-
-  // Snapshot pre-state for the observable-effect assertion.
-  const pre = await evalx(`(function(){
-    return {
-      tempo: __el._tempo,
-      feel: JSON.stringify(__el._feel || null),
-      muted: __el._mutedNets ? __el._mutedNets.size : -1,
-      fx: Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(','),
-    }; })()`);
-
-  await evalx(`${tileExpr}.click()`);
-
-  let effectExpr;
-  switch (m.kind) {
-    case 'mute':
-    case 'beat-repeat':
-      effectExpr = `__el._mutedNets.size !== ${pre.muted}`;
-      break;
-    case 'fx-sweep': case 'fx-hold':
-      effectExpr = `Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(',') !== ${JSON.stringify(pre.fx)}`;
-      break;
-    case 'tempo-hold': case 'tempo-sweep': case 'tempo-anchor':
-      effectExpr = `__el._tempo !== ${pre.tempo}`;
-      break;
-    case 'feel-snap': case 'feel-sweep': case 'genre-reset':
-      effectExpr = `JSON.stringify(__el._feel || null) !== ${JSON.stringify(pre.feel)} || __el._tempo !== ${pre.tempo} || Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(',') !== ${JSON.stringify(pre.fx)}`;
-      break;
-    case 'one-shot':
-      // Fire pad unmutes the stinger net (or at minimum marks running).
-      effectExpr = `!__el._mutedNets.has('${m.id}') || !!__el._runningMacro`;
-      break;
-    case 'compound':
-      effectExpr = `__el._mutedNets.size !== ${pre.muted} || __el._tempo !== ${pre.tempo} || Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx + ':' + s.value).join(',') !== ${JSON.stringify(pre.fx)}`;
-      break;
-    default:
-      effectExpr = `!!__el._runningMacro`;
+// ---------- features off on djrust (rebuild items) ----------
+section('engine-gaps');
+{
+  const shown = (sel) => `(function(){ const n = __el.querySelector('${sel}'); return !!n && getComputedStyle(n).display !== 'none'; })()`;
+  for (const sel of ['.pn-macros-btn', '.pn-autodj-btn', '.pn-fx-bypass', '.pn-fx-reset', '.pn-macro-panic',
+                     '.pn-effects-panel .pn-fx-group:nth-child(2)', '.pn-mixer-slider-group', '.pn-mixer-test']) {
+    record(`${sel} hidden`, (await evalx(shown(sel))) === false);
   }
-  const took = await waitFor(effectExpr, 6000);
-  record(`${m.id}: takes effect`, took);
-
-  // Wait for the serial queue to release (macro complete + restored).
-  const released = await waitFor(`!__el._runningMacro && (!__el._macroQueue || __el._macroQueue.length === 0)`, 20000, 200);
-  record(`${m.id}: completes + releases queue`, released);
-
-  // Restore assertions for the reversible kinds.
-  if (['tempo-hold', 'tempo-sweep', 'tempo-anchor'].includes(m.kind)) {
-    const rok = await waitFor(`__el._tempo === ${pre.tempo}`, 8000);
-    record(`${m.id}: tempo restores`, rok);
-  }
-  if (m.kind === 'mute') {
-    const rok = await waitFor(`__el._mutedNets.size === ${pre.muted}`, 12000);
-    record(`${m.id}: mutes restore`, rok);
-  }
+  record('master volume shown', (await evalx(shown('.pn-effects-panel .pn-fx-group:first-child'))) === true);
+  await evalx(`__el._fireMacro('cut')`);
+  record('a fired macro does nothing', (await evalx(`!__el._runningMacro`)) === true);
 }
 
-// Panic clears everything.
+// ---------- master volume (the host gain) ----------
+section('master-volume');
 {
-  await evalx(`__el._fireMacro('drop')`);
-  await sleep(200);
-  await evalx(`__el._panic ? __el._panic() : __el._cancelAllMacros()`);
-  const ok = await waitFor(`!__el._runningMacro && (!__el._macroQueue || __el._macroQueue.length === 0)`, 4000);
-  record('panic clears macro state', ok);
-}
-
-// ---------- one-shot Fire pads produce audio ----------
-section('one-shots');
-{
-  const pads = await evalx(`Array.from(__el.querySelectorAll('.pn-os-fire')).map(b => b.dataset.macro)`);
-  record('fire pads present', Array.isArray(pads) && pads.length > 0, `${pads?.length} pads`);
-  for (const pad of pads || []) {
-    // Pause other nets' loudness influence: measure RMS delta right after fire.
-    const base = await evalx(`__peakRms(400)`);
-    await evalx(`__el.querySelector('.pn-os-fire[data-macro="${pad}"]').click()`);
-    const unmuted = await waitFor(`!__el._mutedNets.has('${pad}') && !__el._manualMutedNets?.has('${pad}')`, 4000);
-    record(`${pad}: unmutes stinger net`, unmuted);
-    const peak = await evalx(`__peakRms(1500)`);
-    record(`${pad}: audio present after fire`, peak > Math.min(0.004, base * 0.5), `base=${Number(base).toFixed(4)} peak=${Number(peak).toFixed(4)}`);
-    await waitFor(`!__el._runningMacro`, 10000, 200);
-  }
-  // Direct engine one-shots (laser & friends) still make sound into the mix.
-  for (const name of ['airhorn', 'laser', 'subdrop', 'booj']) {
-    const r = await evalx(`(async () => {
-      const { toneEngine } = await import('/audio/tone-engine.js');
-      toneEngine.playOneShot('${name}');
-      return await __peakRms(900);
-    })()`);
-    record(`engine one-shot ${name} audible`, r > 0.003, `peak=${Number(r).toFixed(4)}`);
-  }
-}
-
-// ---------- FX sliders drive engine params ----------
-section('fx-sliders');
-{
-  const sliders = await evalx(`Array.from(__el.querySelectorAll('.pn-fx-slider')).map(s => s.dataset.fx)`);
-  record('fx sliders present', Array.isArray(sliders) && sliders.length >= 8, `${sliders?.length} sliders`);
-  // Spot-check the params we can read back from the engine.
-  const paramChecks = [
-    ['hp-freq', 80, `(await import('/audio/tone-engine.js')).toneEngine._hpFilter.frequency.value > 500`],
-    ['hp-freq', 0,  `(await import('/audio/tone-engine.js')).toneEngine._hpFilter.frequency.value < 100`],
-    ['lp-freq', 10, `(await import('/audio/tone-engine.js')).toneEngine._lpFilter.frequency.value < 2000`],
-    ['lp-freq', 100,`(await import('/audio/tone-engine.js')).toneEngine._lpFilter.frequency.value > 15000`],
-  ];
-  for (const [key, val, cond] of paramChecks) {
-    await evalx(`__el._setFxByKey('${key}', ${val})`);
-    const ok = await waitFor(`(async () => ${cond})()`, 3000);
-    record(`${key}=${val} reaches engine`, ok);
-  }
-  // Every slider dispatches through the UI 'input' path without errors.
-  await evalx(`(function(){
-    for (const s of __el.querySelectorAll('.pn-fx-slider')) {
-      const mid = (parseFloat(s.min || 0) + parseFloat(s.max || 100)) / 2;
-      s.value = mid; s.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    return true; })()`);
-  record('all fx sliders dispatch input', true);
-  // FX reset restores defaults.
-  await evalx(`(function(){ const b = __el.querySelector('.pn-fx-reset'); if (b) b.click(); return true; })()`);
+  if (!await evalx(`__el._playing`)) { await evalx(`__el.querySelector('.pn-play').click()`); await sleep(600); }
+  const loud = await evalx(`__peakRms(1500)`);
+  await evalx(`(function(){ const s = __el.querySelector('.pn-fx-slider[data-fx="master-vol"]'); s.value = 5; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await sleep(400);
+  const quiet = await evalx(`__peakRms(1500)`);
+  record('master-vol slider turns the output down', loud > 0.005 && quiet < loud * 0.1, `rms ${Number(loud).toFixed(4)} → ${Number(quiet).toFixed(4)}`);
+  await evalx(`(function(){ const s = __el.querySelector('.pn-fx-slider[data-fx="master-vol"]'); s.value = 80; s.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
   await sleep(300);
 }
 
@@ -459,28 +342,14 @@ section('feel');
   await sleep(200);
 }
 
-// ---------- Auto-DJ ----------
+// ---------- Auto-DJ (off on djrust) ----------
 section('auto-dj');
 {
-  const setup = await evalx(`(function(){
-    const enable = __el.querySelector('.pn-autodj-enable');
-    if (!enable) return false;
-    if (!enable.checked) enable.click();
-    // every-1-bar cadence if the control exists
-    const bars = __el.querySelector('.pn-autodj-every, .pn-autodj-bars, select[class*="autodj"][class*="bar"]');
-    if (bars && bars.options && bars.options.length) { bars.value = bars.options[0].value; bars.dispatchEvent(new Event('change', { bubbles: true })); }
-    for (const cb of __el.querySelectorAll('.pn-autodj-pool')) { if (!cb.checked) cb.click(); }
-    return true;
-  })()`);
-  record('auto-dj enabled', !!setup);
-  if (setup) {
-    if (!await evalx(`__el._playing`)) { await evalx(`__el.querySelector('.pn-play').click()`); await sleep(500); }
-    const fired = await waitFor(`!!__el._runningMacro`, 25000, 300);
-    record('auto-dj fires a macro', fired);
-    await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); if (e && e.checked) e.click(); return true; })()`);
-    await evalx(`__el._cancelAllMacros()`);
-    await waitFor(`!__el._runningMacro`, 8000);
-  }
+  await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); if (e && !e.checked) e.click(); return true; })()`);
+  if (!await evalx(`__el._playing`)) { await evalx(`__el.querySelector('.pn-play').click()`); await sleep(500); }
+  await sleep(3000);
+  record('armed Auto-DJ fires nothing', (await evalx(`!__el._runningMacro`)) === true);
+  await evalx(`(function(){ const e = __el.querySelector('.pn-autodj-enable'); if (e && e.checked) e.click(); return true; })()`);
 }
 
 // ---------- generate / shuffle / genre ----------
@@ -544,45 +413,6 @@ section('midi');
   await evalx(`window.__midiMock.send([0x80, 60, 0])`);
   const peak = await evalx(`__peakRms(800)`);
   record('mock note-on produces audio or is logged', peak > base * 0.8 || peak > 0.003, `base=${Number(base).toFixed(4)} peak=${Number(peak).toFixed(4)}`);
-}
-
-// ---------- interruption restores (stop / panic mid-macro) ----------
-section('interrupt');
-{
-  // Snapshot clean baseline.
-  const base = await evalx(`(async () => {
-    const { toneEngine } = await import('/audio/tone-engine.js');
-    return { hp: Math.round(toneEngine._hpFilter.frequency.value),
-             lp: Math.round(toneEngine._lpFilter.frequency.value),
-             tempo: __el._tempo,
-             wet: __el.querySelector('.pn-fx-slider[data-fx="reverb-wet"]')?.value,
-             puck: JSON.stringify((__el._feelState || {}).puck || null) };
-  })()`);
-  const restoredExpr = `(async () => {
-    const { toneEngine } = await import('/audio/tone-engine.js');
-    return Math.abs(toneEngine._hpFilter.frequency.value - ${base.hp}) < 50
-        && Math.abs(toneEngine._lpFilter.frequency.value - ${base.lp}) < 2000
-        && __el._tempo === ${base.tempo}
-        && __el.querySelector('.pn-fx-slider[data-fx="reverb-wet"]')?.value === ${JSON.stringify(base.wet)}
-        && JSON.stringify((__el._feelState || {}).puck || null) === ${JSON.stringify(base.puck)};
-  })()`;
-  for (const macro of ['sweep-hp', 'feel-wind-down', 'reverb-wash', 'tape-stop']) {
-    if (!await evalx(`__el._playing`)) { await evalx(`__el.querySelector('.pn-play').click()`); await sleep(600); }
-    await evalx(`__el._fireMacro('${macro}')`);
-    await sleep(900);
-    await evalx(`__el.querySelector('.pn-play').click()`);   // stop mid-macro
-    const ok = await waitFor(restoredExpr, 5000);
-    record(`stop mid-${macro} restores state`, ok);
-  }
-  // Panic mid-macro restores too.
-  await evalx(`__el.querySelector('.pn-play').click()`);
-  await sleep(600);
-  await evalx(`__el._fireMacro('sweep-lp')`);
-  await sleep(700);
-  await evalx(`__el._panicMacros ? __el._panicMacros() : __el.querySelector('.pn-macro-panic')?.click()`);
-  const pok = await waitFor(restoredExpr, 5000);
-  record('panic mid-sweep-lp restores state', pok);
-  await evalx(`__el._playing && __el.querySelector('.pn-play').click(); true`);
 }
 
 // ---------- page-error sweep ----------

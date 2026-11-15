@@ -10,7 +10,7 @@
 // Target selection uses the current mutedNets snapshot to skip anything the
 // user has already muted, so the restore never unmutes a user-intended mute.
 
-import { isDrumChannel } from '../../audio/tone-engine.js';
+import { isDrumChannel } from '../../audio/instruments.js';
 
 export function collectMacroTargets(host, predicate) {
     const out = [];

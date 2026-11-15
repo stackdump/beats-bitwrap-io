@@ -22,7 +22,11 @@
 //            net's marking and the mute table are back where they started,
 //            on a bar line (≤ LOOP_MAX_BARS)
 //
-// "measured" (off by default) adds the analyser's FFT: measured bands and
+// On the djrust engine the model kernels are not rendered yet (the old ones
+// came from Tone.Offline), so "measured" is on by default and the model
+// views stay empty until the kernel render moves to the wasm runner.
+//
+// "measured" adds the analyser's FFT: measured bands and
 // spectrogram beside the model, and the residual (measured − model, dB per
 // band after removing each side's per-band mean) — what reverb, delay,
 // compression and the master chain add on top of Σ h*μ.
@@ -37,7 +41,8 @@
 // keep accumulating while playing once the kernel table exists, so the
 // bands are complete when the tab is reopened. Hot paths reuse typed arrays.
 
-import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
+import { isDrumChannel } from '../../audio/instruments.js';
 import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { vizColorForNet } from '../backend/audio-io.js';
 import { sectionGroupForNet } from './mixer.js';
@@ -91,7 +96,8 @@ const fin = (v) => Number.isFinite(v);
 function state(el) {
     if (el._scope) return el._scope;
     el._scope = {
-        view: 'live', measured: false, opened: false,
+        // measured on by default: the model kernels are not rendered on djrust yet.
+        view: 'live', measured: true, opened: false,
         running: false, raf: 0, lastDraw: 0, lastT: 0,
         lanes: [], laneOf: new Map(), channels: [], sections: [],
         // live event ring
@@ -130,7 +136,7 @@ function state(el) {
 
 const ema = (prev, v) => prev ? prev * 0.9 + v * 0.1 : v;
 const tickSecOf = (el) => { const t = el._tempo; return 60 / ((fin(t) && t > 0 ? t : 120) * 4); };
-function rawCtx() { try { return window.Tone?.getContext?.()?.rawContext || null; } catch { return null; } }
+function rawCtx() { try { return audioHost.getContext(); } catch { return null; } }
 function ctxNow() { const c = rawCtx(); return c && fin(c.currentTime) ? c.currentTime : 0; }
 
 // --- project → lanes ------------------------------------------------------
@@ -190,7 +196,7 @@ function buildLanes(el) {
 }
 
 function laneInstrument(lane) {
-    return toneEngine.getChannelInstrument?.(lane.channel) || lane.inst || (lane.drum ? 'drums' : 'piano');
+    return lane.inst || (lane.drum ? 'drums' : 'piano');
 }
 
 /** Build the per-lane kernel tables; render whatever the cache lacks. */
@@ -216,9 +222,13 @@ function ensureKernels(el) {
     const gen = s.projectGen;
     const job = (s.kernelJob || Promise.resolve()).then(async () => {
         const t0 = performance.now();
-        await renderKernels(missing);
+        const n = await renderKernels(missing);
         s.kernelMs = Math.round(performance.now() - t0);
-        if (gen === s.projectGen) { assemble(); s.kernelStatus += ` (${s.kernelMs} ms)`; }
+        if (gen === s.projectGen) {
+            assemble();
+            s.kernelStatus = n ? s.kernelStatus + ` (${s.kernelMs} ms)`
+                : 'model off (djrust kernels not rendered yet) · measured on';
+        }
         updateStatus(el);
     }).catch(err => {
         console.warn('scope: kernel render failed', err);
@@ -369,8 +379,8 @@ function specAdvance(s, step, tickSec) {
 // --- analyser (live waveform always; FFT only when "measured" is on) -------
 
 function analyserSource() {
-    // Wave engine (lean): worklet → _waveGain → out, Tone's master unhooked.
-    return toneEngine._waveGain || toneEngine._masterComp || null;
+    // djrust worklet → master gain → out.
+    return audioHost.output || null;
 }
 
 function ensureAnalyser(s) {
@@ -379,13 +389,13 @@ function ensureAnalyser(s) {
     if (s.an && s.anSrc === src) return s.an;
     detachAnalyser(s);
     try {
-        const ctx = window.Tone.getContext();
+        const ctx = audioHost.getContext();
         const an = ctx.createAnalyser();
         an.fftSize = FFT_SIZE;
         an.smoothingTimeConstant = 0;
         // Read-only tap: an AnalyserNode has no outputs connected, so the
         // audio path is unchanged.
-        window.Tone.connect(src, an);
+        src.connect(an);
         s.an = an; s.anSrc = src; s.readT = 0;
         const sr = ctx.sampleRate || 44100;
         if (s.binSr !== sr) {
@@ -407,7 +417,7 @@ function ensureAnalyser(s) {
 
 function detachAnalyser(s) {
     if (!s.an) return;
-    try { window.Tone.disconnect(s.anSrc, s.an); } catch { try { s.anSrc?.disconnect?.(s.an); } catch {} }
+    try { s.anSrc?.disconnect?.(s.an); } catch {}
     s.an = null; s.anSrc = null;
 }
 

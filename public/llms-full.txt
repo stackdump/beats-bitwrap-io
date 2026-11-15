@@ -4,8 +4,9 @@ beats.bitwrap.io is a deterministic beat generator in which the sequencer is
 literally a Petri net executor. Tokens circulate through places; when a
 transition fires, a MIDI note plays. Carl Adam Petri's 1962 formalism is the
 runtime, not a metaphor. The app is Go (static server + content-addressed
-share store) and vanilla ES modules (no framework, no npm, no bundler), with
-Tone.js v14 for Web Audio synthesis.
+share store) and vanilla ES modules (no framework, no npm, no bundler); the
+audio is rendered by djrust, a Rust engine compiled to WebAssembly and run in
+an AudioWorklet.
 
 ## The stance: deterministic provenance, no AI in the music
 

@@ -8,13 +8,17 @@
 //   node scripts/test-djrust-browser.mjs [http://localhost:18095]
 //
 // Asserts, in a real browser:
-//  - ?engine=djrust loads the wasm module into the worklet and plays techno/42: the module says
-//    ready, ticks reach the page, the marking reaches the canvas state, the output is not silent,
-//    and Tone.js plays no notes;
+//  - the studio (no engine parameter: djrust is the only engine) loads the wasm module into the
+//    worklet and plays techno/42: the module says ready, ticks reach the page, the marking reaches
+//    the canvas state, the output is not silent, and Tone.js is not on the page at all;
 //  - the same module rendered in an OfflineAudioContext gives the bytes Node gives for the same
 //    project (one engine, one answer, whatever runs it);
-//  - when the module cannot be fetched the page falls back to the JS wave engine and still plays;
-//  - ?engine=wave and the default engine are unchanged.
+//  - when the module cannot be fetched there is no engine to fall back to: the page says why
+//    (banner + el._djrustError) and nothing plays;
+//  - a browser that will not clone a Module into a worklet still plays (bytes path);
+//  - the features that depended on Tone are hidden (lib/ui/engine-gaps.js), master volume and
+//    mutes still reach the engine;
+//  - the legacy ?engine=djrust / ?engine=wave links still open the djrust studio.
 
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -87,23 +91,22 @@ async function run(cdp, query) {
     await sleep(2000); // let the boot path (generate → project-sync) settle
     await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
-        const { toneEngine } = await import('/audio/tone-engine.js');
-        window.__toneNotes = 0;
-        const orig = toneEngine.playNote.bind(toneEngine);
-        toneEngine.playNote = (...a) => { window.__toneNotes++; return orig(...a); };
         await el._ensureToneStarted();
         if (!el._playing) el._togglePlay();
     })()`);
     await sleep(4000);
     return cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
-        const out = { tick: el._tick, toneNotes: window.__toneNotes, playing: el._playing, wave: !!el._wave,
+        const toneRequested = performance.getEntriesByType('resource').some(e => /tone@|tone-engine\.js|Tone\.js/.test(e.name));
+        const out = { tick: el._tick, tone: typeof window.Tone !== 'undefined' || toneRequested, playing: el._playing, wave: !!el._wave,
+            banner: el.querySelector('.pn-engine-error')?.textContent || null,
             engine: el._engineName || null, info: el._djrustInfo || null, err: el._djrustError || null,
             source: el._djrustSource || null };
-        if (el._wave) {
-            const w = await el._wave;
+        const w = el._wave ? await el._wave.catch(() => null) : null;
+        if (w) {
             out.viaModule = w.viaModule;
-            const ctx = window.Tone.getContext().rawContext;
+            const { audioHost } = await import('/audio/host.js');
+            const ctx = audioHost.getContext();
             const an = ctx.createAnalyser(); an.fftSize = 2048;
             w.node.connect(an);
             let peak = 0;
@@ -127,8 +130,8 @@ try {
     await cdp.send('Runtime.enable');
     await cdp.send('Page.enable');
 
-    // --- djrust, live ---
-    const d = await run(cdp, 'engine=djrust&genre=techno&seed=42');
+    // --- djrust, live (the default page) ---
+    const d = await run(cdp, 'genre=techno&seed=42');
     check('djrust: the module is running in the worklet (engine name + module info)',
         d.engine === 'djrust' && d.info && d.info.abi === 1, JSON.stringify({ engine: d.engine, info: d.info, err: d.err, viaModule: d.viaModule }));
     // Before the pinned version is on npm the CDN 404s and the local build plays; after, the CDN.
@@ -137,9 +140,53 @@ try {
     check('djrust: transport playing, ticks reach the page', d.playing && d.tick > 8, `tick ${d.tick}, ctx ${d.ctxState}`);
     check('djrust: marking reaches the canvas state', d.markingSeen);
     check('djrust: worklet output is not silent', d.peak > 0.01, `peak ${d.peak?.toFixed(3)}`);
-    check('djrust: Tone.js plays no notes', d.toneNotes === 0, `${d.toneNotes} Tone notes`);
+    check('djrust: Tone.js is not loaded or requested', d.tone === false);
     check('djrust: no console errors from the engine', !cdp.logs.some(l => /djrust|djwasm|EXC/.test(l) && /error|EXC|unavailable/i.test(l)),
         cdp.logs.filter(l => /djrust|djwasm|EXC/.test(l)).slice(0, 3).join(' | '));
+
+    // --- what is switched off, and what still reaches the engine ---
+    const gaps = await cdp.evaluate(`(async () => {
+        const el = document.querySelector('petri-note');
+        const shown = (sel) => { const n = el.querySelector(sel); return !!n && getComputedStyle(n).display !== 'none'; };
+        const out = {
+            macros: shown('.pn-macros-btn'), autodj: shown('.pn-autodj-btn'), bypass: shown('.pn-fx-bypass'),
+            reverb: shown('.pn-effects-panel .pn-fx-group:nth-child(2)'), masterVol: shown('.pn-effects-panel .pn-fx-group:first-child'),
+            strip: shown('.pn-mixer-slider-group'),
+        };
+        const w = await el._wave;
+        const { audioHost } = await import('/audio/host.js');
+        const ctx = audioHost.getContext();
+        const an = ctx.createAnalyser(); an.fftSize = 2048; audioHost.output.connect(an);
+        const rms = async () => { let s = 0, n = 0; for (let k = 0; k < 16; k++) {
+            await new Promise(r => setTimeout(r, 50)); const b = new Float32Array(an.fftSize); an.getFloatTimeDomainData(b);
+            for (const x of b) { s += x * x; n++; } } return Math.sqrt(s / n); };
+        out.before = await rms();
+        // A fired macro is a no-op (no worker message, no running mark).
+        let sent = 0; const orig = el._sendWs.bind(el); el._sendWs = (m) => { if (m.type === 'fire-macro') sent++; return orig(m); };
+        el._fireMacro('cut'); out.macroSent = sent; out.macroRunning = !!el._runningMacro; el._sendWs = orig;
+        // Master volume is the host gain.
+        const vol = el.querySelector('.pn-fx-slider[data-fx="master-vol"]');
+        vol.value = 5; vol.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
+        out.quiet = await rms();
+        vol.value = 80; vol.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
+        // Mute every music net through the studio's own path.
+        const music = Object.entries(el._project.nets).filter(([, n]) => n.role !== 'control').map(([id]) => id);
+        for (const id of music) el._sendWs({ type: 'mute', netId: id, muted: true });
+        await new Promise(r => setTimeout(r, 600));
+        out.muted = await rms();
+        for (const id of music) el._sendWs({ type: 'mute', netId: id, muted: false });
+        return out;
+    })()`);
+    check('gaps: macros, Auto-DJ, FX bypass, reverb and the channel strip are hidden; master volume is shown',
+        !gaps.macros && !gaps.autodj && !gaps.bypass && !gaps.reverb && !gaps.strip && gaps.masterVol, JSON.stringify(gaps));
+    check('gaps: firing a macro does nothing (no worker message, nothing marked running)',
+        gaps.macroSent === 0 && !gaps.macroRunning);
+    check('engine: master volume reaches the output', gaps.before > 0.005 && gaps.quiet < gaps.before * 0.1,
+        `rms ${gaps.before?.toFixed(4)} → ${gaps.quiet?.toFixed(4)}`);
+    check('engine: muting every music net silences the output', gaps.muted < gaps.before * 0.25,
+        `rms ${gaps.before?.toFixed(4)} → ${gaps.muted?.toFixed(4)}`);
 
     // --- the browser renders what Node renders ---
     if (d.project) {
@@ -176,28 +223,28 @@ try {
         check('offline: project available from the page', false, 'el._waveProject was empty');
     }
 
-    // --- fallback ---
+    // --- no module: no engine, and the page says so ---
     cdp.logs.length = 0;
-    const f = await run(cdp, 'engine=djrust&djrust-wasm=/no-such-module.wasm&genre=techno&seed=42');
-    check('fallback: a missing module falls back to the JS wave engine and says why',
-        f.engine === 'wave' && /404/.test(f.err || ''), JSON.stringify({ engine: f.engine, err: f.err }));
-    check('fallback: the JS wave engine plays', f.playing && f.tick > 8 && f.peak > 0.01 && f.toneNotes === 0, `tick ${f.tick}, peak ${f.peak?.toFixed(3)}`);
+    const f = await run(cdp, 'djrust-wasm=/no-such-module.wasm&genre=techno&seed=42');
+    check('no module: no engine starts, the reason is recorded and shown',
+        f.engine === null && /404/.test(f.err || '') && /404/.test(f.banner || ''), JSON.stringify({ engine: f.engine, err: f.err, banner: f.banner }));
+    check('no module: Tone.js is not a fallback', f.tone === false);
 
     // --- a browser that will not clone a Module into a worklet: the bytes go in a message ---
     const inj = await cdp.send('Page.addScriptToEvaluateOnNewDocument',
         { source: 'WebAssembly.compile = () => Promise.reject(new Error("compile disabled by the test"));' });
-    const b = await run(cdp, 'engine=djrust&genre=techno&seed=42');
+    const b = await run(cdp, 'genre=techno&seed=42');
     await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: inj.result.identifier });
     check('bytes path: with no Module to hand over, the worklet compiles the bytes it is sent and plays',
-        b.engine === 'djrust' && b.viaModule === false && b.tick > 8 && b.peak > 0.01 && b.toneNotes === 0,
+        b.engine === 'djrust' && b.viaModule === false && b.tick > 8 && b.peak > 0.01 && b.tone === false,
         JSON.stringify({ engine: b.engine, viaModule: b.viaModule, tick: b.tick, peak: b.peak?.toFixed(3), err: b.err }));
 
-    // --- unchanged ---
-    const w = await run(cdp, 'engine=wave&genre=techno&seed=42');
-    check('wave: ?engine=wave is unchanged (JS wave engine)', w.engine === 'wave' && !w.err && w.tick > 8 && w.peak > 0.01, JSON.stringify({ engine: w.engine, tick: w.tick }));
-    const t = await run(cdp, 'genre=techno&seed=42');
-    check('default engine: unchanged, still plays through Tone', !t.wave && t.engine === null && t.toneNotes > 0 && t.tick > 8,
-        `tick ${t.tick}, ${t.toneNotes} Tone notes`);
+    // --- legacy links ---
+    for (const q of ['engine=djrust', 'engine=wave']) {
+        const l = await run(cdp, `${q}&genre=techno&seed=42`);
+        check(`legacy: ?${q} opens the djrust studio`, l.engine === 'djrust' && l.tick > 8 && l.peak > 0.01 && l.tone === false,
+            JSON.stringify({ engine: l.engine, tick: l.tick, err: l.err }));
+    }
 
     cdp.close();
 } catch (err) {

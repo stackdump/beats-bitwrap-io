@@ -52,7 +52,7 @@ await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable'
 await send('Page.navigate', { url: URL_ });
 await sleep(1500);
 
-// Play (a real click: Tone.start needs the gesture)
+// Play (a real click: the AudioContext needs the gesture)
 const btn = await ev(`(() => { const b = document.getElementById('play').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
 await mouse('mousePressed', btn.x, btn.y); await mouse('mouseReleased', btn.x, btn.y);
 for (let i = 0; i < 40 && !(await read()).status.startsWith('playing'); i++) await sleep(250);
@@ -62,7 +62,11 @@ console.log('playing     ', playing);
 assert.ok(playing.status.startsWith('playing'), 'never reached playing: ' + playing.status);
 assert.ok(Math.abs(playing.rate - 1) < 0.05, 'rate should be 1x while playing');
 assert.ok(playing.tick > 3, 'playhead should advance');
-await ev(`(() => { window.__meter = new Tone.Meter(); Tone.getDestination().connect(window.__meter); })()`);
+await ev(`(() => {
+    const an = window.__jogCtx.createAnalyser(); an.fftSize = 2048; window.__jogNode.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    window.__meter = { getValue() { an.getFloatTimeDomainData(buf); let s = 0; for (const x of buf) s += x * x; return 10 * Math.log10(s / buf.length + 1e-12); } };
+})()`);
 let loudest = -Infinity;
 for (let i = 0; i < 10; i++) { await sleep(60); loudest = Math.max(loudest, await ev('Number(window.__meter.getValue())')); }
 console.log('output level', loudest.toFixed(1), 'dB');

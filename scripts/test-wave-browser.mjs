@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 //
-// Browser smoke test for ?engine=wave — headless Chrome over raw CDP (no
-// npm, same approach as test-e2e-controls.mjs).
+// Studio browser smoke test — headless Chrome over raw CDP (no npm, same
+// approach as test-e2e-controls.mjs). The studio's only engine is the djrust
+// worklet (needs public/djrust/djwasm.wasm until the pinned npm version is on
+// jsDelivr: `make djrust-wasm`).
 //
 //   ./beats-bitwrap-io -addr :18093 -public public -data /tmp/wave-data &
 //   node scripts/test-wave-browser.mjs [http://localhost:18093]
 //
 // Asserts: the worklet loads and plays; ticks reach the page (el._tick
-// advances, the marking reaches the canvas state); the worklet output is
-// not silent; Tone.js plays no notes; and the default engine (no flag)
-// still plays through Tone.
+// advances, the marking reaches the canvas state); the output is not
+// silent and goes through the host's master gain (and the <audio> sink on
+// phones); then the perf monitor, telemetry, visibility handling, the phone
+// welcome card and the in-app bench.
 
 import { spawn } from 'node:child_process';
 
@@ -74,23 +77,19 @@ async function run(cdp, query) {
         if (ok) break;
     }
     await sleep(2000); // let the boot path (generate → project-sync) settle
-    // Count Tone notes from here on, then press play.
     await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
-        const { toneEngine } = await import('/audio/tone-engine.js');
-        window.__toneNotes = 0;
-        const orig = toneEngine.playNote.bind(toneEngine);
-        toneEngine.playNote = (...a) => { window.__toneNotes++; return orig(...a); };
         await el._ensureToneStarted();
         if (!el._playing) el._togglePlay();
     })()`);
     await sleep(4000);
     return cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
-        const out = { tick: el._tick, toneNotes: window.__toneNotes, playing: el._playing, wave: !!el._wave };
+        const { audioHost } = await import('/audio/host.js');
+        const out = { tick: el._tick, tone: typeof window.Tone !== 'undefined', playing: el._playing, wave: !!el._wave, engine: el._engineName || null };
         if (el._wave) {
             const w = await el._wave;
-            const ctx = window.Tone.getContext().rawContext;
+            const ctx = audioHost.getContext();
             const an = ctx.createAnalyser(); an.fftSize = 2048;
             w.node.connect(an);
             let peak = 0;
@@ -102,14 +101,15 @@ async function run(cdp, query) {
             out.peak = peak;
             out.ctxState = ctx.state;
         }
-        const { toneEngine } = await import('/audio/tone-engine.js');
-        out.lean = !!toneEngine._waveGain;
-        out.latency = window.Tone.getContext().rawContext.baseLatency;
-        out.mobileSink = !!toneEngine._masterSink;
-        out.audioElPlaying = toneEngine._masterSink ? !toneEngine._masterSink.audioEl.paused : null;
-        if (toneEngine._waveGain) {
-            toneEngine.setMasterVolume(-6);
-            out.gainAfterVol = +toneEngine._waveGain.gain.value.toFixed(3);
+        out.lean = !!audioHost._master;
+        out.latency = audioHost.getContext().baseLatency;
+        out.mobileSink = !!audioHost._masterSink;
+        out.audioElPlaying = audioHost._masterSink ? !audioHost._masterSink.audioEl.paused : null;
+        if (audioHost._master) {
+            const prev = audioHost.getMasterVolume();
+            audioHost.setMasterVolume(-6);
+            out.gainAfterVol = +audioHost._master.gain.value.toFixed(3);
+            audioHost.setMasterVolume(prev);
         }
         const net = el._project.nets.kick || Object.values(el._project.nets)[0];
         out.markingSeen = Object.values(net.places).some(p => Array.isArray(p.tokens));
@@ -122,28 +122,26 @@ try {
     await cdp.send('Runtime.enable');
     await cdp.send('Page.enable');
 
-    const w = await run(cdp, 'engine=wave&genre=techno&seed=42');
-    check('wave: worklet created and transport playing', w.wave && w.playing, JSON.stringify({ ctx: w.ctxState }));
-    check('wave: ticks reach the page (el._tick advances)', w.tick > 8, `tick ${w.tick}`);
-    check('wave: marking reaches the canvas state', w.markingSeen);
-    check('wave: worklet output is not silent', w.peak > 0.01, `peak ${w.peak?.toFixed(3)}`);
-    check('wave: Tone.js plays no notes', w.toneNotes === 0, `${w.toneNotes} Tone notes`);
+    const w = await run(cdp, 'genre=techno&seed=42');
+    check('studio: djrust worklet created and transport playing', w.wave && w.playing && w.engine === 'djrust', JSON.stringify({ ctx: w.ctxState, engine: w.engine }));
+    check('studio: ticks reach the page (el._tick advances)', w.tick > 8, `tick ${w.tick}`);
+    check('studio: marking reaches the canvas state', w.markingSeen);
+    check('studio: worklet output is not silent', w.peak > 0.01, `peak ${w.peak?.toFixed(3)}`);
+    check('studio: Tone.js is not on the page', w.tone === false);
 
-    check('wave: lean output path (Tone master chain bypassed)', w.lean);
-    check('wave: master volume reaches the lean path', w.gainAfterVol === 0.501, `gain ${w.gainAfterVol} for -6 dB`);
+    check('studio: output goes through the host master gain', w.lean);
+    check('studio: master volume reaches the master gain', w.gainAfterVol === 0.501, `gain ${w.gainAfterVol} for -6 dB`);
 
     // Phone: iPhone UA → 'playback' latency hint and the <audio>-element sink
     // that keeps iOS playing through screen lock.
     await cdp.send('Emulation.setUserAgentOverride', { userAgent:
         'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' });
-    const m = await run(cdp, 'engine=wave&genre=techno&seed=42');
-    check('wave/mobile: plays through the <audio> sink', m.wave && m.playing && m.lean && m.mobileSink && m.tick > 8,
+    const m = await run(cdp, 'genre=techno&seed=42');
+    check('studio/mobile: plays through the <audio> sink', m.wave && m.playing && m.lean && m.mobileSink && m.tick > 8,
         JSON.stringify({ tick: m.tick, audioElPlaying: m.audioElPlaying, baseLatency: m.latency, desktopBaseLatency: w.latency }));
     await cdp.send('Emulation.setUserAgentOverride', { userAgent: '' });
 
-    const d = await run(cdp, 'genre=techno&seed=42');
-    check('default engine: unchanged, still plays through Tone', !d.wave && d.toneNotes > 0 && d.tick > 8,
-        `tick ${d.tick}, ${d.toneNotes} Tone notes`);
+    await run(cdp, 'genre=techno&seed=42'); // back to a desktop page for the checks below
 
     // Live perf monitor: synthetic visual cost must be blamed on the
     // visualization and stepped down; removing it must recover; equally
@@ -227,7 +225,8 @@ try {
             const sum = await (await fetch('/api/telemetry/summary')).json();
             return { sid, kinds, groups: sum.groups };
         })()`);
-        const g = (tel.groups || []).find(x => x.platform === 'desktop' && x.engine === 'default');
+        // djrust reports as engine 'wave' until the server accepts 'djrust' (internal/telemetry).
+        const g = (tel.groups || []).find(x => x.platform === 'desktop' && x.engine === 'wave');
         check('telemetry: taps and play/stop reach the server summary',
             !!g && g.taps >= 3 && g.playMinutes > 0 && (g.stops?.user || 0) >= 1,
             g ? `sessions ${g.sessions}, taps ${g.taps}, play ${g.playMinutes} min, stops ${JSON.stringify(g.stops)}` : JSON.stringify(tel).slice(0, 300));
@@ -320,7 +319,7 @@ try {
 
     // In-app benchmark: Help → "Benchmark this device", a quick run of the
     // reference track and of the current track, then playback must still
-    // work (the bench swaps Tone's global context and must restore it).
+    // work (the bench renders into its own OfflineAudioContexts).
     if (LOCAL) {
         await cdp.evaluate(`localStorage.removeItem('pn-bench-history')`);
         const b = await cdp.evaluate(`(async () => {
@@ -352,11 +351,7 @@ try {
             const submitted = ov.querySelector('.pn-bench-submit').textContent;
             const listed = await (await fetch('/api/bench')).json();
             ov.querySelector('.pn-help-close').click();
-            // Playback after the bench, on the default engine.
-            const { toneEngine } = await import('/audio/tone-engine.js');
-            let notes = 0;
-            const orig = toneEngine.playNote.bind(toneEngine);
-            toneEngine.playNote = (...a) => { notes++; return orig(...a); };
+            // Playback after the bench.
             const t0 = el._tick;
             if (!el._playing) el._togglePlay();
             await sleep(3000);
@@ -364,18 +359,18 @@ try {
                 ref: ref.st, cur: cur.st,
                 refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
                 curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
-                submitted, listedLabel: listed.results[0]?.label, listedF: listed.results[0]?.xRealtime?.F,
-                history: history.length, notesAfter: notes, ticksAfter: el._tick - t0, playing: el._playing,
+                submitted, listedLabel: listed.results[0]?.label, listedC: listed.results[0]?.xRealtime?.C,
+                history: history.length, ticksAfter: el._tick - t0, playing: el._playing,
             };
         })()`);
-        check('bench modal: reference run completes with default + wave cases',
-            b.ref === 'done' && b.refX?.length === 2 && b.refX.every(x => /:\d/.test(x)), JSON.stringify(b.refX || b));
+        check('bench modal: reference run completes (quick: wave case C)',
+            b.ref === 'done' && b.refX?.length === 1 && b.refX.every(x => /^C:\d/.test(x)), JSON.stringify(b.refX || b));
         check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
         check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
-        check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedF > 0,
-            `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedF}×`);
-        check('bench modal: playback still works afterwards (Tone context restored)', b.playing && b.notesAfter > 0,
-            `${b.notesAfter} Tone notes in 3 s`);
+        check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedC > 0,
+            `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedC}×`);
+        check('bench modal: playback still works afterwards', b.playing && b.ticksAfter > 8,
+            `${b.ticksAfter} ticks in 3 s`);
     } else {
         console.log('skip bench modal checks (non-local host: would write to the public results table)');
     }

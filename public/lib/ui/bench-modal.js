@@ -1,5 +1,5 @@
 // Benchmark modal — measure this device's audio-thread headroom for the
-// default (Tone) engine vs the wave engine, any time, from the studio.
+// wave engine's audio-thread cost, any time, from the studio.
 // Open from the Help modal ("Benchmark this device") or with ?bench=1.
 // The bench code (wave-engine/bench-core.js) loads only when this opens.
 
@@ -114,7 +114,7 @@ export function showBenchModal(el) {
                 track = { genre: core.REFERENCE.genre, seed: core.REFERENCE.seed, structure: core.REFERENCE.structure };
                 if (which === 'current') status('no current track loaded — running the reference track');
             }
-            const cases = $('.pn-bench-quick').checked ? ['A', 'F'] : core.CASE_ORDER;
+            const cases = $('.pn-bench-quick').checked ? ['C'] : core.CASE_ORDER;
             const report = await core.runBench({
                 project, track, cases,
                 onStart: (id, c) => status(`running ${id} · ${c.label}…`),

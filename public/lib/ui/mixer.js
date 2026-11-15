@@ -7,7 +7,8 @@
 // so `el._renderMixer()` etc. still works. Reads `el._project` /
 // `el._mixerEl` / `el._channelInstruments` / `el._mutedNets` etc.
 
-import { toneEngine, isDrumChannel } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
+import { isDrumChannel } from '../../audio/instruments.js';
 import { MIXER_SLIDERS, formatSliderReadout } from './mixer-sliders.js';
 import { oneShotSpec, prettifyInstrumentName } from '../audio/oneshots.js';
 import { showSliderTip, hideSliderTip, syncSliderTip } from './slider-tip.js';
@@ -225,9 +226,9 @@ export function renderMixer(el) {
         if (!net) continue;
         const ch = net.track?.channel || 1;
         const decSlider = row.querySelector('.pn-mixer-decay');
-        if (decSlider) toneEngine.setChannelDecay(ch, parseInt(decSlider.value) / 100);
+        if (decSlider) audioHost.setChannelDecay(ch, parseInt(decSlider.value) / 100);
         const volSel = row.querySelector('.pn-mixer-vol');
-        if (volSel) toneEngine.controlChange(ch, 7, Math.round(parseInt(volSel.value, 10) * 127 / 100));
+        if (volSel) audioHost.controlChange(ch, 7, Math.round(parseInt(volSel.value, 10) * 127 / 100));
     }
 
     restoreMixerSliderState(el);
@@ -295,7 +296,7 @@ function bindMixerEvents(el) {
                     const ch = n.track?.channel || 1;
                     n.track.instrument = next;
                     el._channelInstruments[ch] = next;
-                    if (el._toneStarted) await toneEngine.loadInstrument(ch, next);
+                    if (el._toneStarted) await audioHost.loadInstrument(ch, next);
                 }
             }
             const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
@@ -386,7 +387,7 @@ function bindMixerEvents(el) {
                     const ch = net.track?.channel || 1;
                     net.track.instrument = instrument;
                     el._channelInstruments[ch] = instrument;
-                    if (el._toneStarted) await toneEngine.loadInstrument(ch, instrument);
+                    if (el._toneStarted) await audioHost.loadInstrument(ch, instrument);
                 }
             }
             // Mirror the swap to the backend so server-authoritative state
@@ -892,13 +893,13 @@ export function restoreFxState(el) {
             btn.classList.add('active');
             btn.textContent = 'Bypassed';
         }
-        toneEngine.setReverbWet(0);
-        toneEngine.setDelayWet(0);
-        toneEngine.setDistortion(0);
-        toneEngine.setHighpassFreq(20);
-        toneEngine.setLowpassFreq(20000);
-        toneEngine.setPhaserWet(0);
-        toneEngine.setCrush(0);
+        audioHost.setReverbWet(0);
+        audioHost.setDelayWet(0);
+        audioHost.setDistortion(0);
+        audioHost.setHighpassFreq(20);
+        audioHost.setLowpassFreq(20000);
+        audioHost.setPhaserWet(0);
+        audioHost.setCrush(0);
     }
     el._savedFxValues = null;
 }
@@ -917,7 +918,7 @@ export function addDefaultNotches(container) {
     container.querySelectorAll('.pn-slider-notch').forEach(n => n.remove());
 }
 
-// --- Tone reset / random / navigate ---
+// --- Instrument-tone reset / random / navigate ---
 
 export function toneReset(el, netId) {
     const row = el._mixerEl?.querySelector(`.pn-mixer-row[data-net-id="${netId}"]`);

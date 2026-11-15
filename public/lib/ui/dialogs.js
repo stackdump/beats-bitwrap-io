@@ -454,7 +454,7 @@ export function showWelcomeCard(el, force = false) {
                     <audio controls preload="none" src="${audioUrl}" style="width:100%;height:36px"></audio>
                     <a href="${audioUrl}" download="${fname}" style="display:inline-block;margin-top:8px;font-size:13px;color:#9ad;text-decoration:none">⬇ Download .webm</a>
                 `;
-                // Stop the Tone.js engine if the user starts the
+                // Stop the live engine if the user starts the
                 // pre-rendered audio — same track played twice over
                 // each other otherwise.
                 block.querySelector('audio').addEventListener('play', () => {
@@ -806,7 +806,7 @@ export function showHelpModal(el) {
                 <li><b>Pools</b> checkboxes — Mute / FX / Pan / Shape / Pitch / Tempo / Beats / <span style="border-left:3px solid #64ffda;padding-left:6px"><b>Transition</b></span>. If every rate-pool is unchecked the ring still spins with <code>(no candidates)</code> in the status line</li>
                 <li><b>Transition</b> pool is special — it fires only on <i>track-boundary events</i> (Auto-DJ regen, shuffle-next, repeat-restart), independent of the rate cadence. Pulls from a curated set of sweeps / washes / risers (Sweep LP/HP, Reverb Wash, Cathedral, Delay Throw, Dub Delay, Riser, Phaser Drone, Tape Stop) chosen to resolve on a downbeat. Tiles eligible for this pool carry a <span style="border-left:3px solid #64ffda;padding-left:6px">teal left stripe</span> in the Macros panel</li>
                 <li><b>Stack</b> 1 / 2 / 3 — fires that many simultaneously each cycle (stack members bypass the serial queue; cycles are skipped entirely if a user-fired macro is already running)</li>
-                <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap, with Tone.js synths pre-warmed into a side pool so the swap is a pointer flip — no audio stutter</li>
+                <li><b>Regen</b> — every N bars (off / 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) Auto-DJ kicks off a new Generate. The next project is pre-rendered one bar early for a seamless swap. <i>Auto-DJ is switched off while the studio moves to the djrust engine.</i></li>
                 <li>Status line shows the last picks (→ for rate fires, ⟳ for transitions), pre-load activity, or why a cycle was skipped</li>
                 <li><b>Right-click any macro tile</b> to mark it disabled (long-press on touch, or toggle <b>Edit Excludes</b> in the Macros panel then tap tiles) — Auto-DJ and Transition both skip disabled macros (line-through mark, persisted)</li>
             </ul>
@@ -908,7 +908,7 @@ export function showHelpModal(el) {
             <h3>Built With</h3>
             <p style="margin:0 0 8px;color:#aaa;font-size:0.92em">The sequencer is a <b>Petri net</b> executor &mdash; every note is a transition firing, every rhythm is tokens circulating. Macros inject transient control nets that fire their restore action on a tick-locked terminal transition.</p>
             <ul>
-                <li><b><a href="https://tonejs.github.io/" target="_blank" rel="noopener" style="color:#0af">Tone.js</a></b> &mdash; turns transition firings into sound</li>
+                <li><b><a href="https://github.com/stackdump/djrust" target="_blank" rel="noopener" style="color:#0af">djrust</a></b> &mdash; a Rust engine compiled to WebAssembly that renders the net's firings to audio, sample by sample, in an AudioWorklet</li>
                 <li><b>Bjorklund's algorithm</b> &mdash; generates Euclidean rhythms as token rings</li>
                 <li><b><button class="pn-help-category pn-link-btn" style="color:#0af">Control category map &rarr;</button></b> &mdash; diagram of how <code>beat</code> fans out through generators, instruments, macros, and control actions</li>
             </ul>

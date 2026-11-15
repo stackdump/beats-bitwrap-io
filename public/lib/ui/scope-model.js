@@ -21,7 +21,12 @@
 //
 // Band edges match beats-py analysis.py (and scripts/analyze-audio.py).
 
-import { toneEngine, INSTRUMENT_CONFIGS, INSTRUMENT_GAIN, isDrumChannel } from '../../audio/tone-engine.js';
+import { isDrumChannel } from '../../audio/instruments.js';
+
+// Live filter state used to come from Tone's master and channel-strip
+// filters. The djrust engine exposes none yet (rebuild item), so the FX
+// response is flat until it does.
+const NO_ENGINE_FILTERS = {};
 
 export const BANDS = [[20, 80], [80, 250], [250, 2000], [2000, 6000], [6000, 16000]];
 export const BAND_LABELS = ['sub', 'low', 'lomid', 'himid', 'high'];
@@ -40,7 +45,8 @@ const SR = 44100;
 const FFT_N = 32768;           // 0.743 s per hit at 44.1 kHz
 const SEG_S = 0.8;             // hit spacing in the offline render
 const HIT_AT = 0.02;
-const CACHE_KEY = 'pn-scope-kernels-v2';
+// v3: kernels are the djrust engine's; v2 entries were Tone renders.
+const CACHE_KEY = 'pn-scope-kernels-v3';
 const CACHE_MAX = 400;
 
 // --- kernel cache -----------------------------------------------------------
@@ -54,22 +60,10 @@ function strHash(str) {
     return (h >>> 0).toString(36);
 }
 
-const patchHashes = new Map();
-function patchHash(inst) {
-    let h = patchHashes.get(inst);
-    if (!h) {
-        let src = '';
-        // 'custom' patches are a `create(dest)` function: hash its source too,
-        // and the normalisation gain, so editing either invalidates the cache.
-        try {
-            src = JSON.stringify(INSTRUMENT_CONFIGS[inst] || inst, (k, v) => typeof v === 'function' ? String(v) : v)
-                + '|' + (INSTRUMENT_GAIN[inst] || 0);
-        } catch { src = String(inst); }
-        h = strHash(src);
-        patchHashes.set(inst, h);
-    }
-    return h;
-}
+// Kernel keys carry the engine's identity so a different engine's (or a
+// future patch table's) kernels never mix. Until djrust kernels are
+// rendered (renderKernels below) only the name is known.
+function patchHash(inst) { return 'djrust:' + String(inst); }
 
 export function kernelKey(inst, note, durMs) {
     return `${inst}|${note}|${durMs}|${patchHash(inst)}`;
@@ -172,52 +166,17 @@ function analyseHit(data, start, sr) {
 }
 
 /**
- * Render every missing kernel in one Tone.Offline pass: a fresh ToneEngine
- * (the same patches, INSTRUMENT_GAIN normalisation and channel strip as
- * live) with the reverb/delay sends at 0, one hit per SEG_S.
- *
- * Tone.Offline swaps Tone's global context for the duration of its
- * callback. That is safe for the live engine only because the callback
- * never yields to the event loop (every instrument here is a synth or a
- * 'custom' graph — no sample fetches), so no worker message can run while
- * the offline context is current. Sampler/players patches are skipped.
+ * Render every missing kernel. The kernels used to be one hit per
+ * instrument through Tone.Offline; on djrust they become one hit through the
+ * wasm runner in an OfflineAudioContext (rebuild item, docs/MIGRATION-
+ * djrust-wasm.md §12). Until then nothing is rendered and the model views
+ * are empty; the measured views (AnalyserNode) work.
  *
  * specs: [{ key, inst, channel, note, durMs }]
  */
-export async function renderKernels(specs) {
+export async function renderKernels(_specs) {
     loadLocal();
-    const todo = [];
-    const seen = new Set();
-    for (const s of specs) {
-        if (mem.has(s.key) || seen.has(s.key)) continue;
-        const type = INSTRUMENT_CONFIGS[s.inst]?.type;
-        if (type === 'sampler' || type === 'players') continue;
-        seen.add(s.key);
-        todo.push(s);
-    }
-    if (!todo.length || typeof Tone === 'undefined' || !Tone.Offline) return 0;
-    const { ToneEngine } = await import('../../audio/tone-engine.js');
-    const buffer = await Tone.Offline(async () => {
-        const engine = new ToneEngine();
-        engine._offline = true;
-        await engine.init();
-        engine.setReverbWet?.(0);
-        engine.setDelayWet?.(0);
-        const chans = new Map();
-        for (const s of todo) if (!chans.has(s.channel)) chans.set(s.channel, s.inst);
-        // Two parts on one channel share its instrument live too.
-        await Promise.all([...chans].map(([ch, inst]) => engine.loadInstrument(ch, inst)));
-        todo.forEach((s, i) => {
-            engine.playNote({ channel: s.channel, note: s.note, velocity: 100, duration: s.durMs }, i * SEG_S + HIT_AT);
-        });
-    }, todo.length * SEG_S + 0.1, 1, SR);
-    const data = buffer.getChannelData(0);
-    todo.forEach((s, i) => {
-        const k = analyseHit(data, Math.round(i * SEG_S * SR), SR);
-        mem.set(s.key, k);
-    });
-    saveLocal();
-    return todo.length;
+    return 0;
 }
 
 // --- FX response ------------------------------------------------------------
@@ -283,13 +242,13 @@ function applyFilter(out, off, st, sr) {
  */
 export function fxResponse(out, channels, sr = SR) {
     const master = [
-        filterState(toneEngine._hpFilter, 'highpass', 20),
-        filterState(toneEngine._lpFilter, 'lowpass', 20000),
+        filterState(NO_ENGINE_FILTERS.hp, 'highpass', 20),
+        filterState(NO_ENGINE_FILTERS.lp, 'lowpass', 20000),
     ];
     for (const ch of channels) {
         const off = (ch & 31) * NR;
         for (let j = 0; j < NR; j++) out[off + j] = 1;
-        const strip = toneEngine._channelStrips?.get(ch);
+        const strip = NO_ENGINE_FILTERS.strips?.get(ch);
         if (strip) {
             const db = readParam(strip.volume?.volume, 0);
             const g2 = Math.pow(10, db / 10);

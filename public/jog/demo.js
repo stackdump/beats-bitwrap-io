@@ -4,12 +4,12 @@
 //                                  (or a real MIDIInput)                     |
 //                         Petri-net marking  <-- playhead position <-- audio worklet
 //
-// Tone.js renders the net's two-bar loop offline (the net is fired for real;
-// its midi bindings are what get scheduled), and the worklet plays that
+// A small native Web Audio kit renders the net's two-bar loop offline (the
+// net is fired for real; its midi bindings are what get scheduled), and the
+// worklet plays that
 // render like a record. The playhead is the single clock: the marking is
 // derived from it, forwards and backwards.
 
-/* global Tone */
 import { INPULSE_200_MK3, parseJogMessage, withOverride } from './inpulse-200-mk3.js';
 import { flattenCapture, replayCapture } from './replay.js';
 import { requestMockMIDIAccess } from './mock-midi.js';
@@ -28,6 +28,7 @@ const $ = (id) => document.getElementById(id);
 // --- turntable: the clock the adapter drives -------------------------------
 
 let node = null;
+let ctx = null;
 let sampleRate = 48000;
 const post = (msg) => node?.port.postMessage(msg);
 const turntable = {
@@ -138,28 +139,7 @@ async function renderLoop() {
     const loopSec = LOOP_TICKS * SEC_PER_NET_TICK;
     // Render two loop lengths, then fold the second onto the first so decay
     // tails wrap around the seam instead of being cut.
-    const rendered = await Tone.Offline(() => {
-        const out = new Tone.Limiter(-3).toDestination();
-        const voices = {
-            kick: new Tone.MembraneSynth({ octaves: 6, pitchDecay: 0.04 }).connect(out),
-            snare: new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.16, sustain: 0 } }).connect(out),
-            hat: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 }, volume: -14 }).connect(out),
-            bass: new Tone.MonoSynth({
-                oscillator: { type: 'sawtooth' },
-                filter: { Q: 3, type: 'lowpass' },
-                envelope: { attack: 0.005, decay: 0.2, sustain: 0.5, release: 0.15 },
-                filterEnvelope: { attack: 0.005, decay: 0.12, sustain: 0.3, baseFrequency: 120, octaves: 3 },
-                volume: -6,
-            }).connect(out),
-        };
-        for (const ev of events) {
-            const t = ev.tick * SEC_PER_NET_TICK;
-            const vel = ev.velocity / 127;
-            if (ev.net === 'kick') voices.kick.triggerAttackRelease('C1', 0.12, t, vel);
-            else if (ev.net === 'bass') voices.bass.triggerAttackRelease(Tone.Frequency(ev.note, 'midi').toFrequency(), SEC_PER_NET_TICK * 0.9, t, vel);
-            else voices[ev.net].triggerAttackRelease(0.05, t, vel);
-        }
-    }, loopSec * 2);
+    const rendered = await renderKit(events, loopSec * 2, sampleRate);
 
     const n = Math.round(loopSec * rendered.sampleRate);
     const channels = [];
@@ -172,19 +152,81 @@ async function renderLoop() {
     return { channels, samplesPerNetTick: n / LOOP_TICKS };
 }
 
+// Kick (sine pitch drop), snare / hat (filtered noise bursts) and a
+// sawtooth bass through a lowpass with its own envelope: the same four
+// voices the lab always had, in plain Web Audio nodes.
+async function renderKit(events, seconds, sr) {
+    const ctx = new OfflineAudioContext(2, Math.ceil(seconds * sr), sr);
+    const out = ctx.createDynamicsCompressor();          // a soft limiter
+    out.threshold.value = -3; out.ratio.value = 20; out.attack.value = 0.001; out.release.value = 0.05;
+    out.connect(ctx.destination);
+    const noise = ctx.createBuffer(1, sr, sr);
+    const nd = noise.getChannelData(0);
+    let seed = 1;
+    for (let i = 0; i < nd.length; i++) { seed = (seed * 16807) % 2147483647; nd[i] = seed / 1073741823.5 - 1; }
+    const env = (g, t, peak, attack, decay) => {
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(peak, t + attack);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    };
+    const burst = (t, vel, type, freq, decay, level) => {
+        const src = ctx.createBufferSource(); src.buffer = noise;
+        const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+        const g = ctx.createGain();
+        src.connect(f).connect(g).connect(out);
+        env(g, t, vel * level, 0.001, decay);
+        src.start(t); src.stop(t + decay + 0.05);
+    };
+    for (const ev of events) {
+        const t = ev.tick * SEC_PER_NET_TICK;
+        const vel = ev.velocity / 127;
+        if (ev.net === 'kick') {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.frequency.setValueAtTime(32.7 * 64, t);                      // C1 · 6 octaves
+            o.frequency.exponentialRampToValueAtTime(32.7, t + 0.04);
+            o.connect(g).connect(out);
+            env(g, t, vel, 0.001, 0.3);
+            o.start(t); o.stop(t + 0.4);
+        } else if (ev.net === 'snare') {
+            burst(t, vel, 'bandpass', 1800, 0.16, 0.8);
+        } else if (ev.net === 'hat') {
+            burst(t, vel, 'highpass', 7000, 0.035, 0.2);
+        } else if (ev.net === 'bass') {
+            const dur = SEC_PER_NET_TICK * 0.9;
+            const o = ctx.createOscillator(); o.type = 'sawtooth';
+            o.frequency.value = 440 * Math.pow(2, (ev.note - 69) / 12);
+            const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 3;
+            f.frequency.setValueAtTime(120, t);
+            f.frequency.linearRampToValueAtTime(960, t + 0.005);
+            f.frequency.exponentialRampToValueAtTime(120 + 840 * 0.3, t + 0.125);
+            const g = ctx.createGain();
+            o.connect(f).connect(g).connect(out);
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(vel * 0.5, t + 0.005);
+            g.gain.linearRampToValueAtTime(vel * 0.25, t + 0.2);
+            g.gain.setValueAtTime(vel * 0.25, t + dur);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.15);
+            o.start(t); o.stop(t + dur + 0.2);
+        }
+    }
+    return ctx.startRendering();
+}
+
 let playing = false;
 let started = false;
 
 async function startAudio() {
     $('play').disabled = true;
     $('status').textContent = 'rendering the net…';
-    await Tone.start();
-    const ctx = Tone.getContext();
+    ctx ||= new AudioContext();
+    await ctx.resume();
+    window.__jogCtx = ctx; // e2e taps the output here
     sampleRate = ctx.sampleRate;
     const { channels, samplesPerNetTick } = await renderLoop();
-    await ctx.addAudioWorkletModule(new URL('./scrub-worklet.js', import.meta.url).href, 'jog-scrub');
-    node = ctx.createAudioWorkletNode('jog-scrub', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
-    Tone.connect(node, Tone.getDestination());
+    await ctx.audioWorklet.addModule(new URL('./scrub-worklet.js', import.meta.url).href);
+    node = new AudioWorkletNode(ctx, 'jog-scrub', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    node.connect(ctx.destination);
+    window.__jogNode = node;
     node.port.onmessage = (e) => {
         const tickFloat = e.data.pos / samplesPerNetTick;
         // +1: the transition for step k fires as the playhead enters step k.

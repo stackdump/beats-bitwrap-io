@@ -7,7 +7,8 @@
 // Extracted from petri-note.js. Functions take the custom element
 // as first arg; petri-note.js keeps one-line class-method wrappers.
 
-import { toneEngine, INSTRUMENT_CONFIGS } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
+import { INSTRUMENT_NAMES } from '../../audio/instruments.js';
 import { GENRE_INSTRUMENTS } from '../generator/genre-instruments.js';
 import { injectTransitionNet } from '../macros/runtime.js';
 import { clearLocalMacroState } from '../macros/effects.js';
@@ -18,17 +19,17 @@ export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
     let usedTrackInstruments = false;
 
-    // Try pooled promote first (preview pre-warmed the synth → pointer
-    // swap, no Tone allocation on the audio-scheduling thread). Fall
-    // through to loadInstrument only for channels that weren't prewarmed.
+    // Record each channel's instrument for the mixer. The djrust engine
+    // reads the instrument from the project's track itself; the host
+    // calls below are no-ops kept for the rebuild (live instrument change).
     for (const [, net] of Object.entries(nets)) {
         if (net.track?.instrument && net.role !== 'control') {
             const ch = net.track.channel || 1;
             const inst = net.track.instrument;
             el._channelInstruments[ch] = inst;
             if (el._toneStarted) {
-                if (!toneEngine.promotePooledInstrument(ch, inst)) {
-                    toneEngine.loadInstrument(ch, inst);
+                if (!audioHost.promotePooledInstrument(ch, inst)) {
+                    audioHost.loadInstrument(ch, inst);
                 }
             }
             usedTrackInstruments = true;
@@ -43,23 +44,23 @@ export function applyProjectInstruments(el, project) {
             const chNum = parseInt(ch);
             el._channelInstruments[chNum] = inst;
             if (el._toneStarted) {
-                if (!toneEngine.promotePooledInstrument(chNum, inst)) {
-                    toneEngine.loadInstrument(chNum, inst);
+                if (!audioHost.promotePooledInstrument(chNum, inst)) {
+                    audioHost.loadInstrument(chNum, inst);
                 }
             }
         }
     }
     // Drop anything still pooled (preview channels we didn't end up
     // using) so memory doesn't grow across regens.
-    if (el._toneStarted) toneEngine.clearPool();
+    if (el._toneStarted) audioHost.clearPool();
 
     // Subtle default pan spread per track role.
     applyDefaultPans(el, nets);
 }
 
-// Build the next track's synths into the tone-engine pool one-at-a-time
-// while the current track still plays. Awaiting each keeps Tone.js
-// allocations serialized so each individual hitch is tiny.
+// Pre-warm the next track's instruments while the current one plays. The
+// djrust engine builds its voices when the project loads, so this is a
+// no-op hook (audioHost.preloadInstrument) kept for the call sites.
 export async function prewarmPreviewInstruments(el, project) {
     if (!el._toneStarted || !project?.nets) return;
     const seen = new Set();
@@ -71,7 +72,7 @@ export async function prewarmPreviewInstruments(el, project) {
         const key = `${ch}:${inst}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        try { await toneEngine.preloadInstrument(ch, inst); }
+        try { await audioHost.preloadInstrument(ch, inst); }
         catch (err) { console.warn('preloadInstrument failed:', err); }
     }
 }
@@ -90,7 +91,7 @@ export function applyDefaultPans(el, nets) {
         if (ch == null) continue;
         const key = net.riffGroup || id;
         const pan = ROLE_PAN[key] ?? 64;
-        if (pan !== 64) toneEngine.controlChange(ch, 10, pan);
+        if (pan !== 64) audioHost.controlChange(ch, 10, pan);
     }
 }
 
@@ -287,8 +288,8 @@ export function onInstrumentsChanged(el, instruments) {
         const ch = net.track.channel || 1;
         el._channelInstruments[ch] = instrumentName;
         if (el._toneStarted) {
-            if (!toneEngine.promotePooledInstrument(ch, instrumentName)) {
-                toneEngine.loadInstrument(ch, instrumentName);
+            if (!audioHost.promotePooledInstrument(ch, instrumentName)) {
+                audioHost.loadInstrument(ch, instrumentName);
             }
         }
     }
@@ -298,7 +299,7 @@ export function onInstrumentsChanged(el, instruments) {
 }
 
 export function getAvailableInstruments() {
-    return Object.keys(INSTRUMENT_CONFIGS).sort();
+    return [...INSTRUMENT_NAMES].sort();
 }
 
 export function getCurrentInstruments(el) {

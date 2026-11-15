@@ -1,10 +1,11 @@
-// Client-side audio render. Taps Tone's master output into a
+// Client-side audio render. Taps the audio host's master (the djrust
+// worklet's output after master volume) into a
 // MediaStreamDestination + MediaRecorder, plays the loaded project for
 // (totalSteps × tickIntervalMs + tail) wall-clock ms, and resolves with
 // the captured webm Blob. Same machinery as the headless server render
 // (lib/share/render-mode.js wraps this for chromedp), so output quality
-// matches: the audio-grid scheduler in lib/backend/index.js locks every
-// onset to the AudioContext clock regardless of CPU pressure.
+// matches: the djrust worklet renders every sample on the audio thread, so
+// onsets are on the AudioContext clock regardless of main-thread load.
 //
 // Master-vol compensation. The recording branch is compensated to
 // match the share's authored `fx.master-vol`, NOT the user's live
@@ -21,9 +22,10 @@
 // Caller responsibilities:
 //   - The petri-note element must already have a project loaded
 //     (`el._project` populated, `el._totalSteps` ≥ 0).
-//   - Tone.js must be loaded on the page.
 //   - The user must have already interacted with the page (autoplay
 //     unlock) — call from a click handler, not on page load.
+
+import { audioHost } from '../../audio/host.js';
 
 const PPQ = 4;            // mirrors sequencer-worker.js
 const TAIL_MS = 1500;     // capture reverb / release tail past last tick
@@ -68,8 +70,6 @@ export function isClientRenderSupported() {
 //
 // Returns: { blob, mimeType, durationMs, totalSteps }
 export async function renderToBlob(el, opts = {}) {
-    const Tone = window.Tone;
-    if (!Tone) throw new Error('Tone.js not loaded');
     if (!el._project) throw new Error('no project loaded');
     if (!isClientRenderSupported()) throw new Error('MediaRecorder unavailable in this browser');
 
@@ -79,16 +79,17 @@ export async function renderToBlob(el, opts = {}) {
     // Make sure the AudioContext is unlocked. Safe to call when already
     // running. Throws on browsers that refuse without a fresh gesture —
     // caller should be inside a click handler.
-    await Tone.start();
-    const rawCtx = Tone.getContext().rawContext;
+    audioHost.resumeContext();
+    await audioHost.init();
+    const rawCtx = audioHost.getContext();
 
     const recDest = rawCtx.createMediaStreamDestination();
 
-    // Master-vol compensation. Insert a GainNode between Tone's master
+    // Master-vol compensation. Insert a GainNode between the master
     // output and recDest so the recording branch is offset to the
     // share's authored master-vol level. Speakers are unaffected
-    // because the Tone.getDestination() → speaker chain is independent
-    // of this new branch. See the top-of-file comment block for the
+    // because the master → speaker chain is independent of this new
+    // branch. See the top-of-file comment block for the
     // contract.
     const userSlider = el.querySelector('.pn-fx-slider[data-fx="master-vol"]');
     const authoredVol = el._authoredFxState?.['master-vol'];
@@ -103,7 +104,7 @@ export async function renderToBlob(el, opts = {}) {
         return dbToLinear(volToDb(authoredVol) - volToDb(userVol));
     };
     compGain.gain.value = recalc();
-    Tone.getDestination().connect(compGain);
+    audioHost.output.connect(compGain);
     compGain.connect(recDest);
 
     // Live tracking: while recording is in progress, slider movements

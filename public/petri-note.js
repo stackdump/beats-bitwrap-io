@@ -4,7 +4,8 @@
  * A music sequencer where Petri net transitions trigger MIDI notes.
  */
 
-import { toneEngine, INSTRUMENT_CONFIGS, isDrumChannel } from './audio/tone-engine.js';
+import { audioHost } from './audio/host.js';
+import { isDrumChannel } from './audio/instruments.js';
 import {
     b64urlEncode, b64urlDecode,
     canonicalizeJSON, sha256,
@@ -75,7 +76,7 @@ import {
     scheduleReconnect, updateWsStatus, sendWs, handleWsMessage,
     onRemoteTransitionFired, humanizeNote, swingDelay, onStateSync,
 } from './lib/backend/index.js';
-import { waveEngineRequested, prepareWaveContext } from './lib/backend/wave.js';
+import { waveEngineRequested } from './lib/backend/wave.js';
 import {
     initAudio, connectMidiInputs,
     sliderBindingKey, resolveBinding,
@@ -83,7 +84,7 @@ import {
     ensureToneStarted, toggleAudioMode, refreshMidiOutputs,
     toggleMute, toggleMuteGroup, debouncedRenderMixer,
     playNote, reapplyChannelRoutings, setChannelRouting,
-    playTone, playWebMidi, setChannelInstrument,
+    playWebMidi, setChannelInstrument,
     vizColorForNet, vizSpawnParticle,
     vizStartLoop, vizStopLoop, vizDrawFrame, vizDrawTimeline,
 } from './lib/backend/audio-io.js';
@@ -182,10 +183,9 @@ class PetriNote extends HTMLElement {
 
         // Audio — Set of enabled global output modes: 'web-audio', 'web-midi'
         this._audioModes = new Set(['web-audio']);
-        // ?engine=wave — audio computed sample-by-sample from the marking
-        // in an AudioWorklet (public/wave-engine/) instead of Tone.js voices.
+        // Audio is computed sample by sample from the marking
+        // in the djrust AudioWorklet (public/djrust/) — the only engine.
         this._waveEngine = waveEngineRequested();
-        if (this._waveEngine) prepareWaveContext();
         this._audioCtx = null;
         this._midiAccess = null;
         this._midiOutputId = null; // Selected MIDI output port ID
@@ -351,7 +351,7 @@ class PetriNote extends HTMLElement {
     }
 
     _watchAudioContextState() {
-        const ctx = window.Tone?.getContext?.()?.rawContext;
+        const ctx = audioHost.getContext();
         if (!ctx) return;
         const sync = () => {
             if (this._playing && ctx.state !== 'running') this._showAudioLockBanner();
@@ -731,7 +731,7 @@ class PetriNote extends HTMLElement {
         // until then.
         if (!midiEnabled) return;
 
-        const devices = await toneEngine.listOutputDevices();
+        const devices = await audioHost.listOutputDevices();
 
         // Lazy-load MIDI outputs (requires user permission) — only if browser supports it
         let midiOutputs = [];
@@ -803,7 +803,7 @@ class PetriNote extends HTMLElement {
             const now = performance.now();
             if (now - _lastGenerateAt < 350) return;
             _lastGenerateAt = now;
-            toneEngine.resumeContext();
+            audioHost.resumeContext();
             this._ensureToneStarted();
             const genre = this.querySelector('.pn-genre-select').value;
             const params = { ...(this._traitOverrides || {}) };
@@ -1642,7 +1642,7 @@ class PetriNote extends HTMLElement {
     _openMidiEditor(transitionId) { return openMidiEditor(this, transitionId); }
     _fireTransition(transitionId) { return fireTransition(this, transitionId); }
 
-    // === Audio (Tone.js) ===
+    // === Audio (host + Web MIDI) ===
 
     // --- Audio/MIDI I/O + viz — thin wrappers around ./lib/backend/audio-io.js ---
 
@@ -1672,7 +1672,6 @@ class PetriNote extends HTMLElement {
     _playNote(midi, netId, playAt) { return playNote(this, midi, netId, playAt); }
     _reapplyChannelRoutings() { return reapplyChannelRoutings(this); }
     _setChannelRouting(channel, value) { return setChannelRouting(this, channel, value); }
-    _playTone(midi) { return playTone(this, midi); }
     _vizColorForNet(netId) { return vizColorForNet(netId); }
     _scopeSync() { return scopeSync(this); }
     _scopeStats() { return scopeStats(this); }

@@ -46,7 +46,6 @@ export function initRenderMode(el) {
 }
 
 async function runRender(el) {
-    await waitForTone();
     await waitForReady(el);
     const maxMs = readMaxMs();
     const { solo, mute } = readMuteOpts();
@@ -102,15 +101,6 @@ async function runRender(el) {
     Object.assign(window.__renderInfo, extras);
     window.__renderBlob = await blobToBase64(blob);
     window.__renderDone = true;
-}
-
-async function waitForTone() {
-    const deadline = Date.now() + READY_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        if (typeof window !== 'undefined' && window.Tone) return window.Tone;
-        await sleep(POLL_INTERVAL_MS);
-    }
-    throw new Error('Tone.js never loaded');
 }
 
 async function waitForReady(el) {

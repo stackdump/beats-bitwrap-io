@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// Gap probe: which studio features take audible effect under each engine.
+// Gap probe: which studio controls take audible effect on the djrust engine (ratio after/before
+// of RMS and spectral centroid). Tone is gone, so this is the rebuild scoreboard: a control whose
+// ratio is ~1.00 is still a gap (docs/MIGRATION-djrust-wasm.md §12). Macros are switched off in
+// the studio (lib/ui/engine-gaps.js); the macro rows read ~1.00 until they return.
 // node scripts/probe-djrust-gaps.mjs http://localhost:18096
 import { spawn } from 'node:child_process';
 const HOST = process.argv[2] || 'http://localhost:18096';
@@ -31,9 +34,10 @@ async function open(cdp, query) {
   await sleep(2000);
   await cdp.ev(`(async () => { ${MEASURE} const el = document.querySelector('petri-note'); await el._ensureToneStarted(); if (!el._playing) el._togglePlay();
     await new Promise(r => setTimeout(r, 300));
-    const ctx = window.Tone.getContext().rawContext; const an = ctx.createAnalyser(); an.fftSize = 4096; window.__an = an;
-    if (el._wave) { await el._wave; const { toneEngine } = await import('/audio/tone-engine.js'); (toneEngine._waveGain).connect(an); }
-    else { window.Tone.getDestination().connect(an); } })()`);
+    const { audioHost } = await import('/audio/host.js');
+    const ctx = audioHost.getContext(); const an = ctx.createAnalyser(); an.fftSize = 4096; window.__an = an;
+    if (el._wave) await el._wave;
+    audioHost.output.connect(an); })()`);
   await sleep(1500);
 }
 const m = (cdp, ms = 2000) => cdp.ev(`window.__measure(${ms})`);
@@ -43,8 +47,8 @@ const rel = (a, b) => ({ rms: b.rms / (a.rms || 1e-9), cen: b.centroid / (a.cent
 const results = {};
 try {
   const cdp = await connect(await target()); await cdp.send('Runtime.enable'); await cdp.send('Page.enable');
-  for (const eng of ['tone', 'djrust']) {
-    const q = (eng === 'djrust' ? 'engine=djrust&' : '') + 'genre=techno&seed=42';
+  for (const eng of ['djrust']) {
+    const q = 'genre=techno&seed=42';
     const r = results[eng] = {};
     const probe = async (name, setup, teardown, ms = 2000) => {
       await open(cdp, q); const base = await m(cdp, 2000);
@@ -65,13 +69,13 @@ try {
   const genres = ['ambient','blues','bossa','country','dnb','dubstep','edm','funk','garage','house','jazz','lofi','metal','reggae','speedcore','synthwave','techno','trance','trap'];
   results.genres = {};
   for (const g of genres) {
-    await open(cdp, `engine=djrust&genre=${g}&seed=7`);
+    await open(cdp, `genre=${g}&seed=7`);
     const o = await m(cdp, 1200); const st = await cdp.ev(`(() => { const el = document.querySelector('petri-note'); return { engine: el._engineName, tick: el._tick, err: el._djrustError || null }; })()`);
     results.genres[g] = { ...st, rms: +o.rms.toFixed(4), errs: cdp.logs.filter(l => /EXC|engine:/.test(l)).slice(0, 2) };
     console.log('genre', g.padEnd(10), JSON.stringify(results.genres[g]));
   }
   // stage + scope open without exceptions
-  await open(cdp, 'engine=djrust&genre=house&seed=3');
+  await open(cdp, 'genre=house&seed=3');
   await cdp.ev(`(async () => { const el = document.querySelector('petri-note'); el._toggleStage(); })()`); await sleep(2500);
   results.stage = { errs: cdp.logs.filter(l => /EXC/.test(l)).slice(0, 3), canvas: await cdp.ev(`!!document.querySelector('.pn-stage, [class*=stage] canvas')`) };
   console.log('stage', JSON.stringify(results.stage));

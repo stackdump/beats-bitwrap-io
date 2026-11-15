@@ -8,6 +8,7 @@
 // as first argument; petri-note.js keeps one-line class-method wrappers
 // so call sites like `el._fireMacro(id)` are unchanged.
 
+import { engineGap } from '../ui/engine-gaps.js';
 import { MACROS, TRANSITION_MACRO_IDS } from './catalog.js';
 import { oneShotSpec } from '../audio/oneshots.js';
 import { schedAudio, clearAudioSched, audioAnimLoop, isOfflineContext } from './sched.js';
@@ -88,6 +89,8 @@ export function panicMacros(el) {
 // --- Fire + execute ---
 
 export function fireMacro(el, id, opts) {
+    // Not on the djrust engine yet (lib/ui/engine-gaps.js).
+    if (engineGap('macros')) return;
     // Serial execution: if anything is running, push onto the FIFO queue.
     el._macroQueue ||= [];
     if (el._runningMacro) {
@@ -343,12 +346,11 @@ function restoreFeelState(el, snap) {
         // worst of the tail on most settings without an audible click.
         const targetWet = snap.fx['reverb-wet'];
         if (Number.isFinite(targetWet)) {
-            // The flush ride's on the transport clock — if the transport is
+            // The flush rides the scheduler — if the transport is
             // stopped (restore triggered by the stop button) the deferred
             // set would never fire and wet strands at 0. Only flush when
             // the clock is actually running.
-            const clockRunning = isOfflineContext()
-                || (typeof Tone !== 'undefined' && Tone.Transport && Tone.Transport.state === 'started');
+            const clockRunning = isOfflineContext() || !!el._playing;
             if (clockRunning) {
                 el._setFxByKey('reverb-wet', 0);
                 // Publish the in-flight target so a snapshot taken during
@@ -808,6 +810,7 @@ export function restoreAutoDjSettings(el, autoDjBtn, panel) {
 // --- Auto-DJ tick: cadence + regen prefetch + transition injection ---
 
 export function autoDjTick(el, prevTick, curTick) {
+    if (engineGap('auto-dj')) return;
     // Arm state is the Run checkbox, not tab visibility.
     const enableEl = el.querySelector('.pn-autodj-enable');
     if (!enableEl?.checked) return;

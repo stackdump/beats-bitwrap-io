@@ -100,7 +100,17 @@ test:
 TEST_AUDIO_PORT := 18091
 TEST_AUDIO_DATA := /tmp/beats-test-audio-data
 TEST_AUDIO_WORKERS ?= 4
-test-audio: build
+#
+# PARKED: every case in scripts/test-macro-audio.py fires a macro, and macros
+# are not on the djrust engine yet (docs/MIGRATION-djrust-wasm.md §12). The
+# capture side (lib/test-hooks.js) already records djrust's output, so the
+# suite comes back unchanged when macros are routed to the engine; until
+# then this target refuses instead of reporting failures that are known.
+# `make test-audio-parked` runs it anyway.
+test-audio:
+	@echo "test-audio is parked: macros are not on the djrust engine yet (docs/MIGRATION-djrust-wasm.md §12)"; exit 2
+
+test-audio-parked: build
 	@rm -rf $(TEST_AUDIO_DATA) && mkdir -p $(TEST_AUDIO_DATA)
 	@echo "starting test server on :$(TEST_AUDIO_PORT)"
 	@./$(BINARY) -authoring -addr :$(TEST_AUDIO_PORT) -data $(TEST_AUDIO_DATA) -public public > /tmp/beats-test-audio.log 2>&1 & echo $$! > /tmp/beats-test-audio.pid
@@ -110,9 +120,9 @@ test-audio: build
 	@trap 'kill $$(cat /tmp/beats-test-audio.pid) 2>/dev/null; rm -f /tmp/beats-test-audio.pid' EXIT; \
 	  ./scripts/test-macro-audio.py --host http://localhost:$(TEST_AUDIO_PORT) --workers $(TEST_AUDIO_WORKERS) $(TEST_AUDIO_ARGS)
 
-# Full UI e2e — drives every control (transport, panels, all macros,
-# Fire pads, FX sliders, keyboard shortcuts, mixer, Feel, Auto-DJ,
-# generate/shuffle/genre, share, mocked Web MIDI) through the real DOM
+# Full UI e2e — drives the controls (transport, panels, master volume,
+# keyboard shortcuts, mixer, Feel, generate/shuffle/genre, share, mocked
+# Web MIDI) and checks the Tone-era features are off, through the real DOM
 # in headless Chrome via raw CDP. No Python deps — node >= 20 +
 # google-chrome. Boots its own server on :18096.
 TEST_E2E_PORT := 18096
@@ -188,7 +198,7 @@ test-wave:
 # CDP, checks the worklet plays and the default engine is unchanged.
 test-wave-browser: build
 	@./$(BINARY) -addr :18093 -public public -data /tmp/wave-browser-data >/tmp/wave-browser-server.log 2>&1 & \
-	  pid=$$!; sleep 2; node scripts/test-wave-browser.mjs http://localhost:18093; rc=$$?; kill $$pid; exit $$rc
+	  pid=$$!; sleep 2; WAVE_DATA_DIR=/tmp/wave-browser-data node scripts/test-wave-browser.mjs http://localhost:18093; rc=$$?; kill $$pid; exit $$rc
 
 # Scope tab (lib/ui/scope.js): headless Chrome plays techno/42 in both
 # engines and at phone width, opens Scope, checks every view draws, the

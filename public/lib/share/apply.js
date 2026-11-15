@@ -7,7 +7,7 @@
 // Extracted from petri-note.js (Phase A.3). The class keeps one-line
 // wrappers so any `el._applyFxState(fx)` call site still works.
 
-import { toneEngine } from '../../audio/tone-engine.js';
+import { audioHost } from '../../audio/host.js';
 import { sanitizePuck, applyFeelGrid } from '../feel/axes.js';
 
 export function applyFxState(el, fx) {
@@ -99,7 +99,7 @@ export function applyTrackOverrides(el, tracksByChannel) {
             if (ov.instrument) {
                 net.track.instrument = ov.instrument;
                 el._channelInstruments[chNum] = ov.instrument;
-                if (el._toneStarted) toneEngine.loadInstrument(chNum, ov.instrument);
+                if (el._toneStarted) audioHost.loadInstrument(chNum, ov.instrument);
             }
             if (ov.instrumentSet) net.track.instrumentSet = ov.instrumentSet;
         }

@@ -1,53 +1,48 @@
 // Test capture hooks — only loaded when the URL has ?test=1.
 //
-// Installs window.__pnTestCaptureStart() / __pnTestCaptureStop() which
-// tap Tone's master destination via Tone.Recorder (a MediaRecorder
-// pipeline behind the scenes), then decode the encoded blob back to
-// PCM in-browser via decodeAudioData. PCM is shipped to Python as
-// base64-encoded Float32Array.
+// Installs window.__pnTestCaptureStart() / __pnTestCaptureStop(), which
+// record the audio host's master (the djrust worklet after master volume)
+// through a MediaStreamDestination + MediaRecorder, then decode the
+// encoded blob back to PCM in-browser via decodeAudioData. PCM is shipped
+// to the caller as a base64-encoded Float32Array (mono).
 //
-// We use Tone.Recorder rather than constructing an AudioWorkletNode
-// directly because Tone v15 wraps the AudioContext in a Proxy that
-// (a) doesn't pass `instanceof BaseAudioContext` and (b) tracks node
-// origin contexts strictly, so a hand-constructed AudioWorkletNode
-// can't be `connect()`ed to Tone.getDestination() without
-// InvalidAccessError. Tone.Recorder is the supported path.
-//
-// Used by scripts/test-macro-audio.py to render deterministic clips
-// while firing macros at known timestamps, then ship the PCM back to
-// Python for spectral / RMS analysis.
+// Used by scripts/test-macro-audio.py (macros are not on djrust yet, so
+// that suite is parked; see docs/MIGRATION-djrust-wasm.md §12) and any
+// headless check that needs the page's actual output.
+
+import { audioHost } from '../audio/host.js';
 
 (function installTestHooks() {
     if (typeof window === 'undefined') return;
 
-    let recorder = null;
-    let mounted = false;
+    let rec = null;   // { recorder, dest, chunks }
 
     window.__pnTestCaptureStart = async function () {
-        if (recorder) return;
-        if (typeof Tone === 'undefined' || !Tone.Recorder) {
-            throw new Error('Tone.Recorder unavailable');
-        }
-        recorder = new Tone.Recorder();
-        Tone.getDestination().connect(recorder);
-        mounted = true;
-        await recorder.start();
+        if (rec) return;
+        if (typeof MediaRecorder === 'undefined') throw new Error('MediaRecorder unavailable');
+        await audioHost.init();
+        const ctx = audioHost.getContext();
+        const dest = ctx.createMediaStreamDestination();
+        audioHost.output.connect(dest);
+        const recorder = new MediaRecorder(dest.stream);
+        const chunks = [];
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec = { recorder, dest, chunks };
+        recorder.start();
     };
 
     window.__pnTestCaptureStop = async function () {
-        if (!recorder) return null;
-        const blob = await recorder.stop();
-        try {
-            if (mounted) Tone.getDestination().disconnect(recorder);
-        } catch {}
-        try { recorder.dispose(); } catch {}
-        recorder = null;
-        mounted = false;
+        if (!rec) return null;
+        const { recorder, dest, chunks } = rec;
+        rec = null;
+        const stopped = new Promise((resolve) => { recorder.onstop = () => resolve(); });
+        if (recorder.state !== 'inactive') recorder.stop();
+        await stopped;
+        try { audioHost.output.disconnect(dest); } catch {}
 
-        // Decode the encoded blob to raw PCM via the page's
-        // AudioContext (which has decodeAudioData on the Proxy).
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         const buf = await blob.arrayBuffer();
-        const audio = await Tone.getContext().decodeAudioData(buf.slice(0));
+        const audio = await audioHost.getContext().decodeAudioData(buf.slice(0));
         const ch0 = audio.getChannelData(0);
         const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0;
         const n = ch0.length;
@@ -62,11 +57,7 @@
         for (let i = 0; i < u8.length; i += CHUNK) {
             bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
         }
-        return {
-            sampleRate: audio.sampleRate,
-            length: mono.length,
-            data: btoa(bin),
-        };
+        return { sampleRate: audio.sampleRate, length: mono.length, data: btoa(bin) };
     };
 
     window.__pnTestHooksLoaded = true;

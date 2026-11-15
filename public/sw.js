@@ -2,7 +2,8 @@
 // caches). v6: server sends no-store / no-cache + ETag (staticcache).
 // v7: only successful GETs are cached — v6 also stored error responses
 // (e.g. nginx 429s), which an offline fallback could then serve.
-const CACHE = 'beats-v7';
+// v8: Tone.js and tone-engine.js are gone (djrust is the only engine).
+const CACHE = 'beats-v8';
 const ASSETS = [
   '/',
   '/index.html',
@@ -28,7 +29,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Network-first for same-origin GETs; skip cross-origin (Tone.js CDN),
+  // Network-first for same-origin GETs; skip cross-origin (CDN: djwasm on jsDelivr),
   // non-GET (telemetry / bench POSTs can't be cached) and the API (live
   // data, never an offline fallback).
   const req = e.request;
