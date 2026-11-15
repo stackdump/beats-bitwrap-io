@@ -1,5 +1,5 @@
 // bench.js — standalone page for bench-core.js (see bench.html).
-// Query params: ?genre=&structure=&seconds=&cases=A,B,F,C,D,E&auto=1
+// Query params: ?genre=&structure=&seconds=&cases=G,H,I,C,D,E&auto=1&djrust-wasm=URL
 
 import { composeProject } from './offline.js';
 import { runBench, verdict, recommend, CASE_ORDER, REFERENCE, submitReport, resultsUrl } from './bench-core.js';

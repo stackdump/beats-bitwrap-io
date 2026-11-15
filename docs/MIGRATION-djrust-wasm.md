@@ -391,20 +391,20 @@ settings just do nothing yet.
 | # | Feature | State now | What it needs from djrust / djwasm |
 |---|---|---|---|
 | R-1 | **Macros** (~35, Macros panel, Panic, MIDI-pad / key / control-net `fire-macro`, `macroCurve`) | panel hidden; `fireMacro` returns early | export `WaveRunner::fire_macro` (`NetMacro` / `MasterMacro`) in the C ABI, a `fire-macro` worklet message; restore `sched.js` to the audio clock or drop it. `make test-audio` comes back (it is parked; `make test-audio-parked` runs it). |
-| R-2 | **Auto-DJ** (panel, regen, transition macros in shuffle mode) | panel hidden; `autoDjTick` returns early | R-1. Regen (a new Generate) could return before R-1. |
+| R-2 | **Auto-DJ** (panel, regen, transition macros in shuffle mode) | panel hidden; `autoDjTick` returns early (still gated by `engine-gaps.js` until the 0.3.0 wiring). **Page part done (djrust-gates):** `wave.js` `feedWaveTick` runs `_autoDjTick` and `_fireRepeatingOneShots` once per wave-tick (first tick after a transport change is a baseline; a lower tick is a wrap, passed through as `(prev, tick)`), and the forwarded state-sync (`fromWave`) no longer runs them a second time; the worker's `mute-state` yields to the worklet's `mutedNets` (only its own changes since its last report are applied), so mutes the engine's control nets hold are not overwritten. Gate: `make test-wave-tick-feed` (in `make test`). | R-1 (Mute/Tempo pools, busy check = `macroMask != 0`). Regen (a new Generate) could return before R-1. |
 | R-3 | **Master FX**: reverb, delay, drive, pitch, HP/LP, phaser, crush, Bypass, Reset | groups hidden; master volume stays (it is the host gain) | export `fx::master_chain` + `WaveOptions::extended()` and per-param messages; idle cost ≈ 0 (W-10). Feel's lp blend and `feelCurve` ride on this. |
 | R-4 | **Channel strip**: per-channel pan / volume / HP / HPR / LP / LPR / decay | slider groups hidden | per-lane voice settings in djwasm. Default role pans (`applyDefaultPans`) are no-ops until then. |
 | R-5 | **Live instrument change** (mixer dropdown, `»` rotate, Shuffle's `instruments-changed`) | dropdown shown as a label, not clickable; shuffle updates the UI only | a worklet message that swaps one lane's voice without a project reload (a reload resets the tick at the next bar). |
 | R-6 | **Instrument tone tools**: test note ♫, tone presets ★, tone reset / prev / random | hidden | a "play one note on lane N" message; presets need per-lane voice settings (R-4). |
 | R-7 | **One-shot synths** (airhorn, laser, …; `kind: 'custom'` / `'note'` in `lib/audio/oneshots.js`) | silent (no-op) | stinger voices in the engine. Hit pads that unmute stinger *nets* still work. |
 | R-8 | **Swing / humanize, live transpose, hit-pad pitch** | not applied to audio (they never reached the wave engine either); still applied to Web MIDI out | engine-side swing/humanize/transpose (`WaveOptions` / live keys). |
-| R-9 | **Seek, loop region, crop** | the worker seeks, the worklet does not | `catch_up` / `align` in the ABI (phase 4). |
+| R-9 | **Seek, loop region, crop** | the worker seeks, the worklet does not. **Crop works** and needs nothing from the engine: the worker's crop is an ordinary project-sync, `waveLoadProject` loads it, and the engine applies it at the next bar line with its tick back to 0. `make test-crop` (in `make test`) drives the real worker, `handleWsMessage` and `waveLoadProject` into a djwasm engine mid-play and checks the net count, the tick reset at the bar, the initial mutes, and that the net stream equals opening the cropped track fresh (pin 0.2.0 and the 0.3.0 pkg both pass). | seek and loop: `catch_up` / `align` in the ABI (seek in 0.3.0, loop in 0.5.0). |
 | R-10 | **Per-channel audio output devices** | throws, logged; per-channel MIDI routing still works | multiple worklet outputs or one engine per output. Whole-master output device works. |
-| R-11 | **Scope model views** (kernels, model bands/spectrogram, residual) | model off; **measured on by default**; the status says so | render kernels as one hit per instrument through the worklet in an OfflineAudioContext (`renderKernels` in `scope-model.js`); expose filter state for the FX response. |
-| R-12 | **Insert render** (`?insert=counterMelody`, Go `internal/audiorender` inserts) | page reports an error | wrap the note list in a one-net project and render it like `offline-render.js` (`renderNotesOffline` in `insert-render.js`). |
-| R-13 | **Benchmark** | Tone cases A/B/F removed from the page (server still accepts them for old rows); C/D/E run the JS wave engine, which is not the studio engine any more | a djrust case: new id in `internal/bench` (schema column) and `bench-core.js`. |
-| R-14 | **Telemetry engine label** | djrust reports as `wave` | §10 #3: accept `djrust` server-side. |
-| R-15 | **WS backend** (`data-backend="ws"`, Go sequencer) | composes only; the Go sequencer is never told to play | stream the worklet's ticks to `/ws` or drop the WS playback path. |
+| R-11 | **Scope model views** (kernels, model bands/spectrogram, residual) | **Kernels done (djrust-gates):** model views are back and *measured* is off by default again. Each kernel is a one-net, one-hit project rendered from a fresh `djw_init` in a module Worker through `loader.js` (`public/lib/ui/scope-kernel-worker.js`; 32768 frames at 44.1 kHz), keyed by instrument + group + note + duration + djwasm version (`pn-scope-kernels-v4`, persisted only for the pinned module). Gates: `make test-scope-kernels` (91 kernels from 6 genres, each Worker f32 sha = a fresh Node loader render; also bit-identical on the 0.3.0 pkg) and `make test-scope-browser` (model checks restored; every browser-Worker kernel sha = Node). | **Still open:** the FX response |H_fx|² is flat, because djwasm exposes no filter state. |
+| R-12 | **Insert render** (`?insert=counterMelody`, Go `internal/audiorender` inserts) | **Done (djrust-gates).** `renderNotesOffline` in `insert-render.js` builds one net per simultaneous-note layer with the arrange path's own `countermelody.buildMusicNet` (ring longer than the render, so nothing repeats) and renders it through `renderProjectOffline`, which `renderToBlobOffline` now delegates to. Go `synthesizeNotesViaTone` is renamed `synthesizeNotesViaBrowser` (comments only otherwise). Gates: `make test-insert-render` (two worklet renders = one WAV sha = the Node loader's f32, chords split into layers) and `make test-djrust-browser` (`renderProjectOffline` = the Node sha, so the refactor is byte-identical; two browser `renderNotesOffline` renders give one WAV sha and equal the Node f32). | nothing. |
+| R-13 | **Benchmark** | **Done (djrust-gates).** New cases G (djrust worklet → destination, 48 kHz), H (same at 24 kHz) and I (djrust DSP-only on the main thread); the quick run is G; reports carry `engineVersion: "djrust@<crate>"`. `internal/bench` adds the columns with an idempotent `PRAGMA table_info`-guarded migration, builds Insert/List from `Cases`, and a test keeps `bench-core.js`'s case ids a subset of `bench.Cases`. Gates: `go test ./internal/bench` (old-schema migration, fresh = migrated, client-subset) and `make test-wave-browser` (bench modal: quick run is G, report and stored row name `djrust@…`). **Deploy order:** the server must ship before clients send G/H/I (one binary, so one deploy of main is safe). | nothing. |
+| R-14 | **Telemetry engine label** | **Done (djrust-gates).** The server accepts `djrust` (`telemetry.Engines` = default / wave / djrust); the client sends it via `engineLabel(el)` (`lib/perf/monitor.js`), and the perf verdict treats djrust like wave (audio off the main thread). Old rows keep their `wave` label until the 30-day retention ages them out. Gates: `go test ./internal/telemetry` (`TestEngineLabels`) and `make test-wave-browser` (the summary has a `desktop × djrust` group). | nothing. |
+| R-15 | **WS backend** (`data-backend="ws"`, Go sequencer) | **compose-only, by decision (option a, 2026-11-14).** `/ws` (authoring only) generates, shuffles, arranges and loads projects; transport is consumed by `routeToWave` and plays in the worklet, so the Go sequencer never plays and server-side MIDI out (`-midi*`) is not clocked from a `/ws` page. | nothing. Option (b), streaming the worklet's ticks to `/ws` for hardware MIDI, only if Matt asks; a Go clock (c) is rejected (two clocks drift). |
 | R-16 | **Offline render extras** (master FX, macros, swing in `?render=offline`) | not rendered (the Tone renderer had them) | R-1, R-3, R-8. |
 
 **Before merging this to main:** `djwasm@0.2.0` is live on jsDelivr (verified 2026-11-14,
@@ -427,3 +427,33 @@ the feed's cached `.webm`s were baked from Tone, and the render farm will now ba
 | `scripts/probe-djrust-gaps.mjs` (now the rebuild scoreboard) | master volume ×0.006, mute all ×0.11, tempo 60 ×0.73 work; lp-freq, distortion, cut, sweep-lp, solo-drums read ~1.0 (R-1, R-3); all 19 genres play, no errors; Stage opens |
 
 Not run: Firefox, Safari, phones (same caveat as §9).
+
+### Status after steps 0-2 (branch `djrust-gates`, 2026-11-14)
+
+Steps 0-2 of the djrust studio plan are in: the gates (step 0), the beats-only gaps (step 1) and the
+djwasm 0.3.0 "net clock" candidate (step 2, djrust worktree `djrust-beats-studio`, branch
+`beats-studio`). **The pin has not moved:** the page still loads `djwasm@0.2.0` (sha256
+`cfcd9cf4…`), so nothing audible changed and no share or model CID changed.
+
+- **Closed by this work:** R-11 kernels (FX response still open), R-12, R-13, R-14, R-15 (option a,
+  documented), the R-9 crop, and the page part of R-2 (Auto-DJ stays hidden until the 0.3.0 wiring).
+- **Gates that hold the default path:** `make test-djrust-golden` (282 renders bit-identical to
+  0.2.0 on audio, ticks, report, marking and muted; in `make test`), `make test-djrust-neutral`,
+  `make cid-freeze` (in `make test`), the tri-render in `make test-djrust-browser` (Node direct = Node
+  worklet = OfflineAudioContext = live AudioContext on 4 live scripts, all quanta 128), and
+  `make test-djrust-cpu` (idle cost and memory measured side by side against the pin).
+  Step 1's Node checks run as `make test-djrust-node` (in `make test`).
+- **0.3.0 candidate** (`cabi/pkg`, sha256 `2f80a4fb…`, 884,981 B, ABI 1, 45 exports): with
+  `DJRUST_WASM=…/cabi/pkg/djwasm.wasm`, golden and neutral are 282/282 bit-identical to 0.2.0 and
+  `make test-djrust` passes; `cargo test -p djwasm` (golden, idle, host_oracle, control, seek, alloc,
+  surface) is green. It adds net macros (R-1 mute/tempo half), control-net macro dispatch, seek (R-9),
+  groove (R-8 swing/humanize), a frame clock and an event ring. **It is not pinned or wired yet**
+  (step 3), and it is not published.
+- **Blocking the 0.3.0 re-pin, each needs a decision:** (1) `seek(3000)` costs about 45-48 ms on
+  the audio thread against the 2.0 ms per-quantum gate (O(tick × nets); options: the deferred
+  graph-snapshot cache, an off-thread seek, or a seek spread over quanta); (2) memory per
+  `djw_load` is one 64 KiB page worse than the pin (11,258,633 vs 11,256,373 B per load, not
+  proportional to loads); (3) mechanism parity with beats' page code differs for double-drop at a
+  non-default duration (beats holds drop's default for the second half; the engine holds the chosen
+  duration) and for tape-stop (the page rounds bpm to an integer, max |Δ| ≈ 0.49 bpm; the engine's
+  ease curve is otherwise exact). All other net macros match the worker tick for tick.

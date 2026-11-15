@@ -12,8 +12,10 @@
 //
 // so three tables are enough:
 //   kernel table  ‖H_k‖²_b per instrument (and per note for tonal parts) —
-//                 one hit of the real patch rendered offline, FFT'd once,
-//                 cached in memory + localStorage by instrument + patch hash
+//                 one hit through the djrust engine (a one-net project in
+//                 scope-kernel-worker.js, a module Worker), FFT'd once,
+//                 cached in memory + localStorage by instrument, group,
+//                 note, duration and djwasm version
 //   FX response   |H_fx|²_b from the live filter state (master HP/LP, the
 //                 per-channel strip HP/LP, channel volume) — analytic biquad
 //                 magnitude, so macro-driven sweeps show up as they happen
@@ -22,6 +24,7 @@
 // Band edges match beats-py analysis.py (and scripts/analyze-audio.py).
 
 import { isDrumChannel } from '../../audio/instruments.js';
+import PIN from '../../djrust/pin.js';
 
 // Live filter state used to come from Tone's master and channel-strip
 // filters. The djrust engine exposes none yet (rebuild item), so the FX
@@ -41,12 +44,11 @@ const EDGES = [];
 for (const [lo, hi] of BANDS) EDGES.push([lo, hi]);
 for (let i = 0; i < NS; i++) EDGES.push([SPEC_EDGES[i], SPEC_EDGES[i + 1]]);
 
-const SR = 44100;
-const FFT_N = 32768;           // 0.743 s per hit at 44.1 kHz
-const SEG_S = 0.8;             // hit spacing in the offline render
-const HIT_AT = 0.02;
-// v3: kernels are the djrust engine's; v2 entries were Tone renders.
-const CACHE_KEY = 'pn-scope-kernels-v3';
+const SR = 44100;               // = scope-kernel-worker KERNEL_SR
+const FFT_N = 32768;           // 0.743 s per hit at 44.1 kHz (= KERNEL_FRAMES)
+// v4: djrust kernels keyed by group + djwasm version; v2 entries were Tone
+// renders, v3 never held any.
+const CACHE_KEY = 'pn-scope-kernels-v4';
 const CACHE_MAX = 400;
 
 // --- kernel cache -----------------------------------------------------------
@@ -60,13 +62,31 @@ function strHash(str) {
     return (h >>> 0).toString(36);
 }
 
-// Kernel keys carry the engine's identity so a different engine's (or a
-// future patch table's) kernels never mix. Until djrust kernels are
-// rendered (renderKernels below) only the name is known.
-function patchHash(inst) { return 'djrust:' + String(inst); }
+// `?djrust-wasm=URL` swaps the engine's module (node.js, offline-render.js);
+// the kernels follow it.
+function wasmOverride() {
+    try { return new URLSearchParams(globalThis.location?.search || '').get('djrust-wasm') || ''; } catch { return ''; }
+}
 
-export function kernelKey(inst, note, durMs) {
-    return `${inst}|${note}|${durMs}|${patchHash(inst)}`;
+// Kernel keys carry the engine's identity — the djwasm version — so a
+// different module's kernels never mix. An override module's are keyed by
+// its URL and never persisted (its bytes can change under the same URL).
+function engineTag() {
+    const o = wasmOverride();
+    return o ? `djwasm-url:${strHash(o)}` : `djwasm@${PIN.version}`;
+}
+
+/**
+ * The part a kernel is voiced as: the engine picks the tonal voice, the
+ * polyphony, part shaping and the bass sub-octave by `track.group`, else
+ * the net's riff group.
+ */
+function partOf(group, riffGroup) {
+    return group ? String(group) : (riffGroup ? '~' + riffGroup : '');
+}
+
+export function kernelKey(inst, note, durMs, group = '', riffGroup = '') {
+    return `${inst}|${partOf(group, riffGroup)}|${note}|${durMs}|${engineTag()}`;
 }
 
 function loadLocal() {
@@ -165,18 +185,88 @@ function analyseHit(data, start, sr) {
     return { r, tau };
 }
 
+/** Mono mix of a rendered hit, as a 1-channel offline render downmixes stereo. */
+function analyseStereo(left, right, sr) {
+    const n = Math.min(left.length, right.length);
+    const mono = new Float32Array(n);
+    for (let i = 0; i < n; i++) mono[i] = 0.5 * (left[i] + right[i]);
+    return analyseHit(mono, 0, sr);
+}
+
+let worker = null;
+let reqId = 0;
+
 /**
- * Render every missing kernel. The kernels used to be one hit per
- * instrument through Tone.Offline; on djrust they become one hit through the
- * wasm runner in an OfflineAudioContext (rebuild item, docs/MIGRATION-
- * djrust-wasm.md §12). Until then nothing is rendered and the model views
- * are empty; the measured views (AnalyserNode) work.
- *
- * specs: [{ key, inst, channel, note, durMs }]
+ * Every kernel this page rendered: {key, spec, sha256} with sha256 over the
+ * f32 PCM (left then right) — test-scope-browser.mjs re-renders the same
+ * projects in Node through loader.js and compares. `kernelModule` is what
+ * the worker loaded ({source, sha256, info}).
  */
-export async function renderKernels(_specs) {
+export const kernelLog = [];
+export let kernelModule = null;
+
+function kernelWorker() {
+    if (!worker) worker = new Worker(new URL('./scope-kernel-worker.js', import.meta.url), { type: 'module' });
+    return worker;
+}
+
+/**
+ * Render every missing kernel: one hit per spec through the djrust engine,
+ * in a module Worker (scope-kernel-worker.js) — one-net, one-hit project,
+ * fresh init each — then FFT'd here. Resolves the number rendered (0 where
+ * a Worker is unavailable).
+ *
+ * specs: [{ key, inst, channel, note, durMs, group, riffGroup }]
+ */
+export async function renderKernels(specs) {
     loadLocal();
-    return 0;
+    const todo = [];
+    const seen = new Set();
+    for (const s of specs || []) {
+        if (!s || mem.has(s.key) || seen.has(s.key)) continue;
+        seen.add(s.key);
+        todo.push({ key: s.key, inst: s.inst, channel: s.channel, note: s.note, durMs: s.durMs,
+            group: s.group || '', riffGroup: s.riffGroup || '' });
+    }
+    if (!todo.length || typeof Worker === 'undefined') return 0;
+    const override = wasmOverride();
+    const w = kernelWorker();
+    const id = ++reqId;
+    const byKey = new Map(todo.map(t => [t.key, t]));
+    return new Promise((resolve, reject) => {
+        let n = 0;
+        let persist = !override;
+        const done = () => { w.removeEventListener('message', onMsg); w.removeEventListener('error', onErr); };
+        const onErr = (e) => {
+            done();
+            worker = null;
+            try { w.terminate(); } catch {}
+            reject(new Error(`scope kernel worker: ${e?.message || 'failed to start'}`));
+        };
+        const onMsg = (e) => {
+            const m = e.data;
+            if (!m || m.id !== id) return;
+            if (m.type === 'module') {
+                kernelModule = { source: m.source, sha256: m.sha256, info: m.info };
+                // A module other than the pin (a local build that drifted): use, don't persist.
+                if (m.sha256 && m.sha256 !== PIN.sha256) persist = false;
+            } else if (m.type === 'kernel') {
+                mem.set(m.key, analyseStereo(m.left, m.right, SR));
+                kernelLog.push({ key: m.key, spec: byKey.get(m.key), sha256: m.sha256 });
+                n++;
+            } else if (m.type === 'done') {
+                done();
+                if (persist && n) saveLocal();
+                resolve(n);
+            } else if (m.type === 'error') {
+                done();
+                reject(new Error(m.message));
+            }
+        };
+        w.addEventListener('message', onMsg);
+        w.addEventListener('error', onErr);
+        w.postMessage({ type: 'render', id, specs: todo, wasmUrl: override || undefined });
+    });
 }
 
 // --- FX response ------------------------------------------------------------
@@ -277,7 +367,9 @@ export function laneKernelSpecs(lane, inst) {
     const durs = [...lane.durs].sort((a, b) => a - b);
     let dur = durs.length ? durs[durs.length >> 1] : 200;
     dur = Math.max(40, Math.min(700, Math.round(dur / 10) * 10));
-    return reps.map(note => ({ key: kernelKey(inst, note, dur), inst, channel: lane.channel, note, durMs: dur }));
+    const group = lane.trackGroup || '', riffGroup = lane.riffGroup || '';
+    return reps.map(note => ({ key: kernelKey(inst, note, dur, group, riffGroup), inst, channel: lane.channel,
+        note, durMs: dur, group, riffGroup }));
 }
 
 /** Assemble a lane's interpolation table from cached kernels (null if any is missing). */

@@ -225,8 +225,8 @@ try {
             const sum = await (await fetch('/api/telemetry/summary')).json();
             return { sid, kinds, groups: sum.groups };
         })()`);
-        // djrust reports as engine 'wave' until the server accepts 'djrust' (internal/telemetry).
-        const g = (tel.groups || []).find(x => x.platform === 'desktop' && x.engine === 'wave');
+        // The djrust studio reports engine 'djrust' (internal/telemetry Engines).
+        const g = (tel.groups || []).find(x => x.platform === 'desktop' && x.engine === 'djrust');
         check('telemetry: taps and play/stop reach the server summary',
             !!g && g.taps >= 3 && g.playMinutes > 0 && (g.stops?.user || 0) >= 1,
             g ? `sessions ${g.sessions}, taps ${g.taps}, play ${g.playMinutes} min, stops ${JSON.stringify(g.stops)}` : JSON.stringify(tel).slice(0, 300));
@@ -359,16 +359,19 @@ try {
                 ref: ref.st, cur: cur.st,
                 refX: (ref.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
                 curTrack: cur.report?.current, curX: (cur.report?.results || []).map(r => r.case + ':' + (r.xRealtime ?? r.error)),
-                submitted, listedLabel: listed.results[0]?.label, listedC: listed.results[0]?.xRealtime?.C,
+                submitted, listedLabel: listed.results[0]?.label, listedG: listed.results[0]?.xRealtime?.G,
+                refEngine: ref.report?.engineVersion, listedEngine: listed.results[0]?.engineVersion,
                 history: history.length, ticksAfter: el._tick - t0, playing: el._playing,
             };
         })()`);
-        check('bench modal: reference run completes (quick: wave case C)',
-            b.ref === 'done' && b.refX?.length === 1 && b.refX.every(x => /^C:\d/.test(x)), JSON.stringify(b.refX || b));
+        check('bench modal: reference run completes (quick: djrust case G)',
+            b.ref === 'done' && b.refX?.length === 1 && b.refX.every(x => /^G:\d/.test(x)), JSON.stringify(b.refX || b));
+        check('bench modal: report names the djrust engine version', /^djrust@\d/.test(b.refEngine || ''), String(b.refEngine));
         check('bench modal: current-track run completes', b.cur === 'done' && !!b.curTrack, `${b.curTrack} ${JSON.stringify(b.curX)}`);
         check('bench modal: runs recorded in history', b.history === 2, `${b.history} entries`);
-        check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedC > 0,
-            `${b.submitted}, listed label ${b.listedLabel}, wave ${b.listedC}×`);
+        check('bench modal: submit stores the report on the server', /^Submitted #\d+/.test(b.submitted || '') && b.listedLabel === 'ci-headless' && b.listedG > 0
+            && /^djrust@\d/.test(b.listedEngine || ''),
+            `${b.submitted}, listed label ${b.listedLabel}, djrust ${b.listedG}×, engine ${b.listedEngine}`);
         check('bench modal: playback still works afterwards', b.playing && b.ticksAfter > 8,
             `${b.ticksAfter} ticks in 3 s`);
     } else {

@@ -1,0 +1,83 @@
+{
+ "about": "djwasm cost per 128-frame quantum in Node on the recording host (scripts/djrust-cpu.mjs). Context for --check, which re-measures the pin beside the candidate rather than trusting these absolute numbers.",
+ "module": {
+  "version": "0.2.0",
+  "sha256": "cfcd9cf4a1b51f186bb93e893406adfdd7ca712b09a10303da8a73ce29b30bca"
+ },
+ "recorded": "2026-11-15",
+ "host": {
+  "cpu": "Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz",
+  "cores": 8,
+  "node": "v25.2.1"
+ },
+ "method": {
+  "sampleRate": 48000,
+  "block": 128,
+  "warmupQuanta": 200,
+  "measureQuanta": 7500,
+  "rounds": 5,
+  "stat": "median over rounds of each statistic; lockstep with any compared module"
+ },
+ "gates": {
+  "idleTolerance": 1.05,
+  "featureP99FractionOfBudget": 0.25,
+  "seekMaxMs": 2,
+  "memoryControlChurnGrowthBytes": 0,
+  "memoryPerLoad": "no more than the pin"
+ },
+ "budgetMs": 2.6667,
+ "idle": {
+  "techno:42:standard": {
+   "mean": 0.0436,
+   "p50": 0.0475,
+   "p99": 0.1192,
+   "max": 0.2528,
+   "n": 7500,
+   "rounds": 5
+  },
+  "ambient:1:extended": {
+   "mean": 0.0425,
+   "p50": 0.0379,
+   "p99": 0.1356,
+   "max": 0.3016,
+   "n": 7500,
+   "rounds": 5
+  },
+  "dnb:3:drop": {
+   "mean": 0.0623,
+   "p50": 0.0565,
+   "p99": 0.1321,
+   "max": 0.2668,
+   "n": 7500,
+   "rounds": 5
+  },
+  "feed:z4EBG9j7D6Vy": {
+   "mean": 0.0265,
+   "p50": 0.0205,
+   "p99": 0.0986,
+   "max": 0.2265,
+   "n": 7500,
+   "rounds": 5
+  }
+ },
+ "memory": {
+  "seconds": 60,
+  "controls": {
+   "after2s": 20381696,
+   "end": 20381696,
+   "growth": 0,
+   "loads": 0,
+   "bytesPerLoad": 0
+  },
+  "loads": {
+   "after2s": 20381696,
+   "end": 346816512,
+   "growth": 326434816,
+   "loads": 29,
+   "bytesPerLoad": 11256373
+  }
+ },
+ "seek": "absent",
+ "feature": "absent",
+ "setInstrument": "absent"
+}

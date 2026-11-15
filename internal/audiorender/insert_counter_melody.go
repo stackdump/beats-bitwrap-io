@@ -11,8 +11,9 @@ package audiorender
 // This file owns:
 //   - Project resolution from a source envelope (genre+seed regen or
 //     literal nets parse).
-//   - WAV synthesis: either ffmpeg additive-sine (fallback) or Tone.js
-//     OfflineAudioContext via chromedp (preserves studio timbre).
+//   - WAV synthesis: either ffmpeg additive-sine (fallback) or the
+//     djrust engine in the page's OfflineAudioContext via chromedp
+//     (public/lib/share/insert-render.js; preserves studio timbre).
 //   - The InsertSpec → Opts adapter (seed defaulting, mode validation).
 
 import (
@@ -98,10 +99,10 @@ func renderCounterMelody(ctx context.Context, ffmpegPath string, spec InsertSpec
 		return renderSilentWav(ctx, ffmpegPath, spec.DurationSec, dst)
 	}
 
-	// Synthesis path. Tone.js path when authoring server is reachable;
-	// ffmpeg fallback otherwise.
+	// Synthesis path. Browser (djrust offline render) when the
+	// authoring server is reachable; ffmpeg fallback otherwise.
 	if spec.BaseURL != "" && spec.RebuildSecret != "" {
-		return synthesizeNotesViaTone(ctx, spec, notes, tickIntervalSec, dst)
+		return synthesizeNotesViaBrowser(ctx, spec, notes, tickIntervalSec, dst)
 	}
 	return synthesizeNotes(ctx, ffmpegPath, notes, tickIntervalSec, spec.DurationSec, dst)
 }
@@ -118,11 +119,13 @@ func seedForSpec(spec InsertSpec, srcBytes []byte) uint32 {
 	return countermelody.SeedFromBytes(specBytes, srcBytes)
 }
 
-// synthesizeNotesViaTone POSTs the note list to the local server's
+// synthesizeNotesViaBrowser POSTs the note list to the local server's
 // /api/insert-notes endpoint, spawns chromedp at
 // /?insert=counterMelody&notesId=…, and writes the captured WAV
-// blob to dst.
-func synthesizeNotesViaTone(ctx context.Context, spec InsertSpec,
+// blob to dst. The page (public/lib/share/insert-render.js) builds one
+// countermelody music net per simultaneous-note layer and renders it
+// with the djrust engine in an OfflineAudioContext.
+func synthesizeNotesViaBrowser(ctx context.Context, spec InsertSpec,
 	notes []countermelody.NoteEvent, tickSec float64, dst string) error {
 	jsonNotes := make([]map[string]any, 0, len(notes))
 	for _, n := range notes {

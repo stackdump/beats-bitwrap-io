@@ -116,9 +116,9 @@ type Config struct {
 	LookupGenre func(cid string) string
 	// RenderMode picks the in-page render path. "" or "realtime" uses
 	// the chromedp + MediaRecorder pipeline (1× wall time, full live
-	// fidelity). "offline" uses Tone.Offline inside the page, which
-	// renders 5–15× faster than realtime but currently has fidelity
-	// gaps (see public/lib/share/offline-render.js header). Offline
+	// fidelity). "offline" renders the djrust engine into an
+	// OfflineAudioContext inside the page, faster than realtime, but
+	// currently has fidelity gaps (see public/lib/share/offline-render.js header). Offline
 	// renders return WAV; the renderer transcodes to WebM/Opus via
 	// ffmpeg before caching, so the on-disk shape is unchanged.
 	RenderMode string

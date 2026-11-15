@@ -5,6 +5,9 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 .PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
         djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
+        test-djrust-golden test-djrust-neutral test-djrust-cpu cid-freeze \
+        test-djrust-node test-scope-kernels test-insert-render test-wave-tick-feed test-crop \
+        test-djwasm-030 test-djwasm-030-browser test-djrust-newglue \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -91,6 +94,9 @@ test:
 	@$(MAKE) --no-print-directory test-model-parity
 	@$(MAKE) --no-print-directory test-wave
 	@$(MAKE) --no-print-directory check-djrust-pin
+	@$(MAKE) --no-print-directory cid-freeze
+	@$(MAKE) --no-print-directory test-djrust-golden
+	@$(MAKE) --no-print-directory test-djrust-node
 
 # Headless macro-audio verification. Boots a local server (no audio
 # render needed — capture happens inside the test browser tabs) and
@@ -252,8 +258,67 @@ djrust-verify-cdn:
 test-djrust:
 	@node scripts/test-djrust-wasm.mjs
 
-# Real browser: headless Chrome plays techno/42 through ?engine=djrust, and the fallbacks.
+# Real browser: headless Chrome plays techno/42 through ?engine=djrust, and the fallbacks, and the
+# tri-render (each live script: Node direct = Node worklet = OfflineAudioContext = live AudioContext).
+# Ports are overridable so parallel runs do not collide: DJRUST_BROWSER_PORT (server), CDP_PORT (Chrome).
+DJRUST_BROWSER_PORT ?= 18095
+CDP_PORT ?= 9342
 test-djrust-browser: build
-	@./$(BINARY) -addr :18095 -public public -data /tmp/djrust-browser-data >/tmp/djrust-browser-server.log 2>&1 & \
-	  pid=$$!; sleep 2; node scripts/test-djrust-browser.mjs http://localhost:18095; rc=$$?; kill $$pid; exit $$rc
+	@./$(BINARY) -addr :$(DJRUST_BROWSER_PORT) -public public -data /tmp/djrust-browser-data-$(DJRUST_BROWSER_PORT) >/tmp/djrust-browser-server-$(DJRUST_BROWSER_PORT).log 2>&1 & \
+	  pid=$$!; sleep 2; CDP_PORT=$(CDP_PORT) node scripts/test-djrust-browser.mjs http://localhost:$(DJRUST_BROWSER_PORT); rc=$$?; kill $$pid; exit $$rc
+
+# --- djrust gates (docs/MIGRATION-djrust-wasm.md §12 plan, step 0) ---------------------------
+# The module under test is $$DJRUST_WASM (a .wasm file or a djrust cabi/pkg dir), else the local
+# public/djrust/djwasm.wasm. Every gate skips with a notice when there is no module.
+#   test-djrust-golden   the ABI-1 call sequence must reproduce scripts/djrust-golden.json (djwasm
+#                        0.2.0) on audio, ticks, report, marking and muted (part of make test)
+#   test-djrust-neutral  the same corpus with every new control sent at its neutral value
+#   test-djrust-cpu      per-quantum cost and memory against the pinned 0.2.0, measured side by side
+#   cid-freeze           CID-deciding files unchanged; examples + feed-corpus CIDs recompute (part of make test)
+test-djrust-golden:
+	@node --no-warnings scripts/djrust-golden.mjs check --skip-missing
+
+test-djrust-neutral:
+	@node --no-warnings scripts/djrust-neutral.mjs --skip-missing
+
+test-djrust-cpu:
+	@node --no-warnings scripts/djrust-cpu.mjs --check --skip-missing
+
+cid-freeze:
+	@./scripts/cid-freeze.sh
+
+# --- step-1 Node checks (no server, no browser; skip with a notice when there is no module) ---
+#   test-scope-kernels   each Scope kernel the module Worker renders has the f32 sha of a Node loader render
+#   test-insert-render   insert render (renderNotesOffline's project): two worklet renders give one WAV sha,
+#                        equal to a Node loader render
+#   test-wave-tick-feed  wave-tick feeds Auto-DJ / repeating one-shots once per tick; worker mutes yield
+#                        to the engine's (no wasm needed)
+#   test-crop            crop through the real worker + handleWsMessage + djwasm, swapped at the bar
+test-djrust-node: test-scope-kernels test-insert-render test-wave-tick-feed test-crop
+
+test-scope-kernels:
+	@node --no-warnings scripts/test-scope-kernels.mjs --skip-missing
+
+test-insert-render:
+	@node --no-warnings scripts/test-insert-render.mjs --skip-missing
+
+test-wave-tick-feed:
+	@node --no-warnings scripts/test-wave-tick-feed.mjs
+
+test-crop:
+	@node --no-warnings scripts/test-crop.mjs --skip-missing
+
+# --- djwasm 0.3.0 candidate checks: DJRUST_WASM must be a djrust cabi/pkg directory ---
+#   test-djwasm-030          keys table, new glue on 0.2.0 = golden, net macros direct = worklet,
+#                            control dispatch, seek, groove, mechanism parity with beats' worker
+#   test-djwasm-030-browser  the 0.3.0 scripts rendered four ways (Node direct / worklet / Offline / live)
+#   test-djrust-newglue      scripts/test-djrust-wasm.mjs with the package's loader.js/worklet.js
+test-djwasm-030:
+	@node --no-warnings scripts/test-djwasm-030.mjs
+
+test-djwasm-030-browser:
+	@node --no-warnings scripts/test-djwasm-030-browser.mjs --port $(DJRUST_BROWSER_PORT) --cdp $(CDP_PORT)
+
+test-djrust-newglue:
+	@DJRUST_GLUE=$(DJRUST_WASM) node --import ./scripts/djrust-glue-hook.mjs scripts/test-djrust-wasm.mjs
 

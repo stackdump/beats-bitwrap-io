@@ -63,6 +63,47 @@ func TestRejects(t *testing.T) {
 	}
 }
 
+// "djrust" (the djwasm worklet studio) is accepted alongside the legacy
+// "default" and "wave" labels, and the summary keeps one group per label so
+// rows stored before the djrust client shipped still report as they were.
+func TestEngineLabels(t *testing.T) {
+	s := newStore(t)
+	h := Handler(s, nil, "", func() time.Time { return t0 })
+	for i, eng := range []string{"default", "wave", "djrust", "djrust"} {
+		body := strings.Replace(batch(fmt.Sprintf("sess-eng-%d", i), 0, `[0,"play"],[1000,"tap",{"on":"canvas"}],[60000,"stop",{"r":"user"}]`),
+			`"engine":"default"`, `"engine":"`+eng+`"`, 1)
+		if rec := post(t, h, body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s: post = %d %s", eng, rec.Code, rec.Body)
+		}
+	}
+	for _, eng := range []string{"Djrust", "djwasm", ""} {
+		body := strings.Replace(batch("sess-eng-bad", 0, `[0,"tap"]`), `"engine":"default"`, `"engine":"`+eng+`"`, 1)
+		if rec := post(t, h, body); rec.Code != http.StatusBadRequest {
+			t.Errorf("engine %q: got %d", eng, rec.Code)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/telemetry/summary", nil))
+	var out struct{ Groups []Group }
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("summary = %s", rec.Body)
+	}
+	got := map[string]Group{}
+	for _, g := range out.Groups {
+		got[g.Engine] = g
+	}
+	want := map[string]int{"default": 1, "wave": 1, "djrust": 2}
+	if len(got) != len(want) {
+		t.Fatalf("groups = %+v", out.Groups)
+	}
+	for eng, n := range want {
+		g, ok := got[eng]
+		if !ok || g.Sessions != n || g.Taps != n || g.Stops["user"] != n || g.Platform != "ios" {
+			t.Errorf("%s group = %+v", eng, g)
+		}
+	}
+}
+
 // Late notes that follow taps must show a high tap lift and no focus lift;
 // stops right after the page went hidden must be attributed to focus.
 func TestSummaryCorrelation(t *testing.T) {

@@ -29,11 +29,21 @@ import (
 // Version is the only report format accepted (bench-core.js writes it).
 const Version = "beats-audio-engine/v1"
 
-// MaxBody caps a submission. A full six-case report is ~1.5 kB.
+// MaxBody caps a submission. A full nine-case report is ~2 kB.
 const MaxBody = 16 << 10
 
-// Cases the bench can report (see public/wave-engine/bench-core.js).
-var Cases = []string{"A", "B", "F", "C", "D", "E"}
+// Cases the bench can report (see public/wave-engine/bench-core.js). Each
+// has its own x_<case> column; Insert, List and the migration are generated
+// from this list, so adding a case is one entry here (append only: the
+// column order of old databases follows it).
+//
+//	A B F  Tone.js cases, gone from the page; kept so old rows stay valid
+//	C D E  JS wave engine: worklet @48 kHz, @24 kHz, DSP alone
+//	G H I  djrust (the studio engine): worklet @48 kHz, @24 kHz, DSP alone
+var Cases = []string{"A", "B", "F", "C", "D", "E", "G", "H", "I"}
+
+// column is the x_<case> column holding a case's ×realtime.
+func column(c string) string { return "x_" + strings.ToLower(c) }
 
 // Reference track: the fixed run every device can be compared on.
 var Reference = struct {
@@ -63,6 +73,54 @@ CREATE TABLE IF NOT EXISTS bench_results (
 CREATE INDEX IF NOT EXISTS bench_results_ref ON bench_results(reference, submitted_at DESC);
 `
 
+// added lists the columns that came after the first schema, with their
+// types. migrate adds whichever of them a database lacks, so the first
+// schema above is never edited and new and old databases converge on the
+// same columns.
+func added() [][2]string {
+	cols := [][2]string{{"engine_version", "TEXT NOT NULL DEFAULT ''"}}
+	for _, c := range Cases {
+		cols = append(cols, [2]string{column(c), "REAL"})
+	}
+	return cols
+}
+
+// migrate brings an existing bench_results table up to date: it reads the
+// table's columns (PRAGMA table_info) and ALTERs in only the missing ones,
+// so it is safe to run on every Open.
+func migrate(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(bench_results)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid, notnull, pk int
+			name, typ        string
+			dflt             sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, col := range added() {
+		if have[col[0]] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE bench_results ADD COLUMN ` + col[0] + ` ` + col[1]); err != nil {
+			return fmt.Errorf("add column %s: %w", col[0], err)
+		}
+	}
+	return nil
+}
+
 // Report is the submitted JSON (bench-core.js runBench output, plus the
 // optional user-entered label).
 type Report struct {
@@ -76,6 +134,10 @@ type Report struct {
 	Label     string   `json:"label,omitempty"`
 	Device    Device   `json:"device"`
 	Results   []Result `json:"results"`
+
+	// EngineVersion names the studio engine build the djrust cases ran
+	// (e.g. "djrust@0.2.0"); absent when none ran.
+	EngineVersion string `json:"engineVersion,omitempty"`
 }
 
 // Device is what the browser reports about itself. Model / platform come
@@ -131,7 +193,7 @@ func Validate(r *Report) error {
 		max int
 		n   string
 	}{
-		{r.Genre, 32, "genre"}, {r.Structure, 32, "structure"}, {r.Current, 120, "current"},
+		{r.EngineVersion, 40, "engineVersion"}, {r.Genre, 32, "genre"}, {r.Structure, 32, "structure"}, {r.Current, 120, "current"},
 		{r.Label, 80, "label"}, {r.Device.UA, 400, "device.ua"}, {r.Device.Model, 80, "device.model"},
 		{r.Device.Platform, 40, "device.platform"}, {r.Device.PlatformVersion, 40, "device.platformVersion"},
 	} {
@@ -155,7 +217,7 @@ func Validate(r *Report) error {
 		return errors.New("device.defaultSampleRate out of range")
 	}
 	if len(r.Results) == 0 || len(r.Results) > len(Cases) {
-		return errors.New("results: 1–6 cases")
+		return fmt.Errorf("results: 1–%d cases", len(Cases))
 	}
 	seen := map[string]bool{}
 	for _, c := range r.Results {
@@ -219,6 +281,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("bench: apply schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("bench: migrate: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -277,13 +343,16 @@ func (s *Store) Insert(r *Report, now time.Time) (int64, error) {
 	if IsReference(r) {
 		ref = 1
 	}
-	res, err := s.db.Exec(`INSERT INTO bench_results
-		(submitted_at, bench, track, reference, seconds, platform, model, label, ua,
-		 cores, memory_gb, sample_rate, x_a, x_b, x_f, x_c, x_d, x_e, report)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		now.Unix(), r.Bench, trackLabel(r), ref, r.Seconds, Platform(r.Device), r.Device.Model, r.Label, r.Device.UA,
-		nz(float64(r.Device.Cores)), nz(r.Device.MemoryGB), nz(float64(r.Device.DefaultSampleRate)),
-		x["A"], x["B"], x["F"], x["C"], x["D"], x["E"], string(canon))
+	cols := []string{"submitted_at", "bench", "track", "reference", "seconds", "platform", "model", "label", "ua",
+		"cores", "memory_gb", "sample_rate", "engine_version", "report"}
+	args := []any{now.Unix(), r.Bench, trackLabel(r), ref, r.Seconds, Platform(r.Device), r.Device.Model, r.Label, r.Device.UA,
+		nz(float64(r.Device.Cores)), nz(r.Device.MemoryGB), nz(float64(r.Device.DefaultSampleRate)), r.EngineVersion, string(canon)}
+	for _, c := range Cases {
+		cols = append(cols, column(c))
+		args = append(args, x[c])
+	}
+	res, err := s.db.Exec(`INSERT INTO bench_results (`+strings.Join(cols, ", ")+`) VALUES (?`+
+		strings.Repeat(",?", len(cols)-1)+`)`, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -302,6 +371,7 @@ type Row struct {
 	UA          string             `json:"ua"`
 	Cores       *int               `json:"cores,omitempty"`
 	MemoryGB    *float64           `json:"memoryGB,omitempty"`
+	Engine      string             `json:"engineVersion,omitempty"`
 	X           map[string]float64 `json:"xRealtime"`
 }
 
@@ -310,8 +380,11 @@ func (s *Store) List(limit int, referenceOnly bool) ([]Row, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	q := `SELECT id, submitted_at, track, reference, platform, model, label, ua, cores, memory_gb,
-		x_a, x_b, x_f, x_c, x_d, x_e FROM bench_results`
+	q := `SELECT id, submitted_at, track, reference, platform, model, label, ua, cores, memory_gb, engine_version`
+	for _, c := range Cases {
+		q += `, ` + column(c)
+	}
+	q += ` FROM bench_results`
 	if referenceOnly {
 		q += ` WHERE reference = 1`
 	}
@@ -329,7 +402,7 @@ func (s *Store) List(limit int, referenceOnly bool) ([]Row, error) {
 		var cores sql.NullInt64
 		var mem sql.NullFloat64
 		xs := make([]sql.NullFloat64, len(Cases))
-		dest := []any{&row.ID, &at, &row.Track, &ref, &row.Platform, &row.Model, &row.Label, &row.UA, &cores, &mem}
+		dest := []any{&row.ID, &at, &row.Track, &ref, &row.Platform, &row.Model, &row.Label, &row.UA, &cores, &mem, &row.Engine}
 		for i := range xs {
 			dest = append(dest, &xs[i])
 		}
@@ -347,7 +420,7 @@ func (s *Store) List(limit int, referenceOnly bool) ([]Row, error) {
 			row.MemoryGB = &m
 		}
 		row.X = map[string]float64{}
-		for i, c := range []string{"A", "B", "F", "C", "D", "E"} {
+		for i, c := range Cases {
 			if xs[i].Valid {
 				row.X[c] = xs[i].Float64
 			}

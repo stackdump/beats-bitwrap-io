@@ -63,6 +63,13 @@ var triggerGroups = map[string][]string{
 	"catchup": {"catchup"},
 }
 
+// Engines are the accepted engine labels. "djrust" is the djwasm worklet
+// studio; "default" (Tone) and "wave" remain valid so old clients keep
+// posting and rows already stored keep summarizing under their own label.
+// The label is stored as sent and grouped per platform × engine, so adding
+// one here never re-buckets existing rows.
+var Engines = map[string]bool{"default": true, "wave": true, "djrust": true}
+
 var sidPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{8,64}$`)
 
 // Batch is one POST.
@@ -152,8 +159,8 @@ func Validate(b *Batch) error {
 	if b.Seq < 0 || b.Seq >= MaxBatches {
 		return errors.New("seq out of range")
 	}
-	if b.Engine != "default" && b.Engine != "wave" {
-		return errors.New("engine: default or wave")
+	if !Engines[b.Engine] {
+		return errors.New("engine: default, wave or djrust")
 	}
 	d := b.Device
 	if d.UA == "" || !cleanText(d.UA, 400) || !cleanText(d.Model, 80) || !cleanText(d.Platform, 40) {

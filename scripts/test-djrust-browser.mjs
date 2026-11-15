@@ -18,7 +18,12 @@
 //  - a browser that will not clone a Module into a worklet still plays (bytes path);
 //  - the features that depended on Tone are hidden (lib/ui/engine-gaps.js), master volume and
 //    mutes still reach the engine;
-//  - the legacy ?engine=djrust / ?engine=wave links still open the djrust studio.
+//  - the legacy ?engine=djrust / ?engine=wave links still open the djrust studio;
+//  - TRI-RENDER: each live script (djrust-script.mjs) gives one sha256 four ways, Node direct,
+//    Node worklet, Chrome OfflineAudioContext and a live AudioContext through
+//    scripts/fixtures/capture-worklet.js, every render quantum is 128 frames, and the offline
+//    render on the nominal schedule equals scripts/djrust-golden.json. DJRUST_WASM selects the
+//    module for all four (the page gets its bytes; the glue is the served public/djrust/).
 
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -28,7 +33,7 @@ import { dirname, join } from 'node:path';
 import { instantiate } from '../public/djrust/loader.js';
 
 const HOST = process.argv[2] || 'http://localhost:18095';
-const PORT = 9342;
+const PORT = Number(process.env.CDP_PORT) || 9342; // CDP; the Makefile passes CDP_PORT
 const CHROME = process.env.CHROME || 'google-chrome';
 const here = dirname(fileURLToPath(import.meta.url));
 const wasmPath = join(here, '..', 'public', 'djrust', 'djwasm.wasm');
@@ -43,7 +48,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, [
     '--headless=new', `--remote-debugging-port=${PORT}`, '--no-first-run', '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required', '--user-data-dir=/tmp/djrust-browser-profile', 'about:blank',
+    '--autoplay-policy=no-user-gesture-required', `--user-data-dir=/tmp/djrust-browser-profile-${PORT}`, 'about:blank',
 ], { stdio: 'ignore' });
 
 async function cdpTarget() {
@@ -123,6 +128,162 @@ async function run(cdp, query) {
         out.project = el._waveProject ? JSON.stringify(el._waveProject) : null;
         return out;
     })()`);
+}
+
+// --- TRI-RENDER ----------------------------------------------------------------------------
+//
+// Each script is a project plus [{q, msg}]: worklet messages applied before quantum q
+// (djrust-script.mjs). The 0.2.0 worklet has no frame-stamped messages, so the browser
+// renderers land them by suspending the context:
+//   offline  octx.suspend(q·128/sr), post the step's messages and the SENTINEL (a bad load,
+//            which the worklet answers with {type:'error', op:'load'}; port order makes that
+//            an ack), resume. The tap's frame count while suspended proves the quantum.
+//   live     a real AudioContext, engine → capture tap → destination, both made while
+//            suspended. Near each step it suspends, reads the tap's frame count F, posts the
+//            messages + SENTINEL, waits for the ack and resumes. The messages land at quantum
+//            F/128 rather than the nominal q, because a live context cannot stop on a chosen
+//            frame. So the live run fixes the schedule, and Node direct, Node worklet and
+//            offline then render that same schedule.
+// All four renders must give one sha. The offline render on the nominal schedule must equal
+// the golden's script hash.
+async function triRender(cdp) {
+    const { SCRIPT_NAMES, buildScript, withSchedule, renderScriptDirect, renderScriptWorklet, SENTINEL } = await import('./djrust-script.mjs');
+    const { resolveModule, readGolden } = await import('./djrust-golden.mjs');
+    const mod = await resolveModule(process.env.DJRUST_WASM);
+    if (!mod) { check('tri-render: module', false, 'no module'); return; }
+    let golden = null;
+    try { golden = readGolden(); } catch { /* no golden yet: equality with it is skipped */ }
+    const capture = readFileSync(join(here, 'fixtures', 'capture-worklet.js'), 'utf8');
+    await cdp.send('Page.navigate', { url: `${HOST}/djrust/pin.js` });
+    await sleep(500);
+    await cdp.evaluate(`(() => {
+        const bin = atob(${JSON.stringify(mod.bytes.toString('base64'))});
+        const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const tapUrl = URL.createObjectURL(new Blob([${JSON.stringify(capture)}], { type: 'text/javascript' }));
+        const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
+        const SENT = ${JSON.stringify(SENTINEL)};
+        const wait = (port, pred, ms, what) => new Promise((res, rej) => {
+            const t = setTimeout(() => rej(new Error('timeout: ' + what)), ms);
+            port.__waiters.push((m) => { if (pred(m)) { clearTimeout(t); res(m); return true; } return false; });
+        });
+        const listen = (node) => { node.port.__waiters = []; node.port.onmessage = (e) => {
+            const w = node.port.__waiters; for (let i = 0; i < w.length; i++) if (w[i](e.data)) { w.splice(i, 1); break; }
+            if (node.__onmsg) node.__onmsg(e.data); }; };
+        const groups = (steps) => { const g = new Map(); for (const st of steps) { if (!g.has(st.q)) g.set(st.q, []); g.get(st.q).push(st.msg); }
+            return [...g.entries()].sort((a, b) => a[0] - b[0]); };
+        async function nodes(ctx, s, collect) {
+            await ctx.audioWorklet.addModule('/djrust/worklet.js');
+            await ctx.audioWorklet.addModule(tapUrl);
+            const module = await WebAssembly.compile(bytes);
+            const eng = new AudioWorkletNode(ctx, 'djrust-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+                processorOptions: { module, json: s.text, play: true, quiet: true } });
+            listen(eng);
+            const r = await wait(eng.port, (m) => m.type === 'ready' || m.type === 'error', 10000, 'engine ready');
+            if (r.type !== 'ready') throw new Error('engine: ' + r.message);
+            const frames = s.blocks * 128;
+            const tap = new AudioWorkletNode(ctx, 'djrust-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
+                channelCount: 2, channelCountMode: 'explicit', processorOptions: { frames, collect } });
+            listen(tap);
+            const chunks = []; let done = null;
+            const doneP = new Promise((r2) => (done = r2));
+            tap.__onmsg = (m) => { if (m.type === 'chunk') chunks.push(m); else if (m.type === 'done') done(m); };
+            await wait(tap.port, (m) => m.type === 'hello', 10000, 'tap hello');
+            eng.connect(tap);
+            tap.connect(ctx.destination);
+            return { eng, tap, frames, chunks, doneP };
+        }
+        const where = async (tap) => { const p = wait(tap.port, (m) => m.type === 'where', 5000, 'where'); tap.port.postMessage({ type: 'where' }); return (await p).frames; };
+        async function apply(eng, msgs) {
+            const ack = wait(eng.port, (m) => m.type === 'error' && m.op === 'load', 5000, 'sentinel ack');
+            for (const m of msgs) eng.port.postMessage(m);
+            eng.port.postMessage(SENT);
+            await ack;
+        }
+        window.__tri = {
+            async offline(s) {
+                const octx = new OfflineAudioContext(2, s.blocks * 128, s.sr);
+                const n = await nodes(octx, s, false);
+                n.eng.connect(octx.destination);
+                const landed = [];
+                for (const [q, msgs] of groups(s.steps)) {
+                    // A hair past the boundary so float rounding cannot land a quantum early.
+                    octx.suspend((q * 128 + 0.5) / s.sr).then(async () => {
+                        landed.push({ q, at: (await where(n.tap)) / 128 });
+                        await apply(n.eng, msgs);
+                        octx.resume();
+                    });
+                }
+                const buf = await octx.startRendering();
+                const L = buf.getChannelData(0), R = buf.getChannelData(1);
+                const inter = new Float32Array(2 * L.length);
+                for (let i = 0; i < L.length; i++) { inter[2 * i] = L[i]; inter[2 * i + 1] = R[i]; }
+                const d = await n.doneP;
+                return { sha: hex(await crypto.subtle.digest('SHA-256', inter)), quanta: d.quanta, landed };
+            },
+            async live(s) {
+                const ctx = new AudioContext({ sampleRate: s.sr });
+                await ctx.suspend();
+                const n = await nodes(ctx, s, true);
+                await ctx.resume();
+                const actual = [];
+                for (const [q, msgs] of groups(s.steps)) {
+                    const lead = 24; // quanta (64 ms at 48 kHz): stop just before the nominal step
+                    for (;;) { const f = await where(n.tap); if (f >= Math.max(0, q - lead) * 128) break; await new Promise((r) => setTimeout(r, 5)); }
+                    await ctx.suspend();
+                    const F = await where(n.tap);
+                    if (F % 128) throw new Error('suspended off a quantum boundary: ' + F);
+                    await apply(n.eng, msgs);
+                    for (const _ of msgs) actual.push(F / 128);
+                    await ctx.resume();
+                }
+                const d = await n.doneP;
+                await ctx.close();
+                const inter = new Float32Array(2 * n.frames);
+                for (const c of n.chunks) inter.set(c.data, 2 * c.offset);
+                return { sha: hex(await crypto.subtle.digest('SHA-256', inter)), quanta: d.quanta, actual, sampleRate: ctx.sampleRate };
+            },
+        };
+        return true;
+    })()`);
+
+    const summary = {};
+    for (const name of SCRIPT_NAMES) {
+        const nominal = buildScript(name);
+        let live, off, offNominal;
+        try {
+            live = await cdp.evaluate(`window.__tri.live(${JSON.stringify(nominal)})`);
+            off = null; offNominal = null;
+        } catch (err) {
+            check(`tri-render ${name}: live AudioContext render`, false, err.message); continue;
+        }
+        const sched = withSchedule(nominal, live.actual);
+        const direct = renderScriptDirect(mod, sched).audio;
+        const worklet = (await renderScriptWorklet(mod, sched)).audio;
+        try {
+            off = await cdp.evaluate(`window.__tri.offline(${JSON.stringify(sched)})`);
+            offNominal = await cdp.evaluate(`window.__tri.offline(${JSON.stringify(nominal)})`);
+        } catch (err) {
+            check(`tri-render ${name}: OfflineAudioContext render`, false, err.message); continue;
+        }
+        const only128 = (qz) => Object.keys(qz).length === 1 && qz[128] > 0;
+        const landedOk = (o, s) => o.landed.length === new Set(s.steps.map((x) => x.q)).size && o.landed.every((l) => l.at === l.q);
+        check(`tri-render ${name}: every render quantum is 128 frames (offline and live)`,
+            only128(off.quanta) && only128(offNominal.quanta) && only128(live.quanta),
+            JSON.stringify({ offline: off.quanta, live: live.quanta }));
+        check(`tri-render ${name}: the offline suspends landed on the scheduled quanta`, landedOk(off, sched) && landedOk(offNominal, nominal),
+            JSON.stringify(offNominal.landed));
+        const four = [direct, worklet, off.sha, live.sha];
+        const equal = four.every((x) => x === direct);
+        check(`tri-render ${name}: Node direct = Node worklet = OfflineAudioContext = live AudioContext`, equal,
+            `live schedule ${JSON.stringify(live.actual)} (nominal ${JSON.stringify(nominal.steps.map((x) => x.q))}); ` +
+            `direct ${direct.slice(0, 12)} worklet ${worklet.slice(0, 12)} offline ${off.sha.slice(0, 12)} live ${live.sha.slice(0, 12)}`);
+        const want = golden && golden.cases[`script:${name}@${nominal.sr}`];
+        if (want) check(`tri-render ${name}: offline on the nominal schedule = the golden (djwasm@${golden.module.version})`,
+            offNominal.sha === want.audio, `${offNominal.sha.slice(0, 12)} vs ${want.audio.slice(0, 12)}`);
+        summary[name] = { equal, sha: direct, liveSchedule: live.actual, nominal: nominal.steps.map((x) => x.q),
+            offlineNominalEqualsGolden: !!want && offNominal.sha === want.audio, quanta: { offline: off.quanta, live: live.quanta } };
+    }
+    console.log(`tri-render summary: ${JSON.stringify({ module: mod.sha256, scripts: summary })}`);
 }
 
 try {
@@ -218,9 +379,56 @@ try {
         const L = cat(lefts), R = cat(rights);
         hash.update(Buffer.from(L.buffer)); hash.update(Buffer.from(R.buffer));
         check('offline: a Module in processorOptions is ready before the first quantum (the render is not silent)', page.peak > 0.05 && page.viaModule, `peak ${page.peak?.toFixed(3)}, viaModule ${page.viaModule}`);
-        check('offline: the browser renders the same bytes Node renders (5 s, 48 kHz, stereo)', page.sha === hash.digest('hex'), `browser ${page.sha?.slice(0, 16)}`);
+        const nodeSha = hash.digest('hex');
+        check('offline: the browser renders the same bytes Node renders (5 s, 48 kHz, stereo)', page.sha === nodeSha, `browser ${page.sha?.slice(0, 16)}`);
+
+        // R-12: renderProjectOffline (the function renderToBlobOffline now delegates to) renders the
+        // same bytes as the direct createDjrustEngine path above, i.e. the same Node sha.
+        const viaRpo = await cdp.evaluate(`(async () => {
+            const { renderProjectOffline } = await import('/lib/share/offline-render.js');
+            const { buffer } = await renderProjectOffline(JSON.parse(${JSON.stringify(d.project)}), { durationSec: ${seconds}, sampleRate: ${sr} });
+            const l = buffer.getChannelData(0), r = buffer.getChannelData(1);
+            const all = new Uint8Array(l.byteLength + r.byteLength);
+            all.set(new Uint8Array(l.buffer, l.byteOffset, l.byteLength), 0);
+            all.set(new Uint8Array(r.buffer, r.byteOffset, r.byteLength), l.byteLength);
+            const h = new Uint8Array(await crypto.subtle.digest('SHA-256', all));
+            return { sha: Array.from(h, b => b.toString(16).padStart(2, '0')).join(''), frames: l.length };
+        })()`);
+        check('offline: renderProjectOffline renders the same bytes as Node (the renderToBlobOffline refactor is byte-identical)',
+            viaRpo.sha === nodeSha, `browser ${viaRpo.sha?.slice(0, 16)} node ${nodeSha.slice(0, 16)} frames ${viaRpo.frames}`);
     } else {
         check('offline: project available from the page', false, 'el._waveProject was empty');
+    }
+
+    // --- R-12 insert render: renderNotesOffline twice = one WAV sha = the Node loader's f32 ---
+    {
+        const { chordPayload, renderInsertNode } = await import('./test-insert-render.mjs');
+        const { buildInsertProject } = await import('../public/lib/share/insert-render.js');
+        const { resolveModule } = await import('./djrust-golden.mjs');
+        const payload = chordPayload();
+        const want = (await renderInsertNode(await resolveModule(wasmPath), buildInsertProject(payload, 'counterMelody'))).f32;
+        const ins = await cdp.evaluate(`(async () => {
+            const m = await import('/lib/share/insert-render.js');
+            const { audioBufferToWavBlob } = await import('/lib/share/offline-render.js');
+            const hex = (buf) => Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+            const sha = async (bytes) => hex(await crypto.subtle.digest('SHA-256', bytes));
+            const planar = (b) => { const l = b.getChannelData(0), r = b.getChannelData(1);
+                const all = new Uint8Array(l.byteLength + r.byteLength);
+                all.set(new Uint8Array(l.buffer, l.byteOffset, l.byteLength), 0);
+                all.set(new Uint8Array(r.buffer, r.byteOffset, r.byteLength), l.byteLength); return all; };
+            const s = m.buildInsertProject(${JSON.stringify(payload)}, 'counterMelody');
+            const a = await m.renderNotesOffline(s);
+            const b = await m.renderNotesOffline(s);
+            return {
+                wavA: await sha(await audioBufferToWavBlob(a).arrayBuffer()),
+                wavB: await sha(await audioBufferToWavBlob(b).arrayBuffer()),
+                f32: await sha(planar(a)), layers: s.layers,
+            };
+        })()`);
+        check('insert: two renderNotesOffline renders give one WAV sha256', !!ins.wavA && ins.wavA === ins.wavB,
+            `${ins.wavA?.slice(0, 16)} / ${ins.wavB?.slice(0, 16)}`);
+        check('insert: the browser insert render = the Node loader render of the same project (f32)', ins.f32 === want,
+            `browser ${ins.f32?.slice(0, 16)} node ${want.slice(0, 16)}, ${ins.layers} layers`);
     }
 
     // --- no module: no engine, and the page says so ---
@@ -245,6 +453,9 @@ try {
         check(`legacy: ?${q} opens the djrust studio`, l.engine === 'djrust' && l.tick > 8 && l.peak > 0.01 && l.tone === false,
             JSON.stringify({ engine: l.engine, tick: l.tick, err: l.err }));
     }
+
+    // --- TRI-RENDER: one sha256 per live script, four ways (see triRender above) ---
+    await triRender(cdp);
 
     cdp.close();
 } catch (err) {

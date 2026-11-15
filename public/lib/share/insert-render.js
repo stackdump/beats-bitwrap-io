@@ -5,19 +5,27 @@
 // the payload, renders it offline and exposes a 48 kHz / 16-bit / stereo
 // WAV on window.__renderBlob the way render-mode.js does for shares.
 //
-// NOT AVAILABLE on the djrust engine yet (rebuild item,
-// docs/MIGRATION-djrust-wasm.md §12). The old path built a Tone.Offline
-// graph with one ToneEngine instrument. The djrust equivalent is to wrap
-// the note list in a one-net project (a ring of `durationTicks` steps with
-// the notes bound to their ticks) and render it through the worklet in an
-// OfflineAudioContext, as offline-render.js does for shares. Until then
-// the page reports an error, which the Go side (internal/audiorender)
-// surfaces as a failed insert render.
+// The note list becomes a small project (buildInsertProject): one music
+// net per simultaneous-note layer, each built by countermelody's
+// buildMusicNet (the same net the arrange counterMelody directive
+// injects) as a ring longer than the render, so nothing wraps and plays
+// twice. That project is rendered by the djrust worklet in an
+// OfflineAudioContext through offline-render.js's renderProjectOffline,
+// the path shares take. The engine is a pure function of the project, so
+// the WAV is deterministic: scripts/test-insert-render.mjs renders the
+// same project with the Node loader and checks both the bytes and their
+// repeatability. (MIGRATION-djrust-wasm.md §12 R-12; the old Tone.Offline
+// graph with one ToneEngine instrument is gone.)
 
-import { audioBufferToWavBlob } from './offline-render.js';
+import { audioBufferToWavBlob, renderProjectOffline, wasmUrlFromPage } from './offline-render.js';
+import { buildMusicNet } from '../generator/countermelody.js';
 
 const PPQ = 4;
 const SAMPLE_RATE = 48000;
+const TAIL_SECONDS = 0.25;
+const DEFAULT_TEMPO = 124;
+const DEFAULT_DURATION_MS = 4000;
+const DEFAULT_CHANNEL = 5;
 
 export function isInsertRenderMode() {
     try {
@@ -57,12 +65,8 @@ async function runInsertRender() {
     }
     const payload = await resp.json();
 
-    const tempo = +payload.tempo || 124;
-    const tickIntervalMs = 60_000 / (tempo * PPQ);
-    const durationSec = (+payload.durationMs || 4000) / 1000 + 0.25; // 250 ms tail
-    const channel = +payload.channel || 5;
-    const instrument = payload.instrument || pickDefaultInstrument(insertType);
-    const notes = Array.isArray(payload.notes) ? payload.notes : [];
+    const spec = buildInsertProject(payload, insertType);
+    const { instrument, notes, durationSec } = spec;
 
     window.__renderInfo = {
         started: true,
@@ -71,12 +75,13 @@ async function runInsertRender() {
         durationMs: durationSec * 1000,
         noteCount: notes.length,
         instrument,
+        layers: spec.layers,
     };
     console.log('[insert-render]',
-        'type=', insertType, 'notes=', notes.length,
+        'type=', insertType, 'notes=', notes.length, 'layers=', spec.layers,
         'instrument=', instrument, 'durationSec=', durationSec.toFixed(3));
 
-    const buffer = await renderNotesOffline({ channel, instrument, notes, tickIntervalMs, durationSec });
+    const buffer = await renderNotesOffline(spec);
 
     const blob = audioBufferToWavBlob(buffer);
     window.__renderInfo.mimeType = blob.type;
@@ -94,10 +99,79 @@ function pickDefaultInstrument(insertType) {
     return 'supersaw';
 }
 
-// The rebuild goes here (see the header). Kept as one function so the
-// payload handling above stays as it is.
-async function renderNotesOffline(_spec) {
-    throw new Error('insert render is not available on the djrust engine yet');
+// buildInsertProject turns the /api/insert-notes payload
+//   { notes: [{tick, note, velocity, durationTicks}], durationMs, tempo,
+//     channel, instrument }
+// into a project JSON object plus the render parameters. Pure and
+// deterministic (no DOM), so Node builds the identical project.
+//
+// buildMusicNet binds one note per transition, so notes sharing a start
+// tick go to separate nets: layer k holds the k-th note (payload order) at
+// each tick. Every layer is a ring of `ringTicks` steps, more than the
+// render covers, so no note repeats inside it. Note sustains are legacy
+// ms (`duration`) against the payload's fixed tempo.
+export function buildInsertProject(payload, insertType) {
+    const p = payload || {};
+    const tempo = +p.tempo || DEFAULT_TEMPO;
+    const tickIntervalMs = 60_000 / (tempo * PPQ);
+    const durationSec = (+p.durationMs || DEFAULT_DURATION_MS) / 1000 + TAIL_SECONDS;
+    const channel = +p.channel || DEFAULT_CHANNEL;
+    const instrument = p.instrument || pickDefaultInstrument(insertType);
+    const notes = Array.isArray(p.notes) ? p.notes : [];
+    const ringTicks = Math.ceil((durationSec * 1000) / tickIntervalMs) + 1;
+
+    const layers = [];
+    const depth = new Map(); // tick -> notes already placed at it
+    for (const n of notes) {
+        const tick = Math.floor(+n.tick);
+        if (!(tick >= 0 && tick < ringTicks)) continue;
+        const k = depth.get(tick) || 0;
+        depth.set(tick, k + 1);
+        if (!layers[k]) layers[k] = [];
+        layers[k].push({
+            startTick: tick,
+            note: n.note | 0,
+            velocity: (+n.velocity > 0) ? (n.velocity | 0) : 90,
+            duration: +n.durationTicks > 0 ? +n.durationTicks : 1,
+        });
+    }
+
+    const nets = {};
+    layers.forEach((layer, k) => {
+        nets[`insert-${k}`] = buildMusicNet(layer, {
+            totalTicks: ringTicks,
+            channel,
+            instrument,
+            group: 'melody',
+            msPerTick: tickIntervalMs,
+        });
+    });
+
+    return {
+        project: { name: `insert-${insertType || 'notes'}`, tempo, nets },
+        tempo,
+        tickIntervalMs,
+        durationSec,
+        sampleRate: SAMPLE_RATE,
+        channel,
+        instrument,
+        notes,
+        ringTicks,
+        layers: layers.length,
+    };
+}
+
+// renderNotesOffline renders a buildInsertProject result through the
+// djrust worklet in an OfflineAudioContext (renderProjectOffline) and
+// returns the AudioBuffer. An empty note list renders silence.
+export async function renderNotesOffline(spec, opts = {}) {
+    const { buffer } = await renderProjectOffline(spec.project, {
+        durationSec: spec.durationSec,
+        sampleRate: spec.sampleRate || SAMPLE_RATE,
+        tempo: spec.tempo,
+        wasmUrl: opts.wasmUrl !== undefined ? opts.wasmUrl : wasmUrlFromPage(),
+    });
+    return buffer;
 }
 
 function blobToBase64(blob) {

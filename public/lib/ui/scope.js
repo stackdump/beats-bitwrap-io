@@ -22,11 +22,12 @@
 //            net's marking and the mute table are back where they started,
 //            on a bar line (≤ LOOP_MAX_BARS)
 //
-// On the djrust engine the model kernels are not rendered yet (the old ones
-// came from Tone.Offline), so "measured" is on by default and the model
-// views stay empty until the kernel render moves to the wasm runner.
+// The model kernels h_k are one hit per part rendered through the djrust
+// engine in a module Worker (scope-kernel-worker.js: a one-net, one-hit
+// project per kernel, fresh init each), FFT'd once and cached
+// (scope-model.js renderKernels).
 //
-// "measured" adds the analyser's FFT: measured bands and
+// "measured" (off by default) adds the analyser's FFT: measured bands and
 // spectrogram beside the model, and the residual (measured − model, dB per
 // band after removing each side's per-band mean) — what reverb, delay,
 // compression and the master chain add on top of Σ h*μ.
@@ -96,8 +97,7 @@ const fin = (v) => Number.isFinite(v);
 function state(el) {
     if (el._scope) return el._scope;
     el._scope = {
-        // measured on by default: the model kernels are not rendered on djrust yet.
-        view: 'live', measured: true, opened: false,
+        view: 'live', measured: false, opened: false,
         running: false, raf: 0, lastDraw: 0, lastT: 0,
         lanes: [], laneOf: new Map(), channels: [], sections: [],
         // live event ring
@@ -161,6 +161,8 @@ function buildLanes(el) {
             let color = vizColorForNet(id);
             if (color === '#888') color = FALLBACK_COLORS[fb++ % FALLBACK_COLORS.length];
             lane = { key, ids: [], channel: ch, group: sectionGroupForNet(id, net), drum: isDrumChannel(ch),
+                // what the engine voices the part by (kernel specs)
+                trackGroup: net.track.group || '', riffGroup: net.riffGroup || '',
                 inst: net.track.instrument || '', notes: new Set(), durs: [], lo: 127, hi: 0, color };
             byKey.set(key, lane);
         }
@@ -227,7 +229,7 @@ function ensureKernels(el) {
         if (gen === s.projectGen) {
             assemble();
             s.kernelStatus = n ? s.kernelStatus + ` (${s.kernelMs} ms)`
-                : 'model off (djrust kernels not rendered yet) · measured on';
+                : 'model unavailable (no kernels rendered)';
         }
         updateStatus(el);
     }).catch(err => {

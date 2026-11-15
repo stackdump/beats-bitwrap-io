@@ -11,6 +11,13 @@
 // §12): macros, loop/seek, swing/humanize, live transpose, instrument change,
 // per-channel mixer settings, master FX.
 //
+// Page-side clock consumers (R-2): Auto-DJ's cadence and the repeating
+// one-shots are fed from every wave-tick (feedWaveTick), not from the
+// every-sixth-tick state-sync the worker used to drive them with. The mute
+// state the worklet reports is the playing one: the worker's own mute-state
+// yields to it (backend/index.js 'mute-state'), so mutes the engine's
+// control nets hold are not overwritten by the worker's never-playing view.
+//
 // The JS wave engine (public/wave-engine/) is no longer a runtime fallback; it
 // stays in the repo as the parity oracle `make test-djrust` compares against.
 
@@ -94,6 +101,9 @@ export function routeToWave(el, msg) {
         return false;
     }
     case 'transport':
+        // The next wave-tick after any transport change is a new baseline
+        // for feedWaveTick, not a step from wherever the last run stopped.
+        el._waveTickPrev = undefined;
         ensureWave(el).then(w => w.post(msg)).catch(err => console.warn('djrust engine:', err));
         return true; // the worker never plays
     case 'tempo':
@@ -107,6 +117,9 @@ export function routeToWave(el, msg) {
 /** Called on every project-sync from the worker. */
 export function waveLoadProject(el, project) {
     el._waveProject = project;
+    // Until the engine reports mutes for this project, the worker's
+    // mute-state (sent right after this project-sync) is the authority.
+    el._engineMutesFresh = false;
     if (!el._wave) return;
     el._wave.then(w => {
         w.post({ type: 'load', project });
@@ -115,7 +128,29 @@ export function waveLoadProject(el, project) {
     }).catch(() => {});
 }
 
-function onWaveMessage(el, msg) {
+/**
+ * feedWaveTick(el, tick) — run the page's per-tick clock consumers on one
+ * wave-tick: el._fireRepeatingOneShots(prev, tick) and el._autoDjTick(prev,
+ * tick), each exactly once per tick the engine reports.
+ *
+ * The first tick after a transport change only sets the baseline (nothing
+ * has been crossed yet; a resume must not look like a jump from 0). A tick
+ * lower than the previous one is a wrap (loop end, or a project load the
+ * engine applied at the bar, which restarts its tick at 0): it is passed
+ * through as (prev, tick) so autoDjTick's own wrap branch runs, the same
+ * shape the worker's state-sync gave it. el._waveTickWraps counts them.
+ */
+export function feedWaveTick(el, tick) {
+    if (typeof tick !== 'number') return;
+    const prev = el._waveTickPrev;
+    el._waveTickPrev = tick;
+    if (prev === undefined || prev === tick) return;
+    if (tick < prev) el._waveTickWraps = (el._waveTickWraps || 0) + 1;
+    el._fireRepeatingOneShots?.(prev, tick);
+    el._autoDjTick?.(prev, tick);
+}
+
+export function onWaveMessage(el, msg) {
     if (msg.type === 'error') {
         console.warn('djrust engine:', msg.message, msg.op ? `(${msg.op})` : '');
         return;
@@ -132,9 +167,11 @@ function onWaveMessage(el, msg) {
     for (const [netId, transitionId, control] of msg.controls) {
         el._handleWsMessage?.({ type: 'control-fired', netId, transitionId, control });
     }
-    if (msg.mutedNets) el._handleWsMessage?.({ type: 'mute-state', mutedNets: msg.mutedNets, mutedNotes: {} });
+    if (msg.mutedNets) el._handleWsMessage?.({ type: 'mute-state', mutedNets: msg.mutedNets, mutedNotes: {}, source: 'engine' });
     for (const [netId, transitionId, midi] of msg.fired) {
         el._handleWsMessage?.({ type: 'transition-fired', netId, transitionId, midi, tick: msg.tick, audioT: msg.t });
     }
-    if (msg.state) el._handleWsMessage?.({ type: 'state-sync', state: msg.state, tick: msg.tick });
+    feedWaveTick(el, msg.tick);
+    // fromWave: feedWaveTick already ran the per-tick consumers for this tick.
+    if (msg.state) el._handleWsMessage?.({ type: 'state-sync', state: msg.state, tick: msg.tick, fromWave: true });
 }

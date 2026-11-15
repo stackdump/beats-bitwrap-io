@@ -44,6 +44,27 @@ async function fetchWasm(override) {
     throw new Error(`djwasm.wasm: ${errs.join('; ')}`);
 }
 
+const compiled = new Map(); // override URL ('' = the pin) → Promise<{module, source}>
+
+/**
+ * The djwasm module, fetched (same sources and order as createDjrustEngine) and compiled once
+ * per page: later calls with the same `override` share the promise. A failure is not cached, so
+ * a retry fetches again. For callers that want the engine off the audio graph or in several
+ * contexts (the benchmark: worklet cases and a main-thread DSP case on one compile).
+ * createDjrustEngine keeps its own fetch: its fallback transfers the bytes to the worklet.
+ */
+export function loadDjwasmModule(override) {
+    const key = override ? String(override) : '';
+    let p = compiled.get(key);
+    if (!p) {
+        p = fetchWasm(override || undefined)
+            .then(async ({ bytes, source }) => ({ module: await WebAssembly.compile(bytes), source }));
+        p.catch(() => { if (compiled.get(key) === p) compiled.delete(key); });
+        compiled.set(key, p);
+    }
+    return p;
+}
+
 export async function createDjrustEngine(ctx, connectTo, opts = {}) {
     // Fetch before touching the audio graph: a missing module costs nothing then.
     const { bytes, source } = await fetchWasm(opts.wasmUrl);

@@ -1,5 +1,5 @@
 // Benchmark modal — measure this device's audio-thread headroom for the
-// wave engine's audio-thread cost, any time, from the studio.
+// studio engine (djrust) and the JS wave engine, any time, from the studio.
 // Open from the Help modal ("Benchmark this device") or with ?bench=1.
 // The bench code (wave-engine/bench-core.js) loads only when this opens.
 
@@ -32,7 +32,7 @@ export function showBenchModal(el) {
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
                 <button type="button" class="pn-bench-run" data-which="reference" title="techno · seed 42 · standard · 20 s — the same on every device, so results compare">Run reference track</button>
                 <button type="button" class="pn-bench-run" data-which="current" title="The track loaded right now, first 20 s">Run current track</button>
-                <label style="font-size:13px;color:#ccc"><input type="checkbox" class="pn-bench-quick"> quick (default vs wave only)</label>
+                <label style="font-size:13px;color:#ccc"><input type="checkbox" class="pn-bench-quick"> quick (studio engine only)</label>
             </div>
             <div class="pn-bench-status" style="min-height:1.4em;color:#ccc;font-size:13px"></div>
             <table class="pn-bench-table" style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px;font-variant-numeric:tabular-nums"></table>
@@ -71,9 +71,9 @@ export function showBenchModal(el) {
     const renderHistory = () => {
         const list = loadHistory();
         $('.pn-bench-history').innerHTML = list.length ? `<table style="width:100%;border-collapse:collapse">
-            <tr style="color:#888"><td>when</td><td>track</td><td style="text-align:right">default</td><td style="text-align:right">wave</td></tr>
+            <tr style="color:#888"><td>when</td><td>track</td><td style="text-align:right">studio</td><td style="text-align:right">wave</td></tr>
             ${list.map(h => `<tr><td>${new Date(h.at).toLocaleString()}</td><td>${h.track}</td>
-                <td style="text-align:right">${h.A ?? '–'}×</td><td style="text-align:right">${h.F ?? '–'}×</td></tr>`).join('')}
+                <td style="text-align:right">${h.G ?? '–'}×</td><td style="text-align:right">${h.C ?? '–'}×</td></tr>`).join('')}
         </table>` : 'No runs yet.';
     };
     renderHistory();
@@ -114,7 +114,7 @@ export function showBenchModal(el) {
                 track = { genre: core.REFERENCE.genre, seed: core.REFERENCE.seed, structure: core.REFERENCE.structure };
                 if (which === 'current') status('no current track loaded — running the reference track');
             }
-            const cases = $('.pn-bench-quick').checked ? ['C'] : core.CASE_ORDER;
+            const cases = $('.pn-bench-quick').checked ? core.QUICK_CASES : core.CASE_ORDER;
             const report = await core.runBench({
                 project, track, cases,
                 onStart: (id, c) => status(`running ${id} · ${c.label}…`),
@@ -134,7 +134,7 @@ export function showBenchModal(el) {
             $('.pn-bench-submit').disabled = false;
             const x = (id) => report.results.find(r => r.case === id && !r.error)?.xRealtime;
             saveHistory([{ at: report.at, track: track.current || `${track.genre}·${track.seed}·${track.structure}`,
-                A: x('A'), F: x('F'), C: x('C') }, ...loadHistory()]);
+                G: x('G'), C: x('C') }, ...loadHistory()]);
             renderHistory();
             status('done');
         } catch (err) {

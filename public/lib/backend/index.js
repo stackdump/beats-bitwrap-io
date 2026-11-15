@@ -434,8 +434,13 @@ export function handleWsMessage(el, msg) {
             if (el._tick < prevTick && el._playing) {
                 audioHost.panic();
             }
-            el._fireRepeatingOneShots(prevTick, el._tick);
-            el._autoDjTick(prevTick, el._tick);
+            // The djrust worklet's ticks feed these once per tick
+            // (wave.js feedWaveTick); only a worker / WS state-sync runs
+            // them here.
+            if (!msg.fromWave) {
+                el._fireRepeatingOneShots(prevTick, el._tick);
+                el._autoDjTick(prevTick, el._tick);
+            }
             onStateSync(el, msg.state);
             // Apply pending instrument changes at bar boundary.
             if (el._pendingInstruments && el._tick >= el._pendingBarTarget) {
@@ -575,8 +580,30 @@ export function handleWsMessage(el, msg) {
                 }
             }
             break;
-        case 'mute-state':
-            el._mutedNets = new Set(Object.entries(msg.mutedNets || {}).filter(([,v]) => v).map(([k]) => k));
+        case 'mute-state': {
+            const reported = new Set(Object.entries(msg.mutedNets || {}).filter(([,v]) => v).map(([k]) => k));
+            if (msg.source === 'engine') {
+                // The worklet's mutes are the playing ones (its control
+                // nets fire; the worker's never do).
+                el._engineMutesFresh = true;
+                el._mutedNets = reported;
+            } else {
+                const prevWorker = el._workerMutedNets;
+                el._workerMutedNets = reported;
+                if (el._engineMutesFresh && prevWorker) {
+                    // Yield to the engine: the worker never plays, so its
+                    // set is the project's initial mutes plus page
+                    // requests. Take only what changed in it since its last
+                    // report (a page mute / mute-group it just applied),
+                    // and keep every mute the engine holds.
+                    const next = new Set(el._mutedNets);
+                    for (const id of reported) if (!prevWorker.has(id)) next.add(id);
+                    for (const id of prevWorker) if (!reported.has(id)) next.delete(id);
+                    el._mutedNets = next;
+                } else {
+                    el._mutedNets = reported;
+                }
+            }
             // Mirror onto _project.initialMutes so MIDI panel reads
             // the current state when rendering pad indicators.
             if (el._project) el._project.initialMutes = [...el._mutedNets];
@@ -590,6 +617,7 @@ export function handleWsMessage(el, msg) {
             stageOnMuteStateChange(el);
             el._renderMidiPanel?.();
             break;
+        }
         case 'playback-complete':
             // Sequencer has stopped — mark as not playing so project-sync
             // goes through the cold-load path (sends project-load + play).

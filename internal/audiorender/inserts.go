@@ -54,10 +54,10 @@ type InsertSpec struct {
 	Density            float64 `json:"density,omitempty"`            // 0..1
 	Register           string  `json:"register,omitempty"`           // above | below
 	Seed               int64   `json:"seed,omitempty"`               // optional explicit seed
-	Instrument         string  `json:"instrument,omitempty"`         // optional instrument id (PR-4.3.2 Tone.js path)
+	Instrument         string  `json:"instrument,omitempty"`         // optional instrument id (PR-4.3.2 browser path)
 	SourceEnvelopePath string  `json:"sourceEnvelopePath,omitempty"` // worker writes the resolved source share JSON here
 
-	// PR-4.3.2 Tone.js synth path. When BaseURL + RebuildSecret are
+	// PR-4.3.2 browser synth path (djrust engine). When BaseURL + RebuildSecret are
 	// set the counterMelody renderer chromedp-spawns the local server
 	// and runs synthesis through the page-side insert-render.js
 	// (matching the studio's instrument timbre). Empty values fall
@@ -96,7 +96,7 @@ func RenderInsert(ctx context.Context, ffmpegPath string, spec InsertSpec, dst s
 // musically natural (soft start → climaxing finish). The frequency
 // sweep is what makes a riser perceptually "rise" — without it the
 // effect just sounds like static getting louder. Pure ffmpeg —
-// no Tone.js, no chromedp — so it's fast and the same bytes drop
+// no browser, no chromedp — so it's fast and the same bytes drop
 // on any host with a compatible ffmpeg.
 //
 // Riser knobs (all optional, sensible defaults):

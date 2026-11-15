@@ -23,15 +23,17 @@
 <body>
 <h1>Audio engine bench — submitted results</h1>
 <p class="note">×realtime = audio-thread headroom when rendering the same track: ≥ 3× comfortable, 1.5–3× tight,
-  &lt; 1.5× crackles. <b>default</b> is today's Tone.js engine; <b>wave</b> is the lean wave engine
-  (<code>?engine=wave</code>). Run it yourself: in the studio, <b>?</b> → <i>Benchmark this device</i>, or
+  &lt; 1.5× crackles. <b>studio</b> is the studio's engine (djrust, case G) and <b>eco</b> the same at 24 kHz (H);
+  <b>wave</b> is the JS wave engine (C); <b>Tone</b> is the retired Tone.js engine (A), shown for older results.
+  Run it yourself: in the studio, <b>?</b> → <i>Benchmark this device</i>, or
   <a href="bench.html">the bench page</a>.</p>
 <label><input type="checkbox" id="ref" checked> reference track only (comparable across devices)</label>
 <span id="status"></span>
 <table id="t"><thead><tr>
   <th data-k="submittedAt">when</th><th data-k="device">device</th><th data-k="platform">platform</th>
   <th data-k="cores" class="num">cores</th><th data-k="memoryGB" class="num">GB</th>
-  <th data-k="A" class="num">default</th><th data-k="F" class="num">wave</th><th data-k="ratio" class="num">wave/default</th>
+  <th data-k="G" class="num">studio</th><th data-k="H" class="num">eco</th><th data-k="C" class="num">wave</th>
+  <th data-k="A" class="num">Tone</th><th data-k="engineVersion">engine</th>
   <th data-k="track">track</th>
 </tr></thead><tbody></tbody></table>
 <script type="module">
@@ -39,7 +41,9 @@ const api = location.hostname === 'cdn.stackdump.com' ? 'https://beats.bitwrap.i
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const cls = (x) => x == null ? '' : x >= 3 ? 'ok' : x >= 1.5 ? 'meh' : 'bad';
 let rows = [], sortKey = 'submittedAt', desc = true;
-const val = (r, k) => k === 'A' || k === 'F' ? r.xRealtime[k] : k === 'ratio' ? r.ratio : k === 'device' ? r.device : r[k];
+const CASE_COLS = ['G', 'H', 'C', 'A'];
+const val = (r, k) => CASE_COLS.includes(k) ? r.xRealtime[k] : r[k];
+const xcell = (r, k) => `<td class="num ${cls(r.xRealtime[k])}">${r.xRealtime[k] != null ? r.xRealtime[k] + '×' : ''}</td>`;
 function render() {
   const sorted = [...rows].sort((a, b) => {
     const x = val(a, sortKey), y = val(b, sortKey);
@@ -51,19 +55,16 @@ function render() {
     <td>${esc(r.device)}<div class="ua">${esc(r.ua)}</div></td>
     <td>${esc(r.platform)}</td>
     <td class="num">${r.cores ?? ''}</td><td class="num">${r.memoryGB ?? ''}</td>
-    <td class="num ${cls(r.xRealtime.A)}">${r.xRealtime.A != null ? r.xRealtime.A + '×' : ''}</td>
-    <td class="num ${cls(r.xRealtime.F)}">${r.xRealtime.F != null ? r.xRealtime.F + '×' : ''}</td>
-    <td class="num">${r.ratio != null ? r.ratio.toFixed(1) + '×' : ''}</td>
-    <td>${esc(r.track)}</td></tr>`).join('') || '<tr><td colspan="9">No results yet.</td></tr>';
+    ${CASE_COLS.map(k => xcell(r, k)).join('')}
+    <td>${esc(r.engineVersion)}</td>
+    <td>${esc(r.track)}</td></tr>`).join('') || '<tr><td colspan="11">No results yet.</td></tr>';
 }
 async function load() {
   document.getElementById('status').textContent = ' loading…';
   try {
     const res = await fetch(api + (document.getElementById('ref').checked ? '?reference=1' : ''));
     const data = await res.json();
-    rows = data.results.map(r => ({ ...r,
-      device: r.model || r.label || r.platform,
-      ratio: r.xRealtime.A && r.xRealtime.F ? r.xRealtime.F / r.xRealtime.A : null }));
+    rows = data.results.map(r => ({ ...r, device: r.model || r.label || r.platform }));
     document.getElementById('status').textContent = ` ${rows.length} result${rows.length === 1 ? '' : 's'}`;
   } catch (err) {
     document.getElementById('status').textContent = ' could not load results: ' + err.message;

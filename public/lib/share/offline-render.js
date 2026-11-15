@@ -41,6 +41,52 @@ export function isOfflineRenderMode() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The page's ?djrust-wasm=URL override (the browser test uses it to
+// prove the fallback), or undefined.
+export function wasmUrlFromPage() {
+    try { return new URLSearchParams(location.search).get('djrust-wasm') || undefined; }
+    catch { return undefined; }
+}
+
+// Render a project JSON object through the djrust worklet in an
+// OfflineAudioContext. The project is loaded and playing before the
+// first render quantum (the compiled Module goes in through
+// processorOptions), so the result is a pure function of
+// (project, tempo, mutes, durationSec, sampleRate, module).
+//   opts.durationSec  required; frames = ceil(durationSec × sampleRate)
+//   opts.sampleRate   default 48000
+//   opts.tempo        sent as processorOptions.tempo (falsy = the project's)
+//   opts.mutes        iterable of net ids muted before rendering starts
+//   opts.wasmUrl      module override (see node.js)
+// Returns { buffer: AudioBuffer, wallMs } — wallMs times startRendering only.
+export async function renderProjectOffline(project, opts = {}) {
+    if (!project) throw new Error('no project');
+    if (typeof OfflineAudioContext === 'undefined') {
+        throw new Error('OfflineAudioContext unsupported');
+    }
+    const sampleRate = opts.sampleRate || SAMPLE_RATE;
+    if (!(opts.durationSec > 0)) throw new Error('renderProjectOffline: durationSec must be > 0');
+
+    const ctx = new OfflineAudioContext(2, Math.ceil(opts.durationSec * sampleRate), sampleRate);
+    const dj = await createDjrustEngine(ctx, null, {
+        wasmUrl: opts.wasmUrl,
+        processorOptions: { project, play: true, tempo: opts.tempo, quiet: true },
+    });
+    const mutes = new Set(opts.mutes || []);
+    if (mutes.size) {
+        for (const netId of mutes) dj.post({ type: 'mute', netId, muted: true });
+        // Rendering has not started, so the worklet thread is idle and
+        // takes these before its first quantum; give the port a moment.
+        await sleep(50);
+    }
+
+    const wallStart = performance.now();
+    const buffer = await ctx.startRendering();
+    const wallMs = performance.now() - wallStart;
+    dj.dispose();
+    return { buffer, wallMs };
+}
+
 // Render the currently-loaded project to an uncompressed WAV Blob.
 // Returns the same shape as client-render.js::renderToBlob plus timing:
 //   { blob, mimeType, durationMs, totalSteps, offlineWallMs, speedupX, eventCount }
@@ -58,27 +104,13 @@ export async function renderToBlobOffline(el, opts = {}) {
     if (opts.maxMs > 0 && durationMs > opts.maxMs) durationMs = opts.maxMs;
     const durationSec = durationMs / 1000 + TAIL_SECONDS;
 
-    const ctx = new OfflineAudioContext(2, Math.ceil(durationSec * SAMPLE_RATE), SAMPLE_RATE);
-    const wasmUrl = (() => {
-        try { return new URLSearchParams(location.search).get('djrust-wasm') || undefined; }
-        catch { return undefined; }
-    })();
-    const dj = await createDjrustEngine(ctx, null, {
-        wasmUrl,
-        processorOptions: { project, play: true, tempo, quiet: true },
+    const { buffer, wallMs: wallElapsedMs } = await renderProjectOffline(project, {
+        durationSec,
+        sampleRate: SAMPLE_RATE,
+        tempo,
+        mutes: [...(el._mutedNets || []), ...(el._manualMutedNets || [])],
+        wasmUrl: wasmUrlFromPage(),
     });
-    const mutes = new Set([...(el._mutedNets || []), ...(el._manualMutedNets || [])]);
-    if (mutes.size) {
-        for (const netId of mutes) dj.post({ type: 'mute', netId, muted: true });
-        // Rendering has not started, so the worklet thread is idle and
-        // takes these before its first quantum; give the port a moment.
-        await sleep(50);
-    }
-
-    const wallStart = performance.now();
-    const buffer = await ctx.startRendering();
-    const wallElapsedMs = performance.now() - wallStart;
-    dj.dispose();
     const speedup = (durationSec * 1000) / Math.max(1, wallElapsedMs);
 
     return {

@@ -219,6 +219,7 @@ go_library(
         "public/djrust/node.js",
         "public/djrust/pin.js",
         "public/djrust/worklet.js",
+        "public/lib/ui/scope-kernel-worker.js",
         "public/lib/ui/scope-model.js",
         "public/lib/ui/scope.js",
     ],

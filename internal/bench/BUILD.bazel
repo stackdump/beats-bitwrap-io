@@ -11,5 +11,6 @@ go_library(
 go_test(
     name = "bench_test",
     srcs = ["bench_test.go"],
+    data = ["//:js_wave_engine_srcs"],  # keep
     embed = [":bench"],
 )

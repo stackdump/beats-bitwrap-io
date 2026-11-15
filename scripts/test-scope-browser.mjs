@@ -7,11 +7,14 @@
 //   node scripts/test-scope-browser.mjs [http://localhost:18094] [screenshot-dir]
 //
 // Asserts, on the djrust engine (desktop and phone width): playback starts,
-// the Scope tab opens with the measured path on (the model kernels came
-// from Tone.Offline and are not rendered on djrust yet, so the status says
-// the model is off — a rebuild item), every view draws a non-empty canvas,
-// bands fill while playing, the loop stops when the tab closes, and no
-// console errors / exceptions are raised. While the tab is open the net
+// the Scope tab opens with measured off, the model kernel table renders
+// through the djrust kernel Worker (scope-kernel-worker.js; the phone run
+// takes it from the localStorage cache), each kernel's f32 sha256 from the
+// browser Worker equals a fresh Node render of the same one-net project
+// through the djwasm loader (scripts/test-scope-kernels.mjs), every view
+// draws a non-empty canvas, model bands fill while playing, the measured
+// path and residual work when toggled, the loop stops when the tab closes,
+// and no console errors / exceptions are raised. While the tab is open the net
 // workspace (ring + timeline dots) must be hidden and not painted, with
 // state (tick, fire history) still advancing; closing restores and repaints
 // it. On a loop project (no structure — the site default) the raster must
@@ -21,10 +24,12 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { nodeKernelSha } from './test-scope-kernels.mjs';
+import { resolveModule } from './djrust-golden.mjs';
 
 const HOST = process.argv[2] || 'http://localhost:18094';
 const SHOTS = process.argv[3] || '';
-const PORT = 9343;
+const PORT = +(process.env.CDP_PORT || 9343);
 const CHROME = process.env.CHROME || 'google-chrome';
 const PLAY_MS = +(process.env.SCOPE_PLAY_MS || 9000);
 
@@ -37,7 +42,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, [
     '--headless=new', `--remote-debugging-port=${PORT}`, '--no-first-run', '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required', '--user-data-dir=/tmp/scope-browser-profile',
+    '--autoplay-policy=no-user-gesture-required', `--user-data-dir=/tmp/scope-browser-profile-${PORT}`,
     '--window-size=1280,1600', 'about:blank',
 ], { stdio: 'ignore' });
 
@@ -101,6 +106,29 @@ async function shot(cdp, name) {
     return path;
 }
 
+// Every kernel the page's Worker rendered, re-rendered in Node (fresh engine
+// per kernel, the module's own loader.js): the f32 sha256 must match.
+async function kernelParity(cdp, label) {
+    const page = await cdp.evaluate(`(async () => {
+        const m = await import('/lib/ui/scope-model.js');
+        return { log: m.kernelLog, module: m.kernelModule };
+    })()`);
+    const mod = await resolveModule();
+    if (!mod) { check(`${label}: kernel parity — djwasm module present for Node`, false, 'no module'); return; }
+    check(`${label}: kernel Worker rendered kernels this load`, page.log.length > 0, `${page.log.length} kernels`);
+    check(`${label}: kernel Worker loaded the same module Node renders with`, page.module?.sha256 === mod.sha256,
+        `page ${page.module?.source} ${page.module?.sha256} · node ${mod.sha256}`);
+    let same = 0;
+    const diffs = [];
+    for (const k of page.log) {
+        const ref = nodeKernelSha(mod, k.spec);
+        if (ref === k.sha256) same++;
+        else diffs.push(`${k.key}: worker ${String(k.sha256).slice(0, 12)} node ${ref.slice(0, 12)}`);
+    }
+    check(`${label}: each kernel f32 sha from the browser Worker equals the Node loader render`,
+        page.log.length > 0 && same === page.log.length, diffs.length ? diffs.slice(0, 4).join(' | ') : `${same} bit-identical`);
+}
+
 async function run(cdp, label, query, shots, opts = {}) {
     cdp.errors.length = 0;
     await cdp.send('Page.navigate', { url: `${HOST}/?${query}` });
@@ -117,15 +145,18 @@ async function run(cdp, label, query, shots, opts = {}) {
         if (!el._playing) el._togglePlay();
         el.querySelector('.pn-scope-btn').click();
     })()`);
-    // No kernels on djrust yet: the status says the model is off, measured is on.
+    // Kernel table: rendered once per instrument/group/note through the djrust
+    // kernel Worker, then cached.
     let status = '';
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
         await sleep(250);
         status = await cdp.evaluate(`document.querySelector('.pn-scope-status')?.textContent || ''`);
-        if (/model off/.test(status)) break;
+        if (/kernels/.test(status) && !/rendering/.test(status) || /unavailable/.test(status)) break;
     }
-    check(`${label}: model off (no djrust kernels yet), measured on`, /model off/.test(status)
-        && await cdp.evaluate(`document.querySelector('.pn-scope-measured input').checked`), status);
+    check(`${label}: kernel table ready`, /model · \d+ kernels/.test(status), status);
+    check(`${label}: measured is off by default`, !(await cdp.evaluate(`document.querySelector('.pn-scope-measured input').checked`)));
+    if (opts.kernelParity) await kernelParity(cdp, label);
+    await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
     await sleep(PLAY_MS);
 
     const out = {};
@@ -165,9 +196,20 @@ async function run(cdp, label, query, shots, opts = {}) {
         return { stats: st, running: s.running, bars: s.maxBar + 1, fires: s.fires, playing: el._playing,
                  perf: el._perf?.last?.vizMs || null };
     })()`);
+    // The model-only default for comparison screenshots.
+    if (shots) {
+        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
+        for (const view of ['spectro', 'bands']) {
+            await cdp.evaluate(`document.querySelector('.pn-scope-views button[data-view="${view}"]').click()`);
+            await sleep(800);
+            out[view + '-model'] = await shot(cdp, `${shots}-${view}-model`);
+        }
+        await cdp.evaluate(`document.querySelector('.pn-scope-measured input').click()`);
+    }
     check(`${label}: scope loop running while open + playing`, st.running && st.playing);
     check(`${label}: fires reach the scope`, st.fires > 20, `${st.fires} fires`);
-    check(`${label}: bands fill bar by bar`, st.bars >= 2, `${st.bars} bars`);
+    check(`${label}: model bands fill bar by bar`, st.bars >= 2, `${st.bars} bars`);
+    check(`${label}: model vs measured stats computed`, st.stats.bars >= 2, JSON.stringify(st.stats.bands.map(b => [b.band, b.corr, b.rmsResidualDb])));
     // Closing the tab stops the loop and drops the analyser tap.
     const closed = await cdp.evaluate(`(async () => {
         const el = document.querySelector('petri-note');
@@ -196,7 +238,9 @@ try {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1600, deviceScaleFactor: 1, mobile: false });
     const results = {};
     // genre=techno&seed=42 loads in the site default loop mode (no structure).
-    results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42', { loop: true });
+    // Start from an empty kernel cache so the Worker renders (the profile dir persists).
+    await cdp.send('Storage.clearDataForOrigin', { origin: new URL(HOST).origin, storageTypes: 'local_storage' });
+    results.default = await run(cdp, 'default', 'genre=techno&seed=42', 'techno42', { loop: true, kernelParity: true });
     // Phone width: layout must not overflow.
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
     results.mobile = await run(cdp, 'mobile', 'genre=techno&seed=42', SHOTS ? 'mobile' : null, { loop: true });

@@ -21,6 +21,7 @@
 // with ?telemetry=0. No IP is stored server-side.
 
 import { audioHost } from '../../audio/host.js';
+import { engineLabel } from './monitor.js';
 
 const ENDPOINT = '/api/telemetry';
 const FLUSH_MS = 20000;
@@ -135,7 +136,7 @@ class Telemetry {
         }
     }
 
-    play() { this.hookAudio(); this.add('play', { engine: this.el._waveEngine ? 'wave' : 'default' }); }
+    play() { this.hookAudio(); this.add('play', { engine: engineLabel(this.el) }); }
     stop(reason) { this.add('stop', { r: reason || 'user' }); this.flush(false); }
 
     win(w) {
@@ -157,7 +158,7 @@ class Telemetry {
         const events = this.buf.splice(0, 1000);
         const body = JSON.stringify({
             v: 1, sid: this.sid, seq: this.seq++,
-            engine: this.el._waveEngine ? 'wave' : 'default',
+            engine: engineLabel(this.el),
             device: this.device, audio: this.audio || {}, events,
         });
         try {
