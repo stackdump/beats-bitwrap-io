@@ -232,11 +232,12 @@ wave-bench:
 
 # --- djrust engine (?engine=djrust) — public/djrust/ -------------------------------------
 # The Rust engine as WebAssembly in the same worklet slot as the JS wave engine. The module is the
-# `djwasm` npm package (github.com/stackdump/djrust, cabi/, MIT), loaded from jsDelivr at the exact
-# version + SRI hash in public/djrust/pin.js, so the deploy never builds Rust. loader.js /
+# `djwasm` npm package (github.com/stackdump/djrust, cabi/, MIT), pinned by exact version + SRI
+# hash in public/djrust/pin.js and loaded from `source`: "bundled" (the committed
+# public/djrust/djwasm.wasm, now) or "cdn" (jsDelivr). The deploy never builds Rust. loader.js /
 # worklet.js are that package's glue, vendored byte for byte. See docs/MIGRATION-djrust-wasm.md.
-#   djrust-wasm        build ../djrust ($$DJRUST_DIR) into public/djrust/djwasm.wasm (git-ignored;
-#                      tests and the page's local fallback)
+#   djrust-wasm        build ../djrust ($$DJRUST_DIR) into public/djrust/djwasm.wasm (committed;
+#                      a non-pinned build fails check-djrust-pin while source is bundled)
 #   djrust-pin         same, and re-pin pin.js + the glue to that build
 #   djrust-publish     publish the pinned version to npm (needs npm login), then verify jsDelivr
 #   check-djrust-pin   offline: vendored glue = the pin (part of make test)
@@ -247,6 +248,14 @@ djrust-wasm:
 
 djrust-pin:
 	@DJRUST_DIR=$(DJRUST_DIR) ./scripts/build-djrust-wasm.sh --pin
+
+# Flip where the page loads djwasm from (pin.js `source`): bundled = the committed
+# public/djrust/djwasm.wasm, cdn = jsDelivr at the pinned version (run djrust-verify-cdn first).
+djrust-use-bundled:
+	@node scripts/djrust-pin.mjs use bundled
+djrust-use-cdn: djrust-verify-cdn
+	@node scripts/djrust-pin.mjs use cdn
+.PHONY: djrust-use-bundled djrust-use-cdn
 
 djrust-publish: djrust-wasm
 	@$(DJRUST_DIR)/cabi/publish.sh

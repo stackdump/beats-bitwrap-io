@@ -765,9 +765,9 @@ try {
     const d = await run(cdp, 'genre=techno&seed=42');
     check('djrust: the module is running in the worklet (engine name + module info)',
         d.engine === 'djrust' && d.info && d.info.abi === 1, JSON.stringify({ engine: d.engine, info: d.info, err: d.err, viaModule: d.viaModule }));
-    // Before the pinned version is on npm the CDN 404s and the local build plays; after, the CDN.
-    check('djrust: the module came from the pinned CDN version or the local build',
-        /^cdn djwasm@\d+\.\d+\.\d+$|^local$/.test(d.source || ''), d.source);
+    // pin.js `source`: "bundled" = the committed file (SRI-checked), "cdn" = jsDelivr, then the local file.
+    check('djrust: the module came from the pinned source (bundled / CDN / local)',
+        /^(bundled|cdn) djwasm@\d+\.\d+\.\d+$|^local$/.test(d.source || ''), d.source);
     check('djrust: transport playing, ticks reach the page', d.playing && d.tick > 8, `tick ${d.tick}, ctx ${d.ctxState}`);
     check('djrust: marking reaches the canvas state', d.markingSeen);
     check('djrust: worklet output is not silent', d.peak > 0.01, `peak ${d.peak?.toFixed(3)}`);

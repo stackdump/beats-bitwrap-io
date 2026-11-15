@@ -15,7 +15,6 @@ __pycache__/
 # macro-audio harness failure artifacts
 test-out/
 
-# djrust engine local build (make djrust-wasm); production loads the pinned npm version, public/djrust/pin.js
-public/djrust/djwasm.wasm
+# public/djrust/djwasm.wasm is committed (pin.js source "bundled"); make djrust-wasm overwrites it with a local build
 # frozen djwasm 0.2.0 (wasm + its glue) for gates that run it beside the pin: scripts/djrust-ref.mjs fetch
 /.djrust-ref/

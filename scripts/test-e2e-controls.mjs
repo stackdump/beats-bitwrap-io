@@ -82,7 +82,7 @@ const VIS = `
 
 // ---------- CDP plumbing ----------
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const chrome = spawn('google-chrome', [
+const chrome = spawn(process.env.CHROME || 'google-chrome', [
   '--headless=new', `--remote-debugging-port=${PORT}`,
   `--user-data-dir=/tmp/beats-e2e-prof-${process.pid}`,
   '--autoplay-policy=no-user-gesture-required',

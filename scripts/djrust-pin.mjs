@@ -8,8 +8,12 @@
 //
 //   node scripts/djrust-pin.mjs pin <pkg dir>   write pin.js from a built package (cabi/pkg) and
 //                                               copy its loader.js / worklet.js
-//   node scripts/djrust-pin.mjs check           offline: the vendored glue (and djwasm.wasm, when
-//                                               present) are the bytes the pin names
+//   node scripts/djrust-pin.mjs check           offline: the vendored glue and, when source is
+//                                               "bundled", djwasm.wasm are the bytes the pin names
+//   node scripts/djrust-pin.mjs use bundled|cdn flip where the page loads the module from:
+//                                               bundled = public/djrust/djwasm.wasm, served with
+//                                               the site (SRI-checked); cdn = jsDelivr (needs the
+//                                               pinned version published; `verify` first)
 //   node scripts/djrust-pin.mjs verify          online: jsDelivr serves the pinned bytes
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,26 +32,43 @@ export function readPin() {
     return JSON.parse(text.slice(i + 'export default '.length).replace(/;\s*$/, ''));
 }
 
+function writePin(p) {
+    writeFileSync(pinPath,
+        '// The djwasm module ?engine=djrust loads, pinned by hash. `source` says where from:\n' +
+        '//   "bundled": public/djrust/djwasm.wasm, committed and served with the site;\n' +
+        '//   "cdn":     the exact npm version on jsDelivr (url below), with the local file as fallback.\n' +
+        '// Either way the fetch carries `integrity` (SRI), so a changed file refuses to load.\n' +
+        '// Written by `node scripts/djrust-pin.mjs pin|use`; held by `make check-djrust-pin` (offline)\n' +
+        '// and `make djrust-verify-cdn` (online). Never a range or latest.\n' +
+        'export default ' + JSON.stringify(p, null, 4) + ';\n');
+}
+
+function use(source) {
+    if (source !== 'bundled' && source !== 'cdn') { console.error('usage: djrust-pin.mjs use bundled|cdn'); process.exit(2); }
+    const p = readPin();
+    writePin({ ...p, source });
+    console.log(`djwasm@${p.version} now loads from ${source}`);
+}
+
 function pin(pkgDir) {
     const h = JSON.parse(readFileSync(join(pkgDir, 'hashes.json'), 'utf8'));
     const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
     if (h.package !== 'djwasm' || pkg.version !== h.version) throw new Error('not a djwasm package dir');
     for (const f of GLUE) copyFileSync(join(pkgDir, f), join(dir, f));
+    copyFileSync(join(pkgDir, 'djwasm.wasm'), join(dir, 'djwasm.wasm'));
+    const keep = existsSync(pinPath) ? readPin().source : undefined;
     const w = h.files['djwasm.wasm'];
     const p = {
         package: 'djwasm',
         version: h.version,
+        source: keep || 'bundled',
         url: `https://cdn.jsdelivr.net/npm/djwasm@${h.version}/djwasm.wasm`,
         integrity: w.integrity,
         sha256: w.sha256,
         bytes: w.bytes,
         glue: Object.fromEntries(GLUE.map((f) => [f, h.files[f].sha256])),
     };
-    writeFileSync(pinPath,
-        '// The djwasm module ?engine=djrust loads: an exact npm version on jsDelivr, fetched with this\n' +
-        '// SRI hash (a changed file refuses to load). Written by `node scripts/djrust-pin.mjs pin`; held by\n' +
-        '// `make check-djrust-pin` (offline) and `make djrust-verify-cdn` (online). Never a range or latest.\n' +
-        'export default ' + JSON.stringify(p, null, 4) + ';\n');
+    writePin(p);
     console.log(`pinned djwasm@${p.version} ${p.sha256}`);
 }
 
@@ -58,11 +79,15 @@ function check() {
         const have = sha256(readFileSync(join(dir, f)));
         if (have !== p.glue[f]) { console.error(`${f} is not djwasm@${p.version}'s (${have}); never edit it here, change cabi/js in djrust and re-pin`); bad++; }
     }
+    if (p.source !== 'bundled' && p.source !== 'cdn') { console.error(`pin: source must be "bundled" or "cdn", not ${p.source}`); bad++; }
     const local = join(dir, 'djwasm.wasm');
     if (existsSync(local)) {
         const b = readFileSync(local);
-        if (sha256(b) !== p.sha256) console.log(`note: local djwasm.wasm (${sha256(b).slice(0, 12)}) is not the pinned build; the page prefers the CDN`);
-    }
+        if (sha256(b) !== p.sha256 || sri(b) !== p.integrity) {
+            if (p.source === 'bundled') { console.error(`djwasm.wasm (${sha256(b).slice(0, 12)}) is not the pinned build ${p.sha256.slice(0, 12)}`); bad++; }
+            else console.log(`note: local djwasm.wasm (${sha256(b).slice(0, 12)}) is not the pinned build; the page prefers the CDN`);
+        }
+    } else if (p.source === 'bundled') { console.error('source is "bundled" but public/djrust/djwasm.wasm is missing'); bad++; }
     if (!/^sha384-[A-Za-z0-9+/]{64}$/.test(p.integrity) || !/^\d+\.\d+\.\d+$/.test(p.version)) { console.error('pin: integrity / version malformed'); bad++; }
     if (p.url !== `https://cdn.jsdelivr.net/npm/djwasm@${p.version}/djwasm.wasm`) { console.error('pin: url does not name the pinned version'); bad++; }
     if (bad) process.exit(1);
@@ -89,7 +114,8 @@ async function verify() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const [cmd, arg] = process.argv.slice(2);
     if (cmd === 'pin' && arg) pin(arg);
+    else if (cmd === 'use') use(arg);
     else if (cmd === 'check') check();
     else if (cmd === 'verify') await verify();
-    else { console.error('usage: djrust-pin.mjs pin <pkg dir> | check | verify'); process.exit(2); }
+    else { console.error('usage: djrust-pin.mjs pin <pkg dir> | use bundled|cdn | check | verify'); process.exit(2); }
 }

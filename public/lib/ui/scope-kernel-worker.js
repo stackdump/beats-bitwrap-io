@@ -27,6 +27,7 @@
 
 import { instantiate } from '../../djrust/loader.js';
 import PIN from '../../djrust/pin.js';
+import { wasmTries } from '../../djrust/sources.js';
 
 export const KERNEL_SR = 44100;
 export const KERNEL_FRAMES = 32768;     // = scope-model FFT_N: 0.743 s per hit
@@ -86,12 +87,7 @@ export async function kernelSha256(left, right) {
 // The module, as public/djrust/node.js fetches it: the pinned CDN copy with its
 // SRI hash, else the local build beside loader.js; `wasmUrl` replaces both.
 async function fetchWasm(override) {
-    const tries = override
-        ? [{ url: override, init: { cache: 'no-cache' }, source: 'override' }]
-        : [
-            { url: PIN.url, init: { integrity: PIN.integrity, mode: 'cors', credentials: 'omit' }, source: `cdn djwasm@${PIN.version}` },
-            { url: new URL('../../djrust/djwasm.wasm', import.meta.url), init: { cache: 'no-cache' }, source: 'local' },
-        ];
+    const tries = wasmTries(PIN, new URL('../../djrust/djwasm.wasm', import.meta.url), override);
     const errs = [];
     for (const t of tries) {
         try {

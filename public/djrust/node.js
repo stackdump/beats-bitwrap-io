@@ -13,24 +13,19 @@
  * `opts.processorOptions` is passed to the processor ({project, play, tempo, quiet}: load and
  * start at construction, for offline renders).
  *
- * Where djwasm.wasm comes from: the pinned `djwasm` npm version on jsDelivr, fetched with its SRI
- * hash (pin.js), so pflow.dev never builds Rust. When that fails (offline, CDN down, a hash
- * mismatch) a local build beside this file is tried (`make djrust-wasm`, git-ignored; same
- * origin). `opts.wasmUrl` replaces both (`?djrust-wasm=URL` on the page sets it, which the
+ * Where djwasm.wasm comes from: pin.js `source`. "bundled": the file beside this one, committed and
+ * served with the site, fetched with the pin's SRI. "cdn": the pinned `djwasm` npm version on
+ * jsDelivr with SRI, then the local file (sources.js). pflow.dev never builds Rust. `opts.wasmUrl` replaces both (`?djrust-wasm=URL` on the page sets it, which the
  * browser test uses to prove the fallback). `handle.wasmSource` says which one loaded.
  */
 
 import PIN from './pin.js';
+import { wasmTries } from './sources.js';
 
 const READY_TIMEOUT_MS = 10000;
 
 async function fetchWasm(override) {
-    const tries = override
-        ? [{ url: override, init: { cache: 'no-cache' }, source: 'override' }]
-        : [
-            { url: PIN.url, init: { integrity: PIN.integrity, mode: 'cors', credentials: 'omit' }, source: `cdn djwasm@${PIN.version}` },
-            { url: new URL('./djwasm.wasm', import.meta.url), init: { cache: 'no-cache' }, source: 'local' },
-        ];
+    const tries = wasmTries(PIN, new URL('./djwasm.wasm', import.meta.url), override);
     const errs = [];
     for (const t of tries) {
         try {
