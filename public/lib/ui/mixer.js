@@ -286,26 +286,7 @@ function bindMixerEvents(el) {
             const select = row?.querySelector('.pn-mixer-instrument');
             if (select) select.value = next;
 
-            const targetIds = riffGroup
-                ? Object.keys(el._project.nets).filter(id => el._project.nets[id].riffGroup === riffGroup)
-                : [netId];
-
-            for (const tid of targetIds) {
-                const n = el._project.nets[tid];
-                if (n) {
-                    const ch = n.track?.channel || 1;
-                    n.track.instrument = next;
-                    el._channelInstruments[ch] = next;
-                    if (el._toneStarted) await audioHost.loadInstrument(ch, next);
-                }
-            }
-            const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
-            if (fireBtn) {
-                const label = next === 'unbound'
-                    ? prettifyInstrumentName(netId)
-                    : (oneShotSpec(next)?.label || prettifyInstrumentName(next));
-                fireBtn.textContent = `Fire ${label}`;
-            }
+            await changeInstrument(el, netId, riffGroup, next);
             return;
         }
         const row = e.target.closest('.pn-mixer-row');
@@ -375,34 +356,7 @@ function bindMixerEvents(el) {
         if (instSelect) {
             const netId = instSelect.dataset.netId;
             const riffGroup = instSelect.dataset.riffGroup;
-            const instrument = instSelect.value;
-
-            const targetIds = riffGroup
-                ? Object.keys(el._project.nets).filter(id => el._project.nets[id].riffGroup === riffGroup)
-                : [netId];
-
-            for (const tid of targetIds) {
-                const net = el._project.nets[tid];
-                if (net) {
-                    const ch = net.track?.channel || 1;
-                    net.track.instrument = instrument;
-                    el._channelInstruments[ch] = instrument;
-                    if (el._toneStarted) await audioHost.loadInstrument(ch, instrument);
-                }
-            }
-            // Mirror the swap to the backend so server-authoritative state
-            // tracks the dropdown and the change fans out to other clients.
-            // Worker-mode backends don't have an instrument-change handler,
-            // so the post is a no-op there. Sent after the local load so
-            // playback never stalls on the round-trip.
-            el._sendWs({ type: 'instrument-change', netId, riffGroup: riffGroup || '', instrument });
-            const fireBtn = el.querySelector(`.pn-os-fire[data-macro="${netId}"]`);
-            if (fireBtn) {
-                const label = instrument === 'unbound'
-                    ? prettifyInstrumentName(netId)
-                    : (oneShotSpec(instrument)?.label || prettifyInstrumentName(instrument));
-                fireBtn.textContent = `Fire ${label}`;
-            }
+            await changeInstrument(el, netId, riffGroup, instSelect.value);
             return;
         }
     });
@@ -791,6 +745,43 @@ export function mixerSlidersHtml(netId, isPercussion) {
                 <input type="range" class="pn-mixer-slider pn-mixer-decay" data-net-id="${netId}" data-default="${decDefault}" min="5" max="300" value="${decDefault}" aria-label="${netId} envelope decay" title="Envelope decay">
             </div>
             `;
+}
+
+/**
+ * Play `netId` (or, with `riffGroup`, every net of that group: a grouped
+ * mixer row) on `instrument`: the dropdown and its » rotate button. The
+ * project the page holds is changed in place (a later load of it carries the
+ * instrument), then the change goes out as 'instrument-change': the djrust
+ * engine plays it live when it reports INSTRUMENT (lib/backend/wave.js
+ * routeToWave), the worker keeps its project in step, and a server backend
+ * fans it out to other clients. Returns the net ids changed.
+ */
+export async function changeInstrument(el, netId, riffGroup, instrument) {
+    const nets = el._project?.nets || {};
+    const targetIds = riffGroup
+        ? Object.keys(nets).filter(id => nets[id].riffGroup === riffGroup)
+        : [netId];
+    const changed = [];
+    for (const tid of targetIds) {
+        const net = nets[tid];
+        if (!net) continue;
+        const ch = net.track?.channel || 1;
+        net.track = net.track || {};
+        net.track.instrument = instrument;
+        if (el._channelInstruments) el._channelInstruments[ch] = instrument;
+        changed.push(tid);
+        if (el._toneStarted) await audioHost.loadInstrument(ch, instrument);
+    }
+    // Sent after the local change so playback never waits on a round-trip.
+    el._sendWs({ type: 'instrument-change', netId, riffGroup: riffGroup || '', instrument });
+    const fireBtn = el.querySelector?.(`.pn-os-fire[data-macro="${netId}"]`);
+    if (fireBtn) {
+        const label = instrument === 'unbound'
+            ? prettifyInstrumentName(netId)
+            : (oneShotSpec(instrument)?.label || prettifyInstrumentName(instrument));
+        fireBtn.textContent = `Fire ${label}`;
+    }
+    return changed;
 }
 
 export function createMixerRow(el, id, instruments) {

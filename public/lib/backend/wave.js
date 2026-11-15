@@ -38,11 +38,20 @@
 //                   the default sound is djwasm 0.2.0's. A render page (the
 //                   farm, isRenderPage) takes no share groove at all.
 //
+//   INSTRUMENT      the mixer's instrument dropdown (and its » rotate, and
+//                   Shuffle's instruments-changed) is a live change: 'instrument-change' {netId, riffGroup,
+//                   instrument} is expanded to the nets it names (a riff
+//                   group's every net, as the mixer does) and posted as
+//                   {type:'instrument', netId, instrument} per net; the
+//                   worker still gets the message, so its project (and every
+//                   project-sync after) carries the new instrument. Without
+//                   the bit nothing is posted and engine-gaps keeps the
+//                   dropdown a label.
+//
 // The engine's tempo (a tempo macro moves it) comes back on the wave-tick and
 // is shown, never posted back. Not routed to the engine yet (rebuild items,
 // docs/MIGRATION-djrust-wasm.md §12): master / aux macros (djwasm 0.4.0),
-// loop regions, live transpose, instrument change, per-channel mixer
-// settings, master FX.
+// loop regions, live transpose, per-channel mixer settings, master FX.
 //
 // Page-side clock consumers (R-2): Auto-DJ's cadence and the repeating
 // one-shots are fed from every wave-tick (feedWaveTick), not from the
@@ -387,8 +396,46 @@ export function routeToWave(el, msg) {
     case 'mute':
         if (el._wave) el._wave.then(w => w.post(msg)).catch(() => {});
         return false;
+    case 'instrument-change':
+        if (msg.instrument) {
+            const ids = instrumentTargets(el._project, msg.netId, msg.riffGroup);
+            engineSetInstruments(el, Object.fromEntries(ids.map(id => [id, msg.instrument])));
+        }
+        return false; // the worker keeps its project in step
     }
     return false;
+}
+
+/**
+ * Play `{netId: instrument}` live (FEATURE.INSTRUMENT): one {type:'instrument'}
+ * per net. Used by the mixer's 'instrument-change' and Shuffle's
+ * instruments-changed (lib/project/sync.js onInstrumentsChanged). With no
+ * engine yet there is nothing to tell: the page's project already carries the
+ * instruments and the engine is made from it (ensureWave loads
+ * el._waveProject). Returns the number of nets posted.
+ */
+export function engineSetInstruments(el, instruments) {
+    if (!el._wave || !engineHas(el, FEATURE.INSTRUMENT)) return 0;
+    let n = 0;
+    for (const [netId, instrument] of Object.entries(instruments || {})) {
+        if (!instrument || el._project?.nets?.[netId]?.role === 'control') continue;
+        wavePost(el, { type: 'instrument', netId, instrument });
+        n++;
+    }
+    return n;
+}
+
+/**
+ * The nets an instrument change names: every net of `riffGroup` when one is
+ * given (the mixer's grouped row), else `netId` alone. Control nets have no
+ * voice and are left out.
+ */
+export function instrumentTargets(project, netId, riffGroup) {
+    const nets = project?.nets || {};
+    const ids = riffGroup
+        ? Object.keys(nets).filter(id => nets[id]?.riffGroup === riffGroup)
+        : (nets[netId] ? [netId] : []);
+    return ids.filter(id => nets[id]?.role !== 'control');
 }
 
 /** Called on every project-sync from the worker. */

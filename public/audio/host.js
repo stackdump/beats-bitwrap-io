@@ -192,7 +192,10 @@ class AudioHost {
 
     // --- Not on djrust yet (rebuild items; each is a named no-op) ---------
 
-    loadInstrument(_ch, _name) { notYet('instrument change'); return Promise.resolve(); }
+    // An instrument change is the engine's (djw_set_instrument, routed by
+    // lib/backend/wave.js 'instrument-change'): there is nothing to load here.
+    // On a module without it the dropdown is a label (lib/ui/engine-gaps.js).
+    loadInstrument(_ch, _name) { return Promise.resolve(); }
     preloadInstrument() { return Promise.resolve(); }
     promotePooledInstrument() { return true; }
     clearPool() {}

@@ -8,7 +8,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
         test-djrust-golden test-djrust-neutral test-djrust-cpu djrust-ref cid-freeze \
         test-djrust-node test-scope-kernels test-insert-render test-wave-tick-feed test-crop \
         test-djwasm-030 test-djwasm-030-browser test-djrust-newglue \
-        probe-djrust-gaps test-djrust-page-macros test-djrust-render-freeze \
+        probe-djrust-gaps test-djrust-page-macros test-djrust-page-instrument test-djrust-render-freeze \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
 build:
@@ -300,6 +300,13 @@ probe-djrust-gaps: build
 test-djrust-page-macros:
 	@node --no-warnings scripts/test-djrust-page-macros.mjs $(PAGE_MACROS_ARGS)
 
+#   test-djrust-page-instrument  scripts/test-djrust-page-instrument.mjs (Node only: the live instrument
+#                              change, R-5: engine gaps, mixer / Shuffle routing, the worker's project,
+#                              and page -> worklet -> djwasm on a module with INSTRUMENT; on one without
+#                              it only the no-op half runs); part of test-djrust-node
+test-djrust-page-instrument:
+	@node --no-warnings scripts/test-djrust-page-instrument.mjs
+
 test-djrust-render-freeze:
 	@node --no-warnings scripts/test-djrust-render-freeze.mjs --skip-missing $(RENDER_FREEZE_ARGS)
 
@@ -336,7 +343,8 @@ cid-freeze:
 #   test-wave-tick-feed  wave-tick feeds Auto-DJ / repeating one-shots once per tick; worker mutes yield
 #                        to the engine's (no wasm needed)
 #   test-crop            crop through the real worker + handleWsMessage + djwasm, swapped at the bar
-test-djrust-node: test-scope-kernels test-insert-render test-wave-tick-feed test-crop test-djrust-page-macros
+test-djrust-node: test-scope-kernels test-insert-render test-wave-tick-feed test-crop test-djrust-page-macros \
+                  test-djrust-page-instrument
 
 test-scope-kernels:
 	@node --no-warnings scripts/test-scope-kernels.mjs --skip-missing
