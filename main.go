@@ -33,6 +33,7 @@ import (
 	"beats-bitwrap-io/internal/bench"
 	"beats-bitwrap-io/internal/telemetry"
 	"beats-bitwrap-io/internal/deploy"
+	"beats-bitwrap-io/internal/devserve"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/index"
 	mcpserver "beats-bitwrap-io/internal/mcp"
@@ -85,6 +86,9 @@ func main() {
 	maxStoreBytes := flag.Int64("max-store-bytes", 256<<20, "hard cap on total share-store bytes on disk")
 	putPerMin := flag.Int("put-per-min", 10, "per-IP PUT rate limit (requests per minute)")
 	globalPutPerMin := flag.Int("global-put-per-min", 120, "global PUT rate limit across all IPs (0 = disabled)")
+	// dev: https for the LAN (an AudioWorklet needs a secure context)
+	tlsCert := flag.String("tls-cert", "", "serve https with this certificate (PEM); needs -tls-key (scripts/dev-cert.sh)")
+	tlsKey := flag.String("tls-key", "", "the key for -tls-cert (PEM)")
 
 	// --- Server-side audio render flags ---
 	audioEnabled := flag.Bool("audio-render", false, "Enable /audio/{cid}.webm endpoint (requires headless Chromium on PATH).")
@@ -749,7 +753,12 @@ func main() {
 	handler := http.Handler(cors)
 	handler = recoverMiddleware(handler)
 
+	tlsConfig, err := devserve.TLSConfig(*tlsCert, *tlsKey)
+	if err != nil {
+		log.Fatalf("tls: %v", err)
+	}
 	server := &http.Server{
+		TLSConfig:    tlsConfig,
 		Addr:         *addr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
@@ -763,9 +772,21 @@ func main() {
 		if *authoring {
 			log.Printf("Authoring mode ON: /api/*, /ws, MIDI flags active")
 		}
-		log.Printf("Listening on %s", *addr)
-		fmt.Printf("beats-bitwrap-io → http://localhost%s\n", *addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		scheme := "http"
+		if tlsConfig != nil {
+			scheme = "https"
+		}
+		log.Printf("Listening on %s (%s)", *addr, scheme)
+		host := *addr
+		if strings.HasPrefix(host, ":") {
+			host = "localhost" + host
+		}
+		fmt.Printf("beats-bitwrap-io → %s://%s\n", scheme, host)
+		serve := server.ListenAndServe
+		if tlsConfig != nil {
+			serve = func() error { return server.ListenAndServeTLS("", "") }
+		}
+		if err := serve(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()

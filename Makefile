@@ -2,7 +2,7 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
+.PHONY: build run dev dev-lan clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
         djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
         test-djrust-golden test-djrust-neutral test-djrust-cpu djrust-ref cid-freeze \
@@ -19,6 +19,19 @@ run: build
 
 dev:
 	go run -ldflags "-X main.version=$(VERSION)" . -addr $(ADDR) -public public
+
+# The studio over https on the LAN: an AudioWorklet (the djrust engine) needs a secure context and a
+# LAN address over plain http is not one. scripts/dev-cert.sh makes a local CA and a server
+# certificate; trust the CA once per device.
+#   make dev-lan LAN_IP=192.168.1.243 [LAN_PORT=18443]
+LAN_PORT ?= 18443
+DEV_CERT_DIR ?= $(HOME)/.config/beats-dev-cert
+dev-lan:
+	@test -n "$(LAN_IP)" || { echo "LAN_IP=<this machine's LAN address> is needed"; exit 2; }
+	@BEATS_DEV_CERT_DIR=$(DEV_CERT_DIR) scripts/dev-cert.sh $(LAN_IP)
+	@echo "open https://$(LAN_IP):$(LAN_PORT)/"
+	go run -ldflags "-X main.version=$(VERSION)" . -addr $(LAN_IP):$(LAN_PORT) -public public \
+	  -tls-cert $(DEV_CERT_DIR)/server.pem -tls-key $(DEV_CERT_DIR)/server-key.pem
 
 # --- Bazel (Bzlmod, hermetic — opt-in alongside `go build`) ---
 # `make build` deliberately stays on `go build`: it emits ./$(BINARY) at the

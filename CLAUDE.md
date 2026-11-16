@@ -288,6 +288,7 @@ The archived `petri-note.git` repo's functionality lives here under `-authoring`
 make build   # Build Go binary (embeds public/)
 make run     # Build and serve embedded files on :8089
 make dev     # Serve public/ from disk on :8089 — needed when iterating on JS/CSS
+make dev-lan LAN_IP=<this machine's LAN address>  # https on the LAN (scripts/dev-cert.sh makes a local CA + server cert; trust ca.pem once per device). An AudioWorklet needs a secure context, and a LAN address over plain http is not one.
 ```
 
 Requires Go 1.22+. No npm, no node_modules, no bundler. Embedded build is right for production; `make dev` is faster for iteration.
