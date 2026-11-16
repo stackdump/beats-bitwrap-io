@@ -252,6 +252,11 @@ section('engine-gaps');
     record(`${sel} ${runsMacros ? 'shown (NET_MACROS)' : 'hidden'}`, (await evalx(shown(sel))) === runsMacros);
   }
   for (const sel of alwaysOff) record(`${sel} hidden`, (await evalx(shown(sel))) === false);
+  // The instrument dropdown and » are live only on a module with INSTRUMENT (djw_set_instrument).
+  const INSTRUMENT = 2048; // public/djrust/loader.js FEATURE.INSTRUMENT
+  const liveInst = (features & INSTRUMENT) !== 0;
+  const instLive = await evalx(`(function(){ const n = __el.querySelector('.pn-mixer-instrument'); return !!n && getComputedStyle(n).pointerEvents !== 'none'; })()`);
+  record(`.pn-mixer-instrument ${liveInst ? 'live (INSTRUMENT)' : 'a label'}`, instLive === liveInst);
   record('master volume shown', (await evalx(shown('.pn-effects-panel .pn-fx-group:first-child'))) === true);
   if (!runsMacros) {
     await evalx(`__el._fireMacro('cut')`);

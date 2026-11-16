@@ -297,10 +297,14 @@ const deepEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 async function sectionKeys(mod) {
     const dj = mod.loader.instantiateSync(mod.module);
-    check('keys: djw_features is 0x3F (SEEK NET_MACROS CONTROL_MACROS GROOVE FRAME_CLOCK EVENTS)', dj.features === 63, `features ${dj.features}`);
+    // 0.3.0's six bits, always; a later module adds bits (INSTRUMENT 2048 after 0.3.0), never
+    // takes one away, and its key table differs from the spec's only in `build` (= its mask)
+    check('keys: djw_features has 0x3F (SEEK NET_MACROS CONTROL_MACROS GROOVE FRAME_CLOCK EVENTS); later bits are additive',
+        (dj.features & 63) === 63, `features ${dj.features}`);
     const k = dj.keys();
-    check('keys: djw_keys equals the 0.3.0 spec table', deepEq(k, SPEC_KEYS),
-        deepEq(k, SPEC_KEYS) ? '' : JSON.stringify(Object.keys(SPEC_KEYS).filter((x) => !deepEq(k[x], SPEC_KEYS[x]))));
+    const spec = { ...SPEC_KEYS, build: dj.features };
+    check('keys: djw_keys equals the 0.3.0 spec table (build = the module\'s mask)', deepEq(k, spec) && k.build === dj.features,
+        deepEq(k, spec) ? '' : JSON.stringify(Object.keys(spec).filter((x) => !deepEq(k[x], spec[x]))));
     check('keys: double-drop is mask bit 4 and beat-repeat bit 5 (enum order)', k.macros.net.indexOf('double-drop') === 4 && k.macros.net.indexOf('beat-repeat') === 5);
     check('keys: the loader exports the same FEATURE / FLAG / error codes',
         deepEq(mod.loader.FEATURE, SPEC_KEYS.features) && deepEq(mod.loader.FLAG, SPEC_KEYS.flags)

@@ -633,6 +633,21 @@ self.onmessage = function(e) {
             break;
         }
 
+        // The mixer's instrument dropdown (lib/ui/mixer.js changeInstrument):
+        // keep this project in step, so a later project-sync (an edit, an
+        // arrange) carries the instrument the page and the engine play.
+        case 'instrument-change': {
+            if (!project || !msg.instrument) break;
+            const ids = msg.riffGroup
+                ? Object.keys(project.nets).filter(id => project.nets[id].riffGroup === msg.riffGroup)
+                : [msg.netId];
+            for (const id of ids) {
+                const t = project.nets[id]?.track;
+                if (t) t.instrument = msg.instrument;
+            }
+            break;
+        }
+
         case 'shuffle-instruments': {
             if (!project) break;
             const instruments = shuffleInstruments(project, msg.seed || 0);

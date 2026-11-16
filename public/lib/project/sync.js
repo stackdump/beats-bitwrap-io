@@ -14,6 +14,7 @@ import { injectTransitionNet } from '../macros/runtime.js';
 import { clearLocalMacroState } from '../macros/effects.js';
 import { stageOnProjectSync } from '../ui/stage.js';
 import { scopeOnProject } from '../ui/scope.js';
+import { engineSetInstruments } from '../backend/wave.js';
 
 export function applyProjectInstruments(el, project) {
     const nets = project.nets || {};
@@ -293,6 +294,10 @@ export function onInstrumentsChanged(el, instruments) {
             }
         }
     }
+
+    // The djrust engine plays them from the next block (when it reports
+    // INSTRUMENT; else the next load of this project carries them).
+    engineSetInstruments(el, instruments);
 
     el._renderMixer();
     el._reapplyChannelRoutings();

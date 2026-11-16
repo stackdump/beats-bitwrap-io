@@ -19,8 +19,18 @@
 // page knows the mask (the module is fetched and asked), it is 0. The Beats
 // pads (hit1-hit4) are page work (stinger mutes) and run on every engine, so
 // they are never a gap (catalog.js macroRunnable).
+//
+// A gap with `unlessFeature` closes when the module reports that bit: the
+// mixer's instrument dropdown is live on a module with INSTRUMENT (2048,
+// djw_set_instrument; lib/backend/wave.js routes 'instrument-change' to it)
+// and a disabled label on djwasm 0.3.0.
 
 import { MACROS, engineRunsMacro, macroRunnable, autoDjPoolLive } from '../macros/catalog.js';
+
+// djw_features bit of the live instrument change (public/djrust/loader.js FEATURE.INSTRUMENT).
+// Spelled out, not imported: the loader is the package's vendored glue and this file stays
+// importable without it.
+const INSTRUMENT = 2048;
 
 export const ENGINE_GAPS = [
     { id: 'macros',        selectors: ['.pn-macros-btn', '.pn-macros-panel', '.pn-macro-panic'], whenNoMacros: true,
@@ -31,10 +41,11 @@ export const ENGINE_GAPS = [
       why: 'reverb, delay, drive, pitch, filters, phaser, crush were Tone nodes; djrust fx::master_chain is not exported by djwasm (master volume stays: it is the host gain)' },
     { id: 'channel-strip', selectors: ['.pn-mixer-slider-group'],
       why: 'per-channel pan / volume / HP / LP / decay were Tone channel strips; needs per-lane voice settings in djwasm' },
-    { id: 'instrument-tone', selectors: ['.pn-mixer-test', '.pn-mixer-save', '.pn-mixer-tone-reset', '.pn-mixer-tone-prev', '.pn-mixer-tone-next', '.pn-mixer-rotate'],
+    { id: 'instrument-tone', selectors: ['.pn-mixer-test', '.pn-mixer-save', '.pn-mixer-tone-reset', '.pn-mixer-tone-prev', '.pn-mixer-tone-next'],
       why: 'test note, tone presets and tone randomise edited Tone patches' },
-    { id: 'instrument-change', selectors: [], disable: ['.pn-mixer-instrument'],
-      why: 'djrust plays the instrument named in the loaded project; a live change is not sent to the worklet yet (the dropdown stays as a label)' },
+    // (the » rotate button is an instrument change too: hidden with it, shown with it)
+    { id: 'instrument-change', selectors: ['.pn-mixer-rotate'], disable: ['.pn-mixer-instrument'], unlessFeature: INSTRUMENT,
+      why: 'a live instrument change needs djw_set_instrument (djw_features: INSTRUMENT); without it the engine plays the instrument named in the loaded project and the dropdown stays as a label' },
 ];
 
 const STYLE_ID = 'pn-engine-gaps-style';
@@ -62,6 +73,7 @@ export function gapSelectors(features) {
     const disable = [];
     for (const g of ENGINE_GAPS) {
         if (g.whenNoMacros && !none) continue;
+        if (g.unlessFeature && (features & g.unlessFeature)) continue;
         hide.push(...g.selectors);
         disable.push(...(g.disable || []));
     }
@@ -130,7 +142,8 @@ export function engineGap(id, features = currentFeatures) {
     if (id.startsWith('macro:')) gap = !macroRunnable(id.slice(6), features);
     else {
         const g = ENGINE_GAPS.find(x => x.id === id);
-        gap = !!g && (!g.whenNoMacros || runnableMacros(features).length === 0);
+        gap = !!g && (!g.whenNoMacros || runnableMacros(features).length === 0)
+            && !(g.unlessFeature && (features & g.unlessFeature));
     }
     if (gap && !warned.has(id)) {
         warned.add(id);
