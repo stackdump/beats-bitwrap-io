@@ -2,7 +2,7 @@
   {
     "name": "hand-dubstep-140-v4",
     "title": "hand-dubstep 140, v4",
-    "description": "A whole dubstep track in one program: intro, build with a riser, drop on a wobble bass under a once-a-bar filter, breakdown, second build and drop, half-time, slam and outro. The v2, v3, v4 line; uses defs, accents, slides, seeded humanize and every().",
+    "description": "A whole dubstep track in one program: nine sections from intro to outro. The v2, v3, v4 line adds accents, slides, seeded humanize, every(), a half-time and a slam section; a riser leads into each drop and a wobble bass sits under a once-a-bar filter.",
     "bpm": 140,
     "bars": 68,
     "license": "CC0-1.0",
@@ -17,7 +17,7 @@
   {
     "name": "matrix-130",
     "title": "matrix 130",
-    "description": "A D-phrygian driving track in eight sections (intro, breakin, drive, breakdown, riser, climax, lift, outro) with generated arps, seeded degrade and an evolve in the climax that settles into a cycle.",
+    "description": "A D-phrygian driving track in eight sections with generated arps and an evolve that settles into a cycle. Seeded degrade, defs, a riser into the climax.",
     "bpm": 130,
     "bars": 80,
     "license": "CC0-1.0",
@@ -47,7 +47,7 @@
   {
     "name": "hand-dubstep-140-v2",
     "title": "hand-dubstep 140, v2",
-    "description": "The first whole-track dubstep program: six sections, a riser that opens over eight bars and lands on the drop, a wobble-lead bass under a filter that opens and shuts once a bar. The smallest complete song here.",
+    "description": "The first whole-track dubstep program: six sections and the smallest complete song here. A riser opens over eight bars and lands on the drop; a wobble-lead bass sits under a filter that opens and shuts once a bar.",
     "bpm": 140,
     "bars": 64,
     "license": "CC0-1.0",
@@ -62,7 +62,7 @@
   {
     "name": "markers-demo",
     "title": "markers demo",
-    "description": "A 24-bar program that lights up every kind of marker in the editor: a def, a repeat of filter ramps, an evolve with a stop, and a timed control line. Short, with sections and an arrange.",
+    "description": "A 24-bar program that lights up every kind of marker in the editor. A def, a repeat of filter ramps, an evolve with a stop, a timed control line, sections and an arrange.",
     "bpm": 124,
     "bars": 24,
     "license": "CC0-1.0",

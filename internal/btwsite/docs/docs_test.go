@@ -597,6 +597,9 @@ func TestExamplesAreThePublicCC0Programs(t *testing.T) {
 	cids := map[string]string{}
 	for _, e := range list {
 		names = append(names, e.Name)
+		if first, _, _ := strings.Cut(e.Description, ". "); len(first) > 150 {
+			t.Errorf("%s: the first sentence of the description is %d characters; llms.txt cuts it at 150", e.Name, len(first))
+		}
 		if e.License != "CC0-1.0" || e.Title == "" || len(e.Description) < 40 || e.BPM < 40 || e.Bars < 1 {
 			t.Errorf("%s: incomplete or not CC0: %+v", e.Name, e)
 		}
