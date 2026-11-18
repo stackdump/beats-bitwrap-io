@@ -128,7 +128,8 @@ commits the output in `btwsite/web/wasm/` (pflow.dev has no wasm toolchain; buil
 JS surface (strings in, JSON strings out unless noted):
 ```
 btw_check(text) / btw_fmt(text) / btw_instruments() / btw_open(s) / btw_share(text, sig, notes) / btw_generation(text, scope, n)
-btw_highlight(text) -> JSON [[start16,end16,"class"],…]   classes: comment keyword number note word string punct op deck role param error …
+btw_highlight(text) -> JSON [[start16,end16,"class"],…]   classes (exactly these 14, text order, gaps are whitespace): comment keyword role action deck number step rest generator param operator word string error
+                                       (keyword also covers let/def/section/arrange/evolve/…, action the evolve transforms, string a "quoted" text, param a `vel=` name or a `$x` of a def, error a character the language cannot read)
 btw_cheatsheet() -> string
 class BtwRun {                       // the Live runtime + a host that is a command queue
   constructor()
