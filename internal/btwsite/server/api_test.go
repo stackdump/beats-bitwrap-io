@@ -473,10 +473,16 @@ func TestSecurityHeadersAndCORS(t *testing.T) {
 	r := e.get("/")
 	readAll(t, r)
 	csp := r.Header.Get("Content-Security-Policy")
-	for _, want := range []string{"frame-ancestors 'none'", "'wasm-unsafe-eval'", "worker-src 'self' blob:", "script-src 'self'", "object-src 'none'", "default-src 'self'"} {
+	for _, want := range []string{"frame-ancestors 'none'", "'wasm-unsafe-eval'", "worker-src 'self';", "script-src 'self' 'wasm-unsafe-eval';", "style-src 'self';", "object-src 'none'", "default-src 'self'"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP lacks %q: %s", want, csp)
 		}
+	}
+	if strings.Contains(csp, "blob:") || strings.Contains(csp, "'unsafe-inline'") {
+		t.Errorf("CSP allows blob: or inline (SEC-3 tightened it): %s", csp)
+	}
+	if r.Header.Get("Cross-Origin-Opener-Policy") != "same-origin" {
+		t.Errorf("missing COOP same-origin")
 	}
 	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "unsafe-eval'") && !strings.Contains(csp, "wasm-unsafe-eval") {
 		t.Errorf("CSP lets inline script or eval through: %s", csp)

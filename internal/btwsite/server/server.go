@@ -441,11 +441,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	})
 }
 
-// CSP: the page's own scripts, wasm (the engine), blob: workers and worklets, no inline script, no
-// framing. style-src keeps 'unsafe-inline' for the editor's inline style attributes.
-const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; " +
-	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' blob: data:; " +
-	"font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+// CSP (SEC-3): the page's own scripts and wasm (the engine; 'wasm-unsafe-eval' only), same-origin workers and
+// worklets, no inline script, no inline style markup (the page uses CSSOM, which CSP does not block), no blob: or
+// data: scripts, no framing. The browser smoke run passes under exactly this policy (btwsite/test/smoke.mjs --strict-csp).
+const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; " +
+	"style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; " +
+	"font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	hsts := s.cfg.secureCookie()
@@ -454,6 +455,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Content-Security-Policy", contentSecurityPolicy) // a handler may replace it (the share pages)
 		h.Set("X-Frame-Options", "DENY")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
 		if hsts {
