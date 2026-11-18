@@ -58,10 +58,10 @@ EOS
 artifacts)
   [ -x "$BTWD_LINUX" ] || { echo "no Linux btwd at $BTWD_LINUX (scripts/build-btwd-linux.sh in the Rust worktree)"; exit 1; }
   [ -f "$GO/btwsite/web/wasm/btw_bg.wasm" ] || { echo "no wasm in $GO/btwsite/web/wasm (scripts/build-web-wasm.sh in the Rust worktree)"; exit 1; }
-  rsync -az --chmod=F755 "$BTWD_LINUX" "$HOST:Workspace/btw-bitwrap-io/btwsite/bin/btwd"
+  rsync -az "$BTWD_LINUX" "$HOST:Workspace/btw-bitwrap-io/btwsite/bin/btwd"
   rsync -az --delete "$GO/btwsite/web/wasm/" "$HOST:Workspace/btw-bitwrap-io/btwsite/web/wasm/"
   rsync -az "$GO/btwsite/web/docs/" "$HOST:Workspace/btw-bitwrap-io/btwsite/web/docs/"
-  run bash -c "cd $REMOTE_DIR && sha256sum btwsite/bin/btwd btwsite/web/wasm/btw_bg.wasm && ./btwsite/bin/btwd --version && ls btwsite/web/docs"
+  run "cd $REMOTE_DIR && chmod 755 btwsite/bin/btwd && chmod -R a+rX btwsite/web/docs btwsite/web/wasm && sha256sum btwsite/bin/btwd btwsite/web/wasm/btw_bg.wasm && ./btwsite/bin/btwd --version && ls btwsite/web/docs btwsite/web/wasm"
   ;;
 services)
   run bash -s <<'EOS'
