@@ -2,6 +2,7 @@ beats-bitwrap-io
 *.png
 !docs/*.png
 !public/docs/*.png
+!btwsite/testdata/cards/samples/*.png
 .playwright-mcp/
 data/
 .claude/
