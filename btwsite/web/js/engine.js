@@ -16,7 +16,8 @@
  *   {op:'load_net', deck, envelope}   a raw-nets share envelope. Prepared in a Worker (a second instance of the engine, so
  *                                     the audio thread never compiles), installed in the worklet a few KB per render
  *                                     quantum, and landed on the next bar (at once when the deck is stopped).
- *   {op:'play', deck, on}             waits for the loads that came with it (see ORDER)
+ *   {op:'play', deck, on}             waits for the loads that came with it (see ORDER); a deck that comes in or goes out while
+ *                                     another plays does so on the next bar line, not at once (the runtime asks a bar early)
  *   {op:'sound', deck, role, option}  kit:NAME -> setKit, else setRoleVoice
  *   {op:'call', noun, params}         the registry call: engine-calls.js says which are honoured and which are ignored
  *
@@ -246,7 +247,20 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
 
     function run(it) {
         if (disposed) return;
-        if (it.kind === 'play') node.port.postMessage({ type: 'play', deck: it.deck, on: it.on });
+        if (it.kind === 'play') {
+            // A deck that comes in or goes out while another plays does so on a bar line, not the moment the runtime asks: the
+            // runtime hands over the next section's decks a bar ahead ("it lands on the next bar"). Starting or stopping every deck
+            // at once (the first start, the end of the program) is not quantized.
+            const others = DECKS.filter((d) => d !== it.deck && grid && grid.decks[d] && grid.decks[d].playing);
+            let atBar = false;
+            if (it.on) {
+                atBar = others.length > 0 && !it.batch.startedNow;
+                if (!atBar) it.batch.startedNow = true;
+            } else {
+                atBar = others.some((d) => !it.batch.stops.has(d));
+            }
+            node.port.postMessage({ type: 'play', deck: it.deck, on: it.on, atBar });
+        }
         else if (it.kind === 'sound') post(mapSound(it.deck, it.role, it.option), false);
     }
 
@@ -286,7 +300,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
         /** The commands `BtwRun.service()` / `stop()` return, parsed. */
         apply(commands) {
             if (disposed || !Array.isArray(commands) || !commands.length) return;
-            const batch = { loads: [] };
+            const batch = { loads: [], stops: new Set(), startedNow: false };
             const dropped = [];
             let seq = 0;
             for (const c of commands) {
@@ -310,6 +324,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
                     batch.loads.push(item);
                     queues[deck].push(item);
                 } else if (c.op === 'play') {
+                    if (!c.on) batch.stops.add(deck);
                     queues[deck].push({ kind: 'play', deck, on: !!c.on, batch, seq });
                 } else if (c.op === 'sound') {
                     queues[deck].push({ kind: 'sound', deck, role: c.role, option: c.option, batch });

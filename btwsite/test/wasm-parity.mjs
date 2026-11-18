@@ -375,6 +375,48 @@ async function fakeAudio() {
 }
 
 
+// a deck that a later section brings in, and one that drops out, change on the bar line (the runtime asks a bar early)
+{
+    const fake = await fakeAudio();
+    const { createEngine } = await import(pathToFileURL(path.join(jsDir, 'engine.js')).href);
+    const engine = await createEngine({ context: fake.context, composer: 'main' });
+    const run = new glue.BtwRun();
+    const ev = JSON.parse(run.eval(`#! btw 1
+tempo 200
+section one 1 bars {
+  deck A: kick x ~ x ~
+}
+section two 2 bars {
+  deck A: kick x ~ x ~
+  deck B: bass a2 ~ a2 ~ inst=sub-bass
+}
+section three 1 bars {
+  deck A: kick x ~ x ~
+}
+arrange one two three
+end at bar 4
+`));
+    ok('the transport song checks', ev.ok === true, JSON.stringify(ev.diagnostics));
+    let bOn = null, bOff = null, wasOn = false;
+    const loop = setInterval(() => {
+        engine.apply(JSON.parse(run.service(JSON.stringify(engine.grid()))));
+        const d = engine.decks();
+        const bar = JSON.parse(run.marks()).bar;
+        const on = !!(d && d.B && d.B.playing);
+        if (on && !wasOn && bOn === null) bOn = bar;
+        if (!on && wasOn && bOff === null) bOff = bar;
+        wasOn = on;
+    }, 5);
+    for (let i = 0; i < 400 && !JSON.parse(run.status()).ended; i++) await sleep(25);
+    await sleep(100);
+    clearInterval(loop);
+    ok('deck B started on the bar line of section two (bar 1, not at once a bar early)', bOn !== null && bOn >= 0.99 && bOn < 1.12, `bar ${bOn}`);
+    ok('deck B stopped on the bar line after section two (bar 3)', bOff !== null && bOff >= 2.99 && bOff < 3.12, `bar ${bOff}`);
+    run.free();
+    engine.dispose();
+    fake.stop();
+}
+
 // the same without a composer anywhere (composer: 'inline'): the worklet compiles the net itself, which glitches but plays
 {
     const fake = await fakeAudio();
