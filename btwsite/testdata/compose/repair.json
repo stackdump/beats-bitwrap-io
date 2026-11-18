@@ -1,0 +1,25 @@
+{
+ "name": "repair",
+ "description": "The first answer names a deck that does not exist (deck Z); the checker's diagnostics come back and the second answer is right. Select it with fake-repair in the prompt.",
+ "match": [
+  "fake-repair"
+ ],
+ "steps": [
+  {
+   "text": "# dark techno with an acid line, 24 bars (a recorded answer of the fake model)\ntempo 128\nkey am\nlet kk = x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~\nlet hh = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~\nlet acid = a2 ~ a2 a2 ~ c3 ~ a2 e2 ~ e2 g2 ~ e2 ~ e2\nsection intro 8 bars {\n  deck A: kick kk vel=100 | hihat hh vel=60..85\n  deck B: harmony chord(am) inst=warm-pad len=16 vel=80\n  master: filter lp 400 -> 6000 over 8 bars\n}\nsection drop 16 bars {\n  master: filter off\n  deck Z: kick kk vel=112 | hihat hh vel=70..95 | bass acid inst=wobble-lead\n  deck B: harmony chord(am) inst=warm-pad len=16 vel=80\n}\narrange intro drop\n",
+   "usage": {
+    "in": 2310,
+    "out": 650,
+    "thoughts": 220
+   }
+  },
+  {
+   "text": "# dark techno with an acid line, 24 bars (a recorded answer of the fake model)\ntempo 128\nkey am\nlet kk = x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~\nlet hh = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~\nlet acid = a2 ~ a2 a2 ~ c3 ~ a2 e2 ~ e2 g2 ~ e2 ~ e2\nsection intro 8 bars {\n  deck A: kick kk vel=100 | hihat hh vel=60..85\n  deck B: harmony chord(am) inst=warm-pad len=16 vel=80\n  master: filter lp 400 -> 6000 over 8 bars\n}\nsection drop 16 bars {\n  master: filter off\n  deck A: kick kk vel=112 | hihat hh vel=70..95 | bass acid inst=wobble-lead\n  deck B: harmony chord(am) inst=warm-pad len=16 vel=80\n}\narrange intro drop\n",
+   "usage": {
+    "in": 2890,
+    "out": 640,
+    "thoughts": 150
+   }
+  }
+ ]
+}

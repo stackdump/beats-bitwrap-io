@@ -498,3 +498,37 @@ func TestNoDataDirIsInMemory(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+func TestBeginChecksWindowsThenSpendAndRefusalCostsNoQuota(t *testing.T) {
+	c := newClock("2026-11-17T10:00:00Z")
+	l := mustNew(t, Config{UserHour: 2, UserDay: 10, IPDay: 10, DailySpendUSD: 1.0}, c)
+
+	r, err := l.Begin("u1", "203.0.113.1", 0.6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the cap refuses the second (0.6 is still held): 503, and the user's window is not charged for it
+	e := asAPI(t, func() error { _, err := l.Begin("u1", "203.0.113.1", 0.6); return err }())
+	if e.Code != api.CodeSpendCap || e.Status != 503 {
+		t.Fatalf("%+v", e)
+	}
+	l.mu.Lock()
+	n := len(l.users["u1"])
+	l.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("admissions = %d, want 1: being turned away by the cap must not use the quota", n)
+	}
+	r.Settle(0.1, 1, 1)
+	if _, err := l.Begin("u1", "203.0.113.1", 0.6); err != nil {
+		t.Fatal(err)
+	}
+	// now two admissions in the hour: the window check comes before the cap check
+	e = asAPI(t, func() error { _, err := l.Begin("u1", "203.0.113.1", 0.001); return err }())
+	if e.Code != api.CodeRateLimited {
+		t.Fatalf("order of checks: %+v", e)
+	}
+	// and a request refused by a window holds nothing against the cap
+	if st := l.Stats(); st.ReservedUSD < 0.5999 || st.ReservedUSD > 0.6001 {
+		t.Fatalf("reserved = %v", st.ReservedUSD)
+	}
+}

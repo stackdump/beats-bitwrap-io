@@ -227,13 +227,38 @@ func (l *Limiter) SetEnabled(enabled bool) error {
 // Admit records one compose request against the user's hour and day windows and the IP's day window,
 // or refuses with a 429 and Retry-After. Nothing is recorded on refusal, so a refused request costs no quota.
 func (l *Limiter) Admit(userID, ip string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.admitLocked(userID, ip, nil)
+}
+
+// Begin is Admit plus the spend cap in one step, in the order the contract fixes: user hour, user day,
+// IP day, then the cap. The first model call's worst-case cost est is held against the cap; the caller
+// settles it. A request refused by any of them is recorded nowhere and holds nothing, so being turned away
+// by the cap does not use up the user's quota.
+func (l *Limiter) Begin(userID, ip string, est float64) (*Reservation, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var r *Reservation
+	err := l.admitLocked(userID, ip, func() error {
+		var e error
+		r, e = l.reserveLocked(est)
+		return e
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// admitLocked checks the three windows, then runs last (the spend check) and, only when everything passed,
+// records the admission.
+func (l *Limiter) admitLocked(userID, ip string, last func() error) error {
 	now := l.now()
 	ipKey := ""
 	if ip != "" {
 		ipKey = l.HashIP(ip)
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.calls++
 	if l.calls%256 == 0 {
 		sweep(l.users, now)
@@ -251,6 +276,11 @@ func (l *Limiter) Admit(userID, ip string) error {
 		p = prune(l.ips[ipKey], now)
 		if wait, over := windowFull(p, now, 24*time.Hour, l.cfg.IPDay); over {
 			return rateLimited("per-address daily", l.cfg.IPDay, wait)
+		}
+	}
+	if last != nil {
+		if err := last(); err != nil {
+			return err
 		}
 	}
 	l.users[userID] = append(u, now)
@@ -394,6 +424,10 @@ type Reservation struct {
 func (l *Limiter) Reserve(est float64) (*Reservation, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.reserveLocked(est)
+}
+
+func (l *Limiter) reserveLocked(est float64) (*Reservation, error) {
 	_ = l.rollLocked(false)
 	if l.spendBroke != "" {
 		e := api.Errf(503, api.CodeSpendCap, "compose is closed: its spend record is unreadable")

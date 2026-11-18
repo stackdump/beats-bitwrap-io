@@ -1,0 +1,17 @@
+{
+ "name": "model_error",
+ "description": "The model service fails (HTTP 503 UNAVAILABLE). Select it with fake-error.",
+ "match": [
+  "fake-error"
+ ],
+ "steps": [
+  {
+   "error": {
+    "status": 503,
+    "kind": "upstream",
+    "code": "UNAVAILABLE",
+    "message": "The model is overloaded. Please try again later."
+   }
+  }
+ ]
+}
