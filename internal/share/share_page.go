@@ -338,6 +338,10 @@ func DecoratedIndex(store *Store, publicFS fs.FS, diskDir string) http.Handler {
 		}
 		decorated = replaceTitle(decorated, title)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// The page embeds the payload as JSON-LD; say where the same document is served on its own
+		// (/o/<cid>) and which schema defines its terms, as pflow.xyz does for its documents.
+		w.Header().Add("Link", fmt.Sprintf(`<%s/o/%s>; rel="describedby"; type="application/ld+json"`, origin, cid))
+		w.Header().Add("Link", fmt.Sprintf(`<%s/schema/beats-share>; rel="describedby"; type="application/ld+json"`, origin))
 		// Cache briefly so link-unfurl bots don't thrash the store on
 		// retries, but not immutably — a re-generated card template
 		// should roll out within minutes.
