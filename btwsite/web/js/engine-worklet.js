@@ -24,6 +24,7 @@
  *     {type:'install-failed', id, deck, error}
  *     {type:'warn', message}   a call the engine refused
  *     {type:'error', message}  the engine is gone (a trap): the output is silent from here
+ *     {type:'perf', blocks, slow:[{t, ms, install, bars, render, tick, grid, did}]}   with processorOptions.perf only (test), every second
  */
 
 import './engine-polyfill.js';
@@ -53,6 +54,7 @@ class BtwEngine extends AudioWorkletProcessor {
         this.sinceGrid = 0;
         this.installing = new Map(); // deck -> {id, quanta}
         this.pending = []; // plays waiting for a bar line: {deck, on, leader, last, bar}
+        this.perf = o.perf ? { slow: [], n: 0 } : null; // ?perf=1 (test only): blocks of 3 ms or more on Date.now(), with what they did
         this.port.onmessage = (e) => this.onMessage(e.data);
         if (o.module) {
             try { this.up(o.module); } catch (err) { this.fail(err); }
@@ -175,27 +177,49 @@ class BtwEngine extends AudioWorkletProcessor {
         const dj = this.dj;
         if (!out || !out[0] || !dj) return true;
         const n = out[0].length;
+        const pf = this.perf;
+        let t0 = 0, tI = 0, tB = 0, tR = 0, tT = 0, did = '';
         try {
+            if (pf) t0 = Date.now();
             if (dj.installing()) {
                 const r = dj.install_step(this.budget);
                 for (const m of this.installing.values()) m.quanta++;
-                if (r) this.landed(JSON.parse(r));
+                if (r) { this.landed(JSON.parse(r)); if (pf) did += 'L'; }
+                if (pf) did += 'I';
             }
-            if (this.pending.length) this.bars(dj);
+            if (pf) tI = Date.now();
+            if (this.pending.length) { this.bars(dj); if (pf) did += 'B'; }
+            if (pf) tB = Date.now();
             dj.render(out[0], out[1] || out[0]);
+            if (pf) tR = Date.now();
             this.frames += n;
             this.quanta++;
             this.sinceGrid += n;
-            if (this.quanta % TICK_EVERY === 0) dj.tick();
+            if (this.quanta % TICK_EVERY === 0) { dj.tick(); if (pf) did += 'T'; }
+            if (pf) tT = Date.now();
             if (this.sinceGrid >= GRID_SECONDS * sampleRate) {
                 this.sinceGrid = 0;
                 this.port.postMessage({ type: 'grid', t: currentTime, frame: this.frames, decks: { A: this.deckGrid(dj, 'A'), B: this.deckGrid(dj, 'B') } });
+                if (pf) did += 'G';
             }
+            if (pf) this.perfBlock(t0, tI, tB, tR, tT, did);
         } catch (err) {
             // a trap (a panic in the engine) leaves the instance unusable: go silent and say why
             this.fail(err);
         }
         return true;
+    }
+
+    /** ?perf=1: keep the slow blocks (3 ms or more by Date.now(), which has 1 ms steps) with where the time went, and report them every second. */
+    perfBlock(t0, tI, tB, tR, tT, did) {
+        const pf = this.perf;
+        const end = Date.now();
+        if (end - t0 >= 3) pf.slow.push({ t: currentTime, ms: end - t0, install: tI - t0, bars: tB - tI, render: tR - tB, tick: tT - tR, grid: end - tT, did });
+        if (++pf.n >= sampleRate / QUANTUM) {
+            this.port.postMessage({ type: 'perf', blocks: pf.n, slow: pf.slow });
+            pf.n = 0;
+            pf.slow = [];
+        }
     }
 
     landed(r) {
