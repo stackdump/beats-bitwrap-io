@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -106,4 +108,37 @@ func TestStoredReportsStayUnderOneBudget(t *testing.T) {
 		t.Fatalf("%d bytes accounted for with no sessions", h.bytes)
 	}
 	h.mu.Unlock()
+}
+
+// /api/info is anonymous and open to any origin: why compose is off must not carry the operator's words (the
+// data directory's path, the name of the flag file and of the admin endpoint, environment variables).
+func TestInfoReasonNamesNoPathsOrSettings(t *testing.T) {
+	e := newEnv(t, nil)
+	flag := filepath.Join(e.cfg.DataDir, "compose.off")
+	if err := os.WriteFile(flag, []byte("off"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, off := range []string{"flag file", "environment"} {
+		if off == "environment" {
+			os.Remove(flag)
+			e = newEnv(t, func(c *Config) { c.ComposeEnabled = false })
+		}
+		var info struct {
+			Compose struct {
+				Enabled bool
+				Reason  string
+			}
+		}
+		if st := decode(t, e.get("/api/info"), &info); st != 200 {
+			t.Fatalf("info: %d", st)
+		}
+		if info.Compose.Enabled || info.Compose.Reason == "" {
+			t.Fatalf("%s: compose should be off and say so: %+v", off, info.Compose)
+		}
+		for _, bad := range []string{e.cfg.DataDir, "compose.off", "/api/admin", "BTW_", "GEMINI", "restart", "environment"} {
+			if strings.Contains(info.Compose.Reason, bad) {
+				t.Errorf("%s: the public reason %q names %q", off, info.Compose.Reason, bad)
+			}
+		}
+	}
 }

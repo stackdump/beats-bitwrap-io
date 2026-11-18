@@ -286,7 +286,10 @@ type ComposeStatus struct {
 	IPDay       int     `json:"ip_per_day"`
 	SpentUSD    float64 `json:"spent_today_usd"`
 	DailyCapUSD float64 `json:"daily_cap_usd"`
-	Reason      string  `json:"reason,omitempty"` // why not enabled/configured, in words
+	Reason      string  `json:"reason,omitempty"` // why not enabled/configured, in words: for the operator (admin stats), may name paths and settings
+	// PublicReason is Reason with nothing in it an anonymous visitor should not read (file paths, environment
+	// variable names, the admin endpoint): what /api/info shows.
+	PublicReason string `json:"public_reason,omitempty"`
 }
 
 // ---------- sessions (the browser <-> MCP bridge) ----------

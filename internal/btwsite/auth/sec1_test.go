@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -127,4 +129,31 @@ func mustHex(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// A failure to write tokens.json is the operator's: the caller is not told the data directory or the syscall.
+func TestTokenStoreFailureDoesNotEchoThePath(t *testing.T) {
+	h := newHarness(t, nil)
+	k := newEd(t)
+	c := h.challenge()
+	w := h.do("POST", "/api/auth/login", login("ed25519", k.pub, k.sign(c.Message), c.Nonce))
+	ck := sessionCookie(w)
+	if ck == nil {
+		t.Fatalf("login: %d", w.Code)
+	}
+	if err := os.Chmod(h.dir, 0o500); err != nil {
+		t.Skip(err)
+	}
+	t.Cleanup(func() { os.Chmod(h.dir, 0o700) })
+	w = h.do("POST", "/api/auth/token", map[string]string{}, withCookie(ck))
+	if w.Code != 500 {
+		t.Skipf("the directory stayed writable (running as root?): %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), h.dir) || strings.Contains(w.Body.String(), "permission") {
+		t.Fatalf("the caller was told: %s", w.Body)
+	}
+	w = h.do("DELETE", "/api/auth/token", nil, withCookie(ck))
+	if strings.Contains(w.Body.String(), h.dir) || strings.Contains(w.Body.String(), "permission") {
+		t.Fatalf("revoke: the caller was told: %s", w.Body)
+	}
 }

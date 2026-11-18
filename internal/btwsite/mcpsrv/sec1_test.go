@@ -2,9 +2,11 @@ package mcpsrv_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,4 +95,16 @@ func decodeResult(t *testing.T, m rpcMsg) result {
 		s += c.Text
 	}
 	return result{res.IsError, s}
+}
+
+// An error that is not the site's own typed error is the server's business: a store or subprocess failure's
+// words (a data path, a syscall) are not for the caller of a tool, anonymous ones included.
+func TestUntypedBackendErrorsAreNotEchoed(t *testing.T) {
+	e := newEnv(t)
+	e.b.composeE = errors.New("open /srv/btw/data/programs/.tmp-123: permission denied")
+	r := e.call("btw_alice", "compose", map[string]any{"prompt": "x"})
+	em := r.errBody(t)
+	if em["code"] != "internal" || strings.Contains(r.Text, "/srv/btw") || strings.Contains(r.Text, "permission") {
+		t.Fatalf("the caller was told: %s", r.Text)
+	}
 }

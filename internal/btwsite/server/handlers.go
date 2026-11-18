@@ -41,6 +41,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	cs := s.composer.Status()
+	// /api/info is anonymous: the operator's reason (paths, settings, the admin endpoint) stays in the admin stats.
+	reason := cs.PublicReason
+	if reason == "" && cs.Reason != "" {
+		reason = "compose is not available right now"
+	}
 	ff := s.rs.ffmpegOK()
 	defFmt := "opus"
 	formats := []string{"opus", "wav"}
@@ -53,7 +58,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"public_url": s.cfg.PublicURL,
 		"model":      cs.Model,
 		"compose": map[string]any{
-			"enabled": cs.Enabled, "configured": cs.Configured, "reason": cs.Reason,
+			"enabled": cs.Enabled, "configured": cs.Configured, "reason": reason,
 			"limits": map[string]any{
 				"user_per_hour": cs.UserHour, "user_per_day": cs.UserDay, "ip_per_day": cs.IPDay,
 				"daily_cap_usd": cs.DailyCapUSD, "max_prompt_chars": s.cfg.MaxPromptChars, "max_program_bytes": s.cfg.MaxProgramBytes,

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -548,7 +549,8 @@ func (s *Service) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 	err := s.saveLocked()
 	s.mu.Unlock()
 	if err != nil {
-		api.WriteError(w, fmt.Errorf("could not store the token: %v", err))
+		log.Printf("btwsite: auth: could not store the token: %v", err)
+		api.WriteError(w, api.Errf(http.StatusInternalServerError, "internal", "could not store the token; try again later"))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "max_per_user": s.o.MaxTokensPerUser})
@@ -574,7 +576,8 @@ func (s *Service) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 	err = s.saveLocked()
 	s.mu.Unlock()
 	if err != nil {
-		api.WriteError(w, fmt.Errorf("could not store the change: %v", err))
+		log.Printf("btwsite: auth: could not store the change: %v", err)
+		api.WriteError(w, api.Errf(http.StatusInternalServerError, "internal", "could not store the change; try again later"))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revoked": n})

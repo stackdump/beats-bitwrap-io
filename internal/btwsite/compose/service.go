@@ -189,12 +189,16 @@ func (s *Service) Status() api.ComposeStatus {
 	switch {
 	case s.model == nil:
 		out.Reason = NotConfiguredHelp
+		out.PublicReason = "compose is not available on this site right now"
 	case k.Disabled:
 		out.Reason = killReason(k, s.opt.DataDir)
+		out.PublicReason = "compose is switched off for now"
 	case st.SpendClosed != "":
 		out.Reason = st.SpendClosed
+		out.PublicReason = "compose is closed for now"
 	case c.DailySpendUSD >= 0 && (st.SpentUSD >= c.DailySpendUSD || s.capHitToday()):
 		out.Reason = fmt.Sprintf("today's budget of $%.2f is used up (or too little is left for another request); it resets at 00:00 UTC", c.DailySpendUSD)
+		out.PublicReason = "today's compose budget is used up; it resets at 00:00 UTC"
 	}
 	return out
 }

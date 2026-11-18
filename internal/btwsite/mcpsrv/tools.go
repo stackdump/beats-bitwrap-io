@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,11 +94,10 @@ func fail(err error) *api.Error {
 	if errors.Is(err, context.Canceled) {
 		return api.Errf(499, "canceled", "the call was canceled")
 	}
-	msg := err.Error()
-	if len(msg) > 300 {
-		msg = msg[:300] + "..."
-	}
-	return api.Errf(500, "internal", "%s", msg)
+	// Anything else is the server's own business (a path, a syscall, a subprocess's words): the operator's log
+	// gets it, the caller a fixed sentence. (HTTP does the same: asAPIError.)
+	log.Printf("btwsite: mcp: internal error: %v", err)
+	return api.Errf(500, "internal", "the server could not complete that call; try again")
 }
 
 // ---------- arguments ----------
