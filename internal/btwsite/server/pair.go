@@ -221,6 +221,7 @@ func (s *Server) pairRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/device/events", s.handleDeviceEvents)
 	mux.HandleFunc("POST /api/device/report", s.handleDeviceReport)
 	mux.HandleFunc("POST /api/device/reply", s.handleDeviceReply)
+	mux.HandleFunc("POST /api/device/compose", s.handleDeviceCompose)
 }
 
 // handlePairPage answers a pairing QR code opened in a browser (a phone's camera app follows the link):

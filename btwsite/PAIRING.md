@@ -21,6 +21,8 @@ GET /api/pair/<id> ── paired, the device's fingerprint (both ends show it)
                               GET /api/device/events (SSE)  ◀───────────  Authorization: BtwDevice <device>.<ts>.<sig>
                               hello, eval, load, stop, get, ping, unpaired ──▶
                               POST /api/device/report (≤ 1/s)  ◀────────  what plays (SessionState)
+                              POST /api/device/compose  ◀──────────  {prompt, genre?, key?, length?} (signed)
+                              compose as the owner ─────────────────▶  {program, cid, check, share_url, render_url}
 POST /api/devices/<id>/push ─▶ eval | load | stop ──────────────────────▶
 DELETE /api/devices/<id> ────▶ unpaired ────────────────────────────────▶  (or the phone: DELETE /api/device)
 ```
@@ -74,6 +76,17 @@ byte for byte, so the two sides cannot drift.
 - Limits: `POST /api/pair` and `POST /api/pair/claim` allow 20 per minute per address. Device
   streams count toward the 40 SSE streams per address, and reports share the hub's token bucket
   (10/s, burst 20).
+
+## Compose from the phone
+
+`POST /api/device/compose` is the web's `POST /api/compose` for a paired phone. It is signed like
+every device request (the `btw-pair/1 request` text, so the body's SHA-256 is covered) and runs
+compose **as the pairing owner**: the same per-user hourly and daily allowance (shared with the web
+and MCP, counted against the owner's account), the per-address day limit, the kill switch and the
+daily spend cap. Body `{prompt, genre?, key?, length?, bpm?, base_cid?}`, unknown fields refused.
+The answer is the web route's JSON in one body (the web route does not stream): `program` (canonical
+text) and `cid` to play on the phone, plus `check`, `attempts`, `share_url` and `render_url`. The
+result is stored publicly (CC0) like any compose. No credential beyond the device key is involved.
 
 ## Not done (decide)
 
