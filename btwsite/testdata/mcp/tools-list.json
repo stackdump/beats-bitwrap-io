@@ -280,6 +280,41 @@
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": false,
+        "title": "Set up a demo recording"
+      },
+      "description": "Set up a demo recording of a program: the page in record mode (full screen code, the firing markers and follow-scroll on) and the steps that turn it into a video. Give exactly one of text, cid or example (as render does: a text or example is checked and stored publicly as CC0-1.0, nothing private). Answers {cid, seconds, record_url, record_url_manual_clock, audio_url, recipe}. record_url opens the page in record mode and plays it for a person to screen-record; record_url_manual_clock opens it on a fake clock that a script steps frame by frame (window.__btw.setTime(seconds); window.__btw.frame()), which is how btwsite/tools/record-demo.mjs in the repo makes a perfectly synced, stutter-free MP4 (H.264, AAC, 1920x1080) plus a silent hero loop (MP4 and WebM) and a poster PNG, taking the audio from audio_url (the offline render of the same program). This tool does not capture video itself: it needs a browser and ffmpeg on your side. The audio is the offline render: notes and sounds, not control lines (filters, reverb). Call check first. Rendering limits apply (about 30 programs an hour per client). No sign-in needed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cid": {
+            "description": "CID of a program already stored (for instance the cid compose returned).",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "example": {
+            "description": "Name of an example, from list_examples.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "text": {
+            "description": "The program text. It must pass check; it is stored publicly (CC0-1.0).",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "record"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
         "title": "Render a program to streaming audio"
       },
       "description": "Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what compose returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or \"use restricted\" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.\n\nCall check first. The offline render plays the notes and sounds, not control lines (filters, reverb, do ... lines), so it can sound plainer than the browser; a program with no end (no sections or end line) is cut at the server's bar limit (256 bars). Rendering is limited per address per hour and to a few at once: on busy or rate_limited wait retry_after seconds. No sign-in needed; about 30 programs an hour per client.",

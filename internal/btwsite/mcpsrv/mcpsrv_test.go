@@ -21,7 +21,7 @@ import (
 )
 
 // The tool names are the contract (btwsite/DESIGN.md "MCP"): tools/list answers exactly these.
-var contractTools = []string{"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "list_examples", "instruments", "stop"}
+var contractTools = []string{"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop"}
 
 func TestToolNamesAreTheContract(t *testing.T) {
 	got := append([]string(nil), mcpsrv.ToolNames...)
@@ -715,7 +715,7 @@ func TestLandingPage(t *testing.T) {
 		}
 		for _, want := range []string{
 			"claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header &#39;Authorization: Bearer btw_...&#39;",
-			"Tools (12)", "/llms.txt", `<meta name="author" content="Matt York">`,
+			"Tools (13)", "/llms.txt", `<meta name="author" content="Matt York">`,
 		} {
 			if !strings.Contains(body, want) && !strings.Contains(body, strings.ReplaceAll(want, "&#39;", "'")) {
 				t.Errorf("GET %s: the landing page lacks %q", path, want)
@@ -749,7 +749,7 @@ func TestRealMCPClient(t *testing.T) {
 		t.Fatalf("initialize = %+v", init)
 	}
 	tools, err := c.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil || len(tools.Tools) != 12 {
+	if err != nil || len(tools.Tools) != 13 {
 		t.Fatalf("ListTools = %v, %v", len(tools.Tools), err)
 	}
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "eval", Arguments: map[string]any{"text": goodProgram, "play": true}}})

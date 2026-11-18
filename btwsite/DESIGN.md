@@ -379,7 +379,7 @@ Left as they are (decide): a signed cookie cannot be revoked (logout only clears
 
 ### MCP (G3) at `/mcp`
 Tools (names exact): `compose` (auth) · `check` · `fmt` · `eval` (auth: push text into a session, optionally `play:true`) · `load` (auth: by `cid` / `example` name / url) ·
-`get` (current program, section, bar, marks of a session) · `share` · `open` · `render` (returns `{stream_url, status_url, cid, seconds}`) · `list_examples` ·
+`get` (current program, section, bar, marks of a session) · `share` · `open` · `render` (returns `{stream_url, status_url, cid, seconds}`) · `record` (stores the program; returns the record-mode URLs and the deterministic recorder's recipe) · `list_examples` ·
 `instruments` · `stop` (auth) . Unauthenticated calls to an auth tool return an MCP tool error `auth_required` that says how to get a token (the page's "MCP token" button).
 Descriptions are written for an LLM: they say to run `check` first and fix `line:col` errors.
 - **As built (G3)** — `internal/btwsite/mcpsrv`, `mcpsrv.Handler(b, a, publicURL, opts ...mcpsrv.Option)` (the options are variadic, so the contract call still compiles):

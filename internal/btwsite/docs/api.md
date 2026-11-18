@@ -197,6 +197,7 @@ Without the header the read tools still work; `compose`, `eval`, `load`, `get` a
 | `share` | | `text` | the self-sealing link, the social link, the CID |
 | `open` | | `url` | decode a link, a fragment or a CID, verified |
 | `render` | | `text` or `cid` or `example`, `format` | store the program and answer `stream_url`, `status_url`, `cid`, `seconds` |
+| `record` | | `text` or `cid` or `example` | store the program and answer the demo-recording setup: `record_url` (the page in record mode), `record_url_manual_clock` (a fake clock a script steps frame by frame), `audio_url`, and the `recipe` for `btwsite/tools/record-demo.mjs` (captures nothing itself) |
 | `list_examples` | | `name` | the example programs (and one's text) |
 | `instruments` | | | voices, families, kits, palettes |
 | `eval` | yes | `text`, `play`, `session` | send a program to a browser tab, as Cmd+Enter; lands on the next bar |

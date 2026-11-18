@@ -31,7 +31,7 @@ import (
 
 // ToolNames is the contract: the names tools/list answers, in this order.
 var ToolNames = []string{
-	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "list_examples", "instruments", "stop",
+	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop",
 }
 
 // Options tunes the handler. The zero value of each field means its default.

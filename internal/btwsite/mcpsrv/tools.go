@@ -403,6 +403,14 @@ func (s *Server) addTools() {
 		mcp.WithString("format", mcp.Enum("opus", "wav"), mcp.DefaultString("opus"), mcp.Description("opus (Ogg Opus, smaller, for download or <audio>) or wav (16-bit stereo, plays chunk by chunk in a web page).")),
 	), s.renderTool)
 
+	s.add(mcp.NewTool("record",
+		mcp.WithDescription(s.recordDesc()), noExtra,
+		mcp.WithTitleAnnotation("Set up a demo recording"), hints(false, false, true, false), // stores a CC0 program, content-addressed
+		mcp.WithString("text", mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check; it is stored publicly (CC0-1.0).")),
+		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid compose returned).")),
+		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
+	), s.recordTool)
+
 	s.add(mcp.NewTool("list_examples",
 		mcp.WithDescription(s.examplesDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("The example programs"),
@@ -959,6 +967,44 @@ func (s *Server) renderTool(ctx context.Context, c caller, a args) (any, *api.Er
 		note += " This program does not end by itself (it loops, or has no timeline), so the render is cut at the server's bar limit; add `end at bar N` for a length of your own."
 	}
 	out["note"] = note + " The offline render plays the notes and sounds, not control lines (filters, reverb, do ...), so it can sound plainer than the browser."
+	return out, nil
+}
+
+// ---------- record ----------
+
+// recordTool stores the program like render does and answers where to record it: the page in record mode, the
+// same page on a fake clock, the audio, and the deterministic recorder's command. It captures nothing itself.
+func (s *Server) recordTool(ctx context.Context, c caller, a args) (any, *api.Error) {
+	if e := a.only("text", "cid", "example"); e != nil {
+		return nil, e
+	}
+	ra := args{"format": "wav"}
+	for _, k := range []string{"text", "cid", "example"} {
+		if v, ok := a[k]; ok {
+			ra[k] = v
+		}
+	}
+	r, e := s.renderTool(ctx, c, ra)
+	if e != nil {
+		return nil, e
+	}
+	m, _ := r.(map[string]any)
+	cid, _ := m["cid"].(string)
+	if cid == "" {
+		return nil, api.Errf(500, "internal", "no CID to record")
+	}
+	out := map[string]any{
+		"cid": cid, "seconds": m["seconds"], "license": "CC0-1.0",
+		"record_url":              s.public + "/?record=1&cid=" + cid,
+		"record_url_manual_clock": s.public + "/?record=1&clock=manual&cid=" + cid,
+		"audio_url":               m["stream_url"],
+		"recipe": map[string]any{
+			"deterministic": "node btwsite/tools/record-demo.mjs --server " + s.public + " --btwd <path to btwd> --cid " + cid + " --out <dir>",
+			"needs":         "Node 22+, ffmpeg and Google Chrome on your machine; the script steps the page's fake clock frame by frame, renders the audio with btwd and muxes them",
+			"outputs":       []string{"btw-demo.mp4 (45-60 s, H.264 CRF 20, AAC 192k, 1920x1080, faststart)", "btw-hero-loop.mp4 and .webm (10-15 s, silent, the drop)", "btw-poster.png"},
+		},
+		"note": "record_url_manual_clock has no audio and no wall clock: it only moves when window.__btw.setTime is called. audio_url is the offline render of the same program (notes and sounds, not control lines such as filter sweeps).",
+	}
 	return out, nil
 }
 
