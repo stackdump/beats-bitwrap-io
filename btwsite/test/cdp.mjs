@@ -62,6 +62,8 @@ export async function launch({ width = 1280, height = 800, args = [] } = {}) {
 
   const page = {
     cdp, logs, port,
+    /** Every CDP event (method, params) from here on; returns a function that stops listening. */
+    listen(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     async goto(url) {
       const loaded = new Promise((res) => { const l = (d) => { if (d.method === 'Page.loadEventFired') { listeners.splice(listeners.indexOf(l), 1); res(); } }; listeners.push(l); });
       await cdp('Page.navigate', { url });

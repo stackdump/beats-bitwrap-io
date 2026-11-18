@@ -426,7 +426,15 @@ export class App {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return null;
     try {
-      this.ctx = new Ctx({ latencyHint: 'interactive' });
+      // A tenth of a second of output buffer (the default; it was 'interactive', ~10 ms). The engine renders a quantum in ~0.3 ms,
+      // but when a section's track lands (Dj.install_step's last step) one quantum takes 20-26 ms on the audio thread, and a
+      // 10 ms buffer, or 'playback''s 23 ms, has no room for it: every section change was an audible drop-out (test/audio-perf.mjs:
+      // ~2 underruns a landing). Nothing here needs a short path from a key to the speaker (an edit lands on the next bar), and the
+      // markers follow the output latency (engine.js heardTime), so the longer buffer only shows as a stop that takes that long.
+      // ?latency=interactive|balanced|playback|<seconds> to compare.
+      const lq = this.q.get('latency');
+      const hint = lq && /^[0-9.]+$/.test(lq) ? Number(lq) : ['interactive', 'balanced', 'playback'].includes(lq) ? lq : 0.1;
+      this.ctx = new Ctx({ latencyHint: hint });
     } catch (e) {
       console.warn('btw: no audio', e);
       return null;
@@ -459,7 +467,7 @@ export class App {
         engine = await m.createMockEngine({ context: this.ctx, destination: this.master });
       } else {
         const m = await import('./engine.js');
-        engine = await m.createEngine({ context: this.ctx, destination: this.master, wasmUrl: this.btw && this.btw.wasmUrl });
+        engine = await m.createEngine({ context: this.ctx, destination: this.master, wasmUrl: this.btw && this.btw.wasmUrl, perf: this.q.get('perf') === '1' });
       }
       await engine.ready;
       if (engine.on) engine.on('error', (e) => { if (e && e.message) this.toast(`Engine: ${e.message}`, 'error'); });

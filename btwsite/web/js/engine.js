@@ -49,7 +49,7 @@ const GRID_FRESH_S = 0.5; // a worklet report older than this (on the audio cloc
 /** Whether an item is finished with (it will not install or land anything more). */
 const TERMINAL = new Set(['done', 'dropped', 'failed', 'superseded']);
 
-export async function createEngine({ context, destination, wasmUrl, module: compiled, composer = 'worker', installBudget } = {}) {
+export async function createEngine({ context, destination, wasmUrl, module: compiled, composer = 'worker', installBudget, perf = false } = {}) {
     if (!context) throw new Error('createEngine: a context is needed');
     if (!context.audioWorklet) throw new Error('createEngine: this browser has no AudioWorklet');
     const base = new URL('../wasm/', import.meta.url);
@@ -70,7 +70,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
 
     // 2. the audio node
     await context.audioWorklet.addModule(new URL('./engine-worklet.js', import.meta.url));
-    const options = { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { installBudget } };
+    const options = { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { installBudget, perf: !!perf } };
     let node;
     let viaMessage = false;
     try {
@@ -87,7 +87,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
     const listeners = new Map();
     const emit = (type, detail) => { for (const fn of listeners.get(type) || []) { try { fn(detail); } catch (e) { console.error(e); } } };
 
-    const stats = { loads: 0, prepareMs: [], installMs: [], installQuanta: [], inline: 0 };
+    const stats = { loads: 0, prepareMs: [], installMs: [], installQuanta: [], inline: 0, slow: [] }; // slow: the worklet's ?perf=1 reports
     const keep = (a, v) => { a.push(v); if (a.length > 200) a.shift(); }; // the last 200 of each
     let grid = null; // the worklet's last report: {t, frame, decks, at: performance.now()}
     let disposed = false;
@@ -129,6 +129,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             }
             break;
         }
+        case 'perf': for (const b of m.slow) keep(stats.slow, b); break;
         case 'warn': emit('warn', { message: m.message }); break;
         case 'error':
             clearTimeout(readyTimer);
