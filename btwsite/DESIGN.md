@@ -20,10 +20,10 @@ markers like the desktop's, fmt / share / open-by-CID, examples, a slim transpor
 
 | repo | branch | worktree | holds |
 |---|---|---|---|
-| `stackdump/djrust-vevr-se` (private) | `feat/btw-web` (off `origin/feat/btw-language`) | `~/Workspace/.val-worktrees/djrust-vevr-se/btw-web` | Rust: `crates/btwapi`, `crates/btwd`, `crates/djweb` |
-| `stackdump/beats-bitwrap-io` | `feat/btw-site` (off `feat/btw-link`) | `~/Workspace/.val-worktrees/beats-bitwrap-io/btw-site` | Go service, static site, tests, deploy files |
+| `stackdump/djrust-vevr-se` (private) | `feat/btw-web` (off `origin/feat/btw-language`) | a checkout of the engine repo | Rust: `crates/btwapi`, `crates/btwd`, `crates/djweb` |
+| `stackdump/beats-bitwrap-io` | `feat/btw-site` (off `feat/btw-link`) | a checkout of this repo | Go service, static site, tests, deploy files |
 
-Off limits: the running djapp, `~/Workspace/.val-worktrees/djrust-vevr-se/{6014eced,btw-ext*,center-fit,...}`, the
+Off limits: the running djapp, the engine repo's other working branches, the
 main checkouts, `beats.bitwrap.io`'s own server code (`main.go`, `internal/mcp`, ...: read, do not edit,
 except the one exported wrapper noted under Auth). Never `git stash`; commit WIP instead. Commits are
 GPG-signed on this Mac (just `git commit`). End commit messages with the attribution line the harness gave.

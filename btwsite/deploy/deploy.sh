@@ -21,7 +21,7 @@ set -euo pipefail
 
 HOST=${HOST:-pflow.dev}
 BRANCH=${BRANCH:-feat/btw-site}
-RUST=${RUST:-$HOME/Workspace/.val-worktrees/djrust-vevr-se/btw-web}
+RUST=${RUST:?set RUST to your checkout of the private engine repo (it holds dist/btwd-linux-x86_64 and the wasm build)}
 BTWD_LINUX=${BTWD_LINUX:-$RUST/dist/btwd-linux-x86_64}
 HERE=$(cd "$(dirname "$0")" && pwd)
 GO=$(cd "$HERE/../.." && pwd)

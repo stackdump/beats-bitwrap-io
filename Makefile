@@ -13,6 +13,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
+	@mkdir -p btwsite/bin && go build -o btwsite/bin/btwsite ./cmd/btwsite
 
 run: build
 	./$(BINARY) -addr $(ADDR)

@@ -11,7 +11,7 @@
 #                                                   change nothing; exit 1 if cheatsheet.md or BTW.md is stale
 #
 # Environment:
-#   DJRUST_DIR  the djrust worktree with docs/BTW.md   (default ~/Workspace/.val-worktrees/djrust-vevr-se/btw-web)
+#   DJRUST_DIR  the engine checkout with docs/BTW.md   (required)
 #   OUT_DIR     where the files go                      (default btwsite/web/docs next to this script's repo root)
 #   BTWD_BIN    the btwd binary; without it cheatsheet.md is not regenerated. If no cheatsheet.md exists at
 #               all the server answers /docs/cheatsheet.md from its live btwd instead, so nothing is broken
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-src=${DJRUST_DIR:-$HOME/Workspace/.val-worktrees/djrust-vevr-se/btw-web}
+src=${DJRUST_DIR:?set DJRUST_DIR to the engine checkout that holds docs/BTW.md}
 out=${OUT_DIR:-$root/btwsite/web/docs}
 check=0
 [ "${1:-}" = "--check" ] && check=1
@@ -33,12 +33,15 @@ fi
 stale=0
 mkdir -p "$out"
 
-# BTW.md: a verbatim copy
+# BTW.md: the copy this site serves publicly, with local paths and private repo names removed (redact below)
+redact() {
+  sed -E -e 's#~/Workspace/[^ `)"]*#<local path>#g' -e 's#/Users/[^ `)"]*#<local path>#g' -e 's#/home/[A-Za-z0-9_]+/[^ `)"]*#<local path>#g' "$1"
+}
 if [ "$check" = 1 ]; then
-  cmp -s "$md" "$out/BTW.md" || { echo "btw-gen-docs: $out/BTW.md differs from $md" >&2; stale=1; }
+  redact "$md" | cmp -s - "$out/BTW.md" || { echo "btw-gen-docs: $out/BTW.md differs from $md" >&2; stale=1; }
 else
-  cp "$md" "$out/BTW.md.tmp" && mv "$out/BTW.md.tmp" "$out/BTW.md"
-  echo "btw-gen-docs: BTW.md copied from $md ($(wc -c < "$out/BTW.md" | tr -d ' ') bytes)"
+  redact "$md" > "$out/BTW.md.tmp" && mv "$out/BTW.md.tmp" "$out/BTW.md"
+  echo "btw-gen-docs: BTW.md copied (paths redacted) from $md ($(wc -c < "$out/BTW.md" | tr -d ' ') bytes)"
 fi
 
 # cheatsheet.md: the output of `btwd cheatsheet`, the same text the compose system prompt uses
