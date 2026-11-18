@@ -894,11 +894,6 @@ func (s *Server) renderTool(ctx context.Context, c caller, a args) (any, *api.Er
 			}
 			text, source = t, "example"
 		}
-		if ok, retry := s.render.allow(c.key); !ok {
-			e := api.Errf(429, api.CodeRateLimited, "too many programs submitted for rendering")
-			e.RetryAfter = retry
-			return nil, e
-		}
 		rep, e := s.checkProgram(ctx, c, text)
 		if e != nil {
 			return nil, e
@@ -907,6 +902,12 @@ func (s *Server) renderTool(ctx context.Context, c caller, a args) (any, *api.Er
 			return nil, needsFixing(rep, "it cannot be rendered")
 		}
 		if e := private(rep, "it cannot be rendered or stored"); e != nil {
+			return nil, e
+		}
+		// Only a program that is about to be stored counts: Put has no caller to limit by.
+		if ok, retry := s.render.allow(c.key); !ok {
+			e := api.Errf(429, api.CodeRateLimited, "too many programs submitted for rendering")
+			e.RetryAfter = retry
 			return nil, e
 		}
 		prog, _, err := s.b.Put(ctx, text, api.Meta{License: "CC0-1.0", Visibility: "public", Source: source})

@@ -36,7 +36,7 @@ type composeCall struct {
 }
 
 type fakeBackend struct {
-	fakecheck.Checker // Check, Fmt, Open, Share, Highlight, Instruments, Cheatsheet
+	api.Checker // Check, Fmt, Open, Share, Highlight, Instruments, Cheatsheet: fakecheck, or the real btwd
 
 	mu       sync.Mutex
 	pushes   []push
@@ -54,7 +54,7 @@ type fakeBackend struct {
 }
 
 func newBackend() *fakeBackend {
-	return &fakeBackend{pushN: 1, store: map[string]*api.Program{}}
+	return &fakeBackend{Checker: fakecheck.Checker{}, pushN: 1, store: map[string]*api.Program{}}
 }
 
 func (f *fakeBackend) Push(u *api.User, session string, ev api.SessionEvent) (int, error) {
@@ -165,7 +165,11 @@ type env struct {
 
 func newEnv(t *testing.T, opts ...mcpsrv.Option) *env {
 	t.Helper()
-	b := newBackend()
+	return newEnvWith(t, newBackend(), opts...)
+}
+
+func newEnvWith(t *testing.T, b *fakeBackend, opts ...mcpsrv.Option) *env {
+	t.Helper()
 	h := mcpsrv.Handler(b, newAuth(), siteURL, opts...)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", h)
