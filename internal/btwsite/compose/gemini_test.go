@@ -234,7 +234,7 @@ func TestGeminiHTTPErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		srv := geminiServer(t, &cap, c.status, c.body, c.hdr)
-		_, use, err := newGemini(t, srv, nil).Generate(context.Background(), "s", []Message{{Role: "user", Text: "x"}})
+		_, use, err := newGemini(t, srv, func(o *GeminiOptions) { o.RetryDelay = -1 }).Generate(context.Background(), "s", []Message{{Role: "user", Text: "x"}})
 		me, ok := err.(*ModelError)
 		if !ok {
 			t.Fatalf("%d: %v", c.status, err)
@@ -378,4 +378,67 @@ func TestServiceOverRealShapedGemini(t *testing.T) {
 		t.Error("system prompt not sent")
 	}
 	_ = api.CodeBadRequest
+}
+
+func TestGeminiRetriesABusyServiceOnce(t *testing.T) {
+	var mu sync.Mutex
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		n := hits
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if n == 1 {
+			w.WriteHeader(503)
+			_, _ = io.WriteString(w, `{"error":{"code":503,"message":"The model is overloaded.","status":"UNAVAILABLE"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, realShape(`{"text":"tempo 100\n"}`, "STOP", 5, 2, 10))
+	}))
+	defer srv.Close()
+	g := newGemini(t, srv, func(o *GeminiOptions) { o.RetryDelay = time.Millisecond })
+	text, use, err := g.Generate(context.Background(), "s", []Message{{Role: "user", Text: "x"}})
+	if err != nil || text != "tempo 100\n" || use.Out != 12 || hits != 2 {
+		t.Fatalf("%q %+v %v after %d requests", text, use, err, hits)
+	}
+
+	// twice busy: the error stands, after exactly two requests
+	var n2 int
+	always := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n2++
+		mu.Unlock()
+		w.WriteHeader(503)
+	}))
+	defer always.Close()
+	g = newGemini(t, always, func(o *GeminiOptions) { o.RetryDelay = time.Millisecond })
+	if _, _, err := g.Generate(context.Background(), "s", []Message{{Role: "user", Text: "x"}}); err == nil || err.(*ModelError).Status != 503 || n2 != 2 {
+		t.Fatalf("%v after %d requests", err, n2)
+	}
+	// a rate limit and a bad request are not retried
+	for _, st := range []int{429, 400, 403} {
+		var n3 int
+		s3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			n3++
+			mu.Unlock()
+			w.WriteHeader(st)
+		}))
+		g = newGemini(t, s3, func(o *GeminiOptions) { o.RetryDelay = time.Millisecond })
+		_, _, _ = g.Generate(context.Background(), "s", []Message{{Role: "user", Text: "x"}})
+		s3.Close()
+		if n3 != 1 {
+			t.Errorf("status %d was retried (%d requests)", st, n3)
+		}
+	}
+	// a cancelled context during the wait ends it at once
+	ctx, cancel := context.WithCancel(context.Background())
+	g = newGemini(t, always, func(o *GeminiOptions) { o.RetryDelay = time.Hour })
+	go func() { time.Sleep(30 * time.Millisecond); cancel() }()
+	start := time.Now()
+	_, _, err = g.Generate(ctx, "s", []Message{{Role: "user", Text: "x"}})
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(start))
+	}
 }

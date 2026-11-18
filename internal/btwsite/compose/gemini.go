@@ -50,6 +50,7 @@ type GeminiOptions struct {
 	MaxOutputTokens int
 	Thinking        string
 	Timeout         time.Duration // per call; default 90 s
+	RetryDelay      time.Duration // wait before the one retry of a 500/502/503/504 (nothing is billed for those); default 800 ms, negative = no retry
 	HTTPClient      *http.Client
 	Redactor        *Redactor // scrubs the key (and key-shaped strings) out of every error text
 }
@@ -63,6 +64,7 @@ type Gemini struct {
 	maxOut   int
 	think    string
 	timeout  time.Duration
+	retry    time.Duration
 	hc       *http.Client
 	red      *Redactor
 }
@@ -98,6 +100,10 @@ func NewGemini(o GeminiOptions) (*Gemini, error) {
 	}
 	if g.timeout <= 0 {
 		g.timeout = 90 * time.Second
+	}
+	g.retry = o.RetryDelay
+	if g.retry == 0 {
+		g.retry = 800 * time.Millisecond
 	}
 	if g.red == nil {
 		g.red = NewRedactor(g.key)
@@ -184,29 +190,24 @@ func (g *Gemini) Generate(ctx context.Context, system string, messages []Message
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 	u := g.endpoint + "/v1beta/models/" + g.model + ":generateContent"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
-	if err != nil {
-		return "", Usage{}, &ModelError{Kind: KindTransport, Message: g.red.Redact(err.Error())}
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", g.key)
-	req.Header.Set("Accept", "application/json")
 
-	resp, err := g.hc.Do(req)
-	if err != nil {
-		msg := "the model service did not answer"
-		switch {
-		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			msg = "the model service timed out"
-		case errors.Is(ctx.Err(), context.Canceled):
-			msg = "the request was cancelled"
+	var resp *http.Response
+	var raw []byte
+	for try := 0; ; try++ {
+		var me *ModelError
+		resp, raw, me = g.post(ctx, u, body)
+		if me != nil {
+			return "", Usage{}, me
 		}
-		return "", Usage{}, &ModelError{Kind: KindTransport, Message: msg + ": " + clip(g.red.Redact(err.Error()), 160)}
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return "", Usage{}, &ModelError{Kind: KindTransport, Message: "reading the reply failed: " + clip(g.red.Redact(err.Error()), 160)}
+		// A busy service (500, 502, 503, 504) is tried once more: those calls are not billed.
+		if try == 0 && g.retry > 0 && retryable(resp.StatusCode) {
+			select {
+			case <-time.After(g.retry):
+				continue
+			case <-ctx.Done():
+			}
+		}
+		break
 	}
 
 	if resp.StatusCode/100 != 2 {
@@ -247,6 +248,40 @@ func (g *Gemini) Generate(ctx context.Context, system string, messages []Message
 	default:
 		return "", use, &ModelError{Kind: KindBlocked, Status: resp.StatusCode, Message: "the model stopped without an answer (finishReason " + sanitizeWord(fr) + ")"}
 	}
+}
+
+func retryable(status int) bool {
+	return status == http.StatusInternalServerError || status == http.StatusBadGateway ||
+		status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+}
+
+// post sends one request and reads the whole answer (capped at 4 MiB).
+func (g *Gemini) post(ctx context.Context, u string, body []byte) (*http.Response, []byte, *ModelError) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, &ModelError{Kind: KindTransport, Message: g.red.Redact(err.Error())}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", g.key)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := g.hc.Do(req)
+	if err != nil {
+		msg := "the model service did not answer"
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			msg = "the model service timed out"
+		case errors.Is(ctx.Err(), context.Canceled):
+			msg = "the request was cancelled"
+		}
+		return nil, nil, &ModelError{Kind: KindTransport, Message: msg + ": " + clip(g.red.Redact(err.Error()), 160)}
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, nil, &ModelError{Kind: KindTransport, Message: "reading the reply failed: " + clip(g.red.Redact(err.Error()), 160)}
+	}
+	return resp, raw, nil
 }
 
 func (g *Gemini) httpError(resp *http.Response, raw []byte) *ModelError {

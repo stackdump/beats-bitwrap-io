@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"beats-bitwrap-io/internal/btwsite/api"
 )
@@ -85,6 +87,10 @@ func (s *Service) Handler(a api.Authenticator) http.Handler {
 			writeErr(w, &api.Error{Status: http.StatusMethodNotAllowed, Code: api.CodeBadRequest, Message: "use POST"})
 			return
 		}
+		if !isJSON(r) {
+			writeErr(w, &api.Error{Status: http.StatusUnsupportedMediaType, Code: api.CodeBadRequest, Message: "send the body as JSON with Content-Type: application/json"})
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -111,6 +117,8 @@ func (s *Service) Handler(a api.Authenticator) http.Handler {
 			writeErr(w, api.Errf(400, api.CodeBadRequest, "the body must be one JSON object"))
 			return
 		}
+		// A compose with repairs takes a while; the server's own write timeout (beats' is 15 s) must not cut it.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
 		res, err := s.Compose(r.Context(), u, api.ClientIP(r), api.ComposeRequest{
 			Prompt: body.Prompt, Genre: body.Genre, BPM: body.BPM, Key: body.Key, Length: string(body.Length), BaseCID: body.BaseCID,
 		})
@@ -128,6 +136,12 @@ func (s *Service) Handler(a api.Authenticator) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
+}
+
+// isJSON: a body that is not declared JSON is not read at all (a cross-site form post cannot declare it).
+func isJSON(r *http.Request) bool {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mt == "application/json"
 }
 
 // jsonErrWords is a decoding error in words that do not echo the body back.
@@ -189,6 +203,10 @@ func (s *Service) adminCompose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		writeErr(w, &api.Error{Status: http.StatusMethodNotAllowed, Code: api.CodeBadRequest, Message: "use POST"})
+		return
+	}
+	if !isJSON(r) {
+		writeErr(w, &api.Error{Status: http.StatusUnsupportedMediaType, Code: api.CodeBadRequest, Message: "send the body as JSON with Content-Type: application/json"})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)

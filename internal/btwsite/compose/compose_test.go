@@ -477,6 +477,19 @@ func TestValidation(t *testing.T) {
 			t.Errorf("%s: code %q", tc.name, e.Error.Code)
 		}
 	}
+	// only declared JSON is read
+	for _, ct := range []string{"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
+		req := httptest.NewRequest("POST", "/api/compose", strings.NewReader(jbody("x")))
+		req.Header.Set("X-Test-User", "u1")
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		w := httptest.NewRecorder()
+		r.svc.Handler(testAuth{}).ServeHTTP(w, req)
+		if w.Code != 415 {
+			t.Errorf("content type %q: %d", ct, w.Code)
+		}
+	}
 	// exactly at the limit, with multibyte characters counted as characters; a number for length is fine
 	mustOK(t, r.post("u1", jbody(strings.Repeat("é", 50))))
 	mustOK(t, r.post("u1", `{"prompt":"x","length":64,"bpm":128.5,"key":"d:dorian","genre":"drum & bass"}`))
@@ -538,6 +551,7 @@ func TestPerIPDayLimit(t *testing.T) {
 	h := r.svc.Handler(testAuth{})
 	post := func(user, ip string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("POST", "/api/compose", strings.NewReader(jbody("x")))
+		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "127.0.0.1:5555" // the reverse proxy: the client is in X-Real-IP
 		req.Header.Set("X-Real-IP", ip)
 		req.Header.Set("X-Test-User", user)
@@ -702,6 +716,7 @@ func TestKillSwitchEnvFileAndAdminEndpoint(t *testing.T) {
 	admin := r.svc.AdminHandler("s3cret-admin")
 	do := func(method, path, tok, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		if tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
@@ -1008,8 +1023,12 @@ func TestAPIKeyNeverAppearsInResponsesLogsOrErrors(t *testing.T) {
 			if w.Code != 502 {
 				t.Fatalf("status %d: %s", w.Code, w.Body.String())
 			}
-			if *calls != 1 {
-				t.Fatalf("calls = %d", *calls)
+			wantCalls := 1
+			if status == 500 || status == 503 {
+				wantCalls = 2 // a busy service is tried once more
+			}
+			if *calls != wantCalls {
+				t.Fatalf("calls = %d, want %d", *calls, wantCalls)
 			}
 			if e := decodeErr(t, w); e.Error.Code != api.CodeModelError {
 				t.Fatalf("%+v", e)
@@ -1047,5 +1066,52 @@ func TestStatusAndAdminNeverExposeTheKey(t *testing.T) {
 	r.svc.AdminHandler("tok").ServeHTTP(w, req)
 	if strings.Contains(string(b)+w.Body.String(), key) || strings.Contains(string(b)+w.Body.String(), "TESTKEY") {
 		t.Fatal("the key is in the status")
+	}
+}
+
+// A real server with a short write timeout: compose lifts it for its own response (a repair loop outlasts it).
+func TestHandlerLiftsTheServersWriteTimeout(t *testing.T) {
+	fm, _ := DefaultFakeModel()
+	slow := &delayModel{inner: fm, d: 400 * time.Millisecond}
+	r := newRig(t, rigOpts{mutate: func(o *Options) { o.FakeModel = slow }})
+	srv := httptest.NewUnstartedServer(r.svc.Handler(testAuth{}))
+	srv.Config.WriteTimeout = 100 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL, strings.NewReader(jbody("x")))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User", "u1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("the response was cut off by the server's write timeout: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+}
+
+type delayModel struct {
+	inner Model
+	d     time.Duration
+}
+
+func (m *delayModel) Generate(ctx context.Context, system string, msgs []Message) (string, Usage, error) {
+	time.Sleep(m.d)
+	return m.inner.Generate(ctx, system, msgs)
+}
+
+func TestWarmBuildsThePromptOnce(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	if err := r.svc.Warm(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := len(r.chk.Checked())
+	if n != 3 { // the three examples
+		t.Fatalf("checks = %d", n)
+	}
+	mustOK(t, r.post("u1", jbody("x")))
+	if got := len(r.chk.Checked()) - n; got != 2 { // the program, the store's check: nothing for the prompt
+		t.Fatalf("checks after warm = %d", got)
 	}
 }

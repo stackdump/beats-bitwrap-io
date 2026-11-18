@@ -148,6 +148,14 @@ func New(o Options) (*Service, error) {
 	return s, nil
 }
 
+// Warm builds the system prompt now (it runs btwd for the cheat-sheet, the instruments and a check of each
+// example, a second or more), so the first user does not wait for it. Call it in a goroutine once the examples
+// are loaded; Compose builds it on demand anyway.
+func (s *Service) Warm(ctx context.Context) error {
+	_, _, err := s.systemPrompt(ctx)
+	return err
+}
+
 // Close releases the log file.
 func (s *Service) Close() error { return s.lim.Close() }
 
