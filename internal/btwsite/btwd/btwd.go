@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"beats-bitwrap-io/internal/btwsite/api"
 	"beats-bitwrap-io/internal/btwsite/fakecheck"
@@ -290,6 +291,37 @@ func decode(out []byte, v any, what string) error {
 // 128 KB request must not be able to turn into a megabyte response (or a model prompt).
 const MaxDiagnostics = 200
 
+// clipDiagnostics keeps a diagnostic to a size a person (or a model) can use. The caret form of an error repeats
+// the whole source line, so 200 errors on one 24 KB line were a 2.5 MB answer to a 24 KB request.
+func clipDiagnostics(ds []api.Diagnostic) []api.Diagnostic {
+	if len(ds) > MaxDiagnostics {
+		ds = ds[:MaxDiagnostics:MaxDiagnostics]
+	}
+	for i := range ds {
+		d := &ds[i]
+		d.Message, d.Found, d.Help, d.Render = clip(d.Message, 1000), clip(d.Found, 200), clip(d.Help, 500), clip(d.Render, 2000)
+		if len(d.Expected) > 20 {
+			d.Expected = d.Expected[:20:20]
+		}
+		for j := range d.Expected {
+			d.Expected[j] = clip(d.Expected[j], 200)
+		}
+	}
+	return ds
+}
+
+// clip cuts s to at most n bytes, on a character boundary, marking the cut.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
 func (c *Client) Check(ctx context.Context, text string) (*api.CheckReport, error) {
 	out, err := c.run(ctx, text, "check")
 	if err != nil {
@@ -302,9 +334,7 @@ func (c *Client) Check(ctx context.Context, text string) (*api.CheckReport, erro
 	if r.Diagnostics == nil {
 		r.Diagnostics = []api.Diagnostic{}
 	}
-	if len(r.Diagnostics) > MaxDiagnostics {
-		r.Diagnostics = r.Diagnostics[:MaxDiagnostics:MaxDiagnostics]
-	}
+	r.Diagnostics = clipDiagnostics(r.Diagnostics)
 	return r, nil
 }
 
@@ -317,9 +347,7 @@ func (c *Client) Fmt(ctx context.Context, text string) (*api.FmtReport, error) {
 	if err := decode(out, r, "fmt"); err != nil {
 		return nil, err
 	}
-	if len(r.Diagnostics) > MaxDiagnostics {
-		r.Diagnostics = r.Diagnostics[:MaxDiagnostics:MaxDiagnostics]
-	}
+	r.Diagnostics = clipDiagnostics(r.Diagnostics)
 	return r, nil
 }
 

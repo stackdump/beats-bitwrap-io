@@ -175,12 +175,27 @@ func cleanLine(s string) string {
 // newlines, spaces collapsed, at most max runes (with an ellipsis).
 func cleanText(s string, max int) string {
 	s = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || r == ' ' || r == ' ' || r == utf8.RuneError {
+		if unicode.IsControl(r) || r == ' ' || r == ' ' || r == utf8.RuneError || isBidiControl(r) {
 			return ' '
 		}
 		return r
 	}, s)), " ")
 	return truncRunes(s, max)
+}
+
+// isBidiControl: the marks, embeddings, overrides and isolates that reorder the text around them. A name with an
+// override in it shows reversed in a link preview (a title can push the real words out of sight); a name has no
+// use for them.
+func isBidiControl(r rune) bool {
+	switch {
+	case r == 0x061C, r == 0x200E, r == 0x200F: // Arabic letter mark, LRM, RLM
+		return true
+	case r >= 0x202A && r <= 0x202E: // LRE RLE PDF LRO RLO
+		return true
+	case r >= 0x2066 && r <= 0x2069: // LRI RLI FSI PDI
+		return true
+	}
+	return false
 }
 
 func truncRunes(s string, max int) string {

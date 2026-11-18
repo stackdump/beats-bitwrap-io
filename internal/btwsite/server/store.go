@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"beats-bitwrap-io/internal/btw"
 	"beats-bitwrap-io/internal/btwsite/api"
 )
 
@@ -106,6 +107,11 @@ func (s *programStore) put(ctx context.Context, text string, meta api.Meta, expe
 	}
 	if rep.CID == "" || rep.Canonical == "" || !reCID.MatchString(rep.CID) {
 		return nil, rep, false, fmt.Errorf("checker returned no usable CID")
+	}
+	// content addressing is the store's whole promise: what is kept under a CID must hash to it, whatever the
+	// checker says (one SHA-256, microseconds)
+	if want, err := btw.ProgramCID(rep.Canonical); err != nil || want != rep.CID {
+		return nil, rep, false, fmt.Errorf("checker answered a CID (%s) that is not the hash of its canonical text (%s)", rep.CID, want)
 	}
 	if expect != "" && rep.CID != expect {
 		return nil, rep, false, api.Errf(422, api.CodeCIDMismatch, "that text is program %s, not %s", rep.CID, expect)

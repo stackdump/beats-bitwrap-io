@@ -192,3 +192,19 @@ func TestMemoDoesNotKeepDiagnostics(t *testing.T) {
 		t.Fatalf("memo kept %d diagnostics (ok=%v)", len(got.report.Diagnostics), got.report.OK)
 	}
 }
+
+// A name or description cannot reorder the text around it in a link preview.
+func TestCleanTextDropsBidiControls(t *testing.T) {
+	got := cleanText("a‮evil⁦x⁩ ‏b؜c", 60)
+	for _, r := range got {
+		if isBidiControl(r) {
+			t.Fatalf("a bidi control survived: %q", got)
+		}
+	}
+	if got != "a evil x b c" {
+		t.Fatalf("got %q", got)
+	}
+	if cleanText("日本語 𝄞 é", 60) != "日本語 𝄞 é" {
+		t.Fatal("ordinary non-ASCII text must pass untouched")
+	}
+}

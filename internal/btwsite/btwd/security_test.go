@@ -172,3 +172,24 @@ printf '],"cid":null,"canonical":null}'`)
 		t.Fatalf("errors %d, diagnostics %d (want 3000 and %d)", r.Errors, len(r.Diagnostics), MaxDiagnostics)
 	}
 }
+
+// The caret form of an error repeats its source line: a long line must not make every diagnostic that long.
+func TestDiagnosticTextIsClipped(t *testing.T) {
+	bin := script(t, `cat >/dev/null
+line=$(head -c 30000 /dev/zero | tr '\0' 'x')
+printf '{"ok":false,"errors":1,"warnings":0,"diagnostics":[{"severity":"error","line":1,"col":1,"end_col":2,"start":0,"end":1,"message":"m","render":"error: %s"}],"cid":null,"canonical":null}' "$line"`)
+	c, err := New(bin, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Check(context.Background(), "x\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(r.Diagnostics[0].Render); got > 2100 || !strings.HasSuffix(r.Diagnostics[0].Render, "…") {
+		t.Fatalf("render is %d bytes, want it cut at 2000 and marked", got)
+	}
+	if clip("日本語", 4) != "日…" || clip("abc", 3) != "abc" {
+		t.Fatalf("clip must cut on a character boundary: %q", clip("日本語", 4))
+	}
+}

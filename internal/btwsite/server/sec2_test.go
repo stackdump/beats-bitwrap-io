@@ -36,12 +36,14 @@ func TestCheckerIsChargedToTheClientAddress(t *testing.T) {
 	const who = "203.0.113.77"
 	cid := e.put(progA)
 	asked := 0
+	var askedPaths []string
 	for _, req := range []struct{ method, path, body string }{
 		{"POST", "/api/check", `{"text":"` + strings.ReplaceAll(progB, "\n", `\n`) + `"}`},
 		{"PUT", "/api/programs/" + e.put(progC), progC},
 		{"GET", "/c/" + cid, ""},
 		{"GET", "/card/" + cid + ".png", ""},
 		{"GET", "/api/render/" + cid + "/status", ""},
+		{"POST", "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{"text":"` + strings.ReplaceAll(progB, "\n", `\n`) + `"}}}`},
 	} {
 		oc.mu.Lock()
 		oc.owners = map[string]bool{}
@@ -56,7 +58,7 @@ func TestCheckerIsChargedToTheClientAddress(t *testing.T) {
 		if req.method == "PUT" {
 			ct = "text/plain"
 		}
-		resp := e.do(req.method, req.path, body, hdr("Content-Type", ct), ip(who))
+		resp := e.do(req.method, req.path, body, hdr("Content-Type", ct), hdr("Accept", "application/json, text/event-stream"), ip(who))
 		resp.Body.Close()
 		oc.mu.Lock()
 		got := oc.owners
@@ -65,12 +67,13 @@ func TestCheckerIsChargedToTheClientAddress(t *testing.T) {
 			continue // answered from a cache: nothing was asked of the checker
 		}
 		asked++
+		askedPaths = append(askedPaths, req.path)
 		if len(got) != 1 || !got[who] {
 			t.Errorf("%s %s: the checker was asked for owners %v, want only %q", req.method, req.path, got, who)
 		}
 	}
-	if asked < 3 {
-		t.Fatalf("only %d of the requests reached the checker: the test proves little", asked)
+	if asked < 4 || !strings.Contains(strings.Join(askedPaths, " "), "/mcp") || !strings.Contains(strings.Join(askedPaths, " "), "/api/check") {
+		t.Fatalf("only %v of the requests reached the checker (need /api/check and /mcp among them): the test proves little", askedPaths)
 	}
 }
 
@@ -173,5 +176,31 @@ func TestAccessLogHasADailyCap(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "daily log cap reached") {
 		t.Fatalf("the cap is not announced in the file:\n%s", b[len(b)-300:])
+	}
+}
+
+// liar is a checker whose CID is not the hash of the canonical text it returns.
+type liar struct{ fakecheck.Checker }
+
+func (l liar) Check(ctx context.Context, text string) (*api.CheckReport, error) {
+	r, err := l.Checker.Check(ctx, text)
+	if err == nil && r.OK {
+		r.Canonical += "# smuggled\n" // the stored text would no longer be the program the CID names
+	}
+	return r, err
+}
+
+// The store keeps under a CID only text that hashes to it, whatever the checker answers.
+func TestStoreKeepsOnlyTextThatHashesToItsCID(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.Checker = liar{} })
+	var rep api.CheckReport
+	decode(t, e.post("/api/check", map[string]string{"text": progB}, ip("192.0.2.60")), &rep)
+	resp := e.do("PUT", "/api/programs/"+rep.CID, strings.NewReader(progB), hdr("Content-Type", "text/plain"), ip("192.0.2.61"))
+	if resp.StatusCode < 500 {
+		t.Fatalf("a checker answer that does not hash to its CID was accepted: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if _, ok := e.srv.Get(rep.CID); ok {
+		t.Fatal("it was stored")
 	}
 }
