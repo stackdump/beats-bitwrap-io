@@ -708,11 +708,6 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 	}
 	connected := 0
 	if session == "" {
-		if c.user == nil {
-			e := s.noSession("")
-			e.Message = fmt.Sprintf("get needs `session` when you are not signed in: open %s in a browser tab, press MCP in the top bar, and pass the session id it shows.", s.public)
-			return nil, e
-		}
 		list := s.b.Sessions(c.user)
 		if len(list) == 0 {
 			return nil, s.noSession("")
@@ -726,6 +721,9 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if err != nil {
 		e := fail(err)
 		if e.Code == api.CodeNoSession {
+			if connected > 0 { // we picked the session: the hub's own words say what is wrong with it
+				return nil, api.Errf(409, api.CodeNoSession, "%s If the tab was closed, open %s again signed in as this account, or press MCP in its top bar and pass the session id it shows as `session`.", e.Message, s.public)
+			}
 			return nil, s.noSession(session)
 		}
 		return nil, e

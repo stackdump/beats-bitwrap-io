@@ -185,7 +185,7 @@ A browser `GET` shows a page that lists the tools.
 claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header 'Authorization: Bearer btw_...'
 ```
 
-Without the header the read tools still work; `compose`, `eval`, `load` and `stop` answer an MCP tool error `auth_required` that says how to get a token
+Without the header the read tools still work; `compose`, `eval`, `load`, `get` and `stop` answer an MCP tool error `auth_required` that says how to get a token
 (sign in on the page and press **MCP token**). Other clients take the same URL and header, for example
 `{"mcpServers": {"btw": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
 
@@ -201,7 +201,7 @@ Without the header the read tools still work; `compose`, `eval`, `load` and `sto
 | `instruments` | | | voices, families, kits, palettes |
 | `eval` | yes | `text`, `play`, `session` | send a program to a browser tab, as Cmd+Enter; lands on the next bar |
 | `load` | yes | `cid` or `example` or `url`, `play`, `session` | put a stored, example or linked program into a tab |
-| `get` | | `session` | what a tab is playing: program, cid, section n of m, bar, phase, marks, diagnostics |
+| `get` | yes | `session` | what a tab is playing: program, cid, section n of m, bar, phase, marks, diagnostics |
 | `stop` | yes | `session` | stop the tab |
 
 `eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from

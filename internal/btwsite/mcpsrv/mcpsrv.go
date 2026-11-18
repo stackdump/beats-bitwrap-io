@@ -254,8 +254,8 @@ check, format, compose, share and render programs, and drive a browser tab at <a
 Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.txt</a>.</p>
 <h2>Add to Claude Code</h2>
 <pre><code>claude mcp add --transport http btw %s --header 'Authorization: Bearer btw_...'</code></pre>
-<p>Without the header the read tools still work (check, fmt, share, open, render, list_examples, instruments, get);
-compose, eval, load and stop need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
+<p>Without the header the read tools still work (check, fmt, share, open, render, list_examples, instruments);
+compose, eval, load, get and stop need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
 <b>MCP token</b>. Other clients take the same URL and header:</p>
 <pre><code>{ "mcpServers": { "btw": { "type": "http", "url": "%s",
     "headers": { "Authorization": "Bearer btw_..." } } } }</code></pre>
@@ -306,4 +306,6 @@ compose, eval, load and stop need a token. Sign in on <a href="%s">%s</a> with a
 }
 
 // authTools are the tools that need a signed-in caller.
-var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "stop": true}
+// get is one of them: the hub only lets an authenticated caller read a session (btwsite/DESIGN.md "Sessions":
+// even an anonymous tab is reached with its id *and* a token).
+var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true}

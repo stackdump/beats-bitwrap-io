@@ -52,7 +52,7 @@ func (s *Server) loadDesc() string {
 func (s *Server) getDesc() string {
 	return fmt.Sprintf(`What a browser tab at %[1]s is doing now, as the page last reported it: the program text and cid, playing (true/false), source (engine or stream), section (name), section_num of sections_total, bar, bars_in_section, phase (0-7, the light in the phrase), marks (what is firing: active lines, token flashes, ramps and timed lines, with line:col spans into the text), diagnostics (the page's own check of the text), and ts. Use it after eval or load to confirm the change landed, and to see the program a user is playing and editing.
 
-Without session it reads your own most recently seen tab (needs a token). A caller with no token must pass session: the id the page's MCP panel shows. Read-only. No tab connected: a no_session error that says how to connect one.`, s.public)
+Needs a bearer token: it reads the tabs of the token's account, by default the most recently seen one. A tab that is not signed in is read by its session id (the page's MCP panel shows it), with your token. Read-only. No tab connected: a no_session error that says how to connect one.`, s.public)
 }
 
 func (s *Server) shareDesc() string {

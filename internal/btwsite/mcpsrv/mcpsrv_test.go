@@ -89,7 +89,7 @@ func TestToolNamesAreTheContract(t *testing.T) {
 	mustContain("eval", "https://btw.bitwrap.io", "session", "MCP", "check first", "next bar", "bearer token")
 	mustContain("compose", "CC0", "seconds", "rate limited", "retry_after", "10 per hour", "bearer token")
 	mustContain("render", "CC0", "stream_url", "status_url", "limited")
-	mustContain("get", "section", "marks", "diagnostics", "session")
+	mustContain("get", "section", "marks", "diagnostics", "session", "bearer token")
 	mustContain("share", "CID", "CC0")
 	mustContain("list_examples", "CC0")
 	mustContain("instruments", "voices", "kits")
@@ -120,7 +120,7 @@ func TestToolNamesAreTheContract(t *testing.T) {
 	if _, _, req := tool("open"); len(req) != 1 || req[0] != "url" {
 		t.Errorf("open required = %v", req)
 	}
-	for _, n := range []string{"check", "fmt", "get", "share", "open", "list_examples", "instruments"} {
+	for _, n := range []string{"check", "fmt", "get", "share", "open", "list_examples", "instruments"} { // (get needs a token but changes nothing)
 		if h := res.Tools[byName[n]].Annotations.ReadOnlyHint; h == nil || !*h {
 			t.Errorf("%s should be annotated read-only", n)
 		}
@@ -272,34 +272,33 @@ func TestReadToolsWorkAnonymously(t *testing.T) {
 			t.Fatalf("open(cid) = %s", r.Text)
 		}
 	})
-	t.Run("get with an explicit session works without a token", func(t *testing.T) {
-		e.b.state = &api.SessionState{Text: goodProgram, CID: "zabc", Playing: true, Source: "engine", Section: "drop",
-			SectionNum: 2, SectionsAll: 5, Bar: 11, BarsInSect: 8, Phase: 3, Marks: json.RawMessage(`{"active_lines":[5]}`)}
-		r := e.call("", "get", map[string]any{"session": "abcdefABCDEF123456"})
-		b := r.body(t)
-		if r.IsError || b["id"] != "abcdefABCDEF123456" || b["section"] != "drop" || b["section_num"] != float64(2) ||
-			b["sections_total"] != float64(5) || b["bar"] != float64(11) || b["phase"] != float64(3) ||
-			b["marks"].(map[string]any)["active_lines"] == nil || b["playing"] != true {
-			t.Fatalf("get = %s", r.Text)
-		}
-	})
 }
 
 func TestGetAndSessions(t *testing.T) {
 	e := newEnv(t)
 	e.b.state = &api.SessionState{CID: "zq", Playing: false, Section: "intro"}
 
-	// anonymous without a session id: words, not a guess
-	r := e.call("", "get", nil)
-	em := r.errBody(t)
-	if em["code"] != "no_session" || !strings.Contains(em["message"].(string), "session id") {
-		t.Fatalf("anonymous get = %s", r.Text)
+	// get reads a browser tab, which only its owner may do: no token, no answer, and the words say how to get one
+	em := e.call("", "get", nil).errBody(t)
+	if em["code"] != "auth_required" || !strings.Contains(em["message"].(string), "MCP token") {
+		t.Fatalf("anonymous get = %v", em)
 	}
 	// a token with no sessions: no_session that says how to connect one
-	r = e.call("btw_alice", "get", nil)
+	r := e.call("btw_alice", "get", nil)
 	em = r.errBody(t)
 	if em["code"] != "no_session" || !strings.Contains(em["message"].(string), "https://btw.bitwrap.io") {
 		t.Fatalf("get without sessions = %s", r.Text)
+	}
+	// an explicit session, as the page's MCP panel shows it
+	e.b.state = &api.SessionState{Text: goodProgram, CID: "zabc", Playing: true, Source: "engine", Section: "drop",
+		SectionNum: 2, SectionsAll: 5, Bar: 11, BarsInSect: 8, Phase: 3, Marks: json.RawMessage(`{"active_lines":[5]}`),
+		Diagnostics: json.RawMessage(`[]`)}
+	r = e.call("btw_alice", "get", map[string]any{"session": "abcdefABCDEF123456"})
+	b := r.body(t)
+	if r.IsError || b["id"] != "abcdefABCDEF123456" || b["section"] != "drop" || b["section_num"] != float64(2) ||
+		b["sections_total"] != float64(5) || b["bar"] != float64(11) || b["bars_in_section"] != float64(8) || b["phase"] != float64(3) ||
+		b["marks"].(map[string]any)["active_lines"] == nil || b["playing"] != true || b["cid"] != "zabc" || b["text"] != goodProgram {
+		t.Fatalf("get = %s", r.Text)
 	}
 	// several sessions: the most recently seen one
 	e.b.sessions = []api.SessionInfo{
@@ -308,11 +307,17 @@ func TestGetAndSessions(t *testing.T) {
 		{ID: "midsession0003", LastSeen: "2026-11-17T10:00:05Z"},
 	}
 	r = e.call("btw_alice", "get", nil)
-	b := r.body(t)
+	b = r.body(t)
 	if r.IsError || b["id"] != "newsession0002" || b["sessions_connected"] != float64(3) {
 		t.Fatalf("get picks the latest: %s", r.Text)
 	}
-	// a stale explicit session
+	// the picked session does not answer: the hub's words come first
+	e.b.stateErr = api.Errf(409, api.CodeNoSession, "the browser did not answer (is the page still open?)")
+	em = e.call("btw_alice", "get", nil).errBody(t)
+	if em["code"] != "no_session" || !strings.Contains(em["message"].(string), "did not answer") || !strings.Contains(em["message"].(string), "session id") {
+		t.Fatalf("get(unanswered) = %v", em)
+	}
+	// a stale explicit session names the id
 	e.b.stateErr = api.Errf(404, api.CodeNoSession, "gone")
 	r = e.call("btw_alice", "get", map[string]any{"session": "gonesession01"})
 	em = r.errBody(t)
@@ -333,6 +338,7 @@ func TestWriteToolsRefuseAnonymous(t *testing.T) {
 		"eval":    {"text": goodProgram},
 		"load":    {"example": "demo"},
 		"stop":    {},
+		"get":     {},
 	}
 	for _, token := range []string{"", "btw_not_a_real_token"} {
 		for tool, args := range cases {
