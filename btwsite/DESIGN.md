@@ -185,6 +185,17 @@ engine.setLevel(0..1); engine.dispose()
 ```
 The page owns the `BtwRun`, the clock loop and the markers; the engine owns the sound.
 
+As built (R2; `btwsite/web/js/engine*.js`, tests `btwsite/test/wasm-parity.mjs` and `engine-browser.mjs`):
+- `createEngine({context, destination, wasmUrl?, module?, composer?: 'worker'|'main'|'inline'})`. `module` is a compiled `WebAssembly.Module` the page already has (skips the fetch and compile).
+  The worklet is `btw-engine` (`engine-worklet.js`, with `engine-polyfill.js` for the TextEncoder/TextDecoder the worklet scope lacks); nets are compiled in a module Worker (`engine-composer.js`, a second instance of the engine:
+  `DjComposer.prepare_share`) and installed in the worklet 12 KB a render quantum (`Dj.begin_install` / `install_step`), so the audio thread never compiles. `composer:'main'` compiles on the page thread, `'inline'` on the audio thread (glitches).
+- Also on the engine: `engine.on('installed'|'error'|'warn'|'ignored', fn)`, `engine.idle()` (resolves when nothing is loading), `engine.pending`, `engine.decks()` (both decks at the last report), `engine.stats`, `engine.info`, `engine.composer`.
+- Order: commands for a deck run in order; a `play` waits for every load in the same `apply()` batch (the decks start together); a batch's installs start together once all are prepared (a section's decks land on the same bar line); a newer load for a deck drops an older one that has not begun to install.
+- `grid()` is advanced against the audio clock (shifted back by the output latency) and never runs past the next bar line by itself: the runtime counts a bar only when the worklet has reported it, so a section swap (the beat going back to the top) is not counted twice.
+- Which registry calls the engine honours and which it ignores (with one console note each) is the table at the top of `js/engine-calls.js`. In short: mixer (strip knobs, crossfader, master), deck play/stop, inserts filter/reverb/crush mapped onto the strip and master FX unit; everything else (delay, moves, loops, queue, auto-DJ, ...) is ignored.
+- `btw_share(text, sig, notes, origin?)` takes the site origin as an optional fourth argument; `btw_generation(text, scope|null, n)`; `BtwRun` also has `check(text)` (eval's answer without staging).
+- The wasm is built by `scripts/build-web-wasm.sh <dir>` (Rust worktree) into `btwsite/web/wasm/` and is **not committed** (see "Public repo").
+
 ## Package entry points (what G1's main wires; keep these names and shapes)
 ```go
 // internal/btwsite/btwd (G1): the Rust subprocess as an api.Checker
@@ -349,7 +360,7 @@ Run it: `make btwsite-build` → `btwsite/bin/btwsite`; `make btwsite-test` (vet
   (the client sees a broken stream, never a short "success") and is not cached. Streams send `X-Accel-Buffering: no` and `Cache-Control: no-cache` (a complete copy is `public, immutable` with an `ETag`). Limits as specified; a joiner and a cache hit are not charged to the per-IP hour and take no slot.
   `HEAD` never starts a render (`X-Btw-Cache: hit|joined|miss`). `GET /api/render/<cid>/status` → `{cid, bars, seconds, formats:{opus|wav:{state:none|rendering|ready, bytes, seconds, seconds_rendered, url, available}}}`. Unknown CID 404; restricted/asset 422; over `-render-max-bars` 422 `too_large`.
 - **Sessions (as built)**: `POST /api/session` → `{id, user}`. The page-side routes (events, report, reply) are addressed by the id alone (it is the capability), but a *signed-in other user* than the owner gets 404. Up to 4 streams per session (a reconnect retires the oldest), SSE ping every 20 s,
-  reports ≤ 256 KiB and ≤ 10/s (burst 20), the server stamps `ts`, a session without a stream or report for 10 min is dropped, ≤ 20 per user (the least recently seen is retired), 120 creations/hour/IP. `State` returns a report younger than 1.5 s, else asks the page (`get`, 3 s) and falls back to the last report
+  reports ≤ 256 KiB and ≤ 10/s (burst 20), the server stamps `ts`, **an anonymous session is claimed by the first signed-in user whose cookie reports to (or streams from) it** (the page makes its session before sign-in and keeps the id, so "all my sessions" must find it), a session without a stream or report for 10 min is dropped, ≤ 20 per user (the least recently seen is retired), 120 creations/hour/IP. `State` returns a report younger than 1.5 s, else asks the page (`get`, 3 s) and falls back to the last report
   (its `ts` says how old it is), else 409 `no_session`. `Push` counts only sessions with a live stream. `SessionState.bars_in_section` was added (additive).
 - **Logs**: `-data/log/access-YYYYMMDD.jsonl`, one line per request `{time,method,path,status,ms,bytes,ip,user}`: `ip` is an HMAC of the client address, `path` has no query and session ids are `:id`, no cookie/token/key/body ever; files older than 30 days are removed.
 - **Tests without Rust**: `internal/btwsite/btwd/fakebtwd` is a fake `btwd` (check/fmt/open/share/highlight/instruments/cheatsheet/render over `fakecheck`, with `BTW_FAKE_*` knobs for delays, failures and a pid file); tests build `cmd/fakebtwd` once and run the real client over it.
