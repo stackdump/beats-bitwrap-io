@@ -811,3 +811,40 @@ func TestToolsListGolden(t *testing.T) {
 		t.Fatalf("tools/list differs from %s; review the change and run with UPDATE_GOLDEN=1", path)
 	}
 }
+
+// A client that asks for the notification stream (GET with Accept: text/event-stream) is told there is none,
+// as the transport spec allows, instead of being handed an idle stream that holds a connection open.
+func TestEventStreamGetIsRefused(t *testing.T) {
+	e := newEnv(t)
+	req, _ := http.NewRequest("GET", e.srv.URL+"/mcp", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 405 || resp.Header.Get("Allow") != "POST" {
+		t.Fatalf("GET text/event-stream: %d Allow %q", resp.StatusCode, resp.Header.Get("Allow"))
+	}
+	// other verbs are not the transport's either
+	req, _ = http.NewRequest("PUT", e.srv.URL+"/mcp", strings.NewReader("{}"))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 && resp.StatusCode != 405 {
+		t.Fatalf("PUT: %d", resp.StatusCode)
+	}
+	// a POST with the wrong content type is a client error, not a crash
+	req, _ = http.NewRequest("POST", e.srv.URL+"/mcp", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("POST text/plain: %d", resp.StatusCode)
+	}
+}

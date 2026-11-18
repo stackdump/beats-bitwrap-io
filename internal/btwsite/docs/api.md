@@ -178,7 +178,7 @@ must still hold a token. This is how `eval`, `load`, `stop` and `get` work.
 
 ## MCP
 
-`https://btw.bitwrap.io/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over streamable HTTP (stateless: each request stands alone).
+`https://btw.bitwrap.io/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over streamable HTTP (stateless: each request stands alone, there is no event stream: a `GET` that asks for one gets 405).
 A browser `GET` shows a page that lists the tools.
 
 ```bash

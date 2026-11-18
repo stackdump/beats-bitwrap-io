@@ -138,9 +138,16 @@ func New(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) *
 	return s
 }
 
-// ServeHTTP: a browser GET gets the landing page, everything else is the MCP transport.
+// ServeHTTP: a browser GET gets the landing page, a GET that asks for an event stream is refused with 405
+// (the spec's answer for a server that sends nothing unprompted: a stateless server has no notifications, and
+// an idle stream per client would only hold a connection and a goroutine), everything else is the MCP transport.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet && !strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+	if r.Method == http.MethodGet {
+		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "this server sends no unprompted events: POST JSON-RPC to /mcp", http.StatusMethodNotAllowed)
+			return
+		}
 		s.landing(w, r)
 		return
 	}
