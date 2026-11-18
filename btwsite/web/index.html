@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16213e">
+<title>btw, the bitwrap language</title>
+<meta name="description" content="Write a whole track as text. btw is a small, total, deterministic music language: edit it, hear it, share it as a self-sealing link. Live code with firing markers.">
+<meta name="author" content="Matt York">
+<link rel="canonical" href="https://btw.bitwrap.io/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="btw.bitwrap.io">
+<meta property="og:title" content="btw, the bitwrap language">
+<meta property="og:description" content="A whole track as text. Live code it in the browser; share it as a link that seals its own text.">
+<meta property="og:url" content="https://btw.bitwrap.io/">
+<meta property="og:image" content="https://btw.bitwrap.io/card/default.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://btw.bitwrap.io/card/default.png">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="css/btw.css">
+</head>
+<body>
+<a class="skip" href="#ed">Skip to the editor</a>
+<div class="app" id="app">
+  <header class="top" id="top">
+    <a class="brand" href="/" aria-label="btw home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">btw</span></a>
+    <label class="pick"><span class="sr">Examples</span>
+      <select id="examples" aria-label="Examples"><option value="">examples</option></select>
+    </label>
+    <span class="prog-name" id="prog-name" title="program name"></span>
+    <span class="spacer"></span>
+    <button type="button" class="tb" id="btn-fmt" title="Format: the canonical text"><span class="gl-ic" aria-hidden="true">{ }</span><span class="lbl">fmt</span></button>
+    <button type="button" class="tb" id="btn-share" title="Share: a link that seals its own text"><span class="gl-ic" aria-hidden="true">↗</span><span class="lbl">share</span></button>
+    <button type="button" class="tb" id="btn-open" title="Open a link or a CID"><span class="gl-ic" aria-hidden="true">⤓</span><span class="lbl">open</span></button>
+    <button type="button" class="tb" id="btn-compose" title="Compose with a model (sign in)" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">✦</span><span class="lbl">compose</span></button>
+    <button type="button" class="tb" id="btn-mcp" title="MCP: let an assistant drive this page" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">⌘</span><span class="lbl">mcp</span></button>
+    <button type="button" class="tb" id="btn-user" title="Sign in" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">◉</span><span class="lbl" id="user-lbl">sign in</span></button>
+  </header>
+
+  <div class="hdr" id="hdr" role="status" aria-live="off">
+    <span class="h-sec" id="h-sec"><span class="h-arrow" aria-hidden="true">▸</span> <span id="h-sec-txt">not playing</span></span>
+    <span class="h-bar" id="h-bar" hidden></span>
+    <span class="h-phrase" id="h-phrase" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="h-gen" id="h-gen" hidden></span>
+    <span class="h-state" id="h-state"></span>
+    <span class="spacer"></span>
+    <button type="button" class="tb tb-sm" id="btn-follow" aria-pressed="true" title="Follow: the editor scrolls with the song (L)"><span class="gl-ic" aria-hidden="true">⇣</span><span class="lbl">follow</span> <kbd>L</kbd></button>
+    <div class="h-prog" id="h-prog" aria-hidden="true"><i id="h-prog-fill"></i></div>
+  </div>
+
+  <div class="banner" id="banner" role="alert" hidden></div>
+
+  <main class="stage">
+    <div class="ed" id="ed"></div>
+    <p class="sr" id="ed-help">Edit the program. Command or Control plus Enter evaluates it, Escape or Command plus period stops it. Tab indents; press Escape and then Tab to leave the editor.</p>
+    <section class="problems" id="problems" aria-label="Problems">
+      <button type="button" class="pr-sum" id="pr-sum" aria-expanded="false" aria-controls="pr-list"><span class="pr-dot" id="pr-dot"></span><span id="pr-sum-txt">no problems</span><span class="pr-first" id="pr-first"></span><span class="pr-chev" aria-hidden="true">▴</span></button>
+      <ol class="pr-list" id="pr-list" hidden></ol>
+    </section>
+  </main>
+
+  <div class="decks" id="decks" hidden>
+    <div class="deck" id="deck-A"><h2>Deck A</h2><ul class="roles"></ul></div>
+    <div class="deck" id="deck-B"><h2>Deck B</h2><ul class="roles"></ul></div>
+  </div>
+
+  <footer class="transport" id="transport">
+    <button type="button" class="play" id="btn-play" aria-label="Play">
+      <svg class="ic-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>
+      <svg class="ic-stop" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>
+    </button>
+    <span class="t-hint" id="t-hint"><kbd>⌘</kbd><kbd>↵</kbd> eval <kbd>Esc</kbd> stop</span>
+    <div class="seg" id="t-source" role="radiogroup" aria-label="Sound source">
+      <button type="button" role="radio" aria-checked="false" data-src="engine" id="src-engine" title="Live engine in this page: edits land on the next bar">engine</button>
+      <button type="button" role="radio" aria-checked="false" data-src="stream" id="src-stream" title="The server's render, streamed">stream</button>
+    </div>
+    <span class="t-status" id="t-status" role="status"></span>
+    <span class="spacer"></span>
+    <span class="t-bpm" id="t-bpm" title="tempo"></span>
+    <label class="t-level" title="Level"><span class="sr">Level</span>
+      <input type="range" id="level" min="0" max="1" step="0.01" value="0.8">
+      <span class="meter" aria-hidden="true"><i id="meter"></i></span>
+    </label>
+    <span class="t-time" id="t-time"></span>
+    <button type="button" class="tb tb-sm" id="btn-decks" aria-expanded="false" aria-controls="decks" title="Show the decks"><span aria-hidden="true">⌃</span><span class="sr">Decks</span></button>
+  </footer>
+
+  <aside class="drawer" id="drawer" aria-label="Panel" hidden>
+    <div class="drawer-head"><h2 id="drawer-title"></h2><button type="button" class="tb tb-sm" id="drawer-close" aria-label="Close panel">✕</button></div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+</div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<noscript><p class="noscript">btw needs JavaScript: the editor, the checker and the sound run in your browser.</p></noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
