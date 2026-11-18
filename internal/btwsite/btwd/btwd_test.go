@@ -330,7 +330,7 @@ func TestRealBinary(t *testing.T) {
 	}
 	dir := os.Getenv("BTWD_CORPUS")
 	if dir == "" {
-		dir = "/Users/myork/Workspace/.val-worktrees/djrust-vevr-se/btw-web/crates/btwapi/tests/corpus"
+		dir = filepath.Join("..", "..", "..", "btwsite", "examples") // the public CC0 programs of this repo
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "*.btw"))
 	if len(files) == 0 {

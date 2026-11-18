@@ -2,7 +2,7 @@
 // Deterministic demo recorder for btw.bitwrap.io: no screen capture, no system audio, no wall clock.
 //
 //   node btwsite/tools/record-demo.mjs --server http://127.0.0.1:18097 --btwd target/release/btwd \
-//        --cid z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v --out ~/Workspace/llm-headline-loops/promo
+//        --cid z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v --out ./promo
 //
 // How: headless Chrome loads the page in ?record=1&clock=manual (window.__btw, DESIGN.md / W1): the page has
 // no audio and no timers, its grid comes from a fake clock this script steps. Per frame: __btw.setTime(t),
@@ -30,7 +30,7 @@ const W = 1920, H = 1080
 const fps = +(args.fps || 30)
 const server = (args.server || 'http://127.0.0.1:18097').replace(/\/$/, '')
 const btwd = resolve((args.btwd || 'target/release/btwd').replace(/^~/, homedir()))
-const outDir = resolve(String(args.out || join(homedir(), 'Workspace/llm-headline-loops/promo')).replace(/^~/, homedir()))
+const outDir = resolve(String(args.out || './promo').replace(/^~/, homedir()))
 const which = String(args.only || 'demo,hero,poster').split(',')
 const chrome = args.chrome || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const source = args.cid ? `cid=${encodeURIComponent(args.cid)}` : `example=${encodeURIComponent(args.example || 'hand-dubstep-140-v4')}`
