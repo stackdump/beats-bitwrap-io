@@ -87,6 +87,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
     const emit = (type, detail) => { for (const fn of listeners.get(type) || []) { try { fn(detail); } catch (e) { console.error(e); } } };
 
     const stats = { loads: 0, prepareMs: [], installMs: [], installQuanta: [], inline: 0 };
+    const keep = (a, v) => { a.push(v); if (a.length > 200) a.shift(); }; // the last 200 of each
     let grid = null; // the worklet's last report: {t, frame, decks, at: performance.now()}
     let disposed = false;
     let readyInfo = null;
@@ -109,8 +110,8 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             installs.delete(m.id);
             if (m.type === 'installed') {
                 item.installMs = performance.now() - item.installAt;
-                stats.installMs.push(item.installMs);
-                stats.installQuanta.push(m.quanta);
+                keep(stats.installMs, item.installMs);
+                keep(stats.installQuanta, m.quanta);
                 if (m.inline) stats.inline++;
                 finish(item, 'done');
                 emit('installed', { deck: item.deck, prepareMs: item.prepareMs, installMs: item.installMs, kb: m.kb, quanta: m.quanta, inline: !!m.inline });
@@ -139,7 +140,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
         prepares.delete(m.id);
         if (m.type === 'prepared') {
             item.prepareMs = m.ms;
-            stats.prepareMs.push(m.ms);
+            keep(stats.prepareMs, m.ms);
             item.bytes = m.bytes;
             if (item.state === 'preparing') { item.state = 'prepared'; advance(item.batch); }
         } else if (item.state === 'preparing') {

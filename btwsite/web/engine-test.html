@@ -84,6 +84,8 @@ document.getElementById('go').addEventListener('click', async () => {
     T.finalGrid = engine.grid();
     T.stats = engine.stats;
     T.playedMs = performance.now() - T.startedAt;
+    T.audioSeconds = context.currentTime;
+    T.wallSeconds = (performance.now() - t0) / 1000;
     engine.dispose();
     await context.close();
     T.phase = 'done';
