@@ -234,7 +234,8 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
                         if (it.state === 'queued') { startPrepare(it); moved = true; }
                         break; // blocked until it lands
                     }
-                    if (it.kind === 'play' && it.batch.loads.some((l) => !TERMINAL.has(l.state))) break; // wait for the batch's loads
+                    // a play waits for the loads that came with it, on either deck (so the decks start together), but not for a load of its own deck that was asked for after it
+                    if (it.kind === 'play' && it.batch.loads.some((l) => !TERMINAL.has(l.state) && !(l.deck === it.deck && l.seq > it.seq))) break;
                     q.shift();
                     moved = true;
                     run(it);
@@ -287,7 +288,9 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             if (disposed || !Array.isArray(commands) || !commands.length) return;
             const batch = { loads: [] };
             const dropped = [];
+            let seq = 0;
             for (const c of commands) {
+                seq++;
                 if (c.op === 'call') { call(c.noun, c.params); continue; }
                 const deck = c.deck;
                 if (!queues[deck]) continue;
@@ -303,11 +306,11 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
                             if (!dropped.includes(old.batch)) dropped.push(old.batch);
                         }
                     }
-                    const item = { kind: 'load', deck, envelope: c.envelope, batch, state: 'queued' };
+                    const item = { kind: 'load', deck, envelope: c.envelope, batch, state: 'queued', seq };
                     batch.loads.push(item);
                     queues[deck].push(item);
                 } else if (c.op === 'play') {
-                    queues[deck].push({ kind: 'play', deck, on: !!c.on, batch });
+                    queues[deck].push({ kind: 'play', deck, on: !!c.on, batch, seq });
                 } else if (c.op === 'sound') {
                     queues[deck].push({ kind: 'sound', deck, role: c.role, option: c.option, batch });
                 }
