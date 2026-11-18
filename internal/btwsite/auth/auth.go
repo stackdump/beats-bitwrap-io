@@ -163,9 +163,44 @@ func Identity(typ, address string) (*api.User, error) {
 			return nil, fmt.Errorf("%w: an ed25519 public key is 64 hex digits", errBadKey)
 		}
 		a = strings.ToLower(a)
+		if smallOrderEd25519(a) {
+			return nil, fmt.Errorf("%w: that is not a usable ed25519 public key", errBadKey)
+		}
 		return &api.User{ID: "ed25519:" + a, Kind: "ed25519", Address: a}, nil
 	}
 	return nil, fmt.Errorf("%w: type must be eth or ed25519", errBadKey)
+}
+
+// smallOrderKeys are the encodings (top bit cleared: it only picks the sign of x) of the points of order
+// dividing 8 on edwards25519 and the non-canonical aliases of two of them: libsodium's blocklist. Go's
+// ed25519.Verify, like RFC 8032, accepts such a public key, and for one of them a signature that does not
+// depend on the message (for the identity point, R = identity and S = 0 verifies for every message), so
+// "the owner of that key signed the challenge" would be true of anyone. The key is the user's identity here,
+// so those keys are refused: an identity must be somebody's.
+var smallOrderKeys = [...]string{
+	"0000000000000000000000000000000000000000000000000000000000000000", // order 4
+	"0100000000000000000000000000000000000000000000000000000000000000", // the identity
+	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", // order 8
+	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a", // order 8
+	"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", // p-1, order 2
+	"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", // p, an alias of 0
+	"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", // p+1, an alias of 1
+}
+
+// smallOrderEd25519 says whether the 64 lower-case hex digits are one of smallOrderKeys.
+func smallOrderEd25519(hexKey string) bool {
+	raw, err := hex.DecodeString(hexKey)
+	if err != nil || len(raw) != 32 {
+		return true
+	}
+	raw[31] &= 0x7f
+	k := hex.EncodeToString(raw)
+	for _, bad := range smallOrderKeys {
+		if k == bad {
+			return true
+		}
+	}
+	return false
 }
 
 // userFromID rebuilds a User from a validated uid.
@@ -306,6 +341,37 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// crossSite says whether a browser started this request from another origin. The session cookie is
+// SameSite=Lax, which keeps it off cross-site POSTs but not off requests from a sibling subdomain, and
+// sign-in itself sets a cookie, so a page on any other origin could otherwise make a visitor's browser sign
+// in as the page's author (login CSRF) and from then on report its editor to sessions that author owns.
+// Browsers always send Origin on a POST and DELETE (and Sec-Fetch-Site everywhere current); a client with
+// neither (curl, the MCP clients, scripts) is not a browser acting for somebody else and passes.
+func (s *Service) crossSite(r *http.Request) bool {
+	if o := r.Header.Get("Origin"); o != "" {
+		u, err := url.Parse(o)
+		if err != nil || u.Host == "" {
+			return true // "null" (a sandboxed frame, a no-referrer form post) and anything unreadable
+		}
+		h := strings.ToLower(u.Host)
+		return h != strings.ToLower(r.Host) && h != strings.ToLower(s.domain)
+	}
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site", "same-site":
+		return true
+	}
+	return false
+}
+
+// refuseCrossSite answers 403 for a request a browser started from another origin.
+func (s *Service) refuseCrossSite(w http.ResponseWriter, r *http.Request) bool {
+	if !s.crossSite(r) {
+		return false
+	}
+	api.WriteError(w, api.Errf(http.StatusForbidden, "cross_site", "this request came from another site; sign-in and tokens are only for this site's own page"))
+	return true
+}
+
 func (s *Service) allow(w http.ResponseWriter, r *http.Request, bucket string) bool {
 	if s.o.Allow == nil {
 		return true
@@ -379,6 +445,9 @@ func readJSON(w http.ResponseWriter, r *http.Request, max int64, v any) bool {
 }
 
 func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.refuseCrossSite(w, r) {
+		return
+	}
 	if !s.allow(w, r, "login") {
 		return
 	}
@@ -418,6 +487,9 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if s.refuseCrossSite(w, r) {
+		return
+	}
 	s.clearCookie(w)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -438,6 +510,9 @@ func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
+	if s.refuseCrossSite(w, r) {
+		return
+	}
 	if !s.allow(w, r, "token") {
 		return
 	}
@@ -480,6 +555,9 @@ func (s *Service) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
+	if s.refuseCrossSite(w, r) {
+		return
+	}
 	u, err := s.UserFrom(r)
 	if err != nil || u == nil {
 		api.WriteError(w, authErr("sign in to revoke your tokens"))

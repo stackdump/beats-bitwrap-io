@@ -33,6 +33,20 @@ const (
 	maxReportBytes       = 256 << 10
 )
 
+// maxStateBytes bounds what the hub keeps of the pages' reports, all sessions together. Each session keeps its
+// latest report (up to maxReportBytes, a few hundred KiB in memory), and a session can be made by anyone, so
+// without a total the 5000 sessions allowed could hold well over a gigabyte. Over the budget, the sessions
+// that reported longest ago lose their stored report (a live page reports again within a second).
+var maxStateBytes = 128 << 20
+
+// stateBytes is what a stored report costs, near enough.
+func stateBytes(st *api.SessionState) int {
+	if st == nil {
+		return 0
+	}
+	return len(st.Text) + len(st.Marks) + len(st.Diagnostics) + len(st.CID) + len(st.Source) + len(st.Section) + 512
+}
+
 type subscriber struct {
 	ch   chan api.SessionEvent
 	once sync.Once
@@ -63,6 +77,8 @@ type hub struct {
 	sessions map[string]*session
 	closed   bool
 	seq      int
+	bytes    int       // stateBytes of every stored report
+	streams  ipCounter // open SSE streams per address
 }
 
 var _ api.Hub = (*hub)(nil)
@@ -119,7 +135,31 @@ func (h *hub) dropLocked(s *session) {
 	for sub := range s.subs {
 		sub.close()
 	}
+	h.bytes -= stateBytes(s.state)
 	delete(h.sessions, s.id)
+}
+
+// setStateLocked stores a report as s's latest and keeps the total under maxStateBytes.
+func (h *hub) setStateLocked(s *session, st *api.SessionState, now time.Time) {
+	h.bytes += stateBytes(st) - stateBytes(s.state)
+	s.state, s.stateAt, s.lastSeen = st, now, now
+	if h.bytes <= maxStateBytes {
+		return
+	}
+	var held []*session
+	for _, o := range h.sessions {
+		if o != s && o.state != nil {
+			held = append(held, o)
+		}
+	}
+	sort.Slice(held, func(i, j int) bool { return held[i].stateAt.Before(held[j].stateAt) })
+	for _, o := range held {
+		if h.bytes <= maxStateBytes {
+			break
+		}
+		h.bytes -= stateBytes(o.state)
+		o.state = nil
+	}
 }
 
 func (h *hub) sweepLocked() {
@@ -240,7 +280,7 @@ func (h *hub) report(id string, u *api.User, st api.SessionState) (ok, limited b
 	s.tokens--
 	st.ID = id
 	st.TS = now.UTC().Format(time.RFC3339Nano)
-	s.state, s.stateAt, s.lastSeen = &st, now, now
+	h.setStateLocked(s, &st, now)
 	return true, false
 }
 
@@ -260,7 +300,7 @@ func (h *hub) reply(id string, u *api.User, requestID string, st api.SessionStat
 	now := h.now()
 	st.ID = id
 	st.TS = now.UTC().Format(time.RFC3339Nano)
-	s.state, s.stateAt, s.lastSeen = &st, now, now
+	h.setStateLocked(s, &st, now)
 	ch <- &st // buffered 1
 	return true
 }
@@ -430,9 +470,51 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "user": u})
 }
 
+// maxStreamsPerIP bounds the open SSE streams one address (the /64 for IPv6) may hold. Creating sessions is
+// limited per hour, but a session that has a stream is never swept, so without this one address could pile up
+// streams (a goroutine and a socket each) for as long as it likes.
+const maxStreamsPerIP = 40
+
+// ipCounter counts something open per address.
+type ipCounter struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *ipCounter) acquire(key string, max int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	if c.n[key] >= max {
+		return false
+	}
+	c.n[key]++
+	return true
+}
+
+func (c *ipCounter) release(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n[key] <= 1 {
+		delete(c.n, key)
+		return
+	}
+	c.n[key]--
+}
+
 func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	u := s.userOrAnon(r)
+	ipKey := api.IPKey(ClientIP(r))
+	if !s.hub.streams.acquire(ipKey, maxStreamsPerIP) {
+		e := api.Errf(http.StatusTooManyRequests, api.CodeRateLimited, "too many open streams from your address (%d); close a tab or wait", maxStreamsPerIP)
+		e.RetryAfter = 30
+		api.WriteError(w, e)
+		return
+	}
+	defer s.hub.streams.release(ipKey)
 	sub, err := s.hub.subscribe(id, u)
 	if err != nil {
 		api.WriteError(w, err)

@@ -204,7 +204,24 @@ func (s *Server) limitCPU(c caller) *api.Error {
 		e.RetryAfter = retry
 		return e
 	}
+	if ok, retry := s.ipCeiling(s.cpuIP, c); !ok {
+		e := api.Errf(429, api.CodeRateLimited, "too many calls to the checker from your address; slow down")
+		e.RetryAfter = retry
+		return e
+	}
 	return nil
+}
+
+// ipCeiling counts a signed-in caller against their address too (anonymous callers' own key is the address).
+func (s *Server) ipCeiling(l *limiter, c caller) (bool, int) {
+	if c.user == nil {
+		return true, 0
+	}
+	ip := c.ip
+	if ip == "" {
+		ip = "unknown"
+	}
+	return l.allow("ip:" + api.IPKey(ip))
 }
 
 func (s *Server) checkProgram(ctx context.Context, c caller, text string) (*api.CheckReport, *api.Error) {
@@ -905,7 +922,11 @@ func (s *Server) renderTool(ctx context.Context, c caller, a args) (any, *api.Er
 			return nil, e
 		}
 		// Only a program that is about to be stored counts: Put has no caller to limit by.
-		if ok, retry := s.render.allow(c.key); !ok {
+		ok, retry := s.render.allow(c.key)
+		if ok {
+			ok, retry = s.ipCeiling(s.renderIP, c)
+		}
+		if !ok {
 			e := api.Errf(429, api.CodeRateLimited, "too many programs submitted for rendering")
 			e.RetryAfter = retry
 			return nil, e

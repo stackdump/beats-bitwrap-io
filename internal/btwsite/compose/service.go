@@ -69,6 +69,9 @@ type Service struct {
 
 	capMu  sync.Mutex
 	capDay string // the UTC day a request was last refused for the spend cap
+
+	baseMu   sync.Mutex
+	baseSeen map[string]string // base_cid look-ups: CID + text hash -> the base to edit, "" = refused
 }
 
 var _ api.Composer = (*Service)(nil)
@@ -308,14 +311,38 @@ func (s *Service) baseProgram(ctx context.Context, cid string) (string, error) {
 	if text == "" {
 		return "", refuse()
 	}
+	// A base is looked at before the windows and the spend cap (its refusal is a 400 that costs no quota), so
+	// each look must be cheap: the answer for a given CID and text never changes, and a hostile program can take
+	// seconds to check, so it is checked once and remembered.
+	sum := sha256.Sum256([]byte(text))
+	key := cid + ":" + hex.EncodeToString(sum[:8])
+	s.baseMu.Lock()
+	hit, seen := s.baseSeen[key]
+	s.baseMu.Unlock()
+	if seen {
+		if hit == "" {
+			return "", refuse()
+		}
+		return hit, nil
+	}
 	rep, err := s.opt.Checker.Check(ctx, text)
 	if err != nil {
 		return "", passThrough(err, "the program checker failed")
 	}
-	if VetPublicProgram(text, rep, false) != "" || rep.CID != cid {
+	base := ""
+	if VetPublicProgram(text, rep, false) == "" && rep.CID == cid {
+		base = stripHeader(rep.Canonical)
+	}
+	s.baseMu.Lock()
+	if s.baseSeen == nil || len(s.baseSeen) >= 512 {
+		s.baseSeen = map[string]string{}
+	}
+	s.baseSeen[key] = base
+	s.baseMu.Unlock()
+	if base == "" {
 		return "", refuse()
 	}
-	return stripHeader(rep.Canonical), nil
+	return base, nil
 }
 
 // ---------- compose ----------
@@ -403,6 +430,12 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 				return nil, s.withAttempts(s.noteSpend(err), tr, lastDiags, lastText)
 			}
 		}
+		// The owner's stop button works on a request that is already running too: no further model call once
+		// the switch is pulled (a call already in flight finishes and is paid for).
+		if k := s.lim.Kill(); k.Disabled {
+			rsv.Release()
+			return nil, s.withAttempts(api.Errf(503, api.CodeDisabled, "compose is switched off for now"), tr, lastDiags, lastText)
+		}
 		text, use, merr := s.model.Generate(ctx, system, msgs)
 		cost := s.lim.Cost(use.In, use.Out)
 		var me *ModelError
@@ -410,9 +443,15 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 			me = &ModelError{Kind: KindTransport, Message: "the model call failed"}
 		}
 		if me != nil && me.Kind == KindTransport && use.In == 0 && use.Out == 0 {
-			// the call may or may not have been billed: count what was sent, not the worst case
+			// No usage came back. A call that never left (a refused connection) is charged for what was sent.
+			// A call we stopped waiting for (the caller hung up, or our timeout) may still be generated and
+			// billed upstream, and the caller chose when to leave: it is charged the full output allowance,
+			// the one that was held for it.
 			use.In = estimateTokens(system, msgs)
-			cost = s.lim.Cost(use.In, 0)
+			if me.Aborted {
+				use.Out = s.opt.MaxOutputTokens
+			}
+			cost = s.lim.Cost(use.In, use.Out)
 		}
 		rsv.Settle(cost, use.In, use.Out)
 		rsv = nil
@@ -459,6 +498,13 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 				case report.Restricted || report.UsesAssets:
 					diags = []api.Diagnostic{syntheticDiag("the program uses restricted sounds or asset statements (use restricted / sample / loop), which are not allowed here",
 						"use only the instruments and kits in the INSTRUMENTS list")}
+				default:
+					// A "#!" line is a comment to the checker, but a header that says the program is not
+					// public CC0 must not come out of a site that only stores public CC0 programs.
+					if why := headerClaim(prog); why != "" {
+						diags = []api.Diagnostic{syntheticDiag("the program carries a #! header line that says it is "+why+"; everything here is public CC0",
+							"write no #! lines at all")}
+					}
 				}
 			}
 		}

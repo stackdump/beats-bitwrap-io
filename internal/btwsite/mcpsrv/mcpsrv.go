@@ -102,8 +102,16 @@ type Server struct {
 
 	cpu    *limiter // check, fmt, share, open (+ the checks inside eval, load, render)
 	render *limiter // programs stored for rendering
-	inst   instrumentsCache
+	// Per-address ceilings over all the signed-in callers of one address: a user costs nothing to make (any key
+	// signs in), so an allowance counted per user alone is no limit on one machine. Anonymous callers are
+	// already counted by address in cpu and render.
+	cpuIP    *limiter
+	renderIP *limiter
+	inst     instrumentsCache
 }
+
+// ipCeilingFactor: one address may use this many signed-in callers' worth of an allowance.
+const ipCeilingFactor = 4
 
 // Handler is the /mcp handler. publicURL is the site's origin (empty: Backend.PublicURL()).
 func Handler(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) http.Handler {
@@ -123,6 +131,8 @@ func New(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) *
 	s := &Server{b: b, auth: a, public: strings.TrimRight(publicURL, "/"), opt: o}
 	s.cpu = newLimiter(o.CheckPerMin, time.Minute, o.Now)
 	s.render = newLimiter(o.RenderPerHour, time.Hour, o.Now)
+	s.cpuIP = newLimiter(ipCeilingFactor*o.CheckPerMin, time.Minute, o.Now)
+	s.renderIP = newLimiter(ipCeilingFactor*o.RenderPerHour, time.Hour, o.Now)
 
 	s.mcp = server.NewMCPServer("btw", "0.1.0",
 		server.WithToolCapabilities(false),

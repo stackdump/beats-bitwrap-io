@@ -75,6 +75,18 @@ func VetPublicProgram(text string, rep *api.CheckReport, strict bool) string {
 	return ""
 }
 
+// headerClaim is the part of VetPublicProgram that reads the program's own "#!" header: why it says it is
+// not public CC0, or "".
+func headerClaim(text string) string {
+	if m := licenseLine.FindStringSubmatch(text); m != nil && !strings.EqualFold(m[1], "CC0-1.0") {
+		return "licensed " + m[1]
+	}
+	if m := visibilityLine.FindStringSubmatch(text); m != nil && !strings.EqualFold(m[1], "public") {
+		return m[1]
+	}
+	return ""
+}
+
 func stripHeader(text string) string {
 	var out []string
 	for _, l := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {

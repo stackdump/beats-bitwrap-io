@@ -47,6 +47,10 @@ type ModelError struct {
 	Code       string // upstream error status word ("INVALID_ARGUMENT"), when it gave one
 	Message    string
 	RetryAfter int // seconds, for KindRateLimited
+	// Aborted: the request had been sent and we stopped waiting for the answer (the caller hung up, or our own
+	// timeout fired), or the answer began and broke off. The service may well have finished the call, and it
+	// bills what it generated, so the spend cap must not treat this as a call that cost nothing.
+	Aborted bool
 }
 
 func (e *ModelError) Error() string {

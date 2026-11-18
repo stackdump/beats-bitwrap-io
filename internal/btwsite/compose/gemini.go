@@ -274,12 +274,14 @@ func (g *Gemini) post(ctx context.Context, u string, body []byte) (*http.Respons
 		case errors.Is(ctx.Err(), context.Canceled):
 			msg = "the request was cancelled"
 		}
-		return nil, nil, &ModelError{Kind: KindTransport, Message: msg + ": " + clip(g.red.Redact(err.Error()), 160)}
+		// ctx.Err() != nil: we gave up on a call that was (or may have been) running. A refused or failed
+		// connection leaves ctx alone and cost nothing.
+		return nil, nil, &ModelError{Kind: KindTransport, Aborted: ctx.Err() != nil, Message: msg + ": " + clip(g.red.Redact(err.Error()), 160)}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, nil, &ModelError{Kind: KindTransport, Message: "reading the reply failed: " + clip(g.red.Redact(err.Error()), 160)}
+		return nil, nil, &ModelError{Kind: KindTransport, Aborted: true, Message: "reading the reply failed: " + clip(g.red.Redact(err.Error()), 160)}
 	}
 	return resp, raw, nil
 }
