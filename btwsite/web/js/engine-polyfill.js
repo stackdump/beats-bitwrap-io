@@ -85,25 +85,21 @@ if (typeof scope.TextDecoder === 'undefined') {
             const flush = () => { if (units.length) { out += String.fromCharCode.apply(null, units); units.length = 0; } };
             const bad = () => { if (this.fatal) throw new TypeError('The encoded data was not valid for encoding utf-8'); units.push(0xfffd); };
             while (i < n) {
-                const c = b[i];
-                if (c < 0x80) { units.push(c); i += 1; }
-                else if (c >= 0xc2 && c <= 0xdf) {
-                    if (i + 1 < n && (b[i + 1] & 0xc0) === 0x80) { units.push(((c & 0x1f) << 6) | (b[i + 1] & 63)); i += 2; }
-                    else { bad(); i += 1; }
-                } else if (c >= 0xe0 && c <= 0xef) {
-                    const lo = c === 0xe0 ? 0xa0 : 0x80, hi = c === 0xed ? 0x9f : 0xbf; // no overlongs, no surrogates
-                    if (i + 2 < n && b[i + 1] >= lo && b[i + 1] <= hi && (b[i + 2] & 0xc0) === 0x80) {
-                        units.push(((c & 0x0f) << 12) | ((b[i + 1] & 63) << 6) | (b[i + 2] & 63)); i += 3;
-                    } else { bad(); i += 1; }
-                } else if (c >= 0xf0 && c <= 0xf4) {
-                    const lo = c === 0xf0 ? 0x90 : 0x80, hi = c === 0xf4 ? 0x8f : 0xbf;
-                    if (i + 3 < n && b[i + 1] >= lo && b[i + 1] <= hi && (b[i + 2] & 0xc0) === 0x80 && (b[i + 3] & 0xc0) === 0x80) {
-                        const cp = ((c & 0x07) << 18) | ((b[i + 1] & 63) << 12) | ((b[i + 2] & 63) << 6) | (b[i + 3] & 63);
-                        const v = cp - 0x10000;
-                        units.push(0xd800 + (v >> 10), 0xdc00 + (v & 0x3ff)); i += 4;
-                    } else { bad(); i += 1; }
-                } else { bad(); i += 1; }
                 if (units.length > 8192) flush();
+                const c = b[i];
+                if (c < 0x80) { units.push(c); i += 1; continue; }
+                // a lead byte: how many bytes the sequence has, and the bounds of its second byte (RFC 3629, no overlongs, no surrogates)
+                let need = 0, lo = 0x80, hi = 0xbf, cp = 0;
+                if (c >= 0xc2 && c <= 0xdf) { need = 1; cp = c & 0x1f; }
+                else if (c >= 0xe0 && c <= 0xef) { need = 2; cp = c & 0x0f; if (c === 0xe0) lo = 0xa0; if (c === 0xed) hi = 0x9f; }
+                else if (c >= 0xf0 && c <= 0xf4) { need = 3; cp = c & 0x07; if (c === 0xf0) lo = 0x90; if (c === 0xf4) hi = 0x8f; }
+                else { bad(); i += 1; continue; }
+                // take the continuation bytes that are valid; a sequence cut short is ONE replacement for what was valid of it
+                let k = 1;
+                while (k <= need && i + k < n && b[i + k] >= (k === 1 ? lo : 0x80) && b[i + k] <= (k === 1 ? hi : 0xbf)) { cp = (cp << 6) | (b[i + k] & 63); k++; }
+                if (k <= need) { bad(); i += k; continue; }
+                if (cp >= 0x10000) { const v = cp - 0x10000; units.push(0xd800 + (v >> 10), 0xdc00 + (v & 0x3ff)); } else units.push(cp);
+                i += need + 1;
             }
             flush();
             return out;

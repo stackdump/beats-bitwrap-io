@@ -32,8 +32,9 @@
  * output latency, so markers light when the sound is heard. It never runs past the next bar line on its own: the
  * runtime counts bars by what it is told, and a bar line is only told when the worklet has seen it.
  *
- * `wasmUrl` replaces where btw_bg.wasm is fetched from (default ../wasm/btw_bg.wasm beside this file); the glue the worklet
- * and the Worker import is always ../wasm/btw.js.
+ * `wasmUrl` replaces where btw_bg.wasm is fetched from (default ../wasm/btw_bg.wasm beside this file); `module` is an
+ * already compiled WebAssembly.Module of it, which skips the fetch and the compile. The glue the worklet and the Worker
+ * import is always ../wasm/btw.js.
  */
 
 import { mapCall, mapSound } from './engine-calls.js';
@@ -46,17 +47,24 @@ const MAX_EXTRAPOLATE_S = 0.25;
 /** Whether an item is finished with (it will not install or land anything more). */
 const TERMINAL = new Set(['done', 'dropped', 'failed', 'superseded']);
 
-export async function createEngine({ context, destination, wasmUrl, composer = 'worker', installBudget } = {}) {
+export async function createEngine({ context, destination, wasmUrl, module: compiled, composer = 'worker', installBudget } = {}) {
     if (!context) throw new Error('createEngine: a context is needed');
     if (!context.audioWorklet) throw new Error('createEngine: this browser has no AudioWorklet');
     const base = new URL('../wasm/', import.meta.url);
     const href = wasmUrl ? new URL(wasmUrl, globalThis.location ? globalThis.location.href : base) : new URL('btw_bg.wasm', base);
 
     // 1. the module: fetched and compiled once, shared with the worklet and the Worker
-    const res = await fetch(href);
-    if (!res.ok) throw new Error(`createEngine: ${href}: HTTP ${res.status}`);
-    const bytes = await res.arrayBuffer();
-    const module = await WebAssembly.compile(bytes);
+    let bytes = null;
+    const fetchBytes = async () => {
+        const res = await fetch(href);
+        if (!res.ok) throw new Error(`createEngine: ${href}: HTTP ${res.status}`);
+        return res.arrayBuffer();
+    };
+    let module = compiled; // a WebAssembly.Module the page already has (the page's own BtwRun module) saves a fetch and a compile
+    if (!module) {
+        bytes = await fetchBytes();
+        module = await WebAssembly.compile(bytes);
+    }
 
     // 2. the audio node
     await context.audioWorklet.addModule(new URL('./engine-worklet.js', import.meta.url));
@@ -119,7 +127,7 @@ export async function createEngine({ context, destination, wasmUrl, composer = '
             break;
         }
     };
-    if (viaMessage) node.port.postMessage({ type: 'wasm', bytes: bytes.slice(0) });
+    if (viaMessage) node.port.postMessage({ type: 'wasm', bytes: (bytes || (await fetchBytes())).slice(0) });
 
     // ---- the composer: a Worker, else this thread, else the audio thread
     const comp = await makeComposer(composer, module, context.sampleRate, (m) => onComposerMessage(m));
