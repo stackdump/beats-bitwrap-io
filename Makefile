@@ -399,7 +399,7 @@ btwsite-test:
 	go test -race -count=1 ./cmd/btwsite/ ./internal/btwsite/...
 
 btwsite-run: btwsite-build
-	BTW_MODEL=$${BTW_MODEL:-fake} btwsite/bin/btwsite -web btwsite/web -examples btwsite/examples -docs btwsite/docs -data $${BTW_DATA:-./data/btwsite} -btwd $(BTWD) -public-url $${BTW_PUBLIC_URL:-http://localhost:18097}
+	BTW_MODEL=$${BTW_MODEL:-fake} btwsite/bin/btwsite -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data $${BTW_DATA:-./data/btwsite} -btwd $(BTWD) -public-url $${BTW_PUBLIC_URL:-http://localhost:18097}
 
 .PHONY: btwsite-build btwsite-test btwsite-run
 

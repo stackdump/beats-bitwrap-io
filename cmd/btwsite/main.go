@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,24 +20,41 @@ import (
 )
 
 func main() {
-	cfg, err := server.ParseConfig(os.Args[1:], os.Getenv, os.Stderr)
-	if errors.Is(err, flag.ErrHelp) {
-		os.Exit(0)
-	}
-	if err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	err := run(ctx, os.Args[1:], os.Getenv, os.Stderr, nil)
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.Is(err, errUsage):
 		fmt.Fprintln(os.Stderr, "btwsite:", err)
 		os.Exit(2)
+	default:
+		log.Fatalf("btwsite: %v", err)
+	}
+}
+
+var errUsage = errors.New("usage")
+
+// run serves until ctx ends, then shuts down gracefully. ready (optional) is told the bound address.
+func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, ready func(net.Addr)) error {
+	cfg, err := server.ParseConfig(args, getenv, stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return fmt.Errorf("%w: %v", errUsage, err)
 	}
 	srv, err := server.New(cfg)
 	if err != nil {
-		log.Fatalf("btwsite: %v", err)
+		return err
 	}
 	for _, w := range srv.Warnings() {
 		log.Printf("btwsite: warning: %s", w)
 	}
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
-		log.Fatalf("btwsite: %v", err)
+		srv.Close()
+		return err
 	}
 	hs := &http.Server{
 		Handler:           srv.Handler(),
@@ -46,17 +64,19 @@ func main() {
 		// or a render stream at that mark. Bodies are small and capped (MaxBytesReader) and nginx buffers
 		// them before they get here; streams set a write deadline per chunk instead.
 		IdleTimeout:    120 * time.Second,
-		MaxHeaderBytes:    32 << 10,
+		MaxHeaderBytes: 32 << 10,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	errc := make(chan error, 1)
 	go func() { errc <- hs.Serve(ln) }()
 	log.Printf("btwsite: listening on %s (public %s, data %s, web %s)", ln.Addr(), cfg.PublicURL, cfg.DataDir, cfg.WebDir)
+	if ready != nil {
+		ready(ln.Addr())
+	}
 
 	select {
 	case err := <-errc:
-		log.Fatalf("btwsite: %v", err)
+		srv.Close()
+		return err
 	case <-ctx.Done():
 	}
 	log.Printf("btwsite: shutting down")
@@ -67,4 +87,5 @@ func main() {
 		log.Printf("btwsite: shutdown: %v", err)
 		_ = hs.Close()
 	}
+	return nil
 }

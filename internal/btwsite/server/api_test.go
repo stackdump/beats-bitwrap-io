@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"beats-bitwrap-io/internal/btwsite/api"
+	"beats-bitwrap-io/internal/btwsite/fakecheck"
 )
 
 func TestStatic(t *testing.T) {
@@ -108,21 +109,21 @@ func TestHealthInfoExamplesInstruments(t *testing.T) {
 	if st := decode(t, e.get("/api/examples"), &list); st != 200 {
 		t.Fatal(st)
 	}
-	// index order first; the restricted and the broken ones are left out
+	// index.json order; a .btw that is not listed in it is not an example
 	if len(list) != 2 || list[0].Name != "second" || list[1].Name != "first-beat" {
 		t.Fatalf("examples: %+v", list)
 	}
 	if list[1].CID == "" || list[1].BPM != 120 || list[1].Bars != 2 || list[1].License != "CC0-1.0" || list[0].Title != "Second" {
 		t.Fatalf("example fields: %+v", list)
 	}
-	if len(e.srv.Warnings()) != 2 {
+	if len(e.srv.Warnings()) != 0 {
 		t.Fatalf("warnings: %v", e.srv.Warnings())
 	}
 	resp := e.get("/examples/first-beat.btw")
 	if txt := string(readAll(t, resp)); resp.StatusCode != 200 || !strings.HasPrefix(txt, "# first\n") || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
 		t.Fatalf("example file: %d %q", resp.StatusCode, txt)
 	}
-	for _, p := range []string{"/examples/secret-sample.btw", "/examples/broken.btw", "/examples/nope.btw", "/examples/first-beat", "/examples/..%2findex.json"} {
+	for _, p := range []string{"/examples/unlisted-sample.btw", "/examples/nope.btw", "/examples/first-beat", "/examples/..%2findex.json"} {
 		if r := e.get(p); r.StatusCode != 404 {
 			t.Errorf("%s: %d", p, r.StatusCode)
 		}
@@ -668,6 +669,53 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 	if _, ok := <-c.ch; ok {
 		for range c.ch { // drain
+		}
+	}
+}
+
+func TestExamplesThatAreNotPublicStopTheServer(t *testing.T) {
+	for name, body := range map[string]string{"restricted": "tempo 120\nuse restricted\ndeck A: kick x\n", "sample": "tempo 120\nsample kick.wav\n", "broken": "BAD\n"} {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "bad.btw"), []byte(body), 0o644)
+		os.WriteFile(filepath.Join(dir, "index.json"), []byte(`[{"name":"bad","title":"bad"}]`), 0o644)
+		cfg := DefaultConfig()
+		cfg.DataDir, cfg.ExamplesDir, cfg.Checker, cfg.Logf = filepath.Join(dir, "data"), dir, fakeChecker(), t.Logf
+		if srv, err := New(cfg); err == nil {
+			srv.Close()
+			t.Errorf("%s example: the server started", name)
+		} else if !strings.Contains(err.Error(), "bad") {
+			t.Errorf("%s: the error should name the example: %v", name, err)
+		}
+	}
+	// no examples directory at all: an empty list and a warning, not an error
+	cfg := DefaultConfig()
+	cfg.DataDir, cfg.ExamplesDir, cfg.Checker, cfg.Logf = filepath.Join(t.TempDir(), "data"), "/nonexistent/examples", fakeChecker(), t.Logf
+	srv, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	if len(srv.Examples()) != 0 || len(srv.Warnings()) != 1 {
+		t.Fatalf("%v %v", srv.Examples(), srv.Warnings())
+	}
+}
+
+func fakeChecker() api.Checker { return fakecheck.Checker{} }
+
+func TestAccessLogKeepsThirtyDays(t *testing.T) {
+	e := newEnv(t, nil)
+	dir := filepath.Join(e.cfg.DataDir, "log")
+	old := e.clk.Now().UTC().AddDate(0, 0, -31).Format("20060102")
+	recent := e.clk.Now().UTC().AddDate(0, 0, -5).Format("20060102")
+	os.WriteFile(filepath.Join(dir, "access-"+old+".jsonl"), []byte("{}\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "access-"+recent+".jsonl"), []byte("{}\n"), 0o640)
+	os.WriteFile(filepath.Join(dir, "compose-"+old+".jsonl"), []byte("{}\n"), 0o640) // not ours to prune
+	e.get("/healthz").Body.Close()                                                   // the first line of the day opens the file and prunes
+	e.srv.log.Close()
+	for name, want := range map[string]bool{"access-" + old + ".jsonl": false, "access-" + recent + ".jsonl": true, "compose-" + old + ".jsonl": true} {
+		_, err := os.Stat(filepath.Join(dir, name))
+		if (err == nil) != want {
+			t.Errorf("%s exists=%v, want %v", name, err == nil, want)
 		}
 	}
 }

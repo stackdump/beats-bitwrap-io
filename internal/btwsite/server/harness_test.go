@@ -79,8 +79,7 @@ func newEnv(t *testing.T, mod func(*Config), fakeEnv ...string) *tenv {
 	os.WriteFile(filepath.Join(dir, "outside.txt"), []byte("outside"), 0o644)
 	os.WriteFile(filepath.Join(ex, "first-beat.btw"), []byte("# first\ntempo 120\nkey am\ndeck A: kick x ~ x ~\nsection intro 2 bars\n"), 0o644)
 	os.WriteFile(filepath.Join(ex, "second.btw"), []byte("tempo 140\ndeck A: kick x\nsection a 4 bars\n"), 0o644)
-	os.WriteFile(filepath.Join(ex, "secret-sample.btw"), []byte("tempo 140\nsample kick.wav\n"), 0o644)
-	os.WriteFile(filepath.Join(ex, "broken.btw"), []byte("BAD\n"), 0o644)
+	os.WriteFile(filepath.Join(ex, "unlisted-sample.btw"), []byte("tempo 140\nsample kick.wav\n"), 0o644) // not in index.json: not an example
 	os.WriteFile(filepath.Join(ex, "index.json"), []byte(`[{"name":"second","title":"Second","description":"d2","license":"CC0-1.0"},{"name":"first-beat","title":"First beat","description":"d1","bpm":120,"bars":2}]`), 0o644)
 
 	calls := filepath.Join(dir, "calls.log")

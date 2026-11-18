@@ -285,11 +285,14 @@ func (s *Server) userOrAnon(r *http.Request) *api.User {
 func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (*api.User, bool) {
 	u, err := s.authn.UserFrom(r)
 	if err != nil {
+		if _, typed := err.(*api.Error); !typed { // an Authenticator that says it badly is still a 401
+			err = api.Errf(http.StatusUnauthorized, api.CodeAuthRequired, "authentication failed")
+		}
 		api.WriteError(w, err)
 		return nil, false
 	}
 	if u == nil {
-		api.WriteError(w, api.Errf(http.StatusUnauthorized, api.CodeAuthRequired, "sign in first: %s", s.AuthHelp()))
+		api.WriteError(w, api.Errf(http.StatusUnauthorized, api.CodeAuthRequired, "authentication required: %s", s.AuthHelp()))
 		return nil, false
 	}
 	if ri := infoOf(r); ri != nil {
@@ -360,8 +363,10 @@ func (s *Server) AuthHelp() string {
 
 // RenderInfo says where the stream is and how long the program is (0 when unknown).
 func (s *Server) RenderInfo(cid, format string) (streamURL, statusURL string, seconds float64) {
-	if format != "wav" {
+	if format != "wav" && s.rs.ffmpegOK() {
 		format = "opus"
+	} else {
+		format = "wav" // no ffmpeg with libopus here: the URL must be one that works
 	}
 	streamURL = fmt.Sprintf("%s/api/render/%s?format=%s", s.cfg.PublicURL, cid, format)
 	statusURL = fmt.Sprintf("%s/api/render/%s/status", s.cfg.PublicURL, cid)
