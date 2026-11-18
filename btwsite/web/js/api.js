@@ -2,6 +2,21 @@
 // ({status, code, message, retryAfter, details}); describeError() in errors.js turns it into words.
 
 import { ApiError, apiErrorFrom } from './errors.js';
+import { CID_RE, EXAMPLE_RE, SESSION_RE, trunc } from './util.js';
+
+// Anything that becomes part of a URL path is checked here, at the last step before the URL is built, whoever called:
+// a CID, an example's name or a session id that is not exactly what the server makes cannot name another path.
+const seg = (re, what) => (v) => {
+  if (typeof v !== 'string' || !re.test(v)) throw new ApiError({ status: 0, code: 'bad_request', message: `${trunc(String(v), 60)} is not ${what}` });
+  return encodeURIComponent(v);
+};
+const cidSeg = seg(CID_RE, 'a CID');
+const nameSeg = seg(EXAMPLE_RE, 'an example name');
+const sidSeg = seg(SESSION_RE, 'a session id');
+/** A call that returns a promise answers a bad argument with a rejection, not a throw. */
+const rejecting = (fn) => (...a) => {
+  try { return fn(...a); } catch (e) { return Promise.reject(e); }
+};
 
 export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
   async function req(method, path, { json, text, headers, signal } = {}) {
@@ -29,21 +44,20 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     if (!res.ok) throw apiErrorFrom(res.status, typeof body === 'object' ? body : null, res.headers.get('Retry-After'));
     return body;
   }
-  const enc = encodeURIComponent;
   return {
     base,
     info: () => req('GET', '/api/info'),
     examples: () => req('GET', '/api/examples'),
-    exampleText: (name) => req('GET', `/examples/${enc(name)}.btw`),
+    exampleText: rejecting((name) => req('GET', `/examples/${nameSeg(name)}.btw`)),
     instruments: () => req('GET', '/api/instruments'),
     check: (text) => req('POST', '/api/check', { json: { text } }),
     fmt: (text) => req('POST', '/api/fmt', { json: { text } }),
     share: (text) => req('POST', '/api/share', { json: { text } }),
     open: (url) => req('POST', '/api/open', { json: { url } }),
-    putProgram: (cid, text) => req('PUT', `/api/programs/${enc(cid)}`, { text }),
-    getProgram: (cid) => req('GET', `/api/programs/${enc(cid)}`),
-    renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${enc(cid)}?format=${format}${format === 'wav' ? `&sr=${sr}` : ''}`,
-    renderStatus: (cid) => req('GET', `/api/render/${enc(cid)}/status`),
+    putProgram: rejecting((cid, text) => req('PUT', `/api/programs/${cidSeg(cid)}`, { text })),
+    getProgram: rejecting((cid) => req('GET', `/api/programs/${cidSeg(cid)}`)),
+    renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}`,
+    renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
     challenge: () => req('GET', '/api/auth/challenge'),
     login: (body) => req('POST', '/api/auth/login', { json: body }),
@@ -52,8 +66,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     createToken: () => req('POST', '/api/auth/token', { json: {} }),
     revokeTokens: () => req('DELETE', '/api/auth/token'),
     createSession: () => req('POST', '/api/session', { json: {} }),
-    report: (id, state) => req('POST', `/api/session/${enc(id)}/report`, { json: state }),
-    reply: (id, requestId, state) => req('POST', `/api/session/${enc(id)}/reply`, { json: { request_id: requestId, state } }),
-    eventsUrl: (id) => `${base}/api/session/${enc(id)}/events`,
+    report: rejecting((id, state) => req('POST', `/api/session/${sidSeg(id)}/report`, { json: state })),
+    reply: rejecting((id, requestId, state) => req('POST', `/api/session/${sidSeg(id)}/reply`, { json: { request_id: requestId, state } })),
+    eventsUrl: (id) => `${base}/api/session/${sidSeg(id)}/events`,
   };
 }

@@ -7,7 +7,12 @@
 // signature is accepted), compose (canned programs), sessions (SSE + reports) and two test-only routes
 // (/__push/<id>, /__state/<id>).
 //
-//   node btwsite/test/mock-server.mjs [--port 18197] [--web btwsite/web] [--examples btwsite/examples] [--mock-wasm]
+//   node btwsite/test/mock-server.mjs [--port 18197] [--web btwsite/web] [--examples btwsite/examples] [--mock-wasm] [--csp strict|<policy>]
+//
+// --csp sets that Content-Security-Policy (and X-Frame-Options: DENY) on every response. `strict` is the policy the page
+// needs and no more (see STRICT_CSP): the smoke run under it (`smoke.mjs --strict-csp`) is the proof that the server's
+// policy can be this tight. No `blob:` for scripts or workers, no 'unsafe-inline' for styles (the page sets styles through
+// the CSSOM, which a style-src without 'unsafe-inline' allows), nothing but 'self' to connect to.
 //
 // Compose behaviour by prompt: "FAIL" -> 422 unrepairable (with attempts), "LIMIT" -> 429 retry_after 38,
 // "NOKEY" -> 503 not_configured, anything else -> a program (the first example, retuned).
@@ -27,6 +32,8 @@ const PORT = Number(arg('port', 18197));
 const WEB = path.resolve(arg('web', path.join(here, '..', 'web')));
 const EXAMPLES = path.resolve(arg('examples', path.join(here, '..', 'examples')));
 const FORCE_MOCK = arg('mock-wasm', false) === true;
+const STRICT_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const CSP = arg('csp', null) === 'strict' ? STRICT_CSP : typeof arg('csp', null) === 'string' ? arg('csp', null) : null;
 
 // ---- the checker: the real wasm if it is built, else the page's JS mock ----------------------------------------
 let M; // {check, fmt, open, share, instruments}
@@ -279,6 +286,7 @@ async function route(req, res) {
 await loadChecker();
 loadExamples();
 const server = http.createServer((req, res) => {
+  if (CSP) { res.setHeader('Content-Security-Policy', CSP); res.setHeader('X-Frame-Options', 'DENY'); }
   route(req, res).catch((e) => { console.error(e); if (!res.headersSent) err(res, 500, 'internal', String(e && e.message)); else res.end(); });
 });
 server.listen(PORT, '127.0.0.1', () => {

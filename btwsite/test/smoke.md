@@ -63,9 +63,26 @@ browser. Exit code 1 if any check fails or the page logs a console error.
    `?record=1&cid=<CID>` works too; a new generation flashes the evolve block and says `gen N`
    (`16-evolve-flash-record.png`); `prefers-reduced-motion` is read. Shot `14-record-1920x1080.png`.
 10. **No console errors** on any page (the deliberate 4xx/5xx of the compose error cases excepted).
+11. **Hostile input and secrets** (the SEC-3 review; runs on the mock and on the real server): a mangled link (`#%`) does not
+   stop the page from starting and a link that turns mangled later is refused in words with no unhandled rejection; a 33 KB link
+   that inflates to ~1 MiB of program (minutes of checking in the page's one thread) and a 64 MiB deflate bomb are refused before
+   the module is asked; hostile program text, names and a hostile `#! name:` are text (only the page's own `c-*` spans in the
+   highlighted layer, no handlers, no images, a cleaned title); pushed events (over-long text, path tricks in a CID or example
+   name, a `javascript:` URL, another origin) make the page fetch nothing and do nothing; a `#! visibility: private` program is
+   never streamed or reported to an assistant (no text, CID, section, marks or diagnostics) and has no share link; streaming a
+   public program says the server keeps it; the browser key is a non-extractable CryptoKey in IndexedDB with only its public half
+   in localStorage, it signs again after a reload, "Forget this key" removes it everywhere, and a challenge that is not this
+   site's sign-in message is never signed; a shown MCP token survives the panel's re-renders, leaves the DOM when the panel
+   closes and is nowhere else; `?mock=1` does nothing off this machine; on the real server (and under `--strict-csp`) the
+   headers say no framing, no plugins, no `unsafe-inline`/`unsafe-eval` scripts; every control has an accessible name and each
+   panel takes the focus, closes on Esc and gives the focus back.
 
 ## What it does not cover
 
 Real audio output (headless Chrome plays into nowhere): the stream's scheduling is covered by the unit tests on a
 fake AudioContext, the engine's sound by R2's own tests. `?mock=1` pages use a silent mock engine. Wallet sign-in
 (`window.ethereum`) is unit-tested with a fake provider only.
+
+When the Mac's audio device is stuck, headless Chrome's AudioContext clock stands still and steps 3 and 4 time out (the markers
+never advance). That is the machine, not the page: run with `CHROME=<a script that execs Chrome with --disable-audio-output "$@">`,
+which gives the page a null audio sink driven by the wall clock.

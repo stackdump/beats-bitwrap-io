@@ -89,27 +89,37 @@ export class SessionLink {
     }, wait);
   }
 
+  /**
+   * One pushed event. What arrives here is from whoever drives this session over MCP (the server has checked who), but the
+   * page does not take it on trust: it can set the editor's text, load a CID or an example by name, play and stop, and
+   * nothing else. There is no event that navigates, fetches a URL of its own choosing or reaches the DOM as markup:
+   * text goes to the editor (size-limited by setProgram), a CID or an example name is checked against its pattern before
+   * it becomes part of a path, and a link is opened by the module (which fetches nothing).
+   */
   async onEvent(type, data) {
     let ev = {};
     try { ev = JSON.parse(data || '{}'); } catch { /* empty */ }
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev)) ev = {};
     const app = this.app;
+    const str = (v) => (typeof v === 'string' ? v : undefined);
     try {
       if (type === 'get') {
-        await this.api.reply(this.id, ev.request_id, app.reportState());
+        const rid = str(ev.request_id);
+        if (rid && rid.length <= 128) await this.api.reply(this.id, rid, app.reportState());
       } else if (type === 'stop') {
         app.stop();
       } else if (type === 'eval') {
         if (typeof ev.text === 'string') app.setProgram(ev.text, { name: 'from a client' });
         app.toast('An assistant sent a program to this page.', 'info');
-        if (ev.play || app.isPlaying()) await app.play('eval');
+        if (ev.play === true || app.isPlaying()) await app.play('eval');
       } else if (type === 'load') {
-        const extra = ev.extra || {};
-        if (ev.cid) await app.loadByCid(ev.cid);
-        else if (extra.example) await app.loadExample(extra.example);
-        else if (extra.url) await app.openAny(extra.url);
+        const extra = ev.extra && typeof ev.extra === 'object' ? ev.extra : {};
+        if (str(ev.cid)) await app.loadByCid(ev.cid);
+        else if (str(extra.example)) await app.loadExample(extra.example);
+        else if (str(extra.url)) await app.openAny(extra.url);
         else if (typeof ev.text === 'string') app.setProgram(ev.text, { name: 'from a client' });
         app.toast('An assistant loaded a program into this page.', 'info');
-        if (ev.play) await app.play('load');
+        if (ev.play === true) await app.play('load');
       }
     } catch (e) {
       app.showError(e);

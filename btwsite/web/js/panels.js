@@ -14,6 +14,7 @@ export class Panels {
     this.current = null;
     this.trigger = null;
     this.abort = null;
+    this.tokenView = null; // the node that shows a new MCP token: kept across re-renders, dropped when the panel closes
     app.on((type) => {
       if (this.current === 'mcp' && (type === 'session' || type === 'user')) this.render();
       if ((this.current === 'compose' || this.current === 'user') && type === 'user') this.render();
@@ -33,17 +34,27 @@ export class Panels {
 
   close() {
     if (this.abort) this.abort.abort();
+    this.wipeToken();
+    // the focus is in the panel (or nowhere) when it closes: it goes back to the button that opened it
+    const ae = document.activeElement;
+    const inPanel = !ae || ae === document.body || this.el.drawer.contains(ae) || !!(this.app.pop && this.app.pop.contains(ae));
     this.el.drawer.hidden = true;
     this.popClose();
     for (const b of ['btn-compose', 'btn-mcp', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
-    if (was && document.activeElement === document.body) was.focus();
+    if (was && inPanel) was.focus();
   }
 
   popClose() {
     if (this.app.pop) { this.app.pop.remove(); this.app.pop = null; }
+  }
+
+  /** A token is shown once and kept nowhere: when the panel closes or the user signs out it leaves the page's DOM. */
+  wipeToken() {
+    if (this.tokenView) this.tokenView.remove();
+    this.tokenView = null;
   }
 
   render() {
@@ -57,11 +68,18 @@ export class Panels {
     body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : this.userBody()));
     this.el.drawer.hidden = false;
     this.popClose();
-    const first = body.querySelector('textarea, input, button');
+    const first = body.querySelector('textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'); // a disabled control cannot take the focus
     if (first && !this._noFocus) first.focus({ preventScroll: true });
   }
 
   // ---- sign-in ------------------------------------------------------------------------------------------------------
+
+  /** The hosts a sign-in challenge may name: this page's, and the server's public URL's. */
+  signInHosts() {
+    const hosts = [location.host];
+    try { hosts.push(new URL(this.app.info.public_url).host); } catch { /* no public url */ }
+    return hosts;
+  }
 
   userBody() {
     const app = this.app;
@@ -71,7 +89,7 @@ export class Panels {
     if (u) {
       out.push(h('p', { class: 'note' }, 'Signed in as ', h('code', {}, u.id)));
       out.push(h('p', { class: 'note' }, 'You can compose, create MCP tokens and let an assistant drive this page.'));
-      out.push(h('button', { type: 'button', class: 'tb', onclick: async () => { try { await app.api.logout(); } catch (e) { app.showError(e); } app.user = null; app.updateUser(); this.render(); } }, 'Sign out'));
+      out.push(h('button', { type: 'button', class: 'tb', onclick: async () => { try { await app.api.logout(); } catch (e) { app.showError(e); } this.wipeToken(); app.user = null; app.updateUser(); this.render(); } }, 'Sign out'));
       if (u.kind === 'ed25519') {
         out.push(h('p', { class: 'note' }, 'Your identity is a key kept in this browser. Clearing site data loses it, and the account with it.'));
       }
@@ -81,7 +99,7 @@ export class Panels {
     const doSign = async (kind) => {
       status.replaceChildren();
       try {
-        app.user = await signIn(app.api, kind);
+        app.user = await signIn(app.api, kind, { hosts: this.signInHosts() });
         app.updateUser();
         this.render();
       } catch (e) {
@@ -93,11 +111,11 @@ export class Panels {
     out.push(wallet);
     if (!hasWallet()) out.push(h('p', { class: 'note' }, 'No wallet extension was found in this browser (an eth wallet such as MetaMask provides window.ethereum).'));
     out.push(h('button', { type: 'button', class: 'tb', onclick: () => doSign('ed25519') }, localKeyInfo() ? 'Sign in with this browser\'s key' : 'Make a browser key and sign in'));
-    out.push(h('p', { class: 'note' }, 'A browser key is an Ed25519 key made here and kept in this browser (localStorage "btw-ed25519-v1"). It identifies you on this site only and is lost if you clear site data.'));
+    out.push(h('p', { class: 'note' }, 'A browser key is an Ed25519 key made here and kept in this browser, where this page can use it to sign but nothing can read it out. It identifies you on this site only and is lost if you clear site data.'));
     const k = localKeyInfo();
     if (k) {
       out.push(h('p', { class: 'note' }, 'This browser\'s key: ', h('code', {}, `${k.slice(0, 10)}…${k.slice(-6)}`)));
-      out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: () => { resetLocalKey(); this.render(); } }, 'Forget this key'));
+      out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { await resetLocalKey(); this.render(); } }, 'Forget this key'));
     }
     out.push(status);
     return out;
@@ -201,14 +219,16 @@ export class Panels {
     out.push(h('div', {}, h('div', { class: 'note' }, 'This page\'s session id'), h('pre', {}, sid || (app.session && app.session.error) || 'connecting…'),
       h('p', { class: 'note' }, app.session && app.session.connected ? 'Connected: tools that target a session can reach this tab.' : 'Not connected yet.')));
     const result = h('div', { role: 'status' });
+    if (this.tokenView && app.user) result.append(this.tokenView); // a token already shown stays until the panel is closed
     const make = h('button', { type: 'button', class: 'tb primary', disabled: !app.user, onclick: async () => {
       make.disabled = true;
       try {
         const r = await app.api.createToken();
         const cmd = `claude mcp add --transport http btw ${origin.replace(/\/$/, '')}/mcp --header "Authorization: Bearer ${r.token}"`;
-        result.replaceChildren(h('div', { class: 'okbox' }, h('b', {}, 'Your token (shown once):'), h('pre', {}, r.token), h('div', { class: 'note' }, 'Add it to Claude Code:'), h('pre', {}, cmd),
+        this.tokenView = h('div', { class: 'okbox' }, h('b', {}, 'Your token (shown once):'), h('pre', {}, r.token), h('div', { class: 'note' }, 'Add it to Claude Code:'), h('pre', {}, cmd),
           h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(cmd) }, 'Copy the command'),
-          h('p', { class: 'note warn' }, 'It is not stored and cannot be shown again. Make another if you lose it.')));
+          h('p', { class: 'note warn' }, 'It is not stored and cannot be shown again. Make another if you lose it. It leaves this page when you close this panel.'));
+        result.replaceChildren(this.tokenView);
       } catch (e) {
         const d = describeError(e);
         result.replaceChildren(h('div', { class: 'err' }, d.title));
@@ -216,7 +236,7 @@ export class Panels {
     } }, 'Create an MCP token');
     out.push(make);
     if (!app.user) out.push(h('p', { class: 'note warn' }, 'Sign in to make a token (the write tools, eval, load and compose, need one).'), h('button', { type: 'button', class: 'tb', onclick: () => app.panel('user') }, 'Sign in'));
-    else out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.revokeTokens(); app.toast('All your MCP tokens are revoked.', 'ok'); } catch (e) { app.showError(e); } } }, 'Revoke all my tokens'));
+    else out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.revokeTokens(); this.wipeToken(); app.toast('All your MCP tokens are revoked.', 'ok'); } catch (e) { app.showError(e); } } }, 'Revoke all my tokens'));
     out.push(result);
     out.push(h('p', { class: 'note' }, 'Read-only tools (check, fmt, share, open, instruments, list_examples) need no token. Docs for assistants: ', h('a', { href: '/llms.txt', class: 'link' }, '/llms.txt'), '.'));
     return out;
@@ -248,6 +268,13 @@ export class Panels {
     const app = this.app;
     const text = app.editor.text;
     const report = app.runCheckNow();
+    if (app.isPrivate(text, report)) {
+      // a link carries the program's text, and its social form is carded by the server: a private program makes none
+      app.toast('This program is private (restricted sounds, assets or #! visibility: private), so there is no share link for it. Remove what makes it private to share it.', 'warn');
+      this.current = null;
+      this.trigger && this.trigger.setAttribute('aria-expanded', 'false');
+      return;
+    }
     if (!report || !report.ok) {
       app.toast('Fix the errors before sharing: a link carries a program that checks.', 'warn');
       this.current = null;

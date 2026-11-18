@@ -12,8 +12,9 @@ import { Follow } from './follow.js';
 import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
 import { headerModel, programName } from './header-model.js';
-import { describeError, diagLine, diagDetails, summary } from './errors.js';
-import { h, debounce, fmtTime, shortCid, mapCaret, clamp } from './util.js';
+import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
+import { h, debounce, fmtTime, shortCid, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
+import { fragmentOf, guardLink } from './link.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
 
@@ -29,7 +30,6 @@ master: filter lp 2k -> 8k over 8 bars
 `;
 
 const $ = (id) => document.getElementById(id);
-const CID_RE = /^z[1-9A-HJ-NP-Za-km-z]{20,}$/;
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } },
@@ -39,7 +39,8 @@ export class App {
   constructor() {
     const q = new URLSearchParams(location.search);
     this.q = q;
-    this.mock = q.get('mock') === '1';
+    // the JS stand-in for the module (no real CIDs, a line-shape check) is for development: a link cannot switch it on elsewhere
+    this.mock = q.get('mock') === '1' && isLoopbackHost(location.hostname);
     this.record = q.get('record') === '1';
     this.manual = q.get('clock') === 'manual';
     this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -138,7 +139,7 @@ export class App {
     const gesture = () => { if (!this.manual && !this.ctx && this.audioWanted()) this.ensureAudio(); };
     document.addEventListener('pointerdown', gesture, { capture: true });
     document.addEventListener('keydown', (e) => this.globalKey(e), { capture: true });
-    window.addEventListener('hashchange', () => this.openHash());
+    window.addEventListener('hashchange', () => this.openHash().catch((e) => this.showError(e)));
     window.addEventListener('resize', () => this.editor.measureNow());
     this.updateFollowButton();
   }
@@ -238,6 +239,8 @@ export class App {
 
   /** Put `text` in the editor. It does not play: sound waits for an eval. */
   setProgram(text, { name, cid, quiet, keepHash, example } = {}) {
+    if (typeof text !== 'string') throw new ApiError({ code: 'bad_request', message: 'there was no program text' });
+    if (text.length > MAX_LOAD_TEXT) throw new ApiError({ code: 'bad_request', message: `that program is ${text.length.toLocaleString('en-US')} characters; the page loads programs of at most ${MAX_LOAD_TEXT.toLocaleString('en-US')} from a link, the server or an assistant (type or paste it in to work on something larger)` });
     // a link in the address bar names the program that was opened or shared, not the one loaded now
     if (!keepHash && location.hash.length > 1) history.replaceState(null, '', location.pathname + location.search);
     this.editor.setText(text);
@@ -252,7 +255,7 @@ export class App {
   }
 
   updateName() {
-    const n = this.name && this.name !== 'starter' ? this.name : programName(this.editor.text, this.cid);
+    const n = this.name && this.name !== 'starter' ? cleanName(this.name) : programName(this.editor.text, this.cid);
     this.el['h-name'].textContent = n;
     this.progName = n;
     document.title = this.name && this.name !== 'starter' ? `${n} · btw` : 'btw, the bitwrap language';
@@ -268,7 +271,7 @@ export class App {
   }
 
   async loadByCid(cid, { play } = {}) {
-    if (!CID_RE.test(cid)) throw new Error(`"${cid}" is not a CID`);
+    if (!CID_RE.test(cid)) throw new ApiError({ code: 'bad_request', message: `${trunc(JSON.stringify(String(cid)), 80)} is not a CID` });
     const p = await this.api.getProgram(cid);
     const text = p.text;
     this.setProgram(text, { name: (p.meta && p.meta.name) || '', cid });
@@ -283,7 +286,7 @@ export class App {
 
   /** #<CID>.<packed> (decode and verify, never play by itself) or a bare #<CID> (fetch it). */
   async openHash() {
-    const frag = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const frag = fragmentOf(location.hash); // a malformed %-escape (#%) is a mangled link, not a crash
     if (!frag) return;
     await this.openAny(frag, { from: 'link' });
   }
@@ -303,6 +306,12 @@ export class App {
         return;
       }
       if (!this.btw) throw new Error('the module is not loaded, so a link cannot be opened');
+      // what a link inflates to is looked at before the module checks it: a few KB can say a megabyte of program
+      const g = await guardLink(s);
+      if (!g.ok) {
+        this.banner({ kind: 'error', text: `Refused: ${g.error}.` });
+        return;
+      }
       const r = this.btw.open(s);
       if (!r.ok || !r.verified) {
         this.banner({ kind: 'error', text: `Refused: ${String(r.error || 'the link does not match its own CID').replace(/^refused:\s*/i, '')}.` });
@@ -449,7 +458,12 @@ export class App {
   }
 
   canStream(report) {
-    return !!(report && report.ok && !report.restricted && !report.uses_assets && this.serverOk !== false && !this.manual);
+    return !!(report && report.ok && !report.restricted && !report.uses_assets && !marksPrivate(this.editor.text) && this.serverOk !== false && !this.manual);
+  }
+
+  /** A program that must stay in this page: restricted, uses sample/loop assets, or says `#! visibility: private`. */
+  isPrivate(text, report) {
+    return marksPrivate(text) || !!(report && (report.restricted || report.uses_assets));
   }
 
   /** Which source plays this program: 'engine' | 'stream' | null. `trigger`: 'eval' (an edit, Cmd+Enter) or 'load' (open, compose). */
@@ -486,8 +500,8 @@ export class App {
       const want = this.pickSource(trigger, report);
       if (want === 'engine') await this.playEngine(text, report);
       else if (want === 'stream') await this.playStream(text, report);
-      else if (this.engineState === 'loading') this.toast('The engine is still loading. Try again in a moment, or use stream.', 'warn');
-      else this.toast(report.restricted || report.uses_assets ? 'This program uses private sounds, which cannot be streamed from the server.' : 'No sound source is available: the engine did not load and the server is not reachable.', 'warn');
+      else if (this.engineState === 'loading') this.toast(this.isPrivate(text, report) ? 'The engine is still loading. This program is private (it never goes to the server to stream), so it plays on the engine only: try again in a moment.' : 'The engine is still loading. Try again in a moment, or use stream.', 'warn');
+      else this.toast(this.isPrivate(text, report) ? 'This program is private (restricted sounds, assets or #! visibility: private): it stays in this page and is never sent to the server to stream, so it plays on the engine only.' : 'No sound source is available: the engine did not load and the server is not reachable.', 'warn');
     } catch (e) {
       this.showError(e);
     } finally {
@@ -539,6 +553,11 @@ export class App {
     if (this.stored.has(report.cid)) return;
     await this.api.putProgram(report.cid, report.canonical);
     this.stored.add(report.cid);
+    // streaming is the server rendering the program, so the server keeps it: say so once (an example is the server's own)
+    if (!this._toldStored && !this.examples.some((e) => e.cid === report.cid)) {
+      this._toldStored = true;
+      this.toast('The server keeps the programs it streams: this one is now stored publicly as CC0-1.0, found by its CID. (A program marked #! visibility: private is never sent.)', 'info');
+    }
   }
 
   afterEval(text, report, res) {
@@ -886,7 +905,7 @@ export class App {
 
   toast(msg, kind = 'info', detail) {
     if (this.record) return;
-    const t = h('div', { class: `toast ${kind}` }, msg, ...(detail && detail.length ? [h('pre', {}, detail.join('\n'))] : []));
+    const t = h('div', { class: `toast ${kind}` }, trunc(msg), ...(detail && detail.length ? [h('pre', {}, trunc(detail.slice(0, 60).join('\n'), 4000))] : []));
     this.el.toasts.append(t);
     setTimeout(() => t.remove(), kind === 'error' ? 9000 : 5000);
   }
@@ -935,19 +954,24 @@ export class App {
     const d = this.driver;
     const f = d && d.last;
     const st = (f && f.status) || {};
+    const text = this.editor.text;
+    // a private program (restricted, assets, `#! visibility: private`) is not reported: no text, no CID, none of the diagnostics (they quote it)
+    const checked = this.btw ? (this.reportText === text ? this.report : this.runCheckNow()) : null;
+    const withheld = this.isPrivate(text, checked);
     return {
-      text: this.editor.text,
-      cid: this.cid || '',
+      text: withheld ? '' : text,
+      withheld,
+      cid: withheld ? '' : this.cid || '',
       playing: this.isPlaying(),
       source: d && d.kind ? d.kind : '',
-      section: st.section || '',
+      section: withheld ? '' : st.section || '',
       section_num: this.evalReport && st.song_bar != null ? 1 + (this.evalReport.sections || []).findIndex((s) => st.song_bar - 1 >= s.start && st.song_bar - 1 < s.start + s.bars) : 0,
       sections_total: this.evalReport ? (this.evalReport.sections || []).length : 0,
       bar: st.song_bar ?? st.bar ?? 0,
       bars_in_section: st.section_bars ?? 0,
       phase: st.bar_in_phrase ?? 0,
-      marks: f ? f.marks : null,
-      diagnostics: (this.report && this.report.diagnostics) || [],
+      marks: f && !withheld ? f.marks : null,
+      diagnostics: withheld ? [] : (this.report && this.report.diagnostics) || [],
       ts: new Date().toISOString(),
     };
   }

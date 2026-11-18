@@ -669,32 +669,140 @@ test('stream: a refused render is an ApiError with its code and retry_after', as
 // sign-in with a browser key
 // ---------------------------------------------------------------------------------------------------------------
 
-test('auth: an Ed25519 browser key signs the challenge, keeps its JWK under btw-ed25519-v1 and verifies', async () => {
+// a key store like the page's IndexedDB one: it keeps the very objects it is given (structured clone does the same for a CryptoKey)
+function fakeKeyStore() {
+  let rec = null;
+  return { get: async () => rec, put: async (v) => { rec = v; }, del: async () => { rec = null; }, peek: () => rec };
+}
+const memLocalStorage = () => {
   const mem = new Map();
   globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
+  return mem;
+};
+const CHAL = 'btw.bitwrap.io sign-in\nnonce: abc\nissued: now\nexpires: later';
+
+test('auth: an Ed25519 browser key signs the challenge, is not extractable, and leaves no private key in localStorage', async () => {
+  const mem = memLocalStorage();
   const auth = await J('auth.js');
   const { unhex } = await J('util.js');
+  const ks = fakeKeyStore();
+  auth.useKeyStore(ks);
   assert.equal(auth.localKeyInfo(), null);
-  const msg = 'btw.bitwrap.io sign-in\nnonce: abc\nissued: now\nexpires: later';
-  const s1 = await auth.signEd25519(msg);
+  const s1 = await auth.signEd25519(CHAL);
   assert.equal(s1.type, 'ed25519');
   assert.equal(s1.address.length, 64);
   assert.equal(s1.signature.length, 128);
-  assert.ok(mem.has('btw-ed25519-v1'));
+  // what is kept: the public half in localStorage, the CryptoKey in the key store, and nowhere a JWK
+  assert.deepEqual(JSON.parse(mem.get('btw-ed25519-v1')), { publicKeyHex: s1.address });
   assert.equal(auth.localKeyInfo(), s1.address);
+  const rec = ks.peek();
+  assert.equal(rec.publicKeyHex, s1.address);
+  assert.equal(rec.privateKey.extractable, false, 'the private key cannot be exported');
+  await assert.rejects(() => crypto.subtle.exportKey('jwk', rec.privateKey));
+  await assert.rejects(() => crypto.subtle.exportKey('pkcs8', rec.privateKey));
+  assert.doesNotMatch(JSON.stringify([...mem.values()]), /"d"|privateKey/, 'no secret in localStorage');
   const pub = await crypto.subtle.importKey('raw', unhex(s1.address), { name: 'Ed25519' }, false, ['verify']);
-  assert.equal(await crypto.subtle.verify({ name: 'Ed25519' }, pub, unhex(s1.signature), new TextEncoder().encode(msg)), true);
-  const s2 = await auth.signEd25519(msg);
-  assert.equal(s2.address, s1.address, 'the same key is used again');
+  assert.equal(await crypto.subtle.verify({ name: 'Ed25519' }, pub, unhex(s1.signature), new TextEncoder().encode(CHAL)), true);
+  // the same key again, also after the page forgets what it holds (a reload)
+  auth.useKeyStore(ks);
+  assert.equal((await auth.signEd25519(CHAL)).address, s1.address, 'the same key is used again');
+  // two sign-ins at once make one key
+  const ks2 = fakeKeyStore();
+  auth.useKeyStore(ks2);
+  const [a, b] = await Promise.all([auth.signEd25519(CHAL), auth.signEd25519(CHAL)]);
+  assert.equal(a.address, b.address);
   // the whole flow against a fake API
   const calls = [];
-  const api = { challenge: async () => ({ nonce: 'n1', message: msg }), login: async (b) => { calls.push(b); return { user: { id: `ed25519:${b.address}` } }; } };
-  const user = await auth.signIn(api, 'ed25519');
-  assert.equal(calls[0].nonce, 'n1');
+  const api = { challenge: async () => ({ nonce: 'abc', message: CHAL }), login: async (b2) => { calls.push(b2); return { user: { id: `ed25519:${b2.address}` } }; } };
+  const user = await auth.signIn(api, 'ed25519', { hosts: ['btw.bitwrap.io'] });
+  assert.equal(calls[0].nonce, 'abc');
   assert.equal(calls[0].type, 'ed25519');
-  assert.equal(user.id, `ed25519:${s1.address}`);
-  auth.resetLocalKey();
+  assert.equal(user.id, `ed25519:${a.address}`);
+  // forgetting wipes every copy
+  await auth.resetLocalKey();
   assert.equal(auth.localKeyInfo(), null);
+  assert.equal(ks2.peek(), null);
+  assert.equal(mem.size, 0);
+});
+
+test('auth: a key an earlier version kept as a JWK in localStorage becomes a non-extractable key and the JWK goes', async () => {
+  const mem = memLocalStorage();
+  const auth = await J('auth.js');
+  const { hex, unhex } = await J('util.js');
+  const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const publicKeyHex = hex(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)));
+  mem.set('btw-ed25519-v1', JSON.stringify({ publicKeyHex, privateKeyJwk: await crypto.subtle.exportKey('jwk', pair.privateKey) }));
+  const ks = fakeKeyStore();
+  auth.useKeyStore(ks);
+  const s = await auth.signEd25519(CHAL);
+  assert.equal(s.address, publicKeyHex, 'the same account');
+  assert.equal(ks.peek().privateKey.extractable, false);
+  assert.deepEqual(JSON.parse(mem.get('btw-ed25519-v1')), { publicKeyHex }, 'the JWK left localStorage');
+  const pub = await crypto.subtle.importKey('raw', unhex(publicKeyHex), { name: 'Ed25519' }, false, ['verify']);
+  assert.equal(await crypto.subtle.verify({ name: 'Ed25519' }, pub, unhex(s.signature), new TextEncoder().encode(CHAL)), true);
+  // where nothing can keep the key, the JWK stays (the account is not lost) and is still imported non-extractable for signing
+  const mem2 = memLocalStorage();
+  mem2.set('btw-ed25519-v1', JSON.stringify({ publicKeyHex, privateKeyJwk: await crypto.subtle.exportKey('jwk', pair.privateKey) }));
+  auth.useKeyStore({ get: async () => null, put: async () => { throw new Error('no space'); }, del: async () => {} });
+  assert.equal((await auth.signEd25519(CHAL)).address, publicKeyHex);
+  assert.ok(JSON.parse(mem2.get('btw-ed25519-v1')).privateKeyJwk, 'still there, since the key store could not take it');
+  await auth.resetLocalKey();
+});
+
+test('auth: with no key store the key lasts this page only and no secret is written anywhere', async () => {
+  const mem = memLocalStorage();
+  const auth = await J('auth.js');
+  auth.useKeyStore(null);
+  const s1 = await auth.signEd25519(CHAL);
+  assert.equal(mem.size, 0, 'nothing in localStorage');
+  assert.equal((await auth.signEd25519(CHAL)).address, s1.address, 'the page keeps it for itself');
+  auth.useKeyStore(null);
+  assert.notEqual((await auth.signEd25519(CHAL)).address, s1.address, 'and a new page has a new key');
+});
+
+test('auth: what localStorage says the key is cannot be anything but 64 hex characters', async () => {
+  const mem = memLocalStorage();
+  const auth = await J('auth.js');
+  for (const bad of [{ publicKeyHex: 5 }, { publicKeyHex: 'zz' }, { publicKeyHex: { slice: 1 } }, 'x', 7, null, { publicKeyHex: 'A'.repeat(64) }]) {
+    mem.set('btw-ed25519-v1', JSON.stringify(bad));
+    assert.equal(auth.localKeyInfo(), null, JSON.stringify(bad));
+  }
+  mem.set('btw-ed25519-v1', '{not json');
+  assert.equal(auth.localKeyInfo(), null);
+  mem.set('btw-ed25519-v1', JSON.stringify({ publicKeyHex: 'ab'.repeat(32) }));
+  assert.equal(auth.localKeyInfo(), 'ab'.repeat(32));
+});
+
+test('auth: only the site\'s own sign-in message is signed (no blind signing)', async () => {
+  const auth = await J('auth.js');
+  const ok = (m, nonce = 'abc', hosts = ['btw.bitwrap.io']) => auth.checkChallenge({ nonce, message: m }, { hosts });
+  assert.equal(ok(CHAL), CHAL);
+  assert.equal(ok('127.0.0.1:18097 sign-in\nnonce: n1\nissued: 1\nexpires: 2', 'n1', ['127.0.0.1:18097']), '127.0.0.1:18097 sign-in\nnonce: n1\nissued: 1\nexpires: 2');
+  const bad = [
+    ['another site', 'evil.example sign-in\nnonce: abc'],
+    ['not a sign-in', 'transfer 10 ETH to 0xabc\nnonce: abc'],
+    ['no nonce line', 'btw.bitwrap.io sign-in\nissued: now'],
+    ['someone else\'s nonce', 'btw.bitwrap.io sign-in\nnonce: other'],
+    ['control characters', 'btw.bitwrap.io sign-in\nnonce: abc\u0000'],
+    ['a right-to-left mark', 'btw.bitwrap.io sign-in\nnonce: abc‮'],
+    ['non-ASCII text', 'btw.bitwrap.io sign-in\nnonce: abc\nnote: café'],
+    ['too long', `btw.bitwrap.io sign-in\nnonce: abc\n${'x'.repeat(600)}`],
+    ['a first line that is more', 'btw.bitwrap.io sign-in please\nnonce: abc'],
+  ];
+  for (const [why, m] of bad) assert.throws(() => ok(m), (e) => e.code === 'bad_request' && /not signed/.test(e.message), why);
+  for (const ch of [null, {}, { nonce: 'abc' }, { message: CHAL }, { nonce: '', message: CHAL }, { nonce: 5, message: CHAL }, { nonce: 'abc', message: { x: 1 } }]) assert.throws(() => auth.checkChallenge(ch, { hosts: ['btw.bitwrap.io'] }), (e) => e.code === 'bad_request');
+  // a refused challenge reaches neither a wallet nor the key, and nothing is posted
+  let signed = 0;
+  const mem = memLocalStorage();
+  globalThis.ethereum = { request: async () => { signed++; return []; } };
+  auth.useKeyStore(fakeKeyStore());
+  const posts = [];
+  const api = { challenge: async () => ({ nonce: 'abc', message: 'evil.example sign-in\nnonce: abc' }), login: async (b) => { posts.push(b); return { user: {} }; } };
+  for (const kind of ['eth', 'ed25519']) await assert.rejects(() => auth.signIn(api, kind, { hosts: ['btw.bitwrap.io'] }), /not for this site|not signed/);
+  assert.equal(signed, 0);
+  assert.equal(posts.length, 0);
+  assert.equal(mem.size, 0, 'no key was made for a refused challenge');
+  delete globalThis.ethereum;
 });
 
 test('auth: a wallet signs with personal_sign over the message and the lower-cased account', async () => {
@@ -706,4 +814,173 @@ test('auth: a wallet signs with personal_sign over the message and the lower-cas
   assert.deepEqual(seen[1], ['personal_sign', ['hello', '0xabcdef0000000000000000000000000000000001']]);
   delete globalThis.ethereum;
   assert.equal(auth.hasWallet(), false);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// security: what a link, the server or an assistant can hand the page (DESIGN.md "The page"; the SEC-3 review)
+// ---------------------------------------------------------------------------------------------------------------
+
+test('security: hostile text is text, never markup, in the highlighted overlay (the page\'s one innerHTML)', () => {
+  const evil = ['<img src=x onerror="window.__pwn=1">', '</pre><script>window.__pwn=1</script>', '"><svg/onload=alert(1)>', "' onmouseover='alert(1)", '&lt;b&gt; &#x3c;i&#x3e;', '<!--', ']]>', '  ', '<a href="javascript:alert(1)">x</a>'];
+  for (const t of evil) {
+    for (const spans of [[], [[0, t.length, 'word']], [[0, 3, 'string'], [1, t.length, 'comment']], [[0, t.length, '"><img src=x onerror=alert(1)>']], [[0, t.length, '__proto__']]]) {
+      const html = spansToHtml(t, spans);
+      // the only tags in the output are the page's own spans, with a class from the fixed list
+      for (const tag of html.match(/<[^>]*>/g) || []) assert.match(tag, /^(<span class="c-[a-z]+">|<\/span>)$/, `${JSON.stringify(t)} ${JSON.stringify(spans)} -> ${tag}`);
+      assert.doesNotMatch(html.replace(/<span class="c-[a-z]+">|<\/span>/g, ''), /[<>"']/, 'no raw markup characters outside the page\'s own spans');
+    }
+  }
+});
+
+test('security: a malformed percent escape in the address bar is a mangled link, not an exception', async () => {
+  const { fragmentOf } = await J('link.js');
+  assert.equal(fragmentOf('#%'), '%');
+  assert.equal(fragmentOf('#%E0%A4%A'), '%E0%A4%A');
+  assert.equal(fragmentOf('#%zz'), '%zz');
+  assert.equal(fragmentOf(''), '');
+  assert.equal(fragmentOf('#'), '');
+  assert.equal(fragmentOf('#abc%20def'), 'abc def', 'a good escape is still decoded');
+  assert.equal(fragmentOf('#z4EBG9j.K0nNLchXMDQy~abc'), 'z4EBG9j.K0nNLchXMDQy~abc');
+});
+
+test('security: a link that would inflate to a bomb is refused before the module sees it', async () => {
+  const zlib = await import('node:zlib');
+  const { guardLink, packedCandidates, b64uBytes, inflatedLength } = await J('link.js');
+  const { MAX_LOAD_TEXT, MAX_LINK_CHARS } = await J('util.js');
+  const cid = 'z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v';
+  const link = (bytes, extra = '') => `https://btw.bitwrap.io/#${cid}.${Buffer.from(bytes).toString('base64url')}${extra}`;
+  // 1 MiB (the module's own limit), 64 and 128 MiB of 'a'
+  for (const n of [1 << 20, 64 << 20, 128 << 20]) {
+    const z = zlib.deflateRawSync(Buffer.alloc(n, 'a'), { level: 9 });
+    const t0 = performance.now();
+    const r = await guardLink(link(z));
+    assert.equal(r.ok, false, `${n}`);
+    assert.match(r.error, /larger than 32,768 bytes/);
+    assert.ok(performance.now() - t0 < 1500, `refused in ${performance.now() - t0} ms without inflating it all`);
+  }
+  // in the notes part, and in the social /c/ form, and behind a signature
+  const bomb = zlib.deflateRawSync(Buffer.alloc(8 << 20, 'a'), { level: 9 });
+  const fine = zlib.deflateRawSync(Buffer.from('tempo 120\ndeck A: kick x ~ x ~\n'));
+  assert.equal((await guardLink(`${link(fine)}~${Buffer.from(bomb).toString('base64url')}`)).ok, false, 'notes');
+  assert.equal((await guardLink(`https://btw.bitwrap.io/c/${cid}.${Buffer.from(bomb).toString('base64url')}`)).ok, false, 'social form');
+  assert.equal((await guardLink(`${cid}.${Buffer.from(bomb).toString('base64url')}.${'ab'.repeat(32)}`)).ok, false, 'with a signature');
+  // what is fine stays fine: a real link, a bare CID, text just under the cap, a short or garbled run
+  assert.deepEqual(await guardLink(link(fine)), { ok: true });
+  assert.deepEqual(await guardLink(`#${cid}`), { ok: true });
+  assert.deepEqual(await guardLink(link(zlib.deflateRawSync(Buffer.alloc(MAX_LOAD_TEXT, 'a')))), { ok: true });
+  assert.equal((await guardLink(link(zlib.deflateRawSync(Buffer.alloc(MAX_LOAD_TEXT + 1, 'a'))))).ok, false, 'one byte over');
+  assert.deepEqual(await guardLink(`#${cid}.${'A'.repeat(200)}`), { ok: true }, 'not deflate: the module will say so');
+  assert.deepEqual(await guardLink(`#${cid}.${'!'.repeat(200)}`), { ok: true });
+  // a link of absurd length is refused without being read
+  assert.equal((await guardLink('x'.repeat(MAX_LINK_CHARS + 1))).ok, false);
+  // helpers
+  assert.deepEqual(packedCandidates(`#${cid}.${'a'.repeat(80)}~${'b'.repeat(70)}`), ['a'.repeat(80), 'b'.repeat(70)], 'the CID is not a candidate');
+  assert.equal(b64uBytes('a'), null);
+  assert.equal(b64uBytes('a b'), null);
+  assert.deepEqual([...b64uBytes('AQID')], [1, 2, 3]);
+  assert.equal(await inflatedLength(Buffer.from([0xff, 0xff, 0xff]), 100), null, 'not deflate');
+});
+
+test('security: what becomes part of a URL path is checked first (CID, example name, session id)', async () => {
+  const { makeApi } = await J('api.js');
+  const seen = [];
+  const api = makeApi({ fetchFn: async (u, init) => { seen.push(`${init.method} ${u}`); return { ok: true, headers: new Headers({ 'Content-Type': 'application/json' }), json: async () => ({}) }; } });
+  const cid = 'z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v';
+  await api.getProgram(cid);
+  await api.putProgram(cid, 'tempo 120\n');
+  await api.renderStatus(cid);
+  await api.exampleText('hand-dubstep-140-v4');
+  await api.report('PqjBDf8367OflXp4zG-TKQ', {});
+  assert.deepEqual(seen, [`GET /api/programs/${cid}`, `PUT /api/programs/${cid}`, `GET /api/render/${cid}/status`, 'GET /examples/hand-dubstep-140-v4.btw', 'POST /api/session/PqjBDf8367OflXp4zG-TKQ/report']);
+  assert.equal(api.renderUrl(cid), `/api/render/${cid}?format=wav&sr=44100`);
+  assert.equal(api.renderUrl(cid, 'opus'), `/api/render/${cid}?format=opus`);
+  assert.equal(api.renderUrl(cid, 'x&y=1', 7), `/api/render/${cid}?format=wav&sr=44100`, 'format and rate are from a short list');
+  assert.equal(api.eventsUrl('PqjBDf8367OflXp4zG-TKQ'), '/api/session/PqjBDf8367OflXp4zG-TKQ/events');
+  seen.length = 0;
+  const badCids = ['', '../../api/info', `${cid}/../..`, `${cid}?x=1`, `${cid}#`, `${cid}%2f..`, 'zshort', `z${'1'.repeat(200)}`, 'a'.repeat(50), `${cid}\n`, '/etc/passwd', null, undefined, 5, { toString: () => cid }];
+  for (const c of badCids) {
+    for (const f of [() => api.getProgram(c), () => api.putProgram(c, 'x'), () => api.renderStatus(c), () => api.renderUrl(c)]) {
+      await assert.rejects(async () => f(), (e) => e.code === 'bad_request', String(c));
+    }
+  }
+  for (const n of ['', '..', '../../api/info', '..%2f..%2fapi%2finfo', '.hidden', 'a/b', 'a?b', 'a#b', 'x'.repeat(65), 'a b', null, 3]) await assert.rejects(() => api.exampleText(n), (e) => e.code === 'bad_request', String(n));
+  for (const id of ['', 'a/b', '../x', 'short', 'x?y=1x', 'a'.repeat(65), null]) {
+    await assert.rejects(() => api.report(id, {}), (e) => e.code === 'bad_request', String(id));
+    assert.throws(() => api.eventsUrl(id), (e) => e.code === 'bad_request', String(id));
+  }
+  assert.deepEqual(seen, [], 'not one request was made for any of them');
+});
+
+test('security: names and messages from outside are cleaned and cut before they reach a title or a toast', async () => {
+  const { cleanName, trunc, marksPrivate, isLoopbackHost, CID_RE, EXAMPLE_RE } = await J('util.js');
+  assert.equal(cleanName('a‮b\u0000c​d\n  e'), 'a b c d e');
+  assert.equal(cleanName('x'.repeat(500)).length, 80);
+  assert.equal(cleanName('  '), '');
+  assert.equal(cleanName(null), '');
+  assert.equal(trunc('x'.repeat(1000)).length, 300);
+  assert.equal(trunc('short'), 'short');
+  assert.equal(programName('#! name: ' + 'long '.repeat(100) + '\ntempo 120\n', null).length <= 80, true);
+  assert.equal(programName('#! name: ‮​\n', 'zabcdef123456'), 'btw 123456', 'a name that is nothing but marks falls back');
+  assert.equal(programName('#! name: <img src=x onerror=alert(1)>\n', null), '<img src=x onerror=alert(1)>', 'markup stays text (it is put in with textContent)');
+  // private programs
+  assert.equal(marksPrivate('#! btw 1\n#! visibility: private\ntempo 120\n'), true);
+  assert.equal(marksPrivate('  #! Visibility:   PRIVATE\n'), false, 'the header starts the line');
+  assert.equal(marksPrivate('#!visibility:private\n'), true);
+  assert.equal(marksPrivate('#! visibility: public\n'), false);
+  assert.equal(marksPrivate('# visibility: private (just a comment)\n'), false);
+  assert.equal(marksPrivate(''), false);
+  assert.equal(isLoopbackHost('127.0.0.1'), true);
+  assert.equal(isLoopbackHost('localhost'), true);
+  assert.equal(isLoopbackHost('[::1]'), true);
+  assert.equal(isLoopbackHost('btw.bitwrap.io'), false);
+  assert.equal(isLoopbackHost('127.0.0.1.evil.example'), false);
+  assert.equal(isLoopbackHost('evil-localhost'), false);
+  assert.equal(CID_RE.test('z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v'), true);
+  assert.equal(EXAMPLE_RE.test('hand-dubstep-140-v4'), true);
+});
+
+test('security: events an assistant pushes can set text, load a CID or an example, play and stop, and nothing else', async () => {
+  const { SessionLink } = await J('session.js');
+  const calls = [];
+  const rec = (name) => async (...a) => { calls.push([name, ...a]); };
+  const app = {
+    api: { reply: async (...a) => calls.push(['reply', ...a]), report: async () => {}, eventsUrl: () => 'x', createSession: async () => ({ id: 'abcdefghij' }) },
+    on() {}, emit() {}, user: null,
+    setProgram: (...a) => { calls.push(['setProgram', ...a]); }, toast: (...a) => calls.push(['toast', ...a]), showError: (e) => calls.push(['error', e.message]),
+    loadByCid: rec('loadByCid'), loadExample: rec('loadExample'), openAny: rec('openAny'), play: rec('play'), stop: () => calls.push(['stop']),
+    isPlaying: () => false, reportState: () => ({ text: 'state' }),
+  };
+  const s = new SessionLink(app);
+  s.id = 'abcdefghij';
+  s.send = () => {};
+  const ev = (type, o) => s.onEvent(type, JSON.stringify(o));
+  const names = () => calls.map((c) => c[0]);
+  await ev('eval', { text: 'tempo 120\n', play: true });
+  assert.deepEqual(names(), ['setProgram', 'toast', 'play']);
+  calls.length = 0;
+  await ev('load', { cid: 'z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v', play: true });
+  assert.deepEqual(calls[0], ['loadByCid', 'z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v']);
+  calls.length = 0;
+  await ev('load', { extra: { example: 'matrix-130' } });
+  assert.deepEqual(calls[0], ['loadExample', 'matrix-130']);
+  calls.length = 0;
+  await ev('stop', {});
+  assert.deepEqual(names(), ['stop']);
+  calls.length = 0;
+  await ev('get', { request_id: 'r1' });
+  assert.deepEqual(calls[0], ['reply', 'abcdefghij', 'r1', { text: 'state' }]);
+  // hostile shapes: nothing throws out of onEvent, nothing runs that was not asked for, nothing plays unless it is `true`
+  calls.length = 0;
+  const hostile = [
+    ['eval', { text: { toString: 'x' }, play: 'yes' }], ['eval', { text: 5 }], ['eval', 'a string'], ['eval', [1, 2]], ['eval', null],
+    ['load', { cid: ['z'], extra: 'oops' }], ['load', { extra: { example: { a: 1 }, url: 5 } }], ['load', { cid: 7 }], ['load', { extra: null }],
+    ['get', { request_id: 'x'.repeat(5000) }], ['get', { request_id: { a: 1 } }], ['get', {}],
+    ['stop', { cid: 'z' }],
+  ];
+  for (const [t, o] of hostile) await ev(t, o);
+  assert.equal(await s.onEvent('eval', '{not json'), undefined);
+  assert.ok(!names().includes('play'), 'play only for play === true');
+  assert.ok(!names().includes('reply'), 'no reply to a missing or absurd request id');
+  assert.ok(!names().includes('loadByCid') && !names().includes('loadExample') && !names().includes('openAny'), 'only strings are looked up');
+  // and the editor takes only what setProgram lets in: too big a text is an error, not a freeze
 });

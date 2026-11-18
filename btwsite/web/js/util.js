@@ -2,6 +2,55 @@
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// ---- what may come in from outside the editor ------------------------------------------------------------------------
+
+/**
+ * The most text a program loaded from outside the editor (a link, the server, an assistant's push) may have. The server
+ * stores programs of at most 16 KiB; the page takes twice that. The checker costs real time (a 6 KB program of evolve
+ * blocks takes about 2.7 s, in the page's one thread), so what a stranger's link or push can hand it has a bound.
+ */
+export const MAX_LOAD_TEXT = 32768;
+/** The longest link (characters) the page will look at. A 32 KiB program deflates to well under this. */
+export const MAX_LINK_CHARS = 262144;
+/** A CID: base58btc, `z...`. Anything that goes into a URL path as a CID is checked against this first. */
+export const CID_RE = /^z[1-9A-HJ-NP-Za-km-z]{20,120}$/;
+/** An example's name (examples/<name>.btw): no slash, no leading dot, so it cannot name another path. */
+export const EXAMPLE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** A session id as the server makes it. */
+export const SESSION_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+/** `s` cut to `n` characters, with an ellipsis. */
+export function trunc(s, n = 300) {
+  const t = String(s);
+  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
+}
+
+/**
+ * A name from outside (a stored program's `#! name:`, an example's title) made safe to put in a title or a header:
+ * control characters and the invisible/bidirectional marks that make text read as something else are dropped, runs of
+ * white space become one space, and it is cut to `n`.
+ */
+export function cleanName(s, n = 80) {
+  // eslint-disable-next-line no-control-regex
+  const t = String(s ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g, ' ').replace(/\s+/g, ' ').trim();
+  return trunc(t, n);
+}
+
+/**
+ * Whether a program's own header says it is private (`#! visibility: private`). Such a program stays in this page: it is
+ * not sent to the server to be streamed and stored, and it is not in the state the page reports to an assistant. (The
+ * checker flags `use restricted` and sample/loop assets itself; this header is a comment to it.)
+ */
+export function marksPrivate(text) {
+  return /^#!\s*visibility:\s*private\b/im.test(String(text ?? ''));
+}
+
+/** Whether a `location.hostname` is this machine (the only place the page's `?mock=1` stand-in may run). */
+export function isLoopbackHost(host) {
+  const h = String(host || '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.endsWith('.localhost');
+}
+
 export function debounce(fn, ms) {
   let t = 0;
   const d = (...a) => {
