@@ -148,8 +148,17 @@ var _ api.Backend = (*fakeBackend)(nil)
 
 type fakeAuth struct{ users map[string]*api.User }
 
-func (a fakeAuth) UserFrom(r *http.Request) (*api.User, error) { return nil, nil }
-func (a fakeAuth) UserFromToken(tok string) *api.User          { return a.users[tok] }
+// UserFrom resolves a bearer token like the real service (cookies are not modelled).
+func (a fakeAuth) UserFrom(r *http.Request) (*api.User, error) {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if u := a.users[strings.TrimPrefix(h, "Bearer ")]; u != nil {
+			return u, nil
+		}
+		return nil, api.Errf(401, api.CodeAuthRequired, "unknown or revoked token")
+	}
+	return nil, nil
+}
+func (a fakeAuth) UserFromToken(tok string) *api.User { return a.users[tok] }
 
 var alice = &api.User{ID: "eip155:0xabc", Kind: "eth", Address: "0xabc", Via: "token"}
 
