@@ -193,3 +193,25 @@ printf '{"ok":false,"errors":1,"warnings":0,"diagnostics":[{"severity":"error","
 		t.Fatalf("clip must cut on a character boundary: %q", clip("日本語", 4))
 	}
 }
+
+// The children run at a lower priority than the service, which shares its host with others.
+func TestChildrenRunNiced(t *testing.T) {
+	bin := script(t, `cat >/dev/null; sleep 0.3
+ni=$(ps -o ni= -p $$ | tr -d ' ')
+printf '{"ok":true,"errors":0,"warnings":0,"diagnostics":[],"cid":"z","canonical":"ni=%s"}' "$ni"`)
+	c, err := New(bin, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Check(context.Background(), "x\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Canonical != "ni=10" {
+		t.Fatalf("the child ran at %q, want ni=10", r.Canonical)
+	}
+	keep, _ := New(bin, Options{Nice: -1}) // leaves it to the parent's own level: only that it still works is asserted
+	if _, err = keep.Check(context.Background(), "x\n"); err != nil {
+		t.Fatalf("Nice: -1: %v", err)
+	}
+}

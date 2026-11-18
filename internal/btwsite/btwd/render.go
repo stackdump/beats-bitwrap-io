@@ -144,6 +144,7 @@ func (c *Client) StartRender(ctx context.Context, text string, o RenderOptions) 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("btwd render: %w", err)
 	}
+	Renice(cmd.Process.Pid, c.opts.Nice)
 	go func() {
 		_, _ = io.WriteString(stdin, text)
 		_ = stdin.Close()

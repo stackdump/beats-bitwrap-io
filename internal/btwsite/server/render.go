@@ -534,6 +534,7 @@ func (rs *renderService) runOpus(j *renderJob, proc *btwd.RenderProc, write func
 	if err := ff.Start(); err != nil {
 		return fail(fmt.Errorf("ffmpeg: %w", err))
 	}
+	btwd.Renice(ff.Process.Pid, btwd.DefaultNice)
 	close(j.ready)
 	copied := make(chan struct{})
 	go func() {

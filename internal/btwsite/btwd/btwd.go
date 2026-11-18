@@ -38,7 +38,14 @@ type Options struct {
 	OwnerConcurrent int     // calls in flight per owner; default MaxConcurrent/2 (at least 1)
 	OwnerSeconds    float64 // seconds of checker time an owner may bank (and start with); default 30
 	OwnerRefill     float64 // seconds of checker time an owner earns back per second; default 0.5
+
+	// Nice is the nice level the children run at (they share the host with other services); default DefaultNice,
+	// negative leaves the priority alone.
+	Nice int
 }
+
+// DefaultNice is the nice level of btwd and ffmpeg children.
+const DefaultNice = 10
 
 func (o *Options) defaults() {
 	if o.Timeout <= 0 {
@@ -61,6 +68,9 @@ func (o *Options) defaults() {
 	}
 	if o.OwnerRefill <= 0 {
 		o.OwnerRefill = 0.5
+	}
+	if o.Nice == 0 {
+		o.Nice = DefaultNice
 	}
 }
 
@@ -240,7 +250,11 @@ func (c *Client) run(ctx context.Context, stdin string, args ...string) ([]byte,
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	cmd.WaitDelay = time.Second
-	err := cmd.Run()
+	err := cmd.Start()
+	if err == nil {
+		Renice(cmd.Process.Pid, c.opts.Nice)
+		err = cmd.Wait()
+	}
 	if out.overflow {
 		return nil, api.Errf(422, api.CodeBadRequest, "btwd %s: the answer is over %d bytes: a program or link with that many problems cannot be reported; fix the first ones and try again", args[0], c.opts.MaxStdout)
 	}
