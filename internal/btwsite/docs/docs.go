@@ -232,7 +232,7 @@ func (s *server) llmsTxt() string {
 	w("- [All examples as JSON](%s/api/examples): name, title, description, cid, bpm, bars, license\n\n", p)
 
 	w("## API\n")
-	w("- [MCP server](%s/mcp): streamable HTTP; tools compose, check, fmt, eval, load, get, share, open, render, list_examples, instruments, stop; writes need a bearer token\n", p)
+	w("- [MCP server](%s/mcp): streamable HTTP; tools compose, check, fmt, eval, load, get, share, open, render, record, list_examples, instruments, stop; writes need a bearer token\n", p)
 	w("- [Compose](%s/docs/api.md#compose): POST %s/api/compose writes a program from a prompt (signed in, rate limited, capped)\n", p, p)
 	w("- [Render](%s/docs/api.md#render): GET %s/api/render/<CID>?format=opus|wav streams the offline render as it renders\n", p, p)
 	w("- [Share links](%s/docs/api.md#share-links): the link format, and how to open one safely\n", p)
