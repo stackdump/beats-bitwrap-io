@@ -259,9 +259,9 @@ func TestSessionReportLimitsAndSizes(t *testing.T) {
 
 func TestSessionCreateLimitsAndTTL(t *testing.T) {
 	e := newEnv(t, nil)
-	// 30 an hour per IP
+	// 120 an hour per IP
 	ok, refused := 0, 0
-	for i := 0; i < 33; i++ {
+	for i := 0; i < 123; i++ {
 		r := e.post("/api/session", nil, ip("192.0.2.40"))
 		if r.StatusCode == 200 {
 			ok++
@@ -270,10 +270,10 @@ func TestSessionCreateLimitsAndTTL(t *testing.T) {
 		}
 		r.Body.Close()
 	}
-	if ok != 30 || refused != 3 {
+	if ok != 120 || refused != 3 {
 		t.Fatalf("created %d, refused %d", ok, refused)
 	}
-	if e.srv.hub.count() != 30 {
+	if e.srv.hub.count() != 120 {
 		t.Fatalf("count %d", e.srv.hub.count())
 	}
 	// untouched sessions without a stream expire after 10 minutes
@@ -375,3 +375,40 @@ func TestSessionConcurrentPushAndReport(t *testing.T) {
 }
 
 var httpCookie = http.Cookie{Name: "btw_session", Value: "junk.junk"}
+
+func TestSessionStreamsPerSessionAreBounded(t *testing.T) {
+	e := newEnv(t, nil)
+	s := e.newSession()
+	var conns []*sseConn
+	for i := 0; i < maxStreamsPerSession+2; i++ {
+		conns = append(conns, e.sse("/api/session/"+s.ID+"/events"))
+	}
+	// the two oldest streams were closed by the hub; the newest still get events
+	for i, c := range conns[:2] {
+		deadline := time.After(2 * time.Second)
+	drain:
+		for {
+			select {
+			case _, ok := <-c.ch:
+				if !ok {
+					break drain
+				}
+			case <-deadline:
+				t.Fatalf("stream %d should have been closed", i)
+			}
+		}
+	}
+	u := e.newUser()
+	id, _ := e.srv.hub.create(u.id)
+	_ = id
+	e.srv.hub.mu.Lock()
+	n := len(e.srv.hub.sessions[s.ID].subs)
+	e.srv.hub.mu.Unlock()
+	if n != maxStreamsPerSession {
+		t.Fatalf("%d streams attached", n)
+	}
+	if got, _ := e.srv.Push(&api.User{ID: "x"}, s.ID, api.SessionEvent{Type: "stop"}); got != 1 {
+		t.Fatalf("push to the live streams: %d", got)
+	}
+	conns[len(conns)-1].next(t, "stop", 2*time.Second)
+}

@@ -48,6 +48,8 @@ type Server struct {
 	closing      chan struct{}
 	closeOnce    sync.Once
 	cancelBg     context.CancelFunc
+	bg           context.Context
+	bgWG         sync.WaitGroup
 	handler      http.Handler
 	warnings     []string
 	instrumentsB json.RawMessage
@@ -143,7 +145,7 @@ func New(cfg Config) (*Server, error) {
 	// limits
 	s.checkIP = newIPLimiter(cfg.CheckIPMin, time.Minute, cfg.Now)
 	s.putIP = newIPLimiter(cfg.PutIPHour, time.Hour, cfg.Now)
-	s.sessionIP = newIPLimiter(30, time.Hour, cfg.Now)
+	s.sessionIP = newIPLimiter(120, time.Hour, cfg.Now)
 	s.authIP = map[string]*ipLimiter{
 		"challenge": newIPLimiter(30, time.Minute, cfg.Now),
 		"login":     newIPLimiter(20, time.Minute, cfg.Now),
@@ -162,7 +164,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.hub = newHub(cfg.Now)
 	bg, cancel := context.WithCancel(context.Background())
-	s.cancelBg = cancel
+	s.cancelBg, s.bg = cancel, bg
 	go s.hub.sweeper(bg)
 	s.rs, err = newRenderService(s, bg)
 	if err != nil {
@@ -201,9 +203,10 @@ func (s *Server) Close() {
 		s.hub.closeAll()
 		s.rs.shutdown()
 		s.cancelBg()
+		s.bgWG.Wait()
 		s.log.Close()
-		if c, ok := s.extras.closer.(interface{ Close() error }); ok {
-			_ = c.Close()
+		for _, f := range s.extras.closers {
+			f()
 		}
 	})
 }

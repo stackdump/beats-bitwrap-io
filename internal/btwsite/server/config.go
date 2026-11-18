@@ -29,7 +29,8 @@ type Config struct {
 	FFmpeg      string // -ffmpeg
 	PublicURL   string // -public-url
 
-	Model string // -model ("fake" = the recorded-fixture model)
+	Model    string // -model ("fake" = the recorded-fixture model)
+	Thinking string // -thinking: Gemini thinking level MINIMAL|LOW|MEDIUM|HIGH ("" = LOW)
 
 	ComposeUserHour int     // -compose-user-hour
 	ComposeUserDay  int     // -compose-user-day
@@ -69,7 +70,7 @@ type Config struct {
 // DefaultConfig is what an empty command line gives.
 func DefaultConfig() Config {
 	return Config{
-		Addr: ":18097", WebDir: "btwsite/web", ExamplesDir: "btwsite/examples", DocsDir: "btwsite/docs", DataDir: "./data",
+		Addr: ":18097", WebDir: "btwsite/web", ExamplesDir: "btwsite/examples", DocsDir: "btwsite/web/docs", DataDir: "./data",
 		PublicURL: "https://btw.bitwrap.io", Model: "gemini-3.8-flash", FFmpeg: "ffmpeg",
 		ComposeUserHour: 10, ComposeUserDay: 50, ComposeIPDay: 40, DailySpendUSD: 2.00, PriceInPerM: 1.50, PriceOutPerM: 7.50,
 		MaxPromptChars: 800, MaxProgramBytes: 16384, MaxRepair: 3, ComposeEnabled: true,
@@ -104,6 +105,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.FFmpeg, "ffmpeg", "ffmpeg executable for Ogg Opus renders (needs libopus)")
 	str(&c.PublicURL, "public-url", "the site's public origin, for share links and cookies (https => Secure cookie)")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
+	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")
 	num(&c.ComposeUserHour, "compose-user-hour", "compose requests per signed-in user per hour")
 	num(&c.ComposeUserDay, "compose-user-day", "compose requests per signed-in user per day")
 	num(&c.ComposeIPDay, "compose-ip-day", "compose requests per IP per day")

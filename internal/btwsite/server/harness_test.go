@@ -72,7 +72,7 @@ func newEnv(t *testing.T, mod func(*Config), fakeEnv ...string) *tenv {
 	for _, d := range []string{web + "/js", web + "/wasm", ex} {
 		os.MkdirAll(d, 0o755)
 	}
-	os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><title>btw</title><p>index"), 0o644)
+	os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><html><head><title>btw</title><!-- btw:card-meta --></head><body><p>index</body></html>"), 0o644)
 	os.WriteFile(filepath.Join(web, "js", "app.js"), []byte("export const x = 1;\n"), 0o644)
 	os.WriteFile(filepath.Join(web, "wasm", "btw_bg.wasm"), []byte("\x00asm\x01\x00\x00\x00"), 0o644)
 	os.WriteFile(filepath.Join(web, ".secret"), []byte("nope"), 0o644)

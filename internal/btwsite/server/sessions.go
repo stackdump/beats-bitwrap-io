@@ -24,17 +24,19 @@ import (
 // user than the owner is refused.
 
 const (
-	maxSessions        = 5000
-	maxSessionsPerUser = 20
-	sessionTTL         = 10 * time.Minute // without a subscriber, a report, or a reply
-	stateFresh         = 1500 * time.Millisecond
-	getWait            = 3 * time.Second
-	maxReportBytes     = 256 << 10
+	maxSessions          = 5000
+	maxSessionsPerUser   = 20
+	maxStreamsPerSession = 4                // a page that reconnects leaves its old stream to die by itself: the oldest goes
+	sessionTTL           = 10 * time.Minute // without a subscriber, a report, or a reply
+	stateFresh           = 1500 * time.Millisecond
+	getWait              = 3 * time.Second
+	maxReportBytes       = 256 << 10
 )
 
 type subscriber struct {
 	ch   chan api.SessionEvent
 	once sync.Once
+	seq  int
 }
 
 func (s *subscriber) close() { s.once.Do(func() { close(s.ch) }) }
@@ -60,6 +62,7 @@ type hub struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	closed   bool
+	seq      int
 }
 
 var _ api.Hub = (*hub)(nil)
@@ -181,7 +184,18 @@ func (h *hub) subscribe(id string, u *api.User) (*subscriber, *api.Error) {
 	if !ok {
 		return nil, errNoSession()
 	}
-	sub := &subscriber{ch: make(chan api.SessionEvent, 16)}
+	h.seq++
+	sub := &subscriber{ch: make(chan api.SessionEvent, 16), seq: h.seq}
+	for len(s.subs) >= maxStreamsPerSession {
+		var oldest *subscriber
+		for o := range s.subs {
+			if oldest == nil || o.seq < oldest.seq {
+				oldest = o
+			}
+		}
+		delete(s.subs, oldest)
+		oldest.close()
+	}
 	s.subs[sub] = struct{}{}
 	s.lastSeen = h.now()
 	return sub, nil

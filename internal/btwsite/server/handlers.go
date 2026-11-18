@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -354,11 +355,27 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	h := w.Header()
-	h.Set("ETag", tag)
 	h.Set("Cache-Control", "no-cache")
 	if ct := mime.TypeByExtension(filepath.Ext(full)); ct != "" {
 		h.Set("Content-Type", ct)
 	}
+	// the site's own pages carry the generic share card (og:/twitter: tags) so a link to / or /p unfurls
+	if s.extras.injectMeta != nil && (p == "/index.html") && r.URL.Path != "/index.html" {
+		doc, err := io.ReadAll(io.LimitReader(f, 4<<20))
+		if err == nil {
+			path := "/"
+			if strings.TrimRight(r.URL.Path, "/") == "/p" {
+				path = "/p"
+			}
+			out := s.extras.injectMeta(doc, s.cfg.PublicURL, path)
+			sum := sha256.Sum256(out)
+			h.Set("ETag", `"`+hex.EncodeToString(sum[:12])+`"`)
+			http.ServeContent(w, r, info.Name(), time.Time{}, bytes.NewReader(out))
+			return
+		}
+		_, _ = f.Seek(0, io.SeekStart)
+	}
+	h.Set("ETag", tag)
 	http.ServeContent(w, r, info.Name(), time.Time{}, f) // honours If-None-Match and Range; no Last-Modified
 }
 

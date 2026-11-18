@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,6 +116,7 @@ func (l *accessLog) write(line logLine) {
 			return
 		}
 		l.f, l.w, l.day = f, bufio.NewWriterSize(f, 16<<10), day
+		l.pruneLocked()
 	}
 	_, _ = l.w.Write(append(b, '\n'))
 }
@@ -195,4 +197,19 @@ func (l *accessLog) middleware(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(sw, r)
 	})
+}
+
+// logKeepDays is how long access logs are kept.
+const logKeepDays = 30
+
+// pruneLocked removes access logs older than logKeepDays (checked when a new day's file is opened).
+func (l *accessLog) pruneLocked() {
+	cut := l.now().UTC().AddDate(0, 0, -logKeepDays).Format("20060102")
+	files, _ := filepath.Glob(filepath.Join(l.dir, "access-*.jsonl"))
+	for _, f := range files {
+		day := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "access-"), ".jsonl")
+		if len(day) == 8 && day < cut {
+			_ = os.Remove(f)
+		}
+	}
 }

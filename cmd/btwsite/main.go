@@ -41,8 +41,11 @@ func main() {
 	hs := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second, // bodies are small; streams set their own write deadlines
-		IdleTimeout:       120 * time.Second,
+		// No ReadTimeout and no WriteTimeout, on purpose: net/http's read deadline stays on the connection
+		// while a handler runs and cancels the request context when it passes, which would cut an SSE stream
+		// or a render stream at that mark. Bodies are small and capped (MaxBytesReader) and nginx buffers
+		// them before they get here; streams set a write deadline per chunk instead.
+		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
