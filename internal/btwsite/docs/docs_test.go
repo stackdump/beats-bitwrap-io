@@ -778,3 +778,38 @@ func (r realChecker) Check(ctx context.Context, text string) (*api.CheckReport, 
 	}
 	return &rep, nil
 }
+
+// a checker that is down is asked once, then left alone for a while: llms.txt does not wait for it each time
+type flakyChecker struct {
+	fakecheck.Checker
+	calls int
+}
+
+func (f *flakyChecker) Cheatsheet(context.Context) (string, error) {
+	f.calls++
+	return "", fmt.Errorf("btwd is down")
+}
+
+func TestADownCheckerIsNotAskedOnEveryRequest(t *testing.T) {
+	fc := &flakyChecker{}
+	mux := http.NewServeMux()
+	if err := docs.Mount(mux, docs.Options{DocsDir: t.TempDir(), Checker: fc, PublicURL: "https://btw.bitwrap.io"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		for _, p := range []string{"/llms.txt", "/docs/cheatsheet.md", "/llms-full.txt"} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+			want := 200
+			if p == "/docs/cheatsheet.md" {
+				want = 404
+			}
+			if rec.Code != want {
+				t.Fatalf("%s: %d, want %d", p, rec.Code, want)
+			}
+		}
+	}
+	if fc.calls != 1 {
+		t.Errorf("the failing checker was asked %d times, want 1", fc.calls)
+	}
+}

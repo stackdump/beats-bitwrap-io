@@ -70,7 +70,8 @@ type server struct {
 
 	mu       sync.Mutex
 	csCache  string
-	csAt     time.Time
+	csAt     time.Time // when csCache was fetched
+	csFailAt time.Time // when the checker last failed: not asked again for a while
 	apiBytes []byte
 }
 
@@ -149,12 +150,17 @@ func (s *server) cheatsheet() ([]byte, bool) {
 	if s.csCache != "" && time.Since(s.csAt) < 10*time.Minute {
 		return []byte(s.csCache), true
 	}
+	if !s.csFailAt.IsZero() && time.Since(s.csFailAt) < 30*time.Second {
+		return nil, false // a checker that is down must not make every llms.txt request wait for it
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cs, err := s.o.Checker.Cheatsheet(ctx)
 	if err != nil || strings.TrimSpace(cs) == "" {
+		s.csFailAt = time.Now()
 		return nil, false
 	}
+	s.csFailAt = time.Time{}
 	s.csCache, s.csAt = cs, time.Now()
 	return []byte(cs), true
 }
