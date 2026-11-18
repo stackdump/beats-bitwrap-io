@@ -59,14 +59,22 @@ try {
     if (T.grid && T.grid.length > 20) {
       // beats against wall time: 140 bpm is 2.33 beats a second; the first read is after both decks have started
       const first = T.grid[0], last = T.grid[T.grid.length - 1];
-      const rate = ((last[1] - first[1]) / ((last[0] - first[0]) / 1000));
+      // the rate over the first stretch of one net: a section swap puts the beat back to the top of the next net
       const beats = T.grid.map((g) => g[1]);
+      let end = beats.length;
+      for (let i = 1; i < beats.length; i++) if (beats[i] < beats[i - 1] - 0.5) { end = i; break; }
+      const seg = T.grid.slice(0, end);
+      const rate = (seg[seg.length - 1][1] - seg[0][1]) / ((seg[seg.length - 1][0] - seg[0][0]) / 1000);
+      if (end < beats.length && PROGRAM.includes('hand-dubstep-140-v2')) {
+        check(`the new section's net starts on the bar line the runtime calls bar 8 (it read bar ${T.grid[end][2]}, beat ${beats[end]})`, beats[end] < 1.5 && (T.grid[end][2] === 8 || T.grid[end][2] === 7), JSON.stringify(T.grid.slice(end - 2, end + 2)));
+      }
       check(`the beat moves at about the tempo (${rate.toFixed(2)} beats/s, 140 bpm is 2.33)`, rate > 2.0 && rate < 2.7, `${rate}`);
       let backs = 0; for (let i = 1; i < beats.length; i++) if (beats[i] < beats[i - 1] - 0.5) backs++;
-      check('it does not jump back (inside a section)', backs <= 1, `${backs} jumps back`);
+      check('it jumps back only at a section swap (once in the first 8 bars + build)', backs <= (SECONDS > 14 ? 1 : 0), `${backs} jumps back`);
       check('the runtime counted bars', last[2] >= Math.floor(((last[0] - first[0]) / 1000) * 2.33 / 4) - 1, `bar ${last[2]} after ${(last[0] / 1000).toFixed(1)} s`);
     }
     check('the first section was reported', T.sections && T.sections[0] === 'intro', JSON.stringify(T.sections));
+    if (SECONDS > 16 && PROGRAM.includes('hand-dubstep-140-v2')) check('and the next section came on the bar line (intro is 8 bars: 13.7 s)', T.sections && T.sections[1] === 'build', JSON.stringify(T.sections));
     check('both decks installed their nets', (T.events || []).filter((e) => e.deck).length >= 2, JSON.stringify(T.events));
     check('no engine error was raised', !(T.events || []).some((e) => e.error), JSON.stringify((T.events || []).filter((e) => e.error)));
     check(`the output is not silent (RMS max ${T.rmsMax && T.rmsMax.toFixed(4)})`, T.rmsMax > 0.005, `rms max ${T.rmsMax}`);

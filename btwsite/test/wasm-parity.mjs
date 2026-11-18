@@ -259,16 +259,14 @@ section chorus 2 bars {
 arrange verse chorus verse chorus
 end at bar 8
 `;
-{
+/** A fake AudioContext whose audio thread is the real worklet code, run in the worklet-like scope and driven by the wall clock. */
+async function fakeAudio() {
     const real = { fetch: globalThis.fetch, AudioWorkletNode: globalThis.AudioWorkletNode };
     const w = await workletScope();
     const Proc = w.registered['btw-engine'];
     const quantaPerSecond = SR / 128;
-    const clock = { start: performance.now(), quanta: 0, procs: [] };
-    // the "audio thread": renders as many quanta as the wall clock says have gone by
+    const clock = { start: performance.now(), quanta: 0, procs: [], peak: 0 };
     const L = new Float32Array(128), R = new Float32Array(128);
-    let peak = 0;
-    let silentGlitches = 0;
     const drive = () => {
         const want = Math.floor(((performance.now() - clock.start) / 1000) * quantaPerSecond);
         let todo = Math.min(want - clock.quanta, 400);
@@ -276,7 +274,7 @@ end at bar 8
             clock.quanta++;
             w.scope.currentTime = clock.quanta * 128 / SR;
             for (const p of clock.procs) p.process([[]], [[L, R]]);
-            for (let i = 0; i < 128; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+            for (let i = 0; i < 128; i++) clock.peak = Math.max(clock.peak, Math.abs(L[i]), Math.abs(R[i]));
         }
     };
     const timer = setInterval(drive, 2);
@@ -285,10 +283,7 @@ end at bar 8
             this.proc = new Proc({ processorOptions: { ...options.processorOptions, module: w.module } });
             clock.procs.push(this.proc);
             const proc = this.proc;
-            this.port = {
-                onmessage: null,
-                postMessage: (m) => queueMicrotask(() => proc.port.onmessage({ data: m })),
-            };
+            this.port = { onmessage: null, postMessage: (m) => queueMicrotask(() => proc.port.onmessage({ data: m })) };
             // the worklet -> page direction: drain what the processor posted
             this.pump = setInterval(() => { const out = proc.port.out.splice(0); for (const m of out) if (this.port.onmessage) this.port.onmessage({ data: m }); }, 2);
         }
@@ -304,6 +299,19 @@ end at bar 8
         createGain: () => ({ gain: { value: 1, setTargetAtTime() {} }, connect() {}, disconnect() {} }),
         destination: {},
     };
+    return {
+        context, clock, quantaPerSecond,
+        stop() {
+            clearInterval(timer);
+            globalThis.fetch = real.fetch;
+            if (real.AudioWorkletNode === undefined) delete globalThis.AudioWorkletNode;
+        },
+    };
+}
+
+{
+    const fake = await fakeAudio();
+    const { context, clock, quantaPerSecond } = fake;
     const { createEngine } = await import(pathToFileURL(path.join(jsDir, 'engine.js')).href);
     const engine = await createEngine({ context, composer: 'main' });
     ok('createEngine resolves with the worklet ready', engine.info && engine.info.version === glue.engine_version());
@@ -352,7 +360,7 @@ end at bar 8
     ok('the runtime counted exactly the 8 bars of the song', bars === 8, `ended on bar ${bars}`);
     const secs = (performance.now() - startedAt) / 1000;
     ok('audio time kept up with the wall clock', clock.quanta / quantaPerSecond > Math.min(9.3, secs - 1), `${(clock.quanta / quantaPerSecond).toFixed(2)} s of audio in ${secs.toFixed(2)} s`);
-    ok('the song made sound', peak > 0.05, `peak ${peak}`);
+    ok('the song made sound', clock.peak > 0.05, `peak ${clock.peak}`);
     const maxPrepare = Math.max(...engine.stats.prepareMs);
     console.log(`  engine: ${engine.stats.loads} loads, prepare ${Math.min(...engine.stats.prepareMs).toFixed(0)}-${maxPrepare.toFixed(0)} ms, install ${Math.min(...engine.stats.installMs).toFixed(0)}-${Math.max(...engine.stats.installMs).toFixed(0)} ms (${Math.min(...engine.stats.installQuanta)}-${Math.max(...engine.stats.installQuanta)} quanta), both decks started ${bothStarted.t && bothStarted.t.toFixed(0)} ms after eval`);
     await sleep(300);
@@ -362,10 +370,31 @@ end at bar 8
     ok('grid() produced beats while playing', beats.length > 100);
     run.free();
     engine.dispose();
-    clearInterval(timer);
-    globalThis.fetch = real.fetch;
-    if (real.AudioWorkletNode === undefined) delete globalThis.AudioWorkletNode;
+    fake.stop();
     ok('dispose ends the worklet', engine.pending === 0);
+}
+
+
+// the same without a composer anywhere (composer: 'inline'): the worklet compiles the net itself, which glitches but plays
+{
+    const fake = await fakeAudio();
+    const { createEngine } = await import(pathToFileURL(path.join(jsDir, 'engine.js')).href);
+    const engine = await createEngine({ context: fake.context, composer: 'inline' });
+    ok('with no composer the engine says so', engine.composer === 'inline');
+    const errors = [];
+    engine.on('error', (e) => errors.push(e));
+    const run = new glue.BtwRun();
+    run.eval(PROGRAM);
+    engine.apply(JSON.parse(run.service('null')));
+    await engine.idle();
+    for (let i = 0; i < 100 && !engine.grid(); i++) await sleep(20);
+    const g = engine.grid();
+    ok('the inline load landed and the deck plays', g && g.playing.A && g.bpm === 124, JSON.stringify(g) + JSON.stringify(errors));
+    ok('and made sound', (await sleep(400), fake.clock.peak) > 0.01, `peak ${fake.clock.peak}`);
+    ok('the inline path counted as such', engine.stats.inline >= 1 && !errors.length);
+    run.free();
+    engine.dispose();
+    fake.stop();
 }
 
 // ============================================================ 5. the examples against the index and btwd
