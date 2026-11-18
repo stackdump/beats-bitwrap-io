@@ -51,7 +51,7 @@ build)
 set -euo pipefail
 cd $REMOTE_DIR
 V=\$(git describe --tags --always --dirty 2>/dev/null || echo dev)
-nice -n 10 go build -ldflags "-X main.version=\$V" -o btw-bitwrap-io ./cmd/btwsite
+nice -n 10 go build -ldflags "-X beats-bitwrap-io/internal/btwsite/server.Version=\$V" -o btw-bitwrap-io ./cmd/btwsite
 ls -l btw-bitwrap-io
 EOS
   ;;

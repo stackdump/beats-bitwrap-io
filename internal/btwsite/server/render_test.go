@@ -607,3 +607,21 @@ func TestHandlerLevelAbortIsNotAPanicLog(t *testing.T) {
 	mux.HandleFunc("/boom", func(w http.ResponseWriter, r *http.Request) { panic(http.ErrAbortHandler) })
 	e.srv.middleware(mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/boom", nil))
 }
+
+// A program can be short in bars and still long in time (256 bars at 40 BPM is 25 minutes): the render is
+// capped in seconds too.
+func TestRenderRefusesTooManySeconds(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.RenderMaxSeconds = 10 })
+	text := "tempo 120\ndeck A: kick x\nsection a 8 bars\n" // 8 bars at 120 BPM = 16 s
+	var rep api.CheckReport
+	decode(t, e.post("/api/check", map[string]string{"text": text}), &rep)
+	e.do("PUT", "/api/programs/"+rep.CID, strings.NewReader(text)).Body.Close()
+	if st, code := errCode(t, e.get("/api/render/"+rep.CID+"?format=wav")); st != 422 || code != api.CodeTooLarge {
+		t.Fatalf("16 s against a 10 s cap: %d %s", st, code)
+	}
+	var status map[string]any
+	decode(t, e.get("/api/render/"+rep.CID+"/status"), &status)
+	if status["max_seconds"] != float64(10) {
+		t.Fatalf("status should say the cap: %v", status)
+	}
+}

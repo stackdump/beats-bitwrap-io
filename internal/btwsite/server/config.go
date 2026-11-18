@@ -46,6 +46,7 @@ type Config struct {
 	RenderIPHour      int // -render-ip-hour
 	RenderConcurrency int // -render-concurrency
 	RenderMaxBars     int // -render-max-bars
+	RenderMaxSeconds  int // -render-max-seconds: longest render in audio seconds (256 bars at 40 BPM would be 25 minutes)
 	RenderCacheMB     int // -render-cache-mb: size cap of -data/render, LRU eviction
 	PutIPHour         int // -put-ip-hour: PUT /api/programs per IP
 	CheckIPMin        int // -check-ip-min: check/fmt/share/open per IP
@@ -74,7 +75,7 @@ func DefaultConfig() Config {
 		PublicURL: "https://btw.bitwrap.io", Model: "gemini-3.8-flash", FFmpeg: "ffmpeg",
 		ComposeUserHour: 10, ComposeUserDay: 50, ComposeIPDay: 40, DailySpendUSD: 2.00, PriceInPerM: 1.50, PriceOutPerM: 7.50,
 		MaxPromptChars: 800, MaxProgramBytes: 16384, MaxRepair: 3, ComposeEnabled: true,
-		RenderIPHour: 30, RenderConcurrency: 2, RenderMaxBars: 256, RenderCacheMB: 512,
+		RenderIPHour: 30, RenderConcurrency: 2, RenderMaxBars: 256, RenderMaxSeconds: 600, RenderCacheMB: 512,
 		PutIPHour: 60, CheckIPMin: 120, StoreMaxMB: 256,
 	}
 }
@@ -119,6 +120,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	num(&c.RenderIPHour, "render-ip-hour", "uncached renders per IP per hour")
 	num(&c.RenderConcurrency, "render-concurrency", "simultaneous btwd render processes")
 	num(&c.RenderMaxBars, "render-max-bars", "longest render, in bars")
+	num(&c.RenderMaxSeconds, "render-max-seconds", "longest render, in seconds of audio")
 	num(&c.RenderCacheMB, "render-cache-mb", "size cap of the render cache, MB (LRU eviction)")
 	num(&c.PutIPHour, "put-ip-hour", "program uploads (PUT /api/programs) per IP per hour")
 	num(&c.CheckIPMin, "check-ip-min", "check/fmt/share/open requests per IP per minute")
@@ -190,6 +192,9 @@ func (c *Config) validate() error {
 	}
 	if c.RenderMaxBars < 1 {
 		return errors.New("-render-max-bars must be at least 1")
+	}
+	if c.RenderMaxSeconds < 10 {
+		return errors.New("-render-max-seconds must be at least 10")
 	}
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 	if c.PublicURL == "" {

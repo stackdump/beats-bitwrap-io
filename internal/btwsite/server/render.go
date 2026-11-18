@@ -624,6 +624,9 @@ func (s *Server) renderable(r *http.Request, cid string) (*api.Program, *api.Che
 	if rep.SongBars > s.cfg.RenderMaxBars {
 		return nil, nil, api.Errf(http.StatusUnprocessableEntity, api.CodeTooLarge, "that program is %d bars; this site renders at most %d", rep.SongBars, s.cfg.RenderMaxBars)
 	}
+	if rep.Seconds != nil && *rep.Seconds > float64(s.cfg.RenderMaxSeconds) {
+		return nil, nil, api.Errf(http.StatusUnprocessableEntity, api.CodeTooLarge, "that program is %.0f s long; this site renders at most %d s", *rep.Seconds, s.cfg.RenderMaxSeconds)
+	}
 	return p, rep, nil
 }
 
@@ -841,7 +844,7 @@ func (s *Server) handleRenderStatus(w http.ResponseWriter, r *http.Request) {
 		formats[f] = st
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	out := map[string]any{"cid": cid, "formats": formats, "max_bars": s.cfg.RenderMaxBars, "bars": rep.SongBars,
+	out := map[string]any{"cid": cid, "formats": formats, "max_bars": s.cfg.RenderMaxBars, "max_seconds": s.cfg.RenderMaxSeconds, "bars": rep.SongBars,
 		"restricted": rep.Restricted || rep.UsesAssets}
 	if rep.Seconds != nil {
 		out["seconds"] = *rep.Seconds

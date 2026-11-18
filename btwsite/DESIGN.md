@@ -248,7 +248,7 @@ model), `GEMINI_API_KEY` (env only, never a flag, never logged, never sent to a 
 `-compose-user-day 50`, `-compose-ip-day 40`, `-daily-spend-usd 2.00`, `-price-in-per-m 1.50 -price-out-per-m 7.50`
 (Google's 2027 list prices for `gemini-3.8-flash`: $1.50 / $7.50 per 1M tokens; $0.75 / $3.75 until 2026-12-31),
 `-max-prompt-chars 800`, `-max-program-bytes 16384`, `-max-repair 3`, `-max-output-tokens 16384` (per model call, thinking included), `BTW_THINKING=LOW` (`MINIMAL|LOW|MEDIUM|HIGH`, passed as `thinkingLevel`), `-render-ip-hour 30`, `-render-concurrency 2`,
-`-render-max-bars 256`, `BTW_ADMIN_TOKEN`, `BTW_COMPOSE_ENABLED=0|1`, `BTW_SESSION_SECRET` (else generated into `-data`).
+`-render-max-bars 256`, `-render-max-seconds 600`, `BTW_ADMIN_TOKEN`, `BTW_COMPOSE_ENABLED=0|1`, `BTW_SESSION_SECRET` (else generated into `-data`).
 Compose is **"not configured"** (503 `not_configured`) when there is no key and the model is not `fake`.
 
 ### HTTP API
