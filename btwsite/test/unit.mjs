@@ -984,3 +984,126 @@ test('security: events an assistant pushes can set text, load a CID or an exampl
   assert.ok(!names().includes('loadByCid') && !names().includes('loadExample') && !names().includes('openAny'), 'only strings are looked up');
   // and the editor takes only what setProgram lets in: too big a text is an error, not a freeze
 });
+
+// ---- the page in the background (js/background-model.js, js/background.js) ----------------------------------------------------------------
+const bgm = await J('background-model.js');
+const { Background } = await J('background.js');
+
+test('background: who services the runtime (hidden, or the frame loop has stalled) and how often', () => {
+  assert.equal(bgm.needsPump({ hidden: false, now: 1000, lastFrameAt: 990 }), false, 'a visible page with frames needs nothing');
+  assert.equal(bgm.needsPump({ hidden: false, now: 1000, lastFrameAt: null }), false, 'before the first frame, nothing is stalled');
+  assert.equal(bgm.needsPump({ hidden: false, now: 1000, lastFrameAt: 1000 - bgm.FRAME_STALE_MS - 1 }), true, 'frames that stopped (an occluded window) are replaced');
+  assert.equal(bgm.needsPump({ hidden: true, now: 1000, lastFrameAt: 999 }), true, 'hidden: always');
+  assert.equal(bgm.pumpDue({ now: 100, lastPumpAt: null }), true);
+  assert.equal(bgm.pumpDue({ now: 100, lastPumpAt: 100 - bgm.PUMP_EVERY_MS + 1 }), false, 'the audio thread reports every ~25 ms: not every one is a pass');
+  assert.equal(bgm.pumpDue({ now: 100, lastPumpAt: 100 - bgm.PUMP_EVERY_MS }), true);
+});
+
+test('background: the audio clock is "in step" within a quarter second and 5%', () => {
+  assert.equal(bgm.clockKeptUp({ audioS: 30, wallS: 30 }), true);
+  assert.equal(bgm.clockKeptUp({ audioS: 29.9, wallS: 30.2 }), true);
+  assert.equal(bgm.clockKeptUp({ audioS: 0, wallS: 30 }), false, 'a suspended context');
+  assert.equal(bgm.clockKeptUp({ audioS: 20, wallS: 30 }), false, 'a starved one');
+});
+
+test('background: the stream is offered after a long enough background, once, for a source that can fall behind', () => {
+  const base = { hiddenMs: 30000, wasPlaying: true, source: 'engine', canStream: true, android: false, ctxState: 'running', degraded: false, offered: false };
+  assert.equal(bgm.offerStream(base), null, 'a desktop engine that kept up: no offer');
+  assert.match(bgm.offerStream({ ...base, ctxState: 'suspended' }), /paused the sound/);
+  assert.match(bgm.offerStream({ ...base, degraded: true }), /fell behind/);
+  assert.match(bgm.offerStream({ ...base, android: true }), /Phones/, 'on Android it is suggested whenever the engine played through a background');
+  assert.equal(bgm.offerStream({ ...base, android: true, hiddenMs: 1500 }), null, 'a notification-shade blip is not a background');
+  assert.equal(bgm.offerStream({ ...base, android: true, offered: true }), null, 'said once');
+  assert.equal(bgm.offerStream({ ...base, android: true, source: 'stream' }), null, 'already on the stream');
+  assert.equal(bgm.offerStream({ ...base, android: true, canStream: false }), null, 'a private program never goes to the server');
+  assert.equal(bgm.offerStream({ ...base, android: true, wasPlaying: false }), null);
+  assert.equal(bgm.isAndroid('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'), true);
+  assert.equal(bgm.isAndroid('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15'), false);
+});
+
+test('background: what the lock screen shows', () => {
+  assert.deepEqual(bgm.mediaInfo({ name: ' hand-dubstep ', source: 'engine', tempo: 139.6 }), { title: 'hand-dubstep', artist: 'btw.bitwrap.io', album: 'live engine · 140 bpm' });
+  assert.equal(bgm.mediaInfo({ name: '', source: 'stream' }).title, 'btw');
+  assert.equal(bgm.mediaInfo({ name: 'x', source: 'stream' }).album, 'streamed render');
+  assert.equal(bgm.mediaState({ playing: true, loaded: true }), 'playing');
+  assert.equal(bgm.mediaState({ playing: false, loaded: true }), 'paused', 'the lock screen keeps a Play');
+  assert.equal(bgm.mediaState({ playing: false, loaded: false }), 'none');
+});
+
+/** A page, an app and an engine that are just enough for Background. */
+function bgRig({ hidden = false, ua = 'Linux; Android 14' } = {}) {
+  let now = 0;
+  const handlers = {};
+  const doc = { hidden, addEventListener: (t, f) => { (handlers[t] ||= []).push(f); } };
+  const fire = (t) => (handlers[t] || []).forEach((f) => f());
+  const services = [];
+  const banners = [];
+  const actions = [];
+  const app = {
+    ctx: { currentTime: 0, state: 'running' }, driver: { kind: 'engine' }, report: { ok: true }, evalReport: { ok: true }, q: new URLSearchParams(), manual: false, record: false, sourcePref: 'auto',
+    isPlaying: () => true, canStream: () => true, ensureAudio: () => actions.push('ensureAudio'), resync: () => actions.push('resync'),
+    serviceOnly: () => services.push(now), banner: (b) => banners.push(b), setSourcePref: (s) => { app.sourcePref = s; },
+  };
+  const listeners = {};
+  const engine = { on: (t, f) => { listeners[t] = f; } };
+  const g = globalThis;
+  const prevWin = g.window;
+  g.window = { addEventListener() {} };
+  const bg = new Background(app, { doc, nav: { userAgent: ua }, now: () => now });
+  bg.start();
+  clearInterval(bg.timer);
+  g.window = prevWin;
+  bg.attachEngine(engine);
+  return { bg, app, doc, fire, engine, listeners, services, banners, actions, at: (t) => { now = t; } };
+}
+
+test('background: a hidden page is serviced from the engine\'s audio-thread reports, a visible one is left to the frame loop', () => {
+  const r = bgRig({ hidden: true });
+  r.at(100); r.listeners.grid();
+  r.at(110); r.listeners.grid(); // too soon after the last pass
+  r.at(140); r.listeners.grid();
+  assert.deepEqual(r.services, [100, 140], 'a pass at most every PUMP_EVERY_MS');
+  r.doc.hidden = false;
+  r.bg.frame(); // a frame just ran
+  r.at(200); r.listeners.grid();
+  assert.deepEqual(r.services, [100, 140], 'visible and painting: the frame loop services the runtime');
+  r.at(200 + bgm.FRAME_STALE_MS + 50); r.listeners.grid();
+  assert.equal(r.services.length, 3, 'frames stopped (occluded window, screen off): the reports take over');
+});
+
+test('background: the fallback timer path services a hidden page whose source has no reports (the stream)', () => {
+  const r = bgRig({ hidden: true });
+  r.at(1000); assert.equal(r.bg.pump(), true);
+  r.at(1010); assert.equal(r.bg.pump(), false);
+  assert.equal(r.bg.stats.hiddenPumps, 1);
+  const off = bgRig({ hidden: true });
+  off.app.q = new URLSearchParams('pump=0');
+  off.at(1000); assert.equal(off.bg.pump(), false, '?pump=0 is the test switch that turns it off');
+});
+
+test('background: coming back resyncs the page and, on Android after a long background, offers the stream once', () => {
+  const r = bgRig({ hidden: false });
+  r.at(1000); r.doc.hidden = true; r.fire('visibilitychange');
+  r.at(1000 + 30000); r.app.ctx.currentTime = 30; r.doc.hidden = false; r.fire('visibilitychange');
+  assert.ok(r.actions.includes('resync'));
+  assert.equal(r.banners.length, 1);
+  assert.match(r.banners[0].text, /streamed render keeps time/);
+  assert.deepEqual(r.banners[0].actions.map((a) => a.label), ['Use stream', 'Dismiss']);
+  r.banners[0].actions[0].run();
+  assert.equal(r.app.sourcePref, 'stream');
+  assert.equal(r.banners.at(-1), null, 'the banner is cleared');
+  // a second background: not offered again
+  r.at(40000); r.doc.hidden = true; r.fire('visibilitychange');
+  r.at(80000); r.doc.hidden = false; r.fire('visibilitychange');
+  assert.equal(r.banners.length, 2, 'only the clearing banner(null) was added');
+  // a desktop that kept up is left alone; one whose context the browser suspended is offered it and its context is resumed
+  const d = bgRig({ ua: 'Macintosh' });
+  d.at(0); d.doc.hidden = true; d.fire('visibilitychange');
+  d.at(20000); d.app.ctx.currentTime = 20; d.doc.hidden = false; d.fire('visibilitychange');
+  assert.equal(d.banners.length, 0);
+  const s = bgRig({ ua: 'Macintosh' });
+  s.at(0); s.doc.hidden = true; s.fire('visibilitychange');
+  s.at(20000); s.app.ctx.currentTime = 0.4; s.app.ctx.state = 'suspended'; s.doc.hidden = false; s.fire('visibilitychange');
+  assert.ok(s.actions.includes('ensureAudio'), 'a suspended context is resumed');
+  assert.match(s.banners[0].text, /paused the sound/);
+});

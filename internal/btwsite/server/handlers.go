@@ -310,7 +310,7 @@ func fileETag(p string, info os.FileInfo) (string, error) {
 func init() {
 	for ext, typ := range map[string]string{".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm",
 		".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".btw": "text/plain; charset=utf-8",
-		".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".html": "text/html; charset=utf-8", ".webmanifest": "application/manifest+json"} {
+		".wav": "audio/wav", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".html": "text/html; charset=utf-8", ".webmanifest": "application/manifest+json"} {
 		_ = mime.AddExtensionType(ext, typ)
 	}
 }

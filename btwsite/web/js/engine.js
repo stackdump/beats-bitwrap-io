@@ -44,6 +44,7 @@ const DECKS = ['A', 'B'];
 const READY_TIMEOUT_MS = 20000;
 const STEP_TIMEOUT_MS = 30000;
 const MAX_EXTRAPOLATE_S = 0.25;
+const GRID_FRESH_S = 0.5; // a worklet report older than this (on the audio clock) is backlog, not news
 
 /** Whether an item is finished with (it will not install or land anything more). */
 const TERMINAL = new Set(['done', 'dropped', 'failed', 'superseded']);
@@ -103,7 +104,14 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
         const m = e.data;
         switch (m.type) {
         case 'ready': clearTimeout(readyTimer); readyInfo = m; resolveReady(m); break;
-        case 'grid': grid = { t: m.t, frame: m.frame, decks: m.decks, at: performance.now() }; break;
+        case 'grid':
+            grid = { t: m.t, frame: m.frame, decks: m.decks, at: performance.now() };
+            // The audio thread's own report, delivered as an event (not a timer or a frame), so it keeps coming when the page is
+            // hidden and its timers and animation frames are throttled. The page services the runtime from it then (background.js).
+            // A report that is already old (a page that was frozen and is delivering its backlog) only updates `grid` above: the
+            // newest one of the backlog is the one that counts, and the runtime is not walked through every bar it missed.
+            if (context.currentTime - m.t < GRID_FRESH_S) emit('grid', grid);
+            break;
         case 'installed': case 'install-failed': {
             const item = installs.get(m.id);
             if (!item) break;

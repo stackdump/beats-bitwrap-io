@@ -17,6 +17,7 @@ import { h, debounce, fmtTime, shortCid, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT,
 import { fragmentOf, guardLink } from './link.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
+import { Background } from './background.js';
 
 const STARTER = `# a first program: drums on deck A, harmony and an arpeggio on deck B.
 tempo 126
@@ -65,6 +66,7 @@ export class App {
     this.edgesSig = '';
     this._last = {};
     this.listeners = new Set();
+    this.bg = null; // the page in the background (background.js): not made in record mode's manual clock
   }
 
   // ---- boot --------------------------------------------------------------------------------------------
@@ -83,6 +85,7 @@ export class App {
     });
     this.painter = new MarkerPainter(this.editor);
     this.wire();
+    if (!this.manual) { this.bg = new Background(this); this.bg.start(); }
     this.setProgram(STARTER, { name: 'starter', quiet: true, keepHash: true });
     this.renderHeader(null, true);
     this.updateTransport();
@@ -97,7 +100,7 @@ export class App {
   }
 
   dom() {
-    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'btn-play', 'btn-decks', 't-source', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint'];
+    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'transport', 'btn-play', 'btn-decks', 't-source', 'st-long', 'st-short', 't-prob', 't-prob-dot', 't-prob-n', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint'];
     this.el = {};
     for (const id of ids) this.el[id] = $(id);
     this.lights = [...this.el['h-phrase'].children];
@@ -118,12 +121,14 @@ export class App {
       const open = el.decks.hidden;
       el.decks.hidden = !open;
       el['btn-decks'].setAttribute('aria-expanded', String(open));
+      el.transport.classList.toggle('open', open); // on a phone the caret also opens the sheet: the source and the level
     });
-    el['pr-sum'].addEventListener('click', () => {
-      const open = el['pr-list'].hidden;
-      el['pr-list'].hidden = !open;
-      el['pr-sum'].setAttribute('aria-expanded', String(open));
-    });
+    el['pr-sum'].addEventListener('click', () => this.toggleProblems());
+    el['t-prob'].addEventListener('click', () => this.toggleProblems());
+    // the drawer and the toasts sit above the bar, whatever height it has (a phone's bar grows when its sheet is open)
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => document.getElementById('app').style.setProperty('--bar-h', `${el.transport.offsetHeight}px`)).observe(el.transport);
+    }
     el.examples.addEventListener('change', () => this.loadExample(el.examples.value));
     for (const b of el['t-source'].querySelectorAll('button')) b.addEventListener('click', () => this.setSourcePref(b.dataset.src));
     el.level.value = store.get('btw-level', '0.8');
@@ -258,6 +263,7 @@ export class App {
     const n = this.name && this.name !== 'starter' ? cleanName(this.name) : programName(this.editor.text, this.cid);
     this.el['h-name'].textContent = n;
     this.progName = n;
+    if (this.bg) this.bg.sync();
     document.title = this.name && this.name !== 'starter' ? `${n} · btw` : 'btw, the bitwrap language';
   }
 
@@ -370,13 +376,29 @@ export class App {
     for (let i = 0; i < rows.length; i++) rows[i].firstChild && rows[i].firstChild.classList.toggle('cur', diags[i] === diag);
   }
 
+  /** Open or close the list of problems (the strip's button, or the bar's dot and count on a phone). */
+  toggleProblems() {
+    const list = this.el['pr-list'];
+    if (list.hidden && !list.children.length) {
+      this.toast(this.report && this.report.ok === false ? 'No problems to list.' : 'No problems.', 'ok');
+      return;
+    }
+    list.hidden = !list.hidden;
+    for (const b of [this.el['pr-sum'], this.el['t-prob']]) b.setAttribute('aria-expanded', String(!list.hidden));
+  }
+
   renderProblems() {
     const r = this.report;
     const ds = (r && r.diagnostics) || [];
     const sumEl = this.el['pr-sum-txt'];
     sumEl.textContent = r ? summary(r) : '';
     const errs = ds.filter((d) => d.severity !== 'warning');
-    this.el['pr-dot'].className = `pr-dot ${errs.length ? 'error' : ds.length ? 'warn' : ''}`;
+    const dotClass = `pr-dot ${errs.length ? 'error' : ds.length ? 'warn' : ''}`;
+    this.el['pr-dot'].className = dotClass;
+    this.el['t-prob-dot'].className = dotClass;
+    this.setText(this.el['t-prob-n'], String(ds.length));
+    this.el['t-prob'].setAttribute('aria-label', ds.length ? `${summary(r)}: open the list of problems` : 'No problems');
+    this.el['t-prob'].title = ds.length ? summary(r) : 'No problems';
     const first = errs[0] || ds[0];
     this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : '';
     const list = this.el['pr-list'];
@@ -389,6 +411,7 @@ export class App {
     if (!ds.length && !list.hidden) {
       list.hidden = true;
       this.el['pr-sum'].setAttribute('aria-expanded', 'false');
+      this.el['t-prob'].setAttribute('aria-expanded', 'false');
     }
   }
 
@@ -441,6 +464,7 @@ export class App {
       await engine.ready;
       if (engine.on) engine.on('error', (e) => { if (e && e.message) this.toast(`Engine: ${e.message}`, 'error'); });
       this.engine = engine;
+      if (this.bg) this.bg.attachEngine(engine);
       this.engineSrc = new EngineSource(engine);
       this.engineState = 'ready';
     } catch (e) {
@@ -616,6 +640,7 @@ export class App {
 
   loop() {
     const step = () => {
+      if (this.bg) this.bg.frame();
       try { this.renderFrame(this.clockNow()); } catch (e) { console.error('btw: frame', e); }
       requestAnimationFrame(step);
     };
@@ -624,6 +649,9 @@ export class App {
 
   /** One pass at time `now` (seconds on the page's clock): service the runtime, then paint everything from its marks. */
   renderFrame(now) {
+    // a hidden page paints nothing (the browser has stopped the frames anyway; this covers a caller that is not a frame), but the
+    // runtime is still serviced, so sections, loads and ramps go on with the sound
+    if (this.bg && document.hidden) return this.serviceOnly();
     this.meter();
     const d = this.driver;
     const f = d ? d.tick() : null;
@@ -664,13 +692,31 @@ export class App {
   }
 
   afterFrame(f, head) {
-    // the song ended, or the streamed render ran out of audio and nothing more is coming
-    const over = head.ended || (this.player && this.player.state === 'ended');
+    this.checkEnded(head.ended);
+    this.emit('frame', f);
+  }
+
+  /** The song ended, or the streamed render ran out of audio and nothing more is coming. */
+  checkEnded(ended) {
+    const over = ended || (this.player && this.player.state === 'ended');
     if (over && !this._ended && this.driver.src) {
       this._ended = true;
       setTimeout(() => this.songEnded(), 1500);
     } else if (!over) this._ended = false;
-    this.emit('frame', f);
+  }
+
+  /** Service the runtime and nothing else: no painting. What runs while the page is hidden (background.js calls it). */
+  serviceOnly() {
+    const f = this.driver ? this.driver.tick() : null;
+    if (!f) return null;
+    this.checkEnded(!!(f.marks && f.marks.ended));
+    return f;
+  }
+
+  /** The page is visible again: the sound is audible again and the paint catches up at once, not at the next frame. */
+  resync() {
+    this.updateTransport();
+    try { this.renderFrame(this.clockNow()); } catch (e) { console.error('btw: resync', e); }
   }
 
   songEnded() {
@@ -802,30 +848,38 @@ export class App {
     be.title = eng === 'failed' ? `The engine did not load: ${this.engineError}` : eng === 'ready' ? 'Live engine in this page: edits land on the next bar' : 'The engine loads when you first press play';
     bs.disabled = this.serverOk === false;
     bs.title = this.serverOk === false ? 'The server is not reachable' : "The server's render, streamed";
-    // status words
+    // status words: the long form for a wide bar, the short one (an icon and a word) for a phone's
     let status = '';
+    let short = '';
+    let kindIcon = 'idle';
     let busy = false;
-    if (this.record) status = this.progName || '';
+    if (this.record) { status = this.progName || ''; short = status; }
     else if (playing && this.player) {
       const st = this.player.state;
-      if (st === 'connecting') { status = 'stream · rendering…'; busy = true; }
-      else if (st === 'buffering') { status = 'stream · buffering…'; busy = true; }
-      else if (st === 'error') status = `stream error: ${this.player.error && this.player.error.message}`;
-      else status = `stream · ${this.player.buffered().toFixed(1)} s ahead`;
+      if (st === 'connecting') { status = 'stream · rendering…'; short = 'rendering'; busy = true; }
+      else if (st === 'buffering') { status = 'stream · buffering…'; short = 'buffering'; busy = true; }
+      else if (st === 'error') { status = `stream error: ${this.player.error && this.player.error.message}`; short = 'error'; kindIcon = 'error'; }
+      else { status = `stream · ${this.player.buffered().toFixed(1)} s ahead`; short = 'stream'; kindIcon = 'stream'; }
     } else if (playing) {
       const g = this.driver.last && this.driver.last.grid;
       const sounding = !!(g && g.playing && (g.playing.A || g.playing.B));
       status = sounding ? 'engine · live: edits land on the next bar' : 'engine · preparing the song…';
+      short = sounding ? 'live' : 'preparing';
+      kindIcon = sounding ? 'live' : 'idle';
       busy = !sounding;
     }
-    else if (this.engineState === 'loading') { status = 'engine loading…'; busy = true; }
-    else if (this.engineState === 'failed') status = 'engine unavailable: using stream';
-    else if (this.wasmOk === undefined) { status = 'loading the module…'; busy = true; }
-    else status = this.wasmOk === false ? 'module not loaded' : 'stopped';
-    this.setText(el['t-status'], status);
+    else if (this.engineState === 'loading') { status = 'engine loading…'; short = 'loading'; busy = true; }
+    else if (this.engineState === 'failed') { status = 'engine unavailable: using stream'; short = this.serverOk === false ? 'offline' : 'stream'; kindIcon = this.serverOk === false ? 'offline' : 'stream'; }
+    else if (this.wasmOk === undefined) { status = 'loading the module…'; short = 'loading'; busy = true; }
+    else if (this.wasmOk === false) { status = 'module not loaded'; short = 'offline'; kindIcon = 'offline'; }
+    else { status = 'stopped'; short = this.serverOk === false ? 'offline' : 'stopped'; kindIcon = this.serverOk === false ? 'offline' : 'idle'; }
+    this.setText(el['st-long'], status);
+    this.setText(el['st-short'], short);
+    el['t-status'].dataset.kind = kindIcon;
     el['t-status'].classList.toggle('busy', busy);
     const bpm = (this.driver && this.driver.last && this.driver.last.grid && this.driver.last.grid.bpm) || (this.report && this.report.tempo);
     this.setText(el['t-bpm'], bpm ? `${Math.round(bpm * 10) / 10} bpm` : '');
+    if (this.bg) this.bg.sync();
   }
 
   updateTime(f) {

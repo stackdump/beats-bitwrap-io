@@ -52,6 +52,13 @@ func TestStatic(t *testing.T) {
 	if wasm.Header.Get("Content-Type") != "application/wasm" {
 		t.Fatalf("wasm type %q", wasm.Header.Get("Content-Type"))
 	}
+	// the silent clip the page loops beside the sound (a playing media element is what makes a phone's browser treat the page as media)
+	os.WriteFile(filepath.Join(e.web, "silence.wav"), []byte("RIFF....WAVEfmt "), 0o644)
+	wav := e.get("/silence.wav")
+	readAll(t, wav)
+	if wav.StatusCode != 200 || wav.Header.Get("Content-Type") != "audio/wav" {
+		t.Fatalf("wav: %d %q", wav.StatusCode, wav.Header.Get("Content-Type"))
+	}
 	if r := e.do("HEAD", "/js/app.js", nil); r.StatusCode != 200 || r.Header.Get("ETag") == "" {
 		t.Fatalf("HEAD: %d", r.StatusCode)
 	}

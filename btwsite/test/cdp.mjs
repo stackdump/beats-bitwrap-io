@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
 
+// BTW_CHROME_ARGS="--disable-audio-output" adds Chrome flags to every launch (a null audio sink on a machine whose sound card is busy or absent)
 export const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,7 +23,7 @@ function freePort() {
 export async function launch({ width = 1280, height = 800, args = [] } = {}) {
   const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), 'btw-chrome-'));
-  const proc = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, `--window-size=${width},${height}`, '--force-device-scale-factor=1', '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', '--no-first-run', '--no-default-browser-check', '--disable-gpu-vsync', '--font-render-hinting=none', ...args, 'about:blank'], { stdio: 'ignore' });
+  const proc = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, `--window-size=${width},${height}`, '--force-device-scale-factor=1', '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', '--no-first-run', '--no-default-browser-check', '--disable-gpu-vsync', '--font-render-hinting=none', ...(process.env.BTW_CHROME_ARGS || '').split(' ').filter(Boolean), ...args, 'about:blank'], { stdio: 'ignore' });
   const kill = () => { try { proc.kill('SIGKILL'); } catch { /* gone */ } try { rmSync(profile, { recursive: true, force: true }); } catch { /* busy */ } };
   process.on('exit', kill);
   let target;
