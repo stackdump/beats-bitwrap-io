@@ -225,3 +225,13 @@ func keccak256(data []byte) []byte {
 	h.Write(data)
 	return h.Sum(nil)
 }
+
+// VerifyPersonal is the exported face of verifySignature for callers outside this package that
+// need the same two key types (btw.bitwrap.io's wallet sign-in): it checks that sigHex is a valid
+// signature over msg by the key `address` of kind typ ("eth": EIP-191 personal_sign, 65 bytes,
+// address recovered and compared; "ed25519": raw 64-byte signature, address = 32-byte hex public
+// key). msg is the exact bytes that were signed. A non-nil error says which check failed and is for
+// logs, not for clients.
+func VerifyPersonal(msg []byte, typ, address, sigHex string) error {
+	return verifySignature(msg, typ, address, sigHex)
+}

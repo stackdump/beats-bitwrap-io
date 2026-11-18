@@ -1,0 +1,406 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Check a btw program"
+      },
+      "description": "Check a btw program without playing it: parse, type-check and compile the text. ALWAYS call check before eval, share or render, and fix every error at its line:col before trying again: a program with an error is refused whole. Warnings do not block.\n\nAnswers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, message, expected, found, help, render}], cid, canonical, tempo, key, sections, song_bars, seconds, evolve, uses_assets, restricted}. line and col are 1-based; help says what would fix it (\"did you mean ...\"); render is the same error in caret form. ok:false is an answer, not a tool error. cid and canonical are of the canonical text (comments and spacing do not change the CID).\n\nVoices come from the instruments tool; the grammar is https://btw.bitwrap.io/docs/cheatsheet.md. Read-only, no sign-in. Limits: the text is at most 16384 bytes; about 60 calls a minute.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "description": "The program text (at most 16384 bytes). Comments and blank lines are fine.",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "check"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Compose a program from a prompt"
+      },
+      "description": "Write a whole btw music program from a prompt with a language model, and get it back already checked: the canonical program text, its CID, the check report, the attempts the repair loop needed, a render_url (audio) and a share_url (link). Needs a bearer token (sign in on https://btw.bitwrap.io, \"MCP token\").\n\nIt takes 5 to 60 seconds, up to about 90 when the first drafts had errors and the server repaired them (up to 3 rounds); do not call it again while it runs. It is rate limited per user (currently 10 per hour and 50 per day per user) and per address, and the site has a daily spend cap: on rate_limited wait retry_after seconds and tell the user; on spend_cap, disabled or not_configured stop and say so; on unrepairable the details hold the last diagnostics, so adjust the prompt (simpler, or give a base_cid) rather than repeating it.\n\nThe result is stored publicly under CC0-1.0 (public domain): never put anything private in the prompt. Pass base_cid (an example's CID, or a program compose or render stored) to edit that program instead of starting from nothing. To hear it: render (audio at stream_url), or eval / load into a browser tab.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "base_cid": {
+            "description": "Optional CID of a public program (an example or one the site stored) to edit instead of starting fresh; the result records it as forked from.",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "bpm": {
+            "description": "Optional tempo, 40 to 300.",
+            "maximum": 300,
+            "minimum": 40,
+            "type": "number"
+          },
+          "genre": {
+            "description": "Optional genre hint, e.g. dubstep, trance, techno, ambient.",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "key": {
+            "description": "Optional key, as the language writes it: am, c, f#m, d:dorian, d:phrygian.",
+            "maxLength": 24,
+            "pattern": "^[A-Za-z0-9#:]{1,24}$",
+            "type": "string"
+          },
+          "length": {
+            "description": "Optional: short, medium, long, or a number of bars (at most 256).",
+            "maxLength": 5,
+            "pattern": "^(short|medium|long|[0-9]{1,3})$",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "What to write, in plain words: mood, genre, instruments, structure, e.g. \"dark techno at 128 with an acid line and a long breakdown\". At most 800 characters.",
+            "maxLength": 800,
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "name": "compose"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Play a program in a browser tab"
+      },
+      "description": "Send a program to a browser tab that has https://btw.bitwrap.io open, as if the user pressed Cmd+Enter in the editor: the text replaces the editor's and the change lands on the next bar, with no gap; play:true starts playback too. Needs a bearer token.\n\nA tab must be connected. It is the page's own connection, so ask the user to open https://btw.bitwrap.io in a browser (signed in as the same account as the token, and eval reaches every live tab of that account), or, for a tab that is not signed in, to press MCP in the page's top bar and give you the session id it shows, which you pass as session. With no tab connected the answer is a no_session error that says this.\n\nRun check first. eval checks too and refuses a program with errors (nothing is sent; the diagnostics come back), and one that uses samples or \"use restricted\" (the browser has no such files). The program is the user's to hear: do not eval over something they are playing without saying so. After eval call get to see what is playing, the section and bar, and any diagnostics the page itself reports. Text is at most 16384 bytes.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "play": {
+            "description": "Start playing too (default false: load it and leave it stopped, or leave a playing tab as it is).",
+            "type": "boolean"
+          },
+          "session": {
+            "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
+          "text": {
+            "description": "The program text. It must pass check.",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "eval"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Format a btw program"
+      },
+      "description": "Rewrite a btw program in its canonical form (one statement a line, one space between tokens, blocks indented two spaces, numbers, notes and chords spelled one way, comments dropped) and return the text with its CID and the comments it dropped. The CID is of the canonical text, so formatting never changes it: use fmt to compare two programs or to show a tidy listing. A program that does not parse answers the same diagnostics as check. Read-only, no sign-in.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "description": "The program text.",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "fmt"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "What a browser tab is playing"
+      },
+      "description": "What a browser tab at https://btw.bitwrap.io is doing now, as the page last reported it: the program text and cid, playing (true/false), source (engine or stream), section (name), section_num of sections_total, bar, bars_in_section, phase (0-7, the light in the phrase), marks (what is firing: active lines, token flashes, ramps and timed lines, with line:col spans into the text), diagnostics (the page's own check of the text), and ts. Use it after eval or load to confirm the change landed, and to see the program a user is playing and editing.\n\nNeeds a bearer token: it reads the tabs of the token's account, by default the most recently seen one. A tab that is not signed in is read by its session id (the page's MCP panel shows it), with your token. Read-only. No tab connected: a no_session error that says how to connect one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "get"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Voices, kits and palettes"
+      },
+      "description": "The sounds a program may name: voices (inst=NAME), families (a name that contains one plays that family's generic voice and check warns about it), drum kits (kit=NAME) and palettes. Use only names from this answer: an unknown inst= is a check error with the nearest names. Read-only, no sign-in, cached for five minutes.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "instruments"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "The example programs"
+      },
+      "description": "The public example programs of https://btw.bitwrap.io, all CC0-1.0: name, title, description, cid, bpm, bars, license and the url of the raw .btw. Pass name to get that program's full text as well. Read two or three before writing a program of your own: after the cheat-sheet (https://btw.bitwrap.io/docs/cheatsheet.md) they are the best guide to the language, from a four-line beat (first-beat) to whole tracks with sections, defs, ramps and evolve. Read-only, no sign-in.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Optional: also return this example's full text.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_examples"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Load a stored program into a browser tab"
+      },
+      "description": "Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at https://btw.bitwrap.io, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; compose and render store theirs), example (a name from list_examples), url (a share link https://btw.bitwrap.io/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cid": {
+            "description": "CID of a program the site has stored (compose and render store theirs) or of an example.",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "example": {
+            "description": "Name of an example, from list_examples.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "play": {
+            "description": "Start playing too (default false: load it and leave it stopped, or leave a playing tab as it is).",
+            "type": "boolean"
+          },
+          "session": {
+            "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
+          "url": {
+            "description": "A share link: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/ link, or a beats.bitwrap.io/p# link.",
+            "maxLength": 32768,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "load"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Open a share link"
+      },
+      "description": "Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/\u003cCID\u003e.\u003cpacked\u003e link, a beats.bitwrap.io/p# link, a bare #fragment, \u003cCID\u003e.\u003cpacked\u003e, or a bare CID (only resolved when the site has stored that program or it is an example). A link whose CID is not its text's is refused with cid_mismatch: do not trust or play its text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "A share link, a #fragment, \u003cCID\u003e.\u003cpacked\u003e, or a bare CID.",
+            "maxLength": 32768,
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "name": "open"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Set up a demo recording"
+      },
+      "description": "Set up a demo recording of a program: the page in record mode (full screen code, the firing markers and follow-scroll on) and the steps that turn it into a video. Give exactly one of text, cid or example (as render does: a text or example is checked and stored publicly as CC0-1.0, nothing private). Answers {cid, seconds, record_url, record_url_manual_clock, audio_url, recipe}. record_url opens the page in record mode and plays it for a person to screen-record; record_url_manual_clock opens it on a fake clock that a script steps frame by frame (window.__btw.setTime(seconds); window.__btw.frame()), which is how btwsite/tools/record-demo.mjs in the repo makes a perfectly synced, stutter-free MP4 (H.264, AAC, 1920x1080) plus a silent hero loop (MP4 and WebM) and a poster PNG, taking the audio from audio_url (the offline render of the same program). This tool does not capture video itself: it needs a browser and ffmpeg on your side. The audio is the offline render: notes and sounds, not control lines (filters, reverb). Call check first. Rendering limits apply (about 30 programs an hour per client). No sign-in needed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cid": {
+            "description": "CID of a program already stored (for instance the cid compose returned).",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "example": {
+            "description": "Name of an example, from list_examples.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "text": {
+            "description": "The program text. It must pass check; it is stored publicly (CC0-1.0).",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "record"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Render a program to streaming audio"
+      },
+      "description": "Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what compose returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or \"use restricted\" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.\n\nCall check first. The offline render plays the notes and sounds, not control lines (filters, reverb, do ... lines), so it can sound plainer than the browser; a program with no end (no sections or end line) is cut at the server's bar limit (256 bars). Rendering is limited per address per hour and to a few at once: on busy or rate_limited wait retry_after seconds. No sign-in needed; about 30 programs an hour per client.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cid": {
+            "description": "CID of a program already stored (for instance the cid compose returned).",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "example": {
+            "description": "Name of an example, from list_examples.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "format": {
+            "default": "opus",
+            "description": "opus (Ogg Opus, smaller, for download or \u003caudio\u003e) or wav (16-bit stereo, plays chunk by chunk in a web page).",
+            "enum": [
+              "opus",
+              "wav"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "description": "The program text. It must pass check; it is stored publicly (CC0-1.0).",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "render"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Make a share link"
+      },
+      "description": "Make the self-sealing share link of a program: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cbase64url(deflate(canonical text))\u003e. The program travels inside the link; whoever opens it gets exactly that text, verified against the CID, and can play and fork it. Also gives social_url (https://btw.bitwrap.io/c/\u003cCID\u003e.\u003cpacked\u003e, the form to post where a link preview is wanted: it carries a card image) and the same link on beats.bitwrap.io. The program must pass check and must not use samples or \"use restricted\" (a private program is never shared); programs shared here are CC0. Links over about 2000 characters (chars says) may be cut by some apps. Read-only, no sign-in.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "description": "The program text. It must pass check.",
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "share"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Stop a browser tab"
+      },
+      "description": "Stop what a browser tab at https://btw.bitwrap.io is playing: the program ends and whatever its lines held (a filter, a mute) is put back. Reaches every live tab of the token's account, or one tab by session (the id the page's MCP panel shows). Needs a bearer token. No tab connected: a no_session error that says how to connect one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "stop"
+    }
+  ]
+}

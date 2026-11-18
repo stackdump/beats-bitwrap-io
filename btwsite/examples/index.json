@@ -1,0 +1,117 @@
+[
+  {
+    "name": "hand-dubstep-140-v4",
+    "title": "hand-dubstep 140, v4",
+    "description": "A whole dubstep track in one program: nine sections from intro to outro. The v2, v3, v4 line adds accents, slides, seeded humanize, every(), a half-time and a slam section; a riser leads into each drop and a wobble bass sits under a once-a-bar filter.",
+    "bpm": 140,
+    "bars": 68,
+    "license": "CC0-1.0",
+    "tags": [
+      "dubstep",
+      "song",
+      "defs",
+      "sections",
+      "accent-slide"
+    ]
+  },
+  {
+    "name": "matrix-130",
+    "title": "matrix 130",
+    "description": "A D-phrygian driving track in eight sections with generated arps and an evolve that settles into a cycle. Seeded degrade, defs, a riser into the climax.",
+    "bpm": 130,
+    "bars": 80,
+    "license": "CC0-1.0",
+    "tags": [
+      "techno",
+      "song",
+      "evolve",
+      "arp",
+      "phrygian"
+    ]
+  },
+  {
+    "name": "trance-138",
+    "title": "trance 138",
+    "description": "A 64-bar trance track (intro 16, breakdown 16, drop 24, outro 8) said once with lets, two defs, four sections and an arrange. The same song written longhand has the same net CIDs.",
+    "bpm": 138,
+    "bars": 64,
+    "license": "CC0-1.0",
+    "tags": [
+      "trance",
+      "song",
+      "lets",
+      "defs",
+      "sections"
+    ]
+  },
+  {
+    "name": "hand-dubstep-140-v2",
+    "title": "hand-dubstep 140, v2",
+    "description": "The first whole-track dubstep program: six sections and the smallest complete song here. A riser opens over eight bars and lands on the drop; a wobble-lead bass sits under a filter that opens and shuts once a bar.",
+    "bpm": 140,
+    "bars": 64,
+    "license": "CC0-1.0",
+    "tags": [
+      "dubstep",
+      "song",
+      "defs",
+      "sections",
+      "ramps"
+    ]
+  },
+  {
+    "name": "markers-demo",
+    "title": "markers demo",
+    "description": "A 24-bar program that lights up every kind of marker in the editor. A def, a repeat of filter ramps, an evolve with a stop, a timed control line, sections and an arrange.",
+    "bpm": 124,
+    "bars": 24,
+    "license": "CC0-1.0",
+    "tags": [
+      "demo",
+      "song",
+      "evolve",
+      "ramps",
+      "markers"
+    ]
+  },
+  {
+    "name": "first-beat",
+    "title": "first beat",
+    "description": "A four-line beat: tempo, drums on deck A, bass and a pad on deck B, and an end. Start here to see what a deck line is.",
+    "bpm": 124,
+    "bars": 8,
+    "license": "CC0-1.0",
+    "tags": [
+      "beginner",
+      "beat",
+      "mini-notation"
+    ]
+  },
+  {
+    "name": "acid-line",
+    "title": "acid line",
+    "description": "A squelchy FM bass line with an accent (!) and a slide (^), a kick and hats, and a filter cutoff and resonance that ramp over 16 bars. Shows let, accents, slides and ramps.",
+    "bpm": 132,
+    "bars": 16,
+    "license": "CC0-1.0",
+    "tags": [
+      "acid",
+      "beat",
+      "accent-slide",
+      "ramps"
+    ]
+  },
+  {
+    "name": "evolve-demo",
+    "title": "evolve demo",
+    "description": "A program that changes itself: every 4 bars the melody rotates and climbs and the hi-hat thins out, until generation 7. Shows evolve, rotate, transpose with per-generation values, thin and a stop bound.",
+    "bpm": 118,
+    "bars": 32,
+    "license": "CC0-1.0",
+    "tags": [
+      "evolve",
+      "beat",
+      "transforms"
+    ]
+  }
+]
