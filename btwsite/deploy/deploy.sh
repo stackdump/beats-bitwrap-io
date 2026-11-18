@@ -15,7 +15,7 @@
 #   btwsite/deploy/deploy.sh verify      curl the public URL
 #   btwsite/deploy/deploy.sh restart     stop + start the service only
 #   btwsite/deploy/deploy.sh nginx-http-beatscript   beatscript.app + www, port-80 vhost only (ACME), reload
-#   btwsite/deploy/deploy.sh cert-beatscript         certbot (webroot), one cert for beatscript.app + www; needs DNS A -> this host
+#   btwsite/deploy/deploy.sh cert-beatscript         certbot (webroot), one cert for beatscript.app + www (CERT_NAMES="-d beatscript.app" for apex only; re-run later to --expand); needs DNS A -> this host
 #   btwsite/deploy/deploy.sh nginx-full-beatscript   the real beatscript.app vhost (443 + proxy to the same backend), nginx -t, reload
 #   btwsite/deploy/deploy.sh verify-beatscript       curl https://beatscript.app
 #
@@ -145,7 +145,7 @@ sudo -n nginx -t && sudo -n systemctl reload nginx && echo "nginx reloaded (beat
 EOS
   ;;
 cert-beatscript)
-  run "sudo -n certbot certonly --webroot -w /var/www/acme -d beatscript.app -d www.beatscript.app --non-interactive --agree-tos --keep-until-expiring 2>&1 | tail -15; sudo -n certbot certificates 2>/dev/null | grep -A3 'Name: beatscript.app'"
+  run "sudo -n certbot certonly --webroot -w /var/www/acme ${CERT_NAMES:--d beatscript.app -d www.beatscript.app} --expand --non-interactive --agree-tos --keep-until-expiring 2>&1 | tail -15; sudo -n certbot certificates 2>/dev/null | grep -A3 'Name: beatscript.app'"
   ;;
 nginx-full-beatscript)
   scp -q "$HERE/nginx/beatscript.app.conf" "$HOST:/tmp/beatscript.app"
