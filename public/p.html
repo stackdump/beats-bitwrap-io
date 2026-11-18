@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="theme-color" content="#0a0a0a"/>
+  <title>btw · a bitwrap program</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<style>
+  :root { color-scheme: dark; }
+  html, body { background:#0a0a0a; color:#ddd; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin:0; line-height:1.5; }
+  header { padding:16px 24px; border-bottom:1px solid #1a1a1a; display:flex; gap:14px; align-items:baseline; }
+  header h1 { margin:0; font-size:18px; font-weight:600; } header a { color:#9ad; text-decoration:none; font-size:12px; }
+  main { max-width:900px; margin:0 auto; padding:24px; }
+  code, pre { font-family: ui-monospace, monospace; font-size:12px; }
+  pre { background:#111; border:1px solid #222; border-radius:6px; padding:14px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:4px; font-size:13px; font-weight:600; }
+  .ok { background:#10281a; color:#5fd48a; border:1px solid #1f5a38; }
+  .bad { background:#2a1010; color:#f07070; border:1px solid #6a2020; }
+  .note { color:#999; font-size:13px; } .warn { color:#d4b54e; font-size:13px; }
+  button { background:#1a1a1a; color:#ddd; border:1px solid #333; border-radius:4px; padding:5px 12px; cursor:pointer; }
+  .cid { word-break:break-all; color:#9ad; }
+</style>
+</head>
+<body>
+<header><h1>btw</h1><a href="/">beats.bitwrap.io</a></header>
+<main>
+  <p class="note">A <b>btw</b> link carries a program of the bitwrap language and the content ID of it. This page checks that the text is the program the ID names before showing it.</p>
+  <div id="status"><span class="note">reading the link…</span></div>
+  <p class="cid" id="cid"></p>
+  <pre id="program" hidden></pre>
+  <p><button id="copy" hidden>Copy the program</button></p>
+  <div id="notes"></div>
+  <p class="warn" id="engine" hidden>Playing it here needs the btw language compiled for the browser's engine (djwasm), which is not built yet: open the program in djapp (<code>btw open</code>), or paste it there.</p>
+</main>
+<script type="module">
+  import { openLink } from '/lib/btw/link.js';
+  const $ = (id) => document.getElementById(id);
+  async function run() {
+    const status = $('status');
+    try {
+      const { link, computed, verified } = await openLink(location.hash || '');
+      $('cid').textContent = link.cid;
+      if (link.text == null) {
+        status.innerHTML = '<span class="badge bad">no program</span> <span class="note">this is a CID alone: there is nothing here to check.</span>';
+        return;
+      }
+      if (!verified) {
+        status.innerHTML = '<span class="badge bad">refused</span> <span class="note">the link says one ID, its text is another (' + computed + '). It is not shown, and it is not that program.</span>';
+        return;
+      }
+      status.innerHTML = '<span class="badge ok">verified</span> <span class="note">the text below is exactly the program the ID names.</span>';
+      $('program').textContent = link.text; $('program').hidden = false;
+      $('copy').hidden = false; $('engine').hidden = false;
+      $('copy').onclick = () => navigator.clipboard.writeText(link.text);
+      if (link.sig) { const p = document.createElement('p'); p.className = 'note'; p.textContent = 'Signed (' + link.sig.slice(0, 16) + '…): the signature is the author wallet\'s to check; it is not checked here.'; $('notes').appendChild(p); }
+      if (link.notes.length) { const p = document.createElement('p'); p.className = 'warn'; p.textContent = 'Notes that came along, unsealed and unverified (not covered by the ID):'; const pre = document.createElement('pre'); pre.textContent = link.notes.join('\n'); $('notes').append(p, pre); }
+    } catch (e) {
+      status.innerHTML = '<span class="badge bad">not a btw link</span> <span class="note">' + String(e.message || e) + '</span>';
+    }
+  }
+  addEventListener('hashchange', run); run();
+</script>
+</body>
+</html>

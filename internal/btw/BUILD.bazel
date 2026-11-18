@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "btw",
+    srcs = ["btw.go"],
+    importpath = "beats-bitwrap-io/internal/btw",
+    visibility = ["//:__subpackages__"],
+    deps = ["//internal/share"],
+)
+
+go_test(
+    name = "btw_test",
+    srcs = ["btw_test.go"],
+    embed = [":btw"],
+)

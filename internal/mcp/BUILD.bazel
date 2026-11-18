@@ -10,6 +10,7 @@ go_library(
     importpath = "beats-bitwrap-io/internal/mcp",
     visibility = ["//:__subpackages__"],
     deps = [
+        "//internal/btw",
         "//internal/generator",
         "//internal/share",
         "@com_github_mark3labs_mcp_go//mcp",
