@@ -110,9 +110,13 @@ func pickExamples(c []exampleCand, maxTotal int) []exampleCand {
 		}
 	}
 	take(func(e exampleCand) bool { return e.sections == 0 }) // a short one
-	take(func(e exampleCand) bool { return e.sections >= 2 }) // a sectioned song
-	take(func(e exampleCand) bool { return e.ramp })          // one with ramps
-	take(func(e exampleCand) bool { return len(out) < 2 })    // fewer than two found: any other will do
+	n := len(out)
+	take(func(e exampleCand) bool { return e.sections >= 4 }) // a whole song in sections (intro, build, drop ...)
+	if len(out) == n {
+		take(func(e exampleCand) bool { return e.sections >= 2 }) // or the biggest thing there is
+	}
+	take(func(e exampleCand) bool { return e.ramp })       // one with ramps
+	take(func(e exampleCand) bool { return len(out) < 2 }) // fewer than two found: any other will do
 	return out
 }
 

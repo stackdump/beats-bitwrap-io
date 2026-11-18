@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -336,3 +337,32 @@ func (m *scriptModel) Generate(_ context.Context, system string, msgs []Message)
 }
 
 func newLogger(w io.Writer) *log.Logger { return log.New(w, "", 0) }
+
+var licenseHeader = regexp.MustCompile(`(?m)^#!\s*license:\s*(\S+)`)
+
+// loadExamplesDir reads *.btw from dir the way the site's example loader does: name from the file, CID from
+// the checker, licence from the "#! license:" header (an example with none is not offered).
+func loadExamplesDir(t *testing.T, c api.Checker, dir string) ([]api.Example, map[string]string) {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.btw"))
+	var exs []api.Example
+	texts := map[string]string{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := strings.TrimSuffix(filepath.Base(f), ".btw")
+		rep, err := c.Check(context.Background(), string(b))
+		if err != nil || !rep.OK {
+			continue
+		}
+		lic := ""
+		if m := licenseHeader.FindStringSubmatch(string(b)); m != nil {
+			lic = m[1]
+		}
+		exs = append(exs, api.Example{Name: name, Title: name, CID: rep.CID, License: lic})
+		texts[name] = string(b)
+	}
+	return exs, texts
+}

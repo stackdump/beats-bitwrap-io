@@ -172,10 +172,13 @@ type compose.Options struct {
     Model string; APIKey string; Endpoint string                     // Endpoint "" = Google; tests point at httptest
     FakeModel compose.Model                                           // non-nil (or Model=="fake") = the recorded-fixture model
     Limits limits.Config; MaxPromptChars, MaxProgramBytes, MaxRepair int
+    MaxOutputTokens int; Thinking string                              // added by G2: 16384 / "LOW" (MINIMAL|LOW|MEDIUM|HIGH); thinking tokens count against maxOutputTokens
     Now func() time.Time                                              // tests
+    Logger *log.Logger                                                // optional; nil = the standard logger
 }
 func (s *compose.Service) Handler(a api.Authenticator) http.Handler   // POST /api/compose (401 without a user; never anonymous)
-func (s *compose.Service) AdminHandler(adminToken string) http.Handler // POST /api/admin/compose {enabled}, GET /api/admin/stats
+func (s *compose.Service) AdminHandler(adminToken string) http.Handler // POST /api/admin/compose {enabled}, GET /api/admin/stats: mount it at "/api/admin/" (it routes by full path; no token configured = 503, wrong token = 401)
+func (s *compose.Service) Close() error                                // closes the log file
 // internal/btwsite/limits (G2)
 type limits.Config struct{ UserHour, UserDay, IPDay int; DailySpendUSD, PriceInPerM, PriceOutPerM float64; DataDir string }
 // internal/btwsite/mcpsrv (G3)
@@ -203,7 +206,7 @@ Shared types, interfaces and the typed `*api.Error` are in `internal/btwsite/api
 model), `GEMINI_API_KEY` (env only, never a flag, never logged, never sent to a client), `-compose-user-hour 10`,
 `-compose-user-day 50`, `-compose-ip-day 40`, `-daily-spend-usd 2.00`, `-price-in-per-m 1.50 -price-out-per-m 7.50`
 (Google's 2027 list prices for `gemini-3.8-flash`: $1.50 / $7.50 per 1M tokens; $0.75 / $3.75 until 2026-12-31),
-`-max-prompt-chars 800`, `-max-program-bytes 16384`, `-max-repair 3`, `-render-ip-hour 30`, `-render-concurrency 2`,
+`-max-prompt-chars 800`, `-max-program-bytes 16384`, `-max-repair 3`, `-max-output-tokens 16384` (per model call, thinking included), `BTW_THINKING=LOW` (`MINIMAL|LOW|MEDIUM|HIGH`, passed as `thinkingLevel`), `-render-ip-hour 30`, `-render-concurrency 2`,
 `-render-max-bars 256`, `BTW_ADMIN_TOKEN`, `BTW_COMPOSE_ENABLED=0|1`, `BTW_SESSION_SECRET` (else generated into `-data`).
 Compose is **"not configured"** (503 `not_configured`) when there is no key and the model is not `fake`.
 
@@ -260,6 +263,19 @@ The `#! composed-by:` etc. header lives in the **stored object / `.btw` download
 if the model's own text already has that comment line, keep it as is. Errors: `auth_required 401`, `rate_limited 429 (+Retry-After)`,
 `spend_cap 503`, `disabled 503`, `not_configured 503`, `bad_request 400`, `prompt_too_long 413`, `model_error 502`, `unrepairable 422`.
 Every attempt is logged (JSONL under `-data/log/compose-YYYYMMDD.jsonl`: ts, user, ip_hash, prompt_chars, model, tokens, cost, attempts, outcome — **never the key, never the prompt text beyond a hash + first 80 chars**).
+**As built (G2).** Order inside `Compose`: auth (the handler answers 401 `auth_required` before anything else, for every method and body; the service refuses a nil user too) → validate (400/413; strict JSON; `length` may be a number) →
+`base_cid` lookup (400 for unknown, private, non-CC0, restricted or asset-using: one message for all, so it says nothing about what exists) → kill switch (503 `disabled`; `BTW_COMPOSE_ENABLED=0`, the file `<data>/compose.off`, or the admin endpoint; the file is read on every request and survives restarts) →
+not configured (503 `not_configured`; `Status().Reason` says to set `GEMINI_API_KEY` and restart, or `BTW_MODEL=fake`) → per-user hour, per-user day, per-IP day (sliding windows, 429 + `Retry-After`; a refused request spends no quota) → spend cap
+(503 `spend_cap` + `Retry-After` to UTC midnight). Before **each** model call a worst-case cost (input estimate + the full `maxOutputTokens`, since thinking counts as output) is *held* against the day's cap and replaced by the real cost
+(`promptTokenCount` in, `candidatesTokenCount + thoughtsTokenCount` out) after the call, so concurrent requests cannot overshoot by more than the calls in flight. The day's spend is persisted (`<data>/spend/YYYY-MM-DD.json`, atomic writes) and a new UTC day starts at zero.
+A reply the model cut off (`finishReason: MAX_TOKENS`: thinking can eat the whole budget), an empty reply, one over `-max-program-bytes`, or one that uses `use restricted` / `sample` / `loop` assets is a **failed attempt**: the model is told why and asked for a shorter / clean program, like a checker error.
+A refused prompt (`promptFeedback.blockReason`, `finishReason: SAFETY`...), an HTTP error from Google or no answer is a 502 `model_error` with a fixed message (Google's own words go to the log only, with the key redacted; an upstream 429 also sets `Retry-After`). `forkedFrom` is `null` in the HTTP answer when there is no parent.
+The `422 unrepairable` body carries `details: {diagnostics (the last), attempts (all), last_text, cost_usd}`; other errors raised after a model call carry `details.attempts` too.
+The log line (`-data/log/compose-YYYYMMDD.jsonl`) has `ts, user, ip_hash, prompt_chars, prompt_sha256, prompt_head (80 chars), model, tokens_in, tokens_out, cost_usd, attempts, outcome (ok or the error code), cid, forked_from, detail, ms`;
+`ip_hash` is a salted SHA-256 of the address (the /64 for IPv6), the salt kept in `<data>/ip-salt`.
+Recorded fixtures for `BTW_MODEL=fake` live in `btwsite/testdata/compose/*.json` and are embedded (a test keeps `internal/btwsite/compose/fixtures/` identical); pick a scenario by putting `fake-repair`, `fake-unrepairable`, `fake-error`, `fake-blocked`, `fake-max-tokens` or `fake-oversize` in the prompt (default: a good program on the first try).
+`internal/btwsite/compose/live_test.go` (`-tags live`, `GEMINI_API_KEY` + `BTWD_BIN`) runs the three real prompts and writes `btwsite/testdata/compose/real-<UTC date>.json`.
+Behind nginx, a compose with repairs can take a minute: give `/api/compose` a `proxy_read_timeout` of 180 s.
 The Gemini call: `POST https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`, header `x-goog-api-key`,
 body `systemInstruction`, `contents`, `generationConfig{maxOutputTokens, thinkingConfig{thinkingLevel:"LOW"}}` (temperature/topP/topK are ignored on 3.6+), response
 `candidates[0].content.parts[].text` (skip `thought:true`), `usageMetadata{promptTokenCount,candidatesTokenCount,thoughtsTokenCount}`. The model is a config value.
