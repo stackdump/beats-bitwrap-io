@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Deploy btw.bitwrap.io to pflow.dev from the Mac, in idempotent steps. Conventions: the same as
 # windwheel.bitwrap.io (a ~/services tmux window, env in ~/.env-services/<name>, an nginx vhost with a
-# Let's Encrypt cert), but from a checkout of the feature BRANCH, so nothing is merged to main and the
-# main-push webhook (which only touches ~/Workspace/beats-bitwrap-io) is not involved.
+# Let's Encrypt cert), but from its own checkout (~/Workspace/btw-bitwrap-io, BRANCH, default main), so the
+# main-push webhook (which only touches ~/Workspace/beats-bitwrap-io) is not involved: deploying is this script, not a push.
 #
-#   btwsite/deploy/deploy.sh host        checkout feat/btw-site into ~/Workspace/btw-bitwrap-io on the host
+#   btwsite/deploy/deploy.sh host        checkout $BRANCH (default main) into ~/Workspace/btw-bitwrap-io on the host
 #   btwsite/deploy/deploy.sh build       go build the service on the host
 #   btwsite/deploy/deploy.sh artifacts   copy what is built from the PRIVATE repo (btwd, wasm, docs); never in git
+#   btwsite/deploy/deploy.sh docs        copy only btwsite/web/docs (BTW.md redacted by scripts/btw-gen-docs.sh, cheatsheet.md)
 #   btwsite/deploy/deploy.sh services    add the btw-bitwrap entry to ~/services (backup first) and start it
 #   btwsite/deploy/deploy.sh nginx-http  port-80 vhost only (ACME), reload
 #   btwsite/deploy/deploy.sh cert        certbot (webroot) for btw.bitwrap.io
@@ -15,12 +16,12 @@
 #   btwsite/deploy/deploy.sh restart     stop + start the service only
 #
 # Env: HOST (default pflow.dev), BTWD_LINUX (default <RUST>/dist/btwd-linux-x86_64), RUST (the Rust worktree),
-# BRANCH (default feat/btw-site). The Gemini key is NEVER read here: it was copied on the host into
+# BRANCH (default main). The Gemini key is NEVER read here: it was copied on the host into
 # ~/.env-services/btw-bitwrap (mode 0600) and is only ever sourced by ~/services.
 set -euo pipefail
 
 HOST=${HOST:-pflow.dev}
-BRANCH=${BRANCH:-feat/btw-site}
+BRANCH=${BRANCH:-main}
 RUST=${RUST:?set RUST to your checkout of the private engine repo (it holds dist/btwd-linux-x86_64 and the wasm build)}
 BTWD_LINUX=${BTWD_LINUX:-$RUST/dist/btwd-linux-x86_64}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -87,6 +88,10 @@ PY
 bash -n "$f" && echo "services syntax ok"
 EOS
   run "~/services start $SERVICE; sleep 3; ~/services list | grep -E 'SERVICE|btw-bitwrap'; curl -s -m 5 http://127.0.0.1:$PORT/healthz; echo"
+  ;;
+docs)
+  rsync -az "$GO/btwsite/web/docs/" "$HOST:Workspace/btw-bitwrap-io/btwsite/web/docs/"
+  run "cd $REMOTE_DIR && chmod -R a+rX btwsite/web/docs && ls -l btwsite/web/docs && grep -c '/Users/' btwsite/web/docs/BTW.md || true"
   ;;
 restart)
   run "~/services stop $SERVICE; sleep 1; ~/services start $SERVICE; sleep 3; curl -s -m 5 http://127.0.0.1:$PORT/healthz; echo"
