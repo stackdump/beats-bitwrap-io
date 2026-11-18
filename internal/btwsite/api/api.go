@@ -320,6 +320,7 @@ type SessionState struct {
 	SectionNum  int             `json:"section_num"`
 	SectionsAll int             `json:"sections_total"`
 	Bar         int             `json:"bar"`
+	BarsInSect  int             `json:"bars_in_section"`
 	Phase       int             `json:"phase"`
 	Marks       json.RawMessage `json:"marks,omitempty"`
 	Diagnostics json.RawMessage `json:"diagnostics,omitempty"`
