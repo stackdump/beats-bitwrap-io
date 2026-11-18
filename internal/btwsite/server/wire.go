@@ -10,6 +10,7 @@ import (
 	"beats-bitwrap-io/internal/btwsite/card"
 	"beats-bitwrap-io/internal/btwsite/compose"
 	"beats-bitwrap-io/internal/btwsite/docs"
+	"beats-bitwrap-io/internal/btwsite/ld"
 	"beats-bitwrap-io/internal/btwsite/limits"
 	"beats-bitwrap-io/internal/btwsite/mcpsrv"
 )
@@ -103,6 +104,7 @@ func (s *Server) wire(mux *http.ServeMux) error {
 		return err
 	}
 	cs.Mount(mux)
+	ld.Mount(mux)
 	s.extras.injectMeta = card.InjectGeneric
 	return nil
 }

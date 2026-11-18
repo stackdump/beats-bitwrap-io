@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"beats-bitwrap-io/internal/btwsite/api"
+	"beats-bitwrap-io/internal/btwsite/ld"
 )
 
 var (
@@ -756,10 +757,16 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if st == nil {
 		return nil, s.noSession(session)
 	}
+	var jsonld, ctxURL string
+	if st.CID != "" {
+		jsonld, ctxURL = s.public+"/c/"+st.CID+".jsonld", ld.ContextURL(s.public)
+	}
 	return struct {
 		*api.SessionState
-		Connected int `json:"sessions_connected,omitempty"`
-	}{st, connected}, nil
+		JSONLD    string `json:"jsonld_url,omitempty"` // the program as linked data (only a stored program has one)
+		Context   string `json:"context,omitempty"`    // the @context URL that document names
+		Connected int    `json:"sessions_connected,omitempty"`
+	}{st, jsonld, ctxURL, connected}, nil
 }
 
 // latestSession picks the session seen most recently.
@@ -815,7 +822,8 @@ func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) 
 	return map[string]any{
 		"ok": true, "url": rep.URL, "social_url": rep.SocialURL, "beats_url": rep.BeatsURL, "cid": rep.CID, "chars": rep.Chars,
 		"canonical": rep.Canonical, "warnings": rep.Warnings,
-		"note": "url is the self-sealing link (the program is in the link; opening it checks the CID). Post social_url where a link preview is wanted.",
+		"jsonld_url": rep.SocialURL + ".jsonld", "context": ld.ContextURL(s.public),
+		"note": "jsonld_url is the program as linked data (its @context is the context URL). url is the self-sealing link (the program is in the link; opening it checks the CID). Post social_url where a link preview is wanted.",
 	}, nil
 }
 

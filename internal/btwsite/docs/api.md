@@ -217,6 +217,21 @@ curl -s https://btw.bitwrap.io/mcp -H 'content-type: application/json' -H 'accep
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{"text":"tempo 126\ndeck A: kick x ~ x ~\n"}}}'
 ```
 
+## Linked data (JSON-LD)
+
+A program is also published as linked data, in the same convention as pflow.xyz: a stable, versioned `@context` URL.
+
+```text
+https://btw.bitwrap.io/context/v1.jsonld      the @context (application/ld+json, CORS *, immutable; a change is a new version, v2)
+https://btw.bitwrap.io/context.jsonld         the latest version (cached five minutes)
+https://btw.bitwrap.io/c/<CID>.jsonld         a program: @id, @type djrust:Program, cid, name, key, tempo, sections, licenseId
+https://btw.bitwrap.io/c/<CID>.<packed>.jsonld   the same for a program the site has not stored (the link carries it)
+```
+
+`/c/<CID>` embeds that document in a `<script type="application/ld+json">` block and answers with `Link: <.../c/<CID>.jsonld>; rel="describedby"`.
+The context's vocabulary is the bitwrap ontology (`https://ontology.bitwrap.io/ns#`); the MCP `share` tool returns `jsonld_url` and `context`, and `get` does too.
+`btw jsonld` (djctl) names the same context URL. Genre, tags and Euclidean rhythms need the engine's ontology, so only `btw jsonld` adds them.
+
 ## Share links
 
 ```text
