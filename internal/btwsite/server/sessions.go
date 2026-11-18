@@ -58,6 +58,7 @@ func (s *subscriber) close() { s.once.Do(func() { close(s.ch) }) }
 type session struct {
 	id       string
 	owner    string // user id, "" = anonymous
+	device   string // a paired phone's device id (pair.go), "" = a page
 	created  time.Time
 	lastSeen time.Time
 
@@ -115,12 +116,15 @@ func (h *hub) create(owner string) (string, error) {
 		for _, s := range h.sessions {
 			if s.owner == owner {
 				n++
+				if s.device != "" { // a paired phone is not retired for a page that reloads a lot
+					continue
+				}
 				if oldest == nil || s.lastSeen.Before(oldest.lastSeen) {
 					oldest = s
 				}
 			}
 		}
-		if n >= maxSessionsPerUser { // a page that reloads a lot: retire the least recently seen
+		if n >= maxSessionsPerUser && oldest != nil { // a page that reloads a lot: retire the least recently seen
 			h.dropLocked(oldest)
 		}
 	}
@@ -434,7 +438,7 @@ func (h *hub) Sessions(u *api.User) []api.SessionInfo {
 		if s.owner != u.ID {
 			continue
 		}
-		si := api.SessionInfo{ID: s.id, Owner: s.owner, LastSeen: s.lastSeen.UTC().Format(time.RFC3339)}
+		si := api.SessionInfo{ID: s.id, Owner: s.owner, Device: s.device, LastSeen: s.lastSeen.UTC().Format(time.RFC3339)}
 		if s.state != nil {
 			si.CID, si.Playing = s.state.CID, s.state.Playing
 		}
@@ -521,6 +525,12 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.hub.unsubscribe(id, sub)
+	s.streamEvents(w, r, sub, nil)
+}
+
+// streamEvents writes a subscriber's events as SSE until it closes, the client goes, or the server stops.
+// hello, if given, is sent first (event name, JSON data).
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, sub *subscriber, hello *api.SessionEvent) {
 	rc := http.NewResponseController(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -536,6 +546,12 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	if !write("retry: 3000\n: connected\n\n") {
 		return
+	}
+	if hello != nil {
+		b, _ := json.Marshal(hello)
+		if !write("event: %s\ndata: %s\n\n", hello.Type, b) {
+			return
+		}
 	}
 	ping := time.NewTicker(s.cfg.SSEPing)
 	defer ping.Stop()

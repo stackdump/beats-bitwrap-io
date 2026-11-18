@@ -69,5 +69,11 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     report: rejecting((id, state) => req('POST', `/api/session/${sidSeg(id)}/report`, { json: state })),
     reply: rejecting((id, requestId, state) => req('POST', `/api/session/${sidSeg(id)}/reply`, { json: { request_id: requestId, state } })),
     eventsUrl: (id) => `${base}/api/session/${sidSeg(id)}/events`,
+    // pairing a phone (btwsite/PAIRING.md): a QR offer, its state, the paired devices, and pushing to one
+    pairNew: () => req('POST', '/api/pair', { json: {} }),
+    pairState: rejecting((id) => req('GET', `/api/pair/${sidSeg(id)}`)),
+    devices: () => req('GET', '/api/devices'),
+    unpairDevice: rejecting((id) => req('DELETE', `/api/devices/${sidSeg(id)}`)),
+    pushDevice: rejecting((id, body) => req('POST', `/api/devices/${sidSeg(id)}/push`, { json: body })),
   };
 }

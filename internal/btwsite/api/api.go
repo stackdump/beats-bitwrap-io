@@ -306,7 +306,8 @@ type SessionEvent struct {
 
 type SessionInfo struct {
 	ID       string `json:"id"`
-	Owner    string `json:"owner,omitempty"` // user id, "" for anonymous
+	Owner    string `json:"owner,omitempty"`  // user id, "" for anonymous
+	Device   string `json:"device,omitempty"` // a paired phone's device id (POST /api/pair), "" for a browser page
 	LastSeen string `json:"last_seen"`
 	CID      string `json:"cid,omitempty"`
 	Playing  bool   `json:"playing"`

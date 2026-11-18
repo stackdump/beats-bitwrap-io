@@ -17,13 +17,14 @@ export class Panels {
     this.tokenView = null; // the node that shows a new MCP token: kept across re-renders, dropped when the panel closes
     app.on((type) => {
       if (this.current === 'mcp' && (type === 'session' || type === 'user')) this.render();
+      if (this.current === 'phone' && type === 'user') { this.phoneStop(); this.render(); }
       if ((this.current === 'compose' || this.current === 'user') && type === 'user') this.render();
       if (this.current === 'compose' && (type === 'check' || type === 'program')) this.refreshFork();
     });
   }
 
   show(which) {
-    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
+    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
     if (this.current === which) return this.close();
     this.close();
     this.current = which;
@@ -34,13 +35,14 @@ export class Panels {
 
   close() {
     if (this.abort) this.abort.abort();
+    this.phoneStop();
     this.wipeToken();
     // the focus is in the panel (or nowhere) when it closes: it goes back to the button that opened it
     const ae = document.activeElement;
     const inPanel = !ae || ae === document.body || this.el.drawer.contains(ae) || !!(this.app.pop && this.app.pop.contains(ae));
     this.el.drawer.hidden = true;
     this.popClose();
-    for (const b of ['btn-compose', 'btn-mcp', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
+    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
@@ -63,9 +65,9 @@ export class Panels {
     if (w === 'share') return this.share();
     if (w === 'open') return this.open();
     const body = this.el['drawer-body'];
-    const title = { compose: 'Compose', mcp: 'MCP', user: this.app.user ? 'Account' : 'Sign in' }[w];
+    const title = { compose: 'Compose', mcp: 'MCP', phone: 'Phone', user: this.app.user ? 'Account' : 'Sign in' }[w];
     this.el['drawer-title'].textContent = title;
-    body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : this.userBody()));
+    body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : w === 'phone' ? this.phoneBody() : this.userBody()));
     this.el.drawer.hidden = false;
     this.popClose();
     const first = body.querySelector('textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'); // a disabled control cannot take the focus
@@ -240,6 +242,97 @@ export class Panels {
     out.push(result);
     out.push(h('p', { class: 'note' }, 'Read-only tools (check, fmt, share, open, instruments, list_examples) need no token. Docs for assistants: ', h('a', { href: '/llms.txt', class: 'link' }, '/llms.txt'), '.'));
     return out;
+  }
+
+  // ---- phone: pair djrust on Android by a QR code (btwsite/PAIRING.md) ----------------------------------------------------------
+
+  phoneStop() {
+    clearTimeout(this.phoneTimer);
+    clearTimeout(this.phoneListTimer);
+    this.phoneTimer = this.phoneListTimer = null;
+    this.phoneOffer = null;
+  }
+
+  phoneBody() {
+    const app = this.app;
+    const out = [];
+    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then btw.bitwrap.io › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
+    if (!app.user) {
+      out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
+      return out;
+    }
+    const qrBox = h('div', { class: 'pair-qr', role: 'status' });
+    const list = h('div', { class: 'pair-devices' });
+    const show = h('button', { type: 'button', class: 'tb primary', onclick: () => this.phoneOfferNew(qrBox, list) }, 'Show a pairing code');
+    out.push(show, qrBox, h('h3', {}, 'Paired phones'), list);
+    out.push(h('p', { class: 'note' }, 'The code works once and for two minutes. It carries no lasting secret: the phone makes its own key, and only its public half is kept here. Unpair here or on the phone at any time.'));
+    this.phoneList(list);
+    return out;
+  }
+
+  async phoneOfferNew(qrBox, list) {
+    this.phoneStop();
+    try {
+      const o = await this.app.api.pairNew();
+      this.phoneOffer = o;
+      const left = h('span', {});
+      qrBox.replaceChildren(h('img', { src: o.qr, alt: 'Pairing QR code', width: '240', height: '240', class: 'qr' }),
+        h('p', { class: 'note' }, 'Waiting for the phone… ', left));
+      const ends = Date.now() + o.expires_in * 1000;
+      const tick = async () => {
+        if (this.phoneOffer !== o || this.current !== 'phone') return;
+        const s = Math.max(0, Math.round((ends - Date.now()) / 1000));
+        left.textContent = `(${s} s)`;
+        let st = null;
+        try { st = await this.app.api.pairState(o.pair_id); } catch { /* keep trying until it expires */ }
+        if (st && st.state === 'paired') {
+          const d = st.device || {};
+          qrBox.replaceChildren(h('div', { class: 'okbox' }, h('b', {}, `Paired: ${d.name || 'a phone'}`), h('div', { class: 'note' }, 'Its key fingerprint (the phone shows the same): ', h('code', {}, d.fingerprint || '?'))));
+          this.phoneOffer = null;
+          this.phoneList(list);
+          return;
+        }
+        if ((st && st.state !== 'waiting') || s === 0) {
+          const why = st && st.state === 'used' ? 'That code was used up.' : 'That code expired.';
+          qrBox.replaceChildren(h('p', { class: 'note warn' }, `${why} Show a new one to try again.`));
+          this.phoneOffer = null;
+          return;
+        }
+        this.phoneTimer = setTimeout(tick, 1000);
+      };
+      tick();
+    } catch (e) {
+      qrBox.replaceChildren(h('div', { class: 'err' }, describeError(e).title));
+    }
+  }
+
+  async phoneList(list) {
+    const app = this.app;
+    clearTimeout(this.phoneListTimer);
+    // while the panel is open the list follows the phones' connection state
+    this.phoneListTimer = setTimeout(() => { if (this.current === 'phone' && list.isConnected) this.phoneList(list); }, 4000);
+    let r;
+    try { r = await app.api.devices(); } catch (e) { list.replaceChildren(h('div', { class: 'err' }, describeError(e).title)); return; }
+    const ds = (r && r.devices) || [];
+    if (!ds.length) { list.replaceChildren(h('p', { class: 'note' }, 'None yet.')); return; }
+    list.replaceChildren(...ds.map((d) => {
+      const st = d.state || {};
+      const line = d.connected ? (st.playing ? `connected, playing${st.section ? ` (${st.section}, bar ${st.bar})` : ''}` : 'connected') : `not connected${d.last_seen ? ` (last seen ${d.last_seen})` : ''}`;
+      const push = async (type) => {
+        try {
+          const body = type === 'stop' ? { type } : { type: 'eval', text: app.editor.text, play: true };
+          await app.api.pushDevice(d.id, body);
+          app.toast(type === 'stop' ? `Stopped ${d.name}.` : `Sent to ${d.name}.`, 'ok');
+        } catch (e) { app.showError(e); }
+        this.phoneList(list);
+      };
+      return h('div', { class: 'pair-device' },
+        h('div', {}, h('b', {}, d.name), ' ', h('code', { title: 'key fingerprint' }, d.fingerprint)),
+        h('div', { class: 'note' }, line),
+        h('button', { type: 'button', class: 'tb tb-sm primary', disabled: !d.connected, onclick: () => push('eval') }, 'Play this on the phone'),
+        h('button', { type: 'button', class: 'tb tb-sm', disabled: !d.connected, onclick: () => push('stop') }, 'Stop'),
+        h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.unpairDevice(d.id); app.toast(`Unpaired ${d.name}.`, 'ok'); } catch (e) { app.showError(e); } this.phoneList(list); } }, 'Unpair'));
+    }));
   }
 
   // ---- share + open popovers -----------------------------------------------------------------------------------------------------
