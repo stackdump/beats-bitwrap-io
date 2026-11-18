@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"beats-bitwrap-io/internal/btw"
 	"beats-bitwrap-io/internal/generator"
 	"beats-bitwrap-io/internal/share"
 
@@ -63,6 +64,7 @@ func NewPublicServer() *server.MCPServer {
 	s.AddTool(listGenresTool(), handleListGenresLocal)
 	s.AddTool(getSongTool(), handleGetSong)
 	s.AddTool(getRenderStatusTool(), handleGetRenderStatus)
+	s.AddTool(getBtwTool(), handleGetBtw)
 	return s
 }
 
@@ -333,6 +335,42 @@ func handleGetSong(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultText(string(resp)), nil
+}
+
+// --- get_btw ---------------------------------------------------------------
+
+func getBtwTool() mcp.Tool {
+	return mcp.NewTool("get_btw",
+		mcp.WithDescription("Open a btw link (the bitwrap language's self-sealing share link, https://beats.bitwrap.io/p#<CID>.<text>) and return the program and its CIDs. The link carries the program's canonical text; the tool decodes it, recomputes the CID and says whether it is the one the link claims (verified). A link that does not verify is refused: do not play or repeat its program as the CID's. Returns program (the text), cid (the link's), computed_cid, verified, chars (the link's length), sig (the author's signature over the CID, carried but not checked here), notes_unverified (comments that came along outside the seal), warnings. A bare CID has no program in it: nothing here stores btw programs, so ask for the link."),
+		mcp.WithString("link",
+			mcp.Required(),
+			mcp.Description("A btw link, its #fragment, or CID.text."),
+		),
+	)
+}
+
+func handleGetBtw(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	link, _ := req.GetArguments()["link"].(string)
+	if strings.TrimSpace(link) == "" {
+		return mcp.NewToolResultError("give the btw link (or its #fragment)"), nil
+	}
+	r, err := btw.Open(link)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if !r.Verified && r.Text != "" {
+		// the program of a link that does not check out is not handed back as the CID's
+		r.Text = ""
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return jsonResult(m)
 }
 
 // --- get_render_status ---------------------------------------------------

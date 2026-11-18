@@ -266,6 +266,12 @@ func main() {
 	})
 	deploy.Register(mux)
 	mux.Handle("/o/", shareStore)
+	// /p#<CID>.<text>: a btw link (the bitwrap language). The page reads the fragment, checks the
+	// CID against the text and shows the program; the fragment never reaches the server.
+	mux.HandleFunc("/p", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/p.html"
+		staticHandler.ServeHTTP(w, r)
+	})
 	mux.Handle("/c/", compositionStore)
 	mux.HandleFunc("/schema/beats-share", share.HandleBeatsShareSchema)
 	mux.HandleFunc("/schema/beats-composition", share.HandleBeatsCompositionSchema)
