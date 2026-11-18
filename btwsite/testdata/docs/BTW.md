@@ -1,43 +1,41 @@
 # btw stand-in (test fixture)
 
-This file stands in for docs/BTW.md of the private language repository when the generated
-btwsite/web/docs/BTW.md is not in the working tree. It is NOT the language reference: it has the same
-section headings the docs package looks for, and a few lines under each, so tests can run anywhere.
+This file stands in for the language reference when the generated btwsite/web/docs/BTW.md is not in the
+working tree (that file is built from a private repository and is not committed). It is NOT the language:
+a toy grammar under the same section headings the docs package looks for, so tests can run anywhere.
 
 ## The rules in one screen
 
-- A program is lines. A line is blank, a `# comment`, or one statement.
-- Deck names are `A` and `B`.
+- Toy rule one: a program is a list of lines.
+- Toy rule two: decks are named A and B.
 
 ## Grammar (EBNF)
 
 ```ebnf
-program   = { line } ;
-line      = [ statement ] [ comment ] NEWLINE ;
-comment   = "#" { any character but NEWLINE } ;
-statement = setting | deck ;
+prog  = { stmt } ;
+stmt  = tempo | deck ;
 ## this line is inside a code fence and is not a heading
-setting   = "tempo" number ;
-deck      = "deck" ( "A" | "B" ) ":" part { "|" part } ;
+tempo = "tempo" num ;
+deck  = "deck" name ":" part { "|" part } ;
 ```
 
 ### Grammar: the additions
 
 ```ebnf
-section = "section" NAME int "bars" "{" { statement } "}" ;
+block = "section" name num "bars" "{" { stmt } "}" ;
 ```
 
 ### Which target takes which action
 
 | action | deck | master |
 |---|---|---|
-| a part line | yes | no |
+| a toy part line | yes | no |
 
 ## Patterns: mini-notation
 
-`x` is a hit and `~` a rest.
+A toy section after the grammar, which llms-full.txt must not inline.
 
 ```text
 # a comment inside a fence, not a heading
-kick x ~ x ~
+toy x ~ x ~
 ```

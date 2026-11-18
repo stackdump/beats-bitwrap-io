@@ -28,11 +28,11 @@ func repoRoot(t *testing.T) string {
 }
 
 // docsDir is the generated btwsite/web/docs when both files are there (they are built from the private
-// repo and never committed), else the small stand-ins in btwsite/testdata/docs.
+// repo and never committed), else the small stand-ins in btwsite/testdata/docs (always, with BTW_DOCS_FIXTURES=1).
 func docsDir(t *testing.T) (dir string, real bool) {
 	t.Helper()
 	gen := filepath.Join(repoRoot(t), "btwsite", "web", "docs")
-	if fileExists(filepath.Join(gen, "BTW.md")) && fileExists(filepath.Join(gen, "cheatsheet.md")) {
+	if os.Getenv("BTW_DOCS_FIXTURES") == "" && fileExists(filepath.Join(gen, "BTW.md")) && fileExists(filepath.Join(gen, "cheatsheet.md")) {
 		return gen, true
 	}
 	return filepath.Join(repoRoot(t), "btwsite", "testdata", "docs"), false

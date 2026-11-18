@@ -3,7 +3,6 @@
 Stand-in for the output of `btwd cheatsheet` when btwsite/web/docs/cheatsheet.md has not been generated.
 
 ```text
-tempo 120
-key am
-deck A: kick x ~ x ~ | snare ~ x ~ x
+toy tempo 120
+toy deck A: kick x ~ x ~
 ```
