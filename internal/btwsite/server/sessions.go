@@ -219,7 +219,7 @@ func (h *hub) report(id string, u *api.User, st api.SessionState) (ok, limited b
 	return true, false
 }
 
-// reply answers a pending "get". Unknown request ids are ignored (a late answer).
+// reply answers a pending "get". An unknown request id (a late answer, or none was asked) changes nothing.
 func (h *hub) reply(id string, u *api.User, requestID string, st api.SessionState) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -227,14 +227,16 @@ func (h *hub) reply(id string, u *api.User, requestID string, st api.SessionStat
 	if !found {
 		return false
 	}
+	ch, ok := s.pending[requestID]
+	if !ok {
+		return true
+	}
+	delete(s.pending, requestID)
 	now := h.now()
 	st.ID = id
 	st.TS = now.UTC().Format(time.RFC3339Nano)
 	s.state, s.stateAt, s.lastSeen = &st, now, now
-	if ch, ok := s.pending[requestID]; ok {
-		delete(s.pending, requestID)
-		ch <- &st // buffered 1
-	}
+	ch <- &st // buffered 1
 	return true
 }
 
