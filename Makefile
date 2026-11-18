@@ -385,3 +385,21 @@ test-djwasm-030-browser:
 test-djrust-newglue:
 	@DJRUST_GLUE=$(DJRUST_WASM) node --import ./scripts/djrust-glue-hook.mjs scripts/test-djrust-wasm.mjs
 
+# --- btw.bitwrap.io (btwsite/DESIGN.md) ---
+#   btwsite-build   the server binary -> btwsite/bin/btwsite (gitignored)
+#   btwsite-test    go vet + the btwsite packages under -race (BTWD_BIN=<btwd> adds the real-binary tests)
+#   btwsite-run     serve on :18097 (fake model unless BTW_MODEL / GEMINI_API_KEY say otherwise); BTWD = the btwd executable
+BTWD ?= $(CURDIR)/btwsite/bin/btwd
+btwsite-build:
+	@mkdir -p btwsite/bin
+	go build -o btwsite/bin/btwsite ./cmd/btwsite
+
+btwsite-test:
+	go vet ./cmd/btwsite/ ./internal/btwsite/...
+	go test -race -count=1 ./cmd/btwsite/ ./internal/btwsite/...
+
+btwsite-run: btwsite-build
+	BTW_MODEL=$${BTW_MODEL:-fake} btwsite/bin/btwsite -web btwsite/web -examples btwsite/examples -docs btwsite/docs -data $${BTW_DATA:-./data/btwsite} -btwd $(BTWD) -public-url $${BTW_PUBLIC_URL:-http://localhost:18097}
+
+.PHONY: btwsite-build btwsite-test btwsite-run
+
