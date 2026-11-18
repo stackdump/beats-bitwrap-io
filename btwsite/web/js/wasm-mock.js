@@ -127,7 +127,7 @@ export function parseProgram(text) {
     } else if (/^\w+\s*\(/.test(t)) {
       stmts.push({ kind: 'call', line, name: w0.replace(/\(.*$/, ''), sectionIdx: secIdx, call: { start: line.start + col0, end: line.start + line.code.trimEnd().length } });
     } else if (/^(every|on|at|after|before|for|deck|master)\b/.test(t) || ACTIONS.includes(w0) || ['do', 'vocoder', 'vocal', 'freeze', 'trick'].includes(w0)) {
-      const m = t.match(/^deck\s+([AB])\s*:\s*(.*)$/);
+      const m = t.match(/^deck\s+([AB]|\$\w+)\s*:\s*(.*)$/);
       if (m && /^(kick|snare|hihat|clap|bass|melody|harmony|arp)\b/.test(m[2])) {
         // a part line: each `|` part must be `role pattern`
         const base = line.code.indexOf(m[2], line.code.indexOf(':'));
@@ -151,7 +151,7 @@ export function parseProgram(text) {
             bad = true;
           } else parts.push({ role: sw[0], from: line.start + segStart, to: line.start + cursor });
         }
-        if (!bad) stmts.push({ kind: 'part', line, deck: m[1], parts, endLine, sectionIdx: secIdx, defName: ctx && ctx.kind === 'def' ? ctx.def.name : null, seg: m[2], base: line.start + base });
+        if (!bad) stmts.push({ kind: 'part', line, deck: m[1].startsWith('$') ? 'A' : m[1], parts, endLine, sectionIdx: secIdx, defName: ctx && ctx.kind === 'def' ? ctx.def.name : null, seg: m[2], base: line.start + base });
         void code;
       } else {
         const ramp = /->/.test(t) && /over\s+(\d+)\s+bars/.exec(t);

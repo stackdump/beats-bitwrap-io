@@ -62,9 +62,11 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
   linear-gradient(var(--link), var(--link)) 8px 8px / 5px 2px no-repeat,
   linear-gradient(var(--line), var(--line)) 8px 13px / 8px 2px no-repeat,
   var(--stage); box-shadow: inset 0 0 0 1px var(--line); }
-.pick select { background: var(--stage); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; color: var(--ink); max-width: 190px; }
+.pick { flex: 0 1 190px; min-width: 56px; }
+.pick select { width: 100%; background: var(--stage); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; color: var(--ink); }
 .h-name { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 24vw; padding-right: 14px; border-right: 1px solid var(--line-2); }
 .tb { display: inline-flex; align-items: center; gap: 6px; background: var(--btn); border: 1px solid transparent; border-radius: 4px; padding: 6px 10px; line-height: 1; white-space: nowrap; }
+a.tb { text-decoration: none; color: inherit; }
 .tb:hover:not(:disabled) { background: var(--btn-hover); }
 .tb:disabled { opacity: .45; cursor: default; }
 .tb[aria-pressed="true"], .tb[aria-expanded="true"] { background: var(--btn-hover); border-color: var(--link); }
@@ -232,7 +234,6 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
   .lbl, .t-hint, .h-name, .t-time, #btn-follow kbd { display: none; }
   .top { gap: 6px; padding: 0 8px; }
   .brand-name { display: none; }
-  .pick select { max-width: 120px; }
   .tb { padding: 7px 9px; }
   .hdr { gap: 10px; padding: 0 10px; overflow: hidden; }
   .h-bar { display: none; }
@@ -243,7 +244,7 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
   :root { --fs: 13px; --lh: 20px; --gut-w: 58px; --padx: 10px; }
   .drawer { top: 46px; width: 100%; }
 }
-@media (max-width: 480px) { .t-bpm { display: none; } #t-source button { padding: 5px 8px; } }
+@media (max-width: 480px) { .t-bpm, #lnk-docs { display: none; } #t-source button { padding: 5px 8px; } .tb { padding: 7px 8px; } }
 
 /* ---- reduced motion: no spinners, nothing that sweeps ---------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) { .t-status.busy::before { animation: none; } }

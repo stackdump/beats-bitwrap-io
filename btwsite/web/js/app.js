@@ -198,7 +198,7 @@ export class App {
       if (!Array.isArray(this.examples)) this.examples = this.examples.examples || [];
     } catch { this.examples = []; }
     const sel = this.el.examples;
-    for (const ex of this.examples) sel.append(h('option', { value: ex.name }, ex.title || ex.name));
+    for (const ex of this.examples) sel.append(h('option', { value: ex.name, title: ex.description || '' }, ex.title || ex.name));
     this.updateTransport();
   }
 
@@ -327,7 +327,9 @@ export class App {
 
   // ---- editor events ----------------------------------------------------------------------------------------
 
-  onInput() {
+  onInput(_text, opts) {
+    // the address bar named the program that was opened or shared; once the text is edited it names a different one
+    if (!(opts && opts.programmatic) && location.hash.length > 1) history.replaceState(null, '', location.pathname + location.search);
     this.checkSoon();
     this.updateName();
     this.updateStale();

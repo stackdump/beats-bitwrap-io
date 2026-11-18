@@ -9,8 +9,10 @@ service that speaks the routes of DESIGN.md "HTTP API" (and runs the **real wasm
 node btwsite/test/smoke.mjs                            everything, against the mock server
 node btwsite/test/smoke.mjs --only 2,3                 only those steps
 node btwsite/test/smoke.mjs --mock-wasm                page and server on the JS mock of the wasm (?mock=1)
-node btwsite/test/smoke.mjs --server http://127.0.0.1:18097   against the real Go server (steps 6 and 7 need the
-                                                       mock's test routes and are skipped)
+node btwsite/test/smoke.mjs --server http://127.0.0.1:18197   against the real Go server (btwsite -btwd ... -model fake);
+                                                       the compose error cases (FAIL, LIMIT, NOKEY prompts) and the
+                                                       pushed-event checks are the mock's, the real server gets the
+                                                       MCP JSON-RPC variant of step 7
 node --test btwsite/test/unit.mjs                      the pure-JS unit tests (no browser)
 node btwsite/test/mock-server.mjs --port 18197         the mock alone, to open the page by hand
 ```
@@ -31,7 +33,9 @@ browser. Exit code 1 if any check fails or the page logs a console error.
 3. **An example, evaluated.** Pick an example (nothing plays). Cmd+Enter: it plays; the header says
    `section n/m`; gutter dots light on playing lines, a token flashes (a lamp behind it), the section bar is under
    the section's header line, one phrase light is current. Typing afterwards hides the markers (they wait for the next
-   eval) and the header says so. Esc stops. Shot `03-playing.png`.
+   eval) and the header says so. Esc stops. With the engine loaded (it loads behind the first stream), Cmd+Enter plays
+   on the engine, the header names the section again after a stop and a play, the next edit hot-reloads on the same
+   runtime (no restart), and the decks panel (the chevron) lists each deck's roles (`15-decks.png`). Shot `03-playing.png`.
 4. **Sections advance and the editor follows.** A 4-section program at 240 bpm with the second section far below
    the fold: the header goes to the second section, the editor scrolls down to it; `L` toggles follow off and on.
    Shot `04-follow.png`.
@@ -46,15 +50,18 @@ browser. Exit code 1 if any check fails or the page logs a console error.
    "unrepairable: see attempts" (with the attempts and their diagnostics), "rate limited, try again in 38 s" and "compose
    is not configured"; the MCP panel shows the session id and a created token once, with the `claude mcp add` line.
    Shots `07` to `11`.
-7. **The MCP bridge** (mock server only). The page opens a session and an event stream; a pushed `eval` (with
-   `play`) sets the text and plays; the page's report carries text, cid, playing, source and marks; a pushed `get` is
-   answered with a reply; a pushed `stop` stops.
+7. **The MCP bridge.** Mock server: the page opens a session and an event stream; a pushed `eval` (with `play`) sets
+   the text and plays; the page's report carries text, cid, playing, source and marks; a pushed `get` is answered with
+   a reply; a pushed `stop` stops. Real server: the page signs in, makes a token in its MCP panel, and JSON-RPC to
+   `/mcp` (`eval` with `play`, `get`, `stop`) drives the tab.
 8. **A phone and a failed module.** At 390 x 844 nothing overflows horizontally and the editor keeps most of the
    screen (`12-phone.png`). With `?wasm=off` the page says the module could not be loaded and stays a working plain
    editor (`13-no-wasm.png`).
 9. **Record mode.** `?record=1&clock=manual&example=hand-dubstep-140-v4` at 1920 x 1080: `window.__btw.ready`,
    `info()`; no AudioContext is made; the chrome is hidden; stepping the fake clock (`setTime`, `frame`) to the same
-   times twice gives byte-identical screenshots; `?record=1&cid=<CID>` works too. Shot `14-record-1920x1080.png`.
+   times twice gives byte-identical screenshots; bar 0 is at t = 0 (section 2 begins at 13.714 s, no bar of lag);
+   `?record=1&cid=<CID>` works too; a new generation flashes the evolve block and says `gen N`
+   (`16-evolve-flash-record.png`); `prefers-reduced-motion` is read. Shot `14-record-1920x1080.png`.
 10. **No console errors** on any page (the deliberate 4xx/5xx of the compose error cases excepted).
 
 ## What it does not cover
