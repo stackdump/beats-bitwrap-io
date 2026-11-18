@@ -191,7 +191,7 @@ type Meta struct {
 	License    string `json:"license"` // "CC0-1.0"
 	Visibility string `json:"visibility"`
 	Name       string `json:"name,omitempty"`
-	ComposedBy string `json:"composed_by,omitempty"` // "gemini-gemini-3.8-flash" is wrong: "gemini-3.8-flash"
+	ComposedBy string `json:"composed_by,omitempty"` // "gemini-<model>", e.g. "gemini-3.8-flash"
 	ForkedFrom string `json:"forked_from,omitempty"`
 	PromptSHA  string `json:"prompt_sha256,omitempty"`
 	Author     string `json:"author,omitempty"`
