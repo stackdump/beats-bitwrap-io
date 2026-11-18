@@ -50,7 +50,7 @@ export async function launch({ width = 1280, height = 800, args = [] } = {}) {
       for (const l of listeners) l(d);
     }
   };
-  const cdp = (method, params = {}) => new Promise((res, rej) => { const id = nextId++; pending.set(id, { res, rej }); ws.send(JSON.stringify({ id, method, params })); });
+  const cdp = (method, params = {}, ms = 60000) => new Promise((res, rej) => { const id = nextId++; const t = setTimeout(() => { pending.delete(id); rej(new Error(`cdp ${method} timed out after ${ms} ms`)); }, ms); pending.set(id, { res: (v) => { clearTimeout(t); res(v); }, rej: (e) => { clearTimeout(t); rej(e); } }); ws.send(JSON.stringify({ id, method, params })); });
   listeners.push((d) => {
     if (d.method === 'Runtime.consoleAPICalled') logs.push({ type: d.params.type, text: d.params.args.map((a) => a.value ?? a.description ?? '').join(' ') });
     if (d.method === 'Runtime.exceptionThrown') logs.push({ type: 'exception', text: d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text });

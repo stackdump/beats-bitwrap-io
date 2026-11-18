@@ -325,7 +325,7 @@ export class Editor {
       return;
     }
     const er = this.root.getBoundingClientRect();
-    this.tip.replaceChildren(h('strong', {}, `${d.line}:${d.col} ${d.severity || 'error'}`), h('span', {}, ` ${d.message}`), ...(d.help ? [h('em', {}, `did you mean: ${d.help}`)] : []));
+    this.tip.replaceChildren(h('strong', {}, `${d.line}:${d.col} ${d.severity || 'error'}`), h('span', {}, ` ${d.message}`), ...(d.help ? [h('em', {}, /^did you mean/i.test(d.help) ? d.help : `did you mean: ${d.help}`)] : []));
     this.tip.hidden = false;
     const x = Math.min(Math.max(8, e.clientX - er.left + 12), Math.max(8, er.width - this.tip.offsetWidth - 8));
     this.tip.style.left = `${x}px`;

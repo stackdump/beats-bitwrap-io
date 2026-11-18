@@ -27,7 +27,6 @@
     <label class="pick"><span class="sr">Examples</span>
       <select id="examples" aria-label="Examples"><option value="">examples</option></select>
     </label>
-    <span class="prog-name" id="prog-name" title="program name"></span>
     <span class="spacer"></span>
     <button type="button" class="tb" id="btn-fmt" title="Format: the canonical text"><span class="gl-ic" aria-hidden="true">{ }</span><span class="lbl">fmt</span></button>
     <button type="button" class="tb" id="btn-share" title="Share: a link that seals its own text"><span class="gl-ic" aria-hidden="true">↗</span><span class="lbl">share</span></button>
@@ -38,6 +37,7 @@
   </header>
 
   <div class="hdr" id="hdr" role="status" aria-live="off">
+    <span class="h-name" id="h-name" title="program name"></span>
     <span class="h-sec" id="h-sec"><span class="h-arrow" aria-hidden="true">▸</span> <span id="h-sec-txt">not playing</span></span>
     <span class="h-bar" id="h-bar" hidden></span>
     <span class="h-phrase" id="h-phrase" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
@@ -70,9 +70,9 @@
       <svg class="ic-stop" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>
     </button>
     <span class="t-hint" id="t-hint"><kbd>⌘</kbd><kbd>↵</kbd> eval <kbd>Esc</kbd> stop</span>
-    <div class="seg" id="t-source" role="radiogroup" aria-label="Sound source">
-      <button type="button" role="radio" aria-checked="false" data-src="engine" id="src-engine" title="Live engine in this page: edits land on the next bar">engine</button>
-      <button type="button" role="radio" aria-checked="false" data-src="stream" id="src-stream" title="The server's render, streamed">stream</button>
+    <div class="seg" id="t-source" role="group" aria-label="Sound source">
+      <button type="button" aria-pressed="false" data-src="engine" id="src-engine" title="Live engine in this page: edits land on the next bar">engine</button>
+      <button type="button" aria-pressed="false" data-src="stream" id="src-stream" title="The server's render, streamed">stream</button>
     </div>
     <span class="t-status" id="t-status" role="status"></span>
     <span class="spacer"></span>

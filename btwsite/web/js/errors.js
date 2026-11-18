@@ -30,7 +30,7 @@ export function diagDetails(d) {
   const out = [];
   if (d.expected && d.expected.length) out.push(`expected: ${d.expected.join(', ')}`);
   if (d.found) out.push(`found: ${d.found}`);
-  if (d.help) out.push(`did you mean: ${d.help}`);
+  if (d.help) out.push(/^did you mean/i.test(d.help) ? d.help : `did you mean: ${d.help}`);
   return out;
 }
 

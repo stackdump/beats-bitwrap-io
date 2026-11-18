@@ -129,10 +129,10 @@ export class Panels {
     const key = h('input', { type: 'text', id: 'c-key', placeholder: 'key, e.g. am' });
     const len = h('select', { id: 'c-len' }, ...['', 'short', 'medium', 'long'].map((v) => h('option', { value: v }, v || 'any length')));
     this.fork = h('input', { type: 'checkbox', id: 'c-fork' });
-    this.forkLabel = h('label', { class: 'row', style: 'flex-direction:row;align-items:center;gap:8px' }, this.fork, h('span', {}, 'fork the current program'));
+    this.forkLabel = h('label', { class: 'check' }, this.fork, h('span', {}, 'fork the current program'));
     const status = h('div', { role: 'status' });
     const go = h('button', { type: 'button', class: 'tb primary' }, 'Compose');
-    const fs = h('fieldset', { style: 'border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:12px', disabled: disabledAll },
+    const fs = h('fieldset', { class: 'plain', disabled: disabledAll },
       h('label', {}, 'Prompt', prompt),
       h('div', { class: 'row' }, h('label', {}, 'Genre', genre, dl), h('label', {}, 'BPM', bpm)),
       h('div', { class: 'row' }, h('label', {}, 'Key', key), h('label', {}, 'Length', len)),
@@ -156,7 +156,9 @@ export class Panels {
         const r = await app.api.compose(req, this.abort.signal);
         const attempts = r.attempts || [];
         app.stored.add(r.cid);
-        app.setProgram(r.program || r.text, { name: req.prompt.slice(0, 48), cid: r.cid });
+        // the text as the model wrote it keeps its comments; they are not in the CID, so it checks to the same one
+        app.setProgram(r.text || r.program, { name: req.prompt.slice(0, 48), cid: r.cid });
+        if (r.program && (!app.report || app.report.cid !== r.cid)) app.setProgram(r.program, { name: req.prompt.slice(0, 48), cid: r.cid });
         status.replaceChildren(h('div', { class: 'okbox' },
           h('div', {}, h('b', {}, 'Composed. '), `${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`, r.cost_usd != null ? ` · $${Number(r.cost_usd).toFixed(4)}` : '', ` · ${r.composedBy || r.model || ''}`),
           h('div', { class: 'note' }, 'CID ', h('code', {}, shortCid(r.cid, 8, 8)), ` · ${r.license || 'CC0-1.0'}${r.forkedFrom ? ` · forked from ${shortCid(r.forkedFrom)}` : ''}`),
@@ -215,7 +217,7 @@ export class Panels {
     if (!app.user) out.push(h('p', { class: 'note warn' }, 'Sign in to make a token (the write tools, eval, load and compose, need one).'), h('button', { type: 'button', class: 'tb', onclick: () => app.panel('user') }, 'Sign in'));
     else out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.revokeTokens(); app.toast('All your MCP tokens are revoked.', 'ok'); } catch (e) { app.showError(e); } } }, 'Revoke all my tokens'));
     out.push(result);
-    out.push(h('p', { class: 'note' }, 'Read-only tools (check, fmt, share, open, instruments, list_examples) need no token. Docs for assistants: ', h('a', { href: '/llms.txt', style: 'color:var(--link)' }, '/llms.txt'), '.'));
+    out.push(h('p', { class: 'note' }, 'Read-only tools (check, fmt, share, open, instruments, list_examples) need no token. Docs for assistants: ', h('a', { href: '/llms.txt', class: 'link' }, '/llms.txt'), '.'));
     return out;
   }
 
@@ -258,7 +260,7 @@ export class Panels {
       return r;
     };
     const notes = h('input', { type: 'checkbox', id: 'sh-notes' });
-    const rows = h('div', { style: 'display:flex;flex-direction:column;gap:8px' });
+    const rows = h('div', { class: 'stack' });
     const paint = () => {
       let r;
       try { r = build(notes.checked); } catch (e) { rows.replaceChildren(h('div', { class: 'err' }, describeError(e).title)); return; }
@@ -274,8 +276,8 @@ export class Panels {
     paint();
     notes.addEventListener('change', paint);
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
-      rows, h('label', { class: 'row', style: 'flex-direction:row;align-items:center;gap:8px;color:var(--dim);font-size:12.5px' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
-      h('div', { class: 'row', style: 'display:flex;gap:8px' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
+      rows, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);
     box.querySelector('input').focus({ preventScroll: true });

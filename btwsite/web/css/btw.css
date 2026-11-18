@@ -63,7 +63,7 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
   linear-gradient(var(--line), var(--line)) 8px 13px / 8px 2px no-repeat,
   var(--stage); box-shadow: inset 0 0 0 1px var(--line); }
 .pick select { background: var(--stage); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; color: var(--ink); max-width: 190px; }
-.prog-name { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 34vw; }
+.h-name { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 24vw; padding-right: 14px; border-right: 1px solid var(--line-2); }
 .tb { display: inline-flex; align-items: center; gap: 6px; background: var(--btn); border: 1px solid transparent; border-radius: 4px; padding: 6px 10px; line-height: 1; white-space: nowrap; }
 .tb:hover:not(:disabled) { background: var(--btn-hover); }
 .tb:disabled { opacity: .45; cursor: default; }
@@ -183,7 +183,7 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .seg button { background: transparent; border: 0; padding: 5px 11px; font-size: 12.5px; color: var(--dim); }
 .seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-checked="true"] { background: var(--btn); color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--btn); color: var(--ink); }
 .seg button:disabled { opacity: .4; cursor: default; }
 .t-status { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .t-status.busy::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; border: 2px solid var(--amber-2); border-right-color: transparent; vertical-align: -1px; animation: spin 0.9s linear infinite; }
@@ -220,9 +220,16 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
 .toast pre { margin: 6px 0 0; font: 12px/1.45 var(--mono); white-space: pre-wrap; color: var(--dim); }
 .noscript { padding: 20px; }
 
+.drawer fieldset.plain { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.drawer .check, .pop .check { flex-direction: row; align-items: center; gap: 8px; display: flex; }
+.pop .check.dim { color: var(--dim); font-size: 12.5px; }
+.pop .stack { display: flex; flex-direction: column; gap: 8px; }
+.pop .btnrow { display: flex; gap: 8px; }
+.link { color: var(--link); }
+
 /* ---- narrow screens: the editor first, the toolbars collapse ----------------------------------------------- */
 @media (max-width: 760px) {
-  .lbl, .t-hint, .prog-name, .t-time { display: none; }
+  .lbl, .t-hint, .h-name, .t-time, #btn-follow kbd { display: none; }
   .top { gap: 6px; padding: 0 8px; }
   .brand-name { display: none; }
   .pick select { max-width: 120px; }

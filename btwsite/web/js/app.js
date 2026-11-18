@@ -80,7 +80,7 @@ export class App {
     });
     this.painter = new MarkerPainter(this.editor);
     this.wire();
-    this.setProgram(STARTER, { name: 'starter', quiet: true });
+    this.setProgram(STARTER, { name: 'starter', quiet: true, keepHash: true });
     this.renderHeader(null, true);
     this.updateTransport();
 
@@ -94,7 +94,7 @@ export class App {
   }
 
   dom() {
-    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'btn-play', 'btn-decks', 't-source', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'prog-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint'];
+    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'btn-play', 'btn-decks', 't-source', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint'];
     this.el = {};
     for (const id of ids) this.el[id] = $(id);
     this.lights = [...this.el['h-phrase'].children];
@@ -168,6 +168,7 @@ export class App {
 
   async loadWasm() {
     try {
+      if (this.q.get('wasm') === 'off') throw new Error('the module is switched off by ?wasm=off');
       this.btw = await loadBtw({ mock: this.mock });
       this.driver = new Driver(this.btw);
       this.editor.setHighlighter((t) => this.btw.highlight(t));
@@ -233,8 +234,11 @@ export class App {
   }
 
   /** Put `text` in the editor. It does not play: sound waits for an eval. */
-  setProgram(text, { name, cid, quiet } = {}) {
+  setProgram(text, { name, cid, quiet, keepHash, example } = {}) {
+    // a link in the address bar names the program that was opened or shared, not the one loaded now
+    if (!keepHash && location.hash.length > 1) history.replaceState(null, '', location.pathname + location.search);
     this.editor.setText(text);
+    if (!example) this.el.examples.value = '';
     this.editor.scroller.scrollTop = 0;
     this.follow.reset();
     this.name = name || '';
@@ -246,8 +250,7 @@ export class App {
 
   updateName() {
     const n = this.name && this.name !== 'starter' ? this.name : programName(this.editor.text, this.cid);
-    const ex = this.el.examples.selectedOptions[0];
-    this.el['prog-name'].textContent = ex && ex.value && ex.textContent === n ? '' : n;
+    this.el['h-name'].textContent = n;
     this.progName = n;
     document.title = this.name && this.name !== 'starter' ? `${n} · btw` : 'btw, the bitwrap language';
   }
@@ -256,7 +259,7 @@ export class App {
     if (!name) return;
     const text = await this.api.exampleText(name);
     const ex = this.examples.find((e) => e.name === name);
-    this.setProgram(String(text), { name: (ex && ex.title) || name, cid: ex && ex.cid, quiet });
+    this.setProgram(String(text), { name: (ex && ex.title) || name, cid: ex && ex.cid, quiet, example: true });
     this.el.examples.value = name;
     if (play) await this.play('load');
   }
@@ -288,7 +291,7 @@ export class App {
     try {
       if (CID_RE.test(s)) {
         const p = await this.api.getProgram(s);
-        this.setProgram(p.text, { name: (p.meta && p.meta.name) || '', cid: s });
+        this.setProgram(p.text, { name: (p.meta && p.meta.name) || '', cid: s, keepHash: true });
         if (!this.report.ok || this.report.cid !== s) {
           this.banner({ kind: 'error', text: `Refused: the server's program for ${shortCid(s)} hashes to ${shortCid(this.report.cid || 'nothing')}. Not loaded.` });
           return;
@@ -299,10 +302,10 @@ export class App {
       if (!this.btw) throw new Error('the module is not loaded, so a link cannot be opened');
       const r = this.btw.open(s);
       if (!r.ok || !r.verified) {
-        this.banner({ kind: 'error', text: `Refused: ${r.error || 'the link does not match its own CID'}.` + (r.cid ? ` (${shortCid(r.cid)})` : '') });
+        this.banner({ kind: 'error', text: `Refused: ${String(r.error || 'the link does not match its own CID').replace(/^refused:\s*/i, '')}.` });
         return;
       }
-      this.setProgram(r.canonical, { cid: r.cid });
+      this.setProgram(r.canonical, { cid: r.cid, keepHash: true });
       this.openedBanner(r.cid, 'link verified: its text hashes to its CID', r.warnings);
     } catch (e) {
       this.showError(e);
@@ -460,6 +463,7 @@ export class App {
     this.busy = true;
     try {
       this.ensureAudio();
+      this.watchAudio();
       const text = this.editor.text;
       const report = this.runCheckNow();
       if (!report || !report.ok) {
@@ -479,6 +483,15 @@ export class App {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** The browser keeps an AudioContext silent until a click or key. When it is still suspended after a play, say so. */
+  watchAudio() {
+    if (this.manual || !this.ctx || this.ctx.state === 'running') return;
+    setTimeout(() => {
+      if (!this.ctx || this.ctx.state === 'running' || !this.isPlaying()) return;
+      this.banner({ kind: 'info', html: [h('span', { class: 'grow' }, 'The browser is holding the sound until you interact with the page.')], actions: [{ label: 'Enable sound', primary: true, run: () => { this.ctx.resume().then(() => this.banner(null)); } }] });
+    }, 600);
   }
 
   async playEngine(text, report) {
@@ -607,16 +620,18 @@ export class App {
   }
 
   afterFrame(f, head) {
-    if (head.ended && !this._ended && this.driver.src) {
+    // the song ended, or the streamed render ran out of audio and nothing more is coming
+    const over = head.ended || (this.player && this.player.state === 'ended');
+    if (over && !this._ended && this.driver.src) {
       this._ended = true;
       setTimeout(() => this.songEnded(), 1500);
-    } else if (!head.ended) this._ended = false;
+    } else if (!over) this._ended = false;
     this.emit('frame', f);
   }
 
   songEnded() {
     if (this.driver && this.driver.src && !this.record) {
-      this.toast('The song ended.', 'info');
+      this.toast(this.player ? 'The render ended.' : 'The song ended.', 'info');
       this.stop();
     }
   }
@@ -637,7 +652,7 @@ export class App {
     }
     const secTxt = hm.section
       ? `section ${hm.secN != null ? `${hm.secN}/${hm.secM}` : ''}`.replace(/\s+$/, '') + ` · ${hm.section}`
-      : rep && rep.arranged ? 'song' : 'loop';
+      : rep && rep.loops ? 'loop' : 'playing';
     if (this._last.sec !== secTxt) {
       this._last.sec = secTxt;
       const [pre, name] = hm.section ? [`section ${hm.secN != null ? `${hm.secN}/${hm.secM}` : ''}`.replace(/\s+$/, ''), hm.section] : [secTxt, ''];
@@ -738,8 +753,8 @@ export class App {
     const kind = playing ? this.driver.kind : this.sourcePref === 'auto' ? (this.engineSrc ? 'engine' : 'stream') : this.sourcePref;
     const be = el['src-engine'];
     const bs = el['src-stream'];
-    be.setAttribute('aria-checked', String(kind === 'engine'));
-    bs.setAttribute('aria-checked', String(kind === 'stream'));
+    be.setAttribute('aria-pressed', String(kind === 'engine'));
+    bs.setAttribute('aria-pressed', String(kind === 'stream'));
     be.disabled = eng === 'failed';
     be.title = eng === 'failed' ? `The engine did not load: ${this.engineError}` : eng === 'ready' ? 'Live engine in this page: edits land on the next bar' : 'The engine loads when you first press play';
     bs.disabled = this.serverOk === false;
