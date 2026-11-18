@@ -300,8 +300,17 @@ func (s *Server) storedText(cid string) (text, source string, ok bool) {
 
 // ---------- the tools ----------
 
+// hints sets all four MCP annotations (mcp-go's defaults claim destructive and open-world for every tool).
+func hints(readOnly, destructive, idempotent, openWorld bool) mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		t.Annotations.ReadOnlyHint = &readOnly
+		t.Annotations.DestructiveHint = &destructive
+		t.Annotations.IdempotentHint = &idempotent
+		t.Annotations.OpenWorldHint = &openWorld
+	}
+}
+
 func (s *Server) addTools() {
-	ro := mcp.WithReadOnlyHintAnnotation(true)
 	noExtra := mcp.WithSchemaAdditionalProperties(false)
 	maxProg := s.opt.MaxProgramBytes
 	sessionArg := mcp.WithString("session",
@@ -312,7 +321,7 @@ func (s *Server) addTools() {
 	s.add(mcp.NewTool("compose",
 		mcp.WithDescription(s.composeDesc()), noExtra,
 		mcp.WithTitleAnnotation("Compose a program from a prompt"),
-		mcp.WithOpenWorldHintAnnotation(true),
+		hints(false, false, false, true), // calls a model, stores a new program
 		mcp.WithString("prompt", mcp.Required(), mcp.MaxLength(s.opt.MaxPromptChars),
 			mcp.Description(fmt.Sprintf("What to write, in plain words: mood, genre, instruments, structure, e.g. \"dark techno at 128 with an acid line and a long breakdown\". At most %d characters.", s.opt.MaxPromptChars))),
 		mcp.WithString("genre", mcp.MaxLength(40), mcp.Description("Optional genre hint, e.g. dubstep, trance, techno, ambient.")),
@@ -323,27 +332,27 @@ func (s *Server) addTools() {
 	), s.compose)
 
 	s.add(mcp.NewTool("check",
-		mcp.WithDescription(s.checkDesc()), noExtra, ro,
+		mcp.WithDescription(s.checkDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Check a btw program"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description(fmt.Sprintf("The program text (at most %d bytes). Comments and blank lines are fine.", maxProg))),
 	), s.check)
 
 	s.add(mcp.NewTool("fmt",
-		mcp.WithDescription(s.fmtDesc()), noExtra, ro,
+		mcp.WithDescription(s.fmtDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Format a btw program"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text.")),
 	), s.fmtTool)
 
 	s.add(mcp.NewTool("eval",
 		mcp.WithDescription(s.evalDesc()), noExtra,
-		mcp.WithTitleAnnotation("Play a program in a browser tab"),
+		mcp.WithTitleAnnotation("Play a program in a browser tab"), hints(false, true, true, false), // replaces the editor's text
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check.")),
 		playArg, sessionArg,
 	), s.eval)
 
 	s.add(mcp.NewTool("load",
 		mcp.WithDescription(s.loadDesc()), noExtra,
-		mcp.WithTitleAnnotation("Load a stored program into a browser tab"),
+		mcp.WithTitleAnnotation("Load a stored program into a browser tab"), hints(false, true, true, false),
 		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (compose and render store theirs) or of an example.")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
 		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: https://btw.bitwrap.io/#<CID>.<packed>, a /c/ link, or a beats.bitwrap.io/p# link.")),
@@ -351,26 +360,26 @@ func (s *Server) addTools() {
 	), s.load)
 
 	s.add(mcp.NewTool("get",
-		mcp.WithDescription(s.getDesc()), noExtra, ro,
+		mcp.WithDescription(s.getDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("What a browser tab is playing"),
 		sessionArg,
 	), s.get)
 
 	s.add(mcp.NewTool("share",
-		mcp.WithDescription(s.shareDesc()), noExtra, ro,
+		mcp.WithDescription(s.shareDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Make a share link"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check.")),
 	), s.share)
 
 	s.add(mcp.NewTool("open",
-		mcp.WithDescription(s.openDesc()), noExtra, ro,
+		mcp.WithDescription(s.openDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Open a share link"),
 		mcp.WithString("url", mcp.Required(), mcp.MaxLength(32768), mcp.Description("A share link, a #fragment, <CID>.<packed>, or a bare CID.")),
 	), s.open)
 
 	s.add(mcp.NewTool("render",
 		mcp.WithDescription(s.renderDesc()), noExtra,
-		mcp.WithTitleAnnotation("Render a program to streaming audio"),
+		mcp.WithTitleAnnotation("Render a program to streaming audio"), hints(false, false, true, false), // stores a CC0 program, content-addressed
 		mcp.WithString("text", mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check; it is stored publicly (CC0-1.0).")),
 		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid compose returned).")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
@@ -378,19 +387,19 @@ func (s *Server) addTools() {
 	), s.renderTool)
 
 	s.add(mcp.NewTool("list_examples",
-		mcp.WithDescription(s.examplesDesc()), noExtra, ro,
+		mcp.WithDescription(s.examplesDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("The example programs"),
 		mcp.WithString("name", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Optional: also return this example's full text.")),
 	), s.listExamples)
 
 	s.add(mcp.NewTool("instruments",
-		mcp.WithDescription(s.instrumentsDesc()), noExtra, ro,
+		mcp.WithDescription(s.instrumentsDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Voices, kits and palettes"),
 	), s.instruments)
 
 	s.add(mcp.NewTool("stop",
 		mcp.WithDescription(s.stopDesc()), noExtra,
-		mcp.WithTitleAnnotation("Stop a browser tab"),
+		mcp.WithTitleAnnotation("Stop a browser tab"), hints(false, false, true, false),
 		sessionArg,
 	), s.stop)
 }

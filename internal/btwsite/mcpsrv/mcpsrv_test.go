@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -768,5 +770,38 @@ func TestInstrumentsAreCached(t *testing.T) {
 	now = now.Add(6 * time.Minute) // past the TTL: still answers
 	if e.call("", "instruments", nil).IsError {
 		t.Fatal("instruments failed after the TTL")
+	}
+}
+
+// The whole tools/list answer (names, descriptions, input schemas) is kept in testdata/mcp/tools-list.json so a
+// change to what a model sees shows up in review. UPDATE_GOLDEN=1 go test ./internal/btwsite/mcpsrv rewrites it.
+func TestToolsListGolden(t *testing.T) {
+	e := newEnv(t)
+	m := e.rpc("", "tools/list", map[string]any{}, nil)
+	var res struct {
+		Tools []map[string]any `json:"tools"`
+	}
+	if err := json.Unmarshal(m.Result, &res); err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(res.Tools, func(i, j int) bool { return res.Tools[i]["name"].(string) < res.Tools[j]["name"].(string) })
+	got, err := json.MarshalIndent(map[string]any{"tools": res.Tools}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	path := filepath.Join("..", "..", "..", "btwsite", "testdata", "mcp", "tools-list.json")
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v (UPDATE_GOLDEN=1 creates it)", err)
+	}
+	if string(want) != string(got) {
+		t.Fatalf("tools/list differs from %s; review the change and run with UPDATE_GOLDEN=1", path)
 	}
 }
