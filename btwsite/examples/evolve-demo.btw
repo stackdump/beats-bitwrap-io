@@ -1,0 +1,16 @@
+#! btw 1
+#! name: evolve-demo
+#! license: CC0-1.0
+#! visibility: public
+# evolve-demo: a program that changes itself. Every 4 bars the next generation is made from the one
+# before: the melody rotates and climbs, the hi-hat loses some hits. It stops at generation 7, so it
+# is finite, and check reports the tail and the period.
+tempo 118
+key dm
+deck A: kick x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ | hihat x*8 vel=50..80
+deck B: melody d4 ~ f4 ~ a4 ~ f4 ~ d5 ~ a4 ~ f4 ~ ~ ~ inst=pwm-lead | harmony chord(dm7) inst=warm-pad
+evolve every 4 bars {
+  melody: rotate <0 2 4> | transpose <0 3 7 5>
+  hihat: thin 0.15 seed=3
+  stop when gen == 7
+}

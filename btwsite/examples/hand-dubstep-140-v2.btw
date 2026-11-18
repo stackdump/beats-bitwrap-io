@@ -1,0 +1,57 @@
+#! btw 1
+#! name: hand-dubstep-140-v2
+#! license: CC0-1.0
+#! visibility: public
+tempo 140
+key fm
+let kicks = x ~ ~ ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~
+let snares = ~ ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ ~
+let hats = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ x x ~
+let wob_a = f1 ~ ~ f1 ~ ~ g#1 ~ f1 ~ ~ ~ d#1 ~ c1 ~
+let wob_b = f1 ~ f1 ~ ~ ~ c#1 ~ ~ ~ c1 ~ d#1 ~ d#1 ~
+let lead_a = ~ ~ c4 ~ g#3 ~ ~ ~ f3 ~ ~ g3 ~ g#3 ~ ~
+let lead_b = ~ ~ c4 ~ d#4 ~ ~ ~ c#4 ~ c4 ~ g#3 ~ ~ ~
+let changes = <chord(fm) chord(fm) chord(c#) chord(c#) chord(g#) chord(g#) chord(d#) chord(d#)>
+def groove(deck, bars) {
+  deck $deck: kick kicks | snare snares | hihat hats | bass <wob_a wob_b> inst=wobble-lead
+  repeat $bars every 1 bars {
+    master: filter lp 300 -> 2800 over 1 bars
+  }
+}
+section intro 8 bars {
+  deck A: kick kicks | hihat hats vel=50..80
+  deck B: harmony changes inst=warm-pad
+  master: filter lp 400 -> 6000 over 8 bars
+}
+section build 8 bars {
+  deck A: kick kicks | snare snares | hihat x*8 vel=50..100
+  deck B: harmony changes inst=warm-pad | melody <lead_a lead_b> inst=pwm-lead
+  master: filter hp 100 -> 5000 over 8 bars
+  master: reverb 0.1 -> 0.5 over 8 bars
+  before drop 4 bars: move loop_roll on A over 4 bars
+}
+section drop 16 bars {
+  master: filter off
+  master: reverb 0.15
+  groove(A, 16)
+  deck B: melody <lead_a lead_b> inst=pwm-lead | harmony changes inst=warm-pad
+}
+section breakdown 8 bars {
+  deck A: hihat x ~ x ~ vel=40..60
+  deck B: harmony changes inst=warm-pad | melody <lead_a lead_b> inst=pwm-lead
+  master: filter lp 6000 -> 1200 over 8 bars
+  master: reverb 0.45
+}
+section drop2 16 bars {
+  master: filter off
+  master: reverb 0.15
+  groove(A, 16)
+  deck B: melody <lead_b lead_a> inst=pwm-lead | harmony changes inst=warm-pad
+}
+section outro 8 bars {
+  deck A: kick kicks | hihat hats vel=40..70
+  deck B: harmony changes inst=warm-pad
+  master: filter lp 8000 -> 500 over 8 bars
+}
+arrange intro build drop breakdown drop2 outro
+end after outro

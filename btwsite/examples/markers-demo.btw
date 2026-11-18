@@ -1,0 +1,30 @@
+#! btw 1
+#! name: markers-demo
+#! license: CC0-1.0
+#! visibility: public
+tempo 124
+key am
+let kk = x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~
+let hh = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~
+let riff = a2 ~ a2 a2 ~ c3 ~ a2 e2 ~ e2 g2 ~ e2 ~ e2
+let lead = <[e5 ~ ~ ~ d5 ~ c5 ~ ~ ~ ~ ~ a4 ~ ~ ~] [~ ~ ~ ~ a4 ~ ~ ~ c5 ~ ~ ~ e5 ~ ~ ~]>
+def groove(deck, bars) {
+  deck $deck: kick kk | hihat hh vel=70..95 | bass riff inst=wobble-lead
+  repeat $bars every 1 bars {
+    master: filter lp 300 -> 2800 over 1 bars
+  }
+}
+section build 8 bars {
+  deck A: kick kk | hihat hh
+  master: filter hp 100 -> 5000 over 8 bars
+}
+section drop 16 bars {
+  groove(A, 16)
+  deck B: melody lead inst=pwm-lead
+  evolve every 4 bars {
+    melody: rotate 2 | transpose <0 5 7 0>
+    stop when gen == 3
+  }
+  at bar 2: master: reverb 0.3
+}
+arrange build drop

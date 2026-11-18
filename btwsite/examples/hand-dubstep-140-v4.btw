@@ -1,0 +1,134 @@
+#! btw 1
+#! name: hand-dubstep-140-v4
+#! license: CC0-1.0
+#! visibility: public
+#! forked-from: z4EBG9jExZJgAUPbCsG48G2PuevB6F3oCMBc8zhrv6rLtyywbrL
+tempo 140
+key fm
+let kicks = x ~ ~ ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~
+let snares = ~ ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ ~
+let hats = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ x x ~
+let wob_a = f1! ~ ~ f1 ~ ~ g#1^ ~ f1 ~ ~ ~ d#1 ~ c1 ~
+let wob_b = f1! ~ f1 ~ ~ ~ c#1^ ~ ~ ~ c1 ~ d#1 ~ d#1 ~
+let lead_a = ~ ~ c4 ~ g#3 ~ ~ ~ f3 ~ ~ g3 ~ g#3 ~ ~
+let lead_b = ~ ~ c4 ~ d#4 ~ ~ ~ c#4 ~ c4 ~ g#3 ~ ~ ~
+let changes = <chord(fm) chord(fm) chord(c#) chord(c#) chord(g#) chord(g#) chord(d#) chord(d#)>
+def groove(deck, bars) {
+  deck $deck: kick kicks | snare snares | hihat humanize(hats, 5) vel=70..100
+}
+def wub(rate, bars) {
+  deck A: bass every(4, rotate(wob_a, 1), [<wob_a wob_b>]) inst=wobble-lead
+  repeat $bars every $rate bars {
+    master: filter lp 300 -> 2800 over $rate bars
+  }
+}
+def riser(bars, into) {
+  deck A: snare <x*2 x*4 x*8 x*16>
+  master: filter hp 100 -> 5000 over $bars bars
+  master: reverb 0.1 -> 0.5 over $bars bars
+  before $into 4 bars: move loop_roll on A over 4 bars
+}
+def callresp(bars) {
+  deck A: bass <wob_a ~ wob_b ~> inst=wobble-lead
+  deck B: melody octave([<~ lead_b ~ lead_a>], 1) inst=pwm-lead | harmony changes inst=warm-pad
+  repeat $bars every 2 bars {
+    master: filter lp 300 -> 2800 over 1 bars
+  }
+}
+section intro 8 bars {
+  deck A: kick kicks | hihat hats vel=50..80
+  deck B: harmony changes inst=warm-pad vel=95..115
+  master: filter lp 400 -> 6000 over 8 bars
+  deck A: level 0.4
+  deck B: level 1
+  at bar 1: wheel load preset=cmaj7-hoop
+  at bar 3: wheel key root=F
+  at bar 4: wheel sequence notes="C5 Ab4 F4 G4 Ab4 G4 F4 C5"
+  at bar 5: wheel motor on=true speed=1.05
+  at bar 6: wheel level db=10
+}
+section build 8 bars {
+  deck A: kick kicks | hihat x*8 vel=50..100
+  deck B: harmony changes inst=warm-pad vel=80..100 | melody <lead_a lead_b> inst=pwm-lead
+  deck A: level 0.9
+  deck B: level 0.9
+  riser(8, drop)
+}
+section drop 16 bars {
+  master: filter off
+  master: reverb 0.15
+  groove(A, 16)
+  wub(1, 16)
+  deck B: melody <lead_a lead_b> inst=pwm-lead | harmony changes inst=warm-pad
+}
+section breakdown 8 bars {
+  deck A: kick x ~ ~ ~ vel=70..80 | hihat degrade([x*8], 0.4, 7) vel=75..105
+  deck B: harmony changes inst=warm-pad | melody reverse([<lead_a lead_b>]) inst=pwm-lead
+  master: filter lp 6000 -> 1200 over 8 bars
+  master: reverb 0.45
+  deck B: level 0.3
+  wheel play
+}
+section build2 4 bars {
+  deck A: kick kicks | hihat x*8 vel=60..100
+  deck B: harmony changes inst=warm-pad | melody slow(lead_a, 2) inst=pwm-lead
+  deck A: level 0.65
+  deck B: level 1
+  wheel pause
+  riser(4, drop2)
+}
+section drop2 8 bars {
+  master: filter off
+  master: reverb 0.15
+  deck A: level 0.6
+  deck B: level 1
+  groove(A, 8)
+  callresp(8)
+  deck A: filter lp 12000
+  deck A: resonance 0.2 -> 0.4 over 8 bars
+  repeat 4 every 2 bars {
+    wheel play
+    at bar 1: wheel pause
+  }
+}
+section halftime 4 bars {
+  master: filter off
+  master: reverb 0.3
+  deck A: level 0.3
+  deck A: kick slow(kicks, 2) | snare slow(snares, 2) | hihat humanize(hats, 5) vel=70..100
+  deck A: bass transpose([slow([<wob_a wob_b>], 2)], 1) inst=wobble-lead
+  deck B: melody transpose([octave([<lead_b lead_a>], 1)], 1) inst=pwm-lead | harmony transpose([changes], 1) inst=warm-pad
+  repeat 4 every 1 bars {
+    master: filter lp 300 -> 1400 over 1 bars
+  }
+  deck A: resonance 0.4 -> 0.55 over 4 bars
+  wheel key transpose=1
+  wheel play
+}
+section slam 4 bars {
+  master: filter off
+  master: reverb 0.15
+  deck A: level 0.7
+  groove(A, 4)
+  deck A: bass transpose([every(4, rotate(wob_a, 1), [<wob_a wob_b>])], 1) inst=wobble-lead
+  deck B: melody transpose([octave([<lead_b lead_a>], 1)], 1) inst=pwm-lead | harmony transpose([changes], 1) inst=warm-pad
+  repeat 4 every 1 bars {
+    master: filter lp 300 -> 2800 over 1 bars
+  }
+  deck A: resonance 0.55 -> 0.7 over 4 bars
+  repeat 2 every 2 bars {
+    wheel play
+    at bar 1: wheel pause
+  }
+}
+section outro 8 bars {
+  deck A: kick kicks | hihat hats vel=40..70
+  deck B: harmony changes inst=warm-pad vel=95..115
+  master: filter lp 8000 -> 500 over 8 bars
+  deck A: level 0.25
+  deck B: level 1
+  wheel key transpose=0
+  wheel pause
+}
+arrange intro build drop breakdown build2 drop2 halftime slam outro
+end after outro

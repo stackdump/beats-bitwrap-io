@@ -1,0 +1,84 @@
+#! btw 1
+#! name: trance-138
+#! license: CC0-1.0
+#! visibility: public
+# trance-138: 64 bars, said once each. The longhand (trance-138.live: every part one 64-bar
+# alternation with rest bars) and this text are two ways to write the same song.
+tempo 138
+key am
+
+# the bars
+let rst = ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+let kk = x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~
+let hh = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~
+let cl = ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~
+let r4 = kk
+let r2 = x ~ x ~ x ~ x ~ x ~ x ~ x ~ x ~
+let r1 = x x x x x x x x x x x x x x x x
+
+# eight bars of the anthem, and what plays under it: two bars to a chord, am f c g
+let ba = ~ a2 a2 a2 ~ a2 a2 a2 ~ a2 a2 a2 ~ a2 a2 a2
+let bf = ~ f2 f2 f2 ~ f2 f2 f2 ~ f2 f2 f2 ~ f2 f2 f2
+let bc = ~ c2 c2 c2 ~ c2 c2 c2 ~ c2 c2 c2 ~ c2 c2 c2
+let bg = ~ g2 g2 g2 ~ g2 g2 g2 ~ g2 g2 g2 ~ g2 g2 g2
+let aa = a4 c5 e5 a5 e5 c5 a4 c5 a4 c5 e5 a5 e5 c5 a4 c5
+let af = f4 a4 c5 f5 c5 a4 f4 a4 f4 a4 c5 f5 c5 a4 f4 a4
+let ac = c5 e5 g5 c6 g5 e5 c5 e5 c5 e5 g5 c6 g5 e5 c5 e5
+let ag = g4 b4 d5 g5 d5 b4 g4 b4 g4 b4 d5 g5 d5 b4 g4 b4
+let m1 = e5 ~ ~ ~ ~ ~ d5 ~ c5 ~ ~ ~ ~ ~ ~ ~
+let m2 = ~ ~ ~ ~ ~ ~ ~ ~ a4 ~ ~ ~ c5 ~ ~ ~
+let m3 = g5 ~ ~ ~ ~ ~ e5 ~ c5 ~ ~ ~ ~ ~ ~ ~
+let m4 = ~ ~ ~ ~ ~ ~ ~ ~ b4 ~ ~ ~ d5 ~ ~ ~
+let m5 = e5 ~ ~ ~ ~ ~ g5 ~ e5 ~ ~ ~ ~ ~ ~ ~
+let m6 = ~ ~ ~ ~ ~ ~ ~ ~ c5 ~ ~ ~ e5 ~ ~ ~
+let m7 = g5 ~ ~ ~ ~ ~ e5 ~ d5 ~ ~ ~ ~ ~ ~ ~
+let m8 = ~ ~ ~ ~ b4 ~ ~ ~ d5 ~ ~ ~ a5 ~ ~ ~
+
+# the parts, eight bars round
+let pads = <chord(am) chord(am) chord(f) chord(f) chord(c) chord(c) chord(g) chord(g)>
+let basses = <ba ba bf bf bc bc bg bg>
+let arps = <aa aa af af ac ac ag ag>
+let mels = <m1 m2 m3 m4 m5 m6 m7 m8>
+
+# the half-and-half bars of the intro (the second eight bars add the clap and the bass), and the
+# snare roll that builds the breakdown: every 4th, every 2nd, every step, then the gap before the drop
+let clap_in = <rst rst rst rst rst rst rst rst cl cl cl cl cl cl cl cl>
+let bass_in = <rst rst rst rst rst rst rst rst ba ba bf bf bc bc bg bg>
+let clap_out = <cl cl cl cl rst rst rst rst>
+let roll = <rst rst rst rst rst rst rst rst r4 r4 r2 r2 r1 r1 r1 rst>
+
+# a deck's parts, whatever bars they have in a section
+def deckA(k, h, c, s, b) {
+  deck A: kick $k vel=112 | hihat $h vel=70..95 | clap $c vel=100 | snare $s vel=80..110 | bass $b inst=sub-bass oct=2 len=1
+}
+def deckB(a, p, m) {
+  deck B: arp $a inst=bright-pluck vel=70..95 len=1 | harmony $p inst=warm-pad len=16 vel=80 | melody $m inst=detuned-saw len=8 vel=105
+}
+
+section intro 16 bars {
+  deckA(kk, hh, clap_in, rst, bass_in)
+  deckB(rst, pads, rst)
+  master: filter lp 400 -> 16k over 16 bars
+}
+
+section breakdown 16 bars {
+  deckA(rst, every(16, rst, hh), rst, roll, rst)
+  deckB(every(16, rst, arps), pads, every(16, rst, mels))
+  at bar 8: master: filter lp 16k -> 1.5k over 1 bars
+  at bar 9: master: filter lp 1.5k -> 18k over 7 bars
+}
+
+section drop 24 bars {
+  deckA(kk, hh, cl, rst, basses)
+  deckB(arps, pads, mels)
+}
+
+section outro 8 bars {
+  deckA(kk, hh, clap_out, rst, basses)
+  deckB(rst, pads, rst)
+  master: filter lp 18k -> 800 over 8 bars
+  at bar 7: move echo_out on A over 1 bars
+  at bar 7: move echo_out on B over 1 bars
+}
+
+arrange intro breakdown drop outro
