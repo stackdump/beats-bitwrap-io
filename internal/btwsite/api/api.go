@@ -1,0 +1,354 @@
+// Package api holds the types and interfaces the btw.bitwrap.io packages share, so the compose,
+// MCP, card and server packages can be written (and tested) against each other without importing
+// one another. See btwsite/DESIGN.md. Additive edits only: other packages compile against this.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+// Error is the typed error every layer returns; HTTP handlers write it as
+// {"error":{"code","message","retry_after"}} with Status, MCP turns it into a tool error.
+type Error struct {
+	Status     int    `json:"-"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	RetryAfter int    `json:"retry_after,omitempty"` // seconds
+	// Details carries structured data for the caller (e.g. the diagnostics and attempts of an
+	// unrepairable compose). It is written as "details" when set.
+	Details any `json:"details,omitempty"`
+}
+
+func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
+
+// Errf makes an *Error.
+func Errf(status int, code, format string, args ...any) *Error {
+	return &Error{Status: status, Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// WriteError writes err as the JSON error body (an *Error as itself, anything else as 500 internal).
+func WriteError(w http.ResponseWriter, err error) {
+	e, ok := err.(*Error)
+	if !ok {
+		e = &Error{Status: http.StatusInternalServerError, Code: "internal", Message: err.Error()}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if e.RetryAfter > 0 {
+		w.Header().Set("Retry-After", fmt.Sprint(e.RetryAfter))
+	}
+	w.WriteHeader(e.Status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": e})
+}
+
+// Well-known error codes.
+const (
+	CodeAuthRequired   = "auth_required"   // 401
+	CodeRateLimited    = "rate_limited"    // 429
+	CodeSpendCap       = "spend_cap"       // 503
+	CodeDisabled       = "disabled"        // 503 (kill switch)
+	CodeNotConfigured  = "not_configured"  // 503 (no model key)
+	CodeBadRequest     = "bad_request"     // 400
+	CodePromptTooLong  = "prompt_too_long" // 413
+	CodeModelError     = "model_error"     // 502
+	CodeUnrepairable   = "unrepairable"    // 422
+	CodeNotFound       = "not_found"       // 404
+	CodeRestricted     = "restricted"      // 422: the program uses private/restricted assets
+	CodeTooLarge       = "too_large"       // 413
+	CodeBusy           = "busy"            // 429: render slots all taken
+	CodeCIDMismatch    = "cid_mismatch"    // 422: a link or body whose CID is not its text's
+	CodeNoSession      = "no_session"      // 404/409: no connected browser session to drive
+	CodeBadSignature   = "bad_signature"   // 401
+	CodeChallengeStale = "challenge_stale" // 401
+)
+
+// ---------- what btwd / btwapi answer ----------
+
+// Diagnostic is one error or warning with its place.
+type Diagnostic struct {
+	Severity string   `json:"severity"` // "error" | "warning"
+	Line     int      `json:"line"`
+	Col      int      `json:"col"`
+	EndCol   int      `json:"end_col"`
+	Start    int      `json:"start"`
+	End      int      `json:"end"`
+	Message  string   `json:"message"`
+	Expected []string `json:"expected,omitempty"`
+	Found    string   `json:"found,omitempty"`
+	Help     string   `json:"help,omitempty"`
+	Render   string   `json:"render,omitempty"` // the caret form, for sending back to a model
+}
+
+// Section is one part of a song's timeline.
+type Section struct {
+	Name  string `json:"name"`
+	Start int    `json:"start"`
+	Bars  int    `json:"bars"`
+}
+
+// CheckReport is `btwd check` / `btw_check` (DESIGN.md "JSON shapes").
+type CheckReport struct {
+	OK          bool              `json:"ok"`
+	Errors      int               `json:"errors"`
+	Warnings    int               `json:"warnings"`
+	Diagnostics []Diagnostic      `json:"diagnostics"`
+	CID         string            `json:"cid"`
+	Canonical   string            `json:"canonical"`
+	Nets        map[string]string `json:"nets,omitempty"`
+	SongNets    map[string]string `json:"song_nets,omitempty"`
+	Tempo       *float64          `json:"tempo"`
+	Key         string            `json:"key,omitempty"`
+	Swing       *float64          `json:"swing"`
+	Arranged    bool              `json:"arranged"`
+	SongBars    int               `json:"song_bars"`
+	Ends        bool              `json:"ends"`
+	Loops       bool              `json:"loops"`
+	Sections    []Section         `json:"sections,omitempty"`
+	Decks       []string          `json:"decks,omitempty"`
+	Evolve      []string          `json:"evolve,omitempty"`
+	Lineage     []json.RawMessage `json:"lineage,omitempty"`
+	UsesAssets  bool              `json:"uses_assets"`
+	Restricted  bool              `json:"restricted"`
+	Seconds     *float64          `json:"seconds"`
+}
+
+// FmtReport is `btwd fmt`.
+type FmtReport struct {
+	OK          bool         `json:"ok"`
+	Canonical   string       `json:"canonical"`
+	CID         string       `json:"cid"`
+	Comments    []string     `json:"comments,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+}
+
+// OpenReport is `btwd open` (a link, a fragment or a bare CID decoded and verified).
+type OpenReport struct {
+	OK              bool     `json:"ok"`
+	CID             string   `json:"cid"`
+	Canonical       string   `json:"canonical"`
+	Verified        bool     `json:"verified"`
+	Warnings        []string `json:"warnings,omitempty"`
+	NotesUnverified []string `json:"notes_unverified,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+// ShareReport is `btwd share` (+ the site's origin).
+type ShareReport struct {
+	OK        bool     `json:"ok"`
+	URL       string   `json:"url"`        // https://btw.bitwrap.io/#<CID>.<packed>
+	SocialURL string   `json:"social_url"` // https://btw.bitwrap.io/c/<CID>.<packed>
+	BeatsURL  string   `json:"beats_url"`  // https://beats.bitwrap.io/p#<CID>.<packed>
+	CID       string   `json:"cid"`
+	Chars     int      `json:"chars"`
+	Canonical string   `json:"canonical"`
+	Warnings  []string `json:"warnings,omitempty"`
+}
+
+// Span is one highlighted range (UTF-8 byte offsets) and its class.
+type Span struct {
+	Start int
+	End   int
+	Class string
+}
+
+// Checker is the Rust side as the Go server sees it: the `btwd` subprocess (or a fake in tests).
+type Checker interface {
+	Check(ctx context.Context, text string) (*CheckReport, error)
+	Fmt(ctx context.Context, text string) (*FmtReport, error)
+	Open(ctx context.Context, urlOrCID string) (*OpenReport, error)
+	Share(ctx context.Context, text string) (*ShareReport, error)
+	Highlight(ctx context.Context, text string) ([]Span, error)
+	Instruments(ctx context.Context) (json.RawMessage, error)
+	// Cheatsheet is the compact grammar generated from BTW.md (what /docs/cheatsheet.md and the
+	// compose system prompt both use).
+	Cheatsheet(ctx context.Context) (string, error)
+}
+
+// ---------- identity ----------
+
+// User is who a request is from. A nil *User means anonymous.
+type User struct {
+	ID      string `json:"id"`      // "eip155:0xabc…" | "ed25519:<hex>"
+	Kind    string `json:"kind"`    // "eth" | "ed25519"
+	Address string `json:"address"` // 0x… | 64 hex
+	Via     string `json:"via"`     // "cookie" | "token"
+}
+
+// Authenticator resolves the caller of a request (cookie, then bearer token). (nil, nil) is anonymous;
+// an error only for a credential that is present but invalid.
+type Authenticator interface {
+	UserFrom(r *http.Request) (*User, error)
+	// UserFromToken resolves a bearer token ("btw_…"), for MCP.
+	UserFromToken(token string) *User
+}
+
+// ---------- programs ----------
+
+// Meta is what is kept beside a program: the "object" half (text + rights), not part of the CID.
+type Meta struct {
+	License    string `json:"license"` // "CC0-1.0"
+	Visibility string `json:"visibility"`
+	Name       string `json:"name,omitempty"`
+	ComposedBy string `json:"composed_by,omitempty"` // "gemini-gemini-3.8-flash" is wrong: "gemini-3.8-flash"
+	ForkedFrom string `json:"forked_from,omitempty"`
+	PromptSHA  string `json:"prompt_sha256,omitempty"`
+	Author     string `json:"author,omitempty"`
+	Created    string `json:"created,omitempty"` // RFC 3339, informational (never in a CID or a card)
+	Source     string `json:"source,omitempty"`  // "compose" | "put" | "example"
+}
+
+// Program is a stored program: canonical text, its CID and its meta.
+type Program struct {
+	CID  string `json:"cid"`
+	Text string `json:"text"` // canonical
+	Meta Meta   `json:"meta"`
+}
+
+// ProgramStore is the content-addressed store of public, unrestricted programs.
+type ProgramStore interface {
+	// Put checks text (via the Checker), refuses errors / restricted / asset-using programs, stores the
+	// canonical text under its CID and returns it. Idempotent. meta fills the object half (license defaults CC0-1.0).
+	Put(ctx context.Context, text string, meta Meta) (*Program, *CheckReport, error)
+	Get(cid string) (*Program, bool)
+}
+
+// ---------- examples ----------
+
+type Example struct {
+	Name        string  `json:"name"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	CID         string  `json:"cid"`
+	BPM         float64 `json:"bpm,omitempty"`
+	Bars        int     `json:"bars,omitempty"`
+	License     string  `json:"license"`
+}
+
+// ---------- compose ----------
+
+type ComposeRequest struct {
+	Prompt  string  `json:"prompt"`
+	Genre   string  `json:"genre,omitempty"`
+	BPM     float64 `json:"bpm,omitempty"`
+	Key     string  `json:"key,omitempty"`
+	Length  string  `json:"length,omitempty"` // short | medium | long | "<bars>"
+	BaseCID string  `json:"base_cid,omitempty"`
+}
+
+type Attempt struct {
+	N           int          `json:"n"`
+	OK          bool         `json:"ok"`
+	Errors      int          `json:"errors"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	TokensIn    int          `json:"tokens_in"`
+	TokensOut   int          `json:"tokens_out"` // candidates + thoughts
+}
+
+type Usage struct {
+	In  int `json:"in"`
+	Out int `json:"out"`
+}
+
+type ComposeResult struct {
+	Program    string       `json:"program"` // canonical text
+	Text       string       `json:"text"`    // as the model wrote it (after repair)
+	CID        string       `json:"cid"`
+	Check      *CheckReport `json:"check"`
+	Attempts   []Attempt    `json:"attempts"`
+	Model      string       `json:"model"`
+	ForkedFrom string       `json:"forkedFrom"`
+	License    string       `json:"license"`
+	ComposedBy string       `json:"composedBy"`
+	Header     []string     `json:"header"`
+	RenderURL  string       `json:"render_url"`
+	ShareURL   string       `json:"share_url"`
+	CostUSD    float64      `json:"cost_usd"`
+	Usage      Usage        `json:"usage"`
+}
+
+// Composer is implemented by the compose package. It enforces auth-agnostic rules itself (limits,
+// kill switch, spend cap, size caps); the HTTP layer and MCP check authentication first and pass the user.
+// u must be non-nil: a nil user returns CodeAuthRequired.
+type Composer interface {
+	Compose(ctx context.Context, u *User, ip string, req ComposeRequest) (*ComposeResult, error)
+	// Status is what /api/info reports about compose.
+	Status() ComposeStatus
+}
+
+type ComposeStatus struct {
+	Enabled     bool    `json:"enabled"`
+	Configured  bool    `json:"configured"`
+	Model       string  `json:"model"`
+	UserHour    int     `json:"user_per_hour"`
+	UserDay     int     `json:"user_per_day"`
+	IPDay       int     `json:"ip_per_day"`
+	SpentUSD    float64 `json:"spent_today_usd"`
+	DailyCapUSD float64 `json:"daily_cap_usd"`
+	Reason      string  `json:"reason,omitempty"` // why not enabled/configured, in words
+}
+
+// ---------- sessions (the browser <-> MCP bridge) ----------
+
+// SessionEvent is pushed to a browser over SSE. Type: eval | load | stop | get | ping.
+type SessionEvent struct {
+	Type      string          `json:"type"`
+	RequestID string          `json:"request_id,omitempty"` // for "get": the page answers with POST …/reply
+	Text      string          `json:"text,omitempty"`
+	CID       string          `json:"cid,omitempty"`
+	Play      bool            `json:"play,omitempty"`
+	Extra     json.RawMessage `json:"extra,omitempty"`
+}
+
+type SessionInfo struct {
+	ID       string `json:"id"`
+	Owner    string `json:"owner,omitempty"` // user id, "" for anonymous
+	LastSeen string `json:"last_seen"`
+	CID      string `json:"cid,omitempty"`
+	Playing  bool   `json:"playing"`
+}
+
+// SessionState is what the page last reported (or answered to a "get").
+type SessionState struct {
+	ID          string          `json:"id"`
+	Text        string          `json:"text"`
+	CID         string          `json:"cid"`
+	Playing     bool            `json:"playing"`
+	Source      string          `json:"source"` // engine | stream
+	Section     string          `json:"section"`
+	SectionNum  int             `json:"section_num"`
+	SectionsAll int             `json:"sections_total"`
+	Bar         int             `json:"bar"`
+	Phase       int             `json:"phase"`
+	Marks       json.RawMessage `json:"marks,omitempty"`
+	Diagnostics json.RawMessage `json:"diagnostics,omitempty"`
+	TS          string          `json:"ts"`
+}
+
+// Hub is implemented by the server (internal/btwsite/server).
+type Hub interface {
+	// Push delivers ev to the sessions the caller may drive: sessionID if given (it must be owned by u
+	// or anonymous), else every live session owned by u. Returns the number delivered.
+	Push(u *User, sessionID string, ev SessionEvent) (int, error)
+	// State is the latest report of one session (asking the page with a "get" when stale and wait>0 ms).
+	State(ctx context.Context, u *User, sessionID string) (*SessionState, error)
+	Sessions(u *User) []SessionInfo
+}
+
+// ---------- the whole backend, as MCP and the HTTP layer use it ----------
+
+// Backend is what the MCP server is built over. The server package implements it.
+type Backend interface {
+	Checker
+	Hub
+	ProgramStore
+	Composer
+	Examples() []Example
+	Example(name string) (text string, ok bool)
+	// RenderInfo says where the stream is and how long the program is.
+	RenderInfo(cid, format string) (streamURL, statusURL string, seconds float64)
+	PublicURL() string
+	// AuthHelp is the words for an unauthenticated caller of a write tool: how to get a token.
+	AuthHelp() string
+}
