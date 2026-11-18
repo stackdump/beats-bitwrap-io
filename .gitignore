@@ -18,3 +18,11 @@ test-out/
 # public/djrust/djwasm.wasm is committed (pin.js source "bundled"); make djrust-wasm overwrites it with a local build
 # frozen djwasm 0.2.0 (wasm + its glue) for gates that run it beside the pin: scripts/djrust-ref.mjs fetch
 /.djrust-ref/
+
+# btw.bitwrap.io (btwsite/DESIGN.md "Public repo"): this repo is PUBLIC; these are built from or copied from the
+# PRIVATE, UNLICENSED stackdump/djrust-vevr-se. They ship to the host as deploy artifacts and never go in git.
+/btwsite/web/wasm/
+/btwsite/web/docs/BTW.md
+/btwsite/web/docs/cheatsheet.md
+/btwsite/bin/
+/btwsite/dist/

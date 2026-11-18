@@ -32,6 +32,12 @@ Licence / provenance rule (Matt): only public sources with reuse-friendly licenc
 employer**. Programs shipped as examples or put in a prompt must be his own CC0 ones (public, no
 `use restricted`, no `sample`/`loop` assets). Never send private or restricted assets to the model.
 
+## Public repo (read this before committing)
+`stackdump/beats-bitwrap-io` is **public (MIT)**; `stackdump/djrust-vevr-se` is **private and UNLICENSED**. So nothing built from or copied out of the private repo is committed here:
+`btwsite/web/wasm/` (the wasm module and its JS glue), `btwsite/web/docs/BTW.md`, `btwsite/web/docs/cheatsheet.md`, `btwsite/bin/` (the `btwd` binary) and `btwsite/dist/` are in `.gitignore`.
+They exist in the working tree (built or generated), tests that need them skip or use tiny fixtures when they are absent, and the deploy script copies them to the host. Never `git add -f` them.
+Hand-written code, the CC0 example programs (Matt's own, public), card PNG samples of those programs, and fixtures are fine to commit.
+
 ## Directory ownership (beats-bitwrap-io worktree)
 
 ```
