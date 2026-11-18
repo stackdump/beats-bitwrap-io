@@ -31,12 +31,18 @@ type accessLog struct {
 	now func() time.Time
 	key []byte
 
-	mu   sync.Mutex
-	day  string
-	f    *os.File
-	w    *bufio.Writer
-	stop chan struct{}
+	mu      sync.Mutex
+	day     string
+	f       *os.File
+	w       *bufio.Writer
+	size    int64 // bytes in today's file
+	dropped int64 // lines not written today, the file being full
+	stop    chan struct{}
 }
+
+// maxLogDayBytes caps one day's access log (about 700 000 requests). Retention is by age only, so without a cap
+// a flood of cheap requests (a bot hammering /healthz) is a way to fill the disk 30 days deep.
+var maxLogDayBytes int64 = 100 << 20
 
 func newAccessLog(dir string, now func() time.Time, key []byte) (*accessLog, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -87,6 +93,7 @@ type logLine struct {
 	Bytes  int64  `json:"bytes"`
 	IP     string `json:"ip"`
 	User   string `json:"user,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 func (l *accessLog) hashIP(ip string) string {
@@ -115,10 +122,24 @@ func (l *accessLog) write(line logLine) {
 			l.f, l.w = nil, nil
 			return
 		}
-		l.f, l.w, l.day = f, bufio.NewWriterSize(f, 16<<10), day
+		l.f, l.w, l.day, l.dropped = f, bufio.NewWriterSize(f, 16<<10), day, 0
+		l.size = 0
+		if info, err := f.Stat(); err == nil {
+			l.size = info.Size()
+		}
 		l.pruneLocked()
 	}
+	if l.size+int64(len(b))+1 > maxLogDayBytes {
+		if l.dropped == 0 { // say so once, in the file, so a missing hour is not a mystery
+			note, _ := json.Marshal(logLine{Time: l.now().UTC().Format(time.RFC3339), Method: "-", Path: "-", Note: "daily log cap reached: further lines are dropped until 00:00 UTC"})
+			_, _ = l.w.Write(append(note, '\n'))
+			l.size += int64(len(note)) + 1
+		}
+		l.dropped++
+		return
+	}
 	_, _ = l.w.Write(append(b, '\n'))
+	l.size += int64(len(b)) + 1
 }
 
 // reqInfo is what a handler can add to its own log line.

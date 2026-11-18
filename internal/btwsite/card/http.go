@@ -58,7 +58,7 @@ func (s *Service) ServeCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cid, packed, _ := strings.Cut(name, ".")
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(withAddr(r.Context(), api.ClientIP(r)), 60*time.Second)
 	defer cancel()
 	p, err := s.resolve(ctx, cid, packed)
 	if err != nil {
@@ -105,6 +105,9 @@ func (s *Service) unavailable(w http.ResponseWriter, err error) {
 	w.Header().Set("Retry-After", "30")
 	var ae *api.Error
 	if errors.As(err, &ae) && ae.Status != 0 {
+		if ae.RetryAfter > 0 {
+			w.Header().Set("Retry-After", fmt.Sprint(ae.RetryAfter))
+		}
 		http.Error(w, ae.Message, ae.Status)
 		return
 	}
@@ -169,7 +172,7 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/c/"), "/")
 	cid, packed, _ := strings.Cut(name, ".")
 	origin := s.origin(r)
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(withAddr(r.Context(), api.ClientIP(r)), 60*time.Second)
 	defer cancel()
 	p, err := s.resolve(ctx, cid, packed)
 	if err != nil {

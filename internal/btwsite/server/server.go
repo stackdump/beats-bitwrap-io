@@ -317,16 +317,15 @@ func (s *Server) Put(ctx context.Context, text string, meta api.Meta) (*api.Prog
 	return s.store.Put(ctx, text, meta)
 }
 
-// Get finds a program in the store, then among the public examples.
+// Get finds a program among the public examples, then in the store. The examples come first: anyone may PUT
+// an example's text before it is asked for (its CID is public), and first meta wins in the store, so a stored copy
+// must not be able to give an example another name, licence or provenance.
 func (s *Server) Get(cid string) (*api.Program, bool) {
-	if p, ok := s.store.Get(cid); ok {
-		return p, true
-	}
 	if p, ok := s.examples.byCID[cid]; ok {
 		cp := p
 		return &cp, true
 	}
-	return nil, false
+	return s.store.Get(cid)
 }
 
 func (s *Server) Push(u *api.User, sessionID string, ev api.SessionEvent) (int, error) {
@@ -422,7 +421,7 @@ func (notConfiguredComposer) Status() api.ComposeStatus {
 // ---------- middleware ----------
 
 func (s *Server) middleware(next http.Handler) http.Handler {
-	h := s.recoverer(s.securityHeaders(s.corsReadOnly(next)))
+	h := s.recoverer(s.securityHeaders(s.corsReadOnly(s.checkerOwner(next))))
 	h = s.log.middleware(h)
 	return api.ResolveClientIP(h)
 }

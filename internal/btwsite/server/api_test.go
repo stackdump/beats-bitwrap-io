@@ -296,8 +296,11 @@ func TestLimiterBucketsFollowClientIP(t *testing.T) {
 
 func TestProgramsStore(t *testing.T) {
 	e := newEnv(t, func(c *Config) { c.MaxProgramBytes = 600; c.PutIPHour = 20 })
+	// not progA: that one is the first-beat example, and the examples answer for their own CIDs (see
+	// TestStoredCopyDoesNotRenameAnExample)
+	const progS = "tempo 121\nkey am\ndeck A: kick x ~ x ~\nsection intro 2 bars\n"
 	var rep api.CheckReport
-	decode(t, e.post("/api/check", map[string]string{"text": progA}), &rep)
+	decode(t, e.post("/api/check", map[string]string{"text": progS}), &rep)
 	put := func(cid, text string, o ...opt) *http.Response {
 		return e.do("PUT", "/api/programs/"+cid, strings.NewReader(text), append([]opt{hdr("Content-Type", "text/plain"), ip("192.0.2.50")}, o...)...)
 	}
@@ -307,12 +310,12 @@ func TestProgramsStore(t *testing.T) {
 		Created bool
 		Meta    api.Meta
 	}
-	if st := decode(t, put(rep.CID, "# a comment\n#! name: my beat\n"+progA), &out); st != 201 || !out.Created || out.CID != rep.CID || out.Meta.License != "CC0-1.0" ||
+	if st := decode(t, put(rep.CID, "# a comment\n#! name: my beat\n"+progS), &out); st != 201 || !out.Created || out.CID != rep.CID || out.Meta.License != "CC0-1.0" ||
 		out.Meta.Visibility != "public" || out.Meta.Source != "put" || out.Meta.Name != "my beat" || out.Meta.Created == "" {
 		t.Fatalf("put: %d %+v", st, out)
 	}
 	// idempotent: the same program (even reformatted) is 200 and the first meta stays
-	if st := decode(t, put(rep.CID, "tempo   120\nkey am\ndeck A: kick x ~ x ~\nsection intro 2 bars\n"), &out); st != 200 || out.Created || out.Meta.Name != "my beat" {
+	if st := decode(t, put(rep.CID, "tempo   121\nkey am\ndeck A: kick x ~ x ~\nsection intro 2 bars\n"), &out); st != 200 || out.Created || out.Meta.Name != "my beat" {
 		t.Fatalf("second put: %d %+v", st, out)
 	}
 	// GET json
@@ -349,7 +352,7 @@ func TestProgramsStore(t *testing.T) {
 	// refusals
 	var other api.CheckReport
 	decode(t, e.post("/api/check", map[string]string{"text": progB}), &other)
-	if st, code := errCode(t, put(other.CID, progA)); st != 422 || code != api.CodeCIDMismatch {
+	if st, code := errCode(t, put(other.CID, progS)); st != 422 || code != api.CodeCIDMismatch {
 		t.Fatalf("wrong cid: %d %s", st, code)
 	}
 	if st, code := errCode(t, put(rep.CID, "tempo 120\nBAD\n")); st != 422 || code != api.CodeBadRequest {
@@ -381,7 +384,7 @@ func TestProgramsStore(t *testing.T) {
 	}
 	// not CIDs at all never reach the disk
 	for _, c := range []string{"abc", "z", "../../etc/passwd", "z" + strings.Repeat("1", 200), "zOO0lI"} {
-		if r := put(c, progA); r.StatusCode != 400 && r.StatusCode != 404 && r.StatusCode != 405 {
+		if r := put(c, progS); r.StatusCode != 400 && r.StatusCode != 404 && r.StatusCode != 405 {
 			t.Errorf("PUT %q: %d", c, r.StatusCode)
 		}
 		if r := e.get("/api/programs/" + c); r.StatusCode != 404 {

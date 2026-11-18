@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,17 @@ type Options struct {
 	RenderConcurrency int
 	// CheckTimeout bounds one checker call (default 15 s).
 	CheckTimeout time.Duration
+
+	// CacheMaxBytes caps CacheDir (default 256 MiB): past it the least recently used cards are deleted. A stateless
+	// link makes a card for any program anyone cares to write, so without a cap the cache is a way to fill the disk.
+	CacheMaxBytes int64
+	// WorkPerMinute is how many requests per address and minute may make the service work (a check of a link's
+	// text that is not remembered, a card that is not cached); the rest get 429. Default 120; negative: no limit.
+	// A card or page that is served from memory or disk costs nothing.
+	WorkPerMinute int
+	// CheckConcurrency is how many checker calls the cards may have running at once (default 2), so a flood of
+	// distinct links cannot use every checker slot the rest of the site needs.
+	CheckConcurrency int
 }
 
 // Service renders cards and answers /c/ and /card/.
@@ -67,6 +79,18 @@ type Service struct {
 	generic [2][]byte
 	genOnce [2]sync.Once
 	genErr  [2]error
+
+	csem   chan struct{} // checker calls in flight
+	work   *workLimiter
+	cfiles map[string]cacheFile // what is in CacheDir (the cap's books)
+	ctotal int64
+	cindex sync.Once
+}
+
+// cacheFile is one card on disk.
+type cacheFile struct {
+	size int64
+	used time.Time
 }
 
 type flight struct {
@@ -93,6 +117,15 @@ func New(o Options) (*Service, error) {
 	if o.CheckTimeout <= 0 {
 		o.CheckTimeout = 15 * time.Second
 	}
+	if o.CacheMaxBytes <= 0 {
+		o.CacheMaxBytes = 256 << 20
+	}
+	if o.WorkPerMinute == 0 {
+		o.WorkPerMinute = 120
+	}
+	if o.CheckConcurrency <= 0 {
+		o.CheckConcurrency = 2
+	}
 	o.PublicURL = strings.TrimRight(o.PublicURL, "/")
 	if o.CacheDir != "" {
 		if err := os.MkdirAll(o.CacheDir, 0o755); err != nil {
@@ -106,6 +139,9 @@ func New(o Options) (*Service, error) {
 		mem:     map[string][]byte{},
 		checks:  map[string]*checked{},
 		spans:   map[string][]api.Span{},
+		csem:    make(chan struct{}, o.CheckConcurrency),
+		work:    newWorkLimiter(o.WorkPerMinute, time.Now),
+		cfiles:  map[string]cacheFile{},
 	}, nil
 }
 
@@ -246,7 +282,8 @@ func textKey(text string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// check runs the checker on text (memoised: bots ask for the same link again and again).
+// check runs the checker on text (memoised: bots ask for the same link again and again). A call that is not
+// memoised is work: it is charged to the requesting address and takes one of the cards' checker slots.
 func (s *Service) check(ctx context.Context, text string) (*checked, error) {
 	k := textKey(text)
 	s.mu.Lock()
@@ -255,13 +292,26 @@ func (s *Service) check(ctx context.Context, text string) (*checked, error) {
 		return c, nil
 	}
 	s.mu.Unlock()
+	if err := s.allowWork(ctx); err != nil {
+		return nil, err
+	}
 	cctx, cancel := context.WithTimeout(ctx, s.o.CheckTimeout)
 	defer cancel()
+	select {
+	case s.csem <- struct{}{}:
+		defer func() { <-s.csem }()
+	case <-cctx.Done():
+		return nil, api.Errf(http.StatusServiceUnavailable, "busy", "the checker is busy; try again in a moment")
+	}
 	rep, err := s.o.Checker.Check(cctx, text)
 	if err != nil {
 		return nil, err
 	}
-	c := &checked{report: rep}
+	// Keep what a card is drawn from, not the checker's whole answer: a hostile program can make that megabytes,
+	// and 256 of them are remembered.
+	slim := *rep
+	slim.Diagnostics, slim.Lineage, slim.Nets, slim.SongNets, slim.Evolve = nil, nil, nil, nil, nil
+	c := &checked{report: &slim}
 	s.mu.Lock()
 	if len(s.checks) >= 256 {
 		s.checks = map[string]*checked{}
@@ -282,7 +332,15 @@ func (s *Service) highlight(ctx context.Context, text string) []api.Span {
 	s.mu.Unlock()
 	cctx, cancel := context.WithTimeout(ctx, s.o.CheckTimeout)
 	defer cancel()
-	sp, err := s.o.Checker.Highlight(cctx, text)
+	var sp []api.Span
+	var err error
+	select {
+	case s.csem <- struct{}{}:
+		sp, err = s.o.Checker.Highlight(cctx, text)
+		<-s.csem
+	case <-cctx.Done():
+		err = cctx.Err()
+	}
 	if err != nil || len(sp) == 0 || !hasCode(sp) {
 		sp = basicSpans(text) // btwd is down, or the checker gave nothing to colour by: a coarse lexer
 	}
@@ -379,8 +437,7 @@ func (s *Service) resolve(ctx context.Context, cid, packed string) (*prog, error
 		}
 		q, err := s.program(ctx, link.Text, meta)
 		if err != nil {
-			var ae *api.Error
-			if errors.As(err, &ae) {
+			if isBadProgram(err) {
 				return &prog{cid: cid, st: stInvalid}, nil
 			}
 			return nil, err
@@ -389,8 +446,7 @@ func (s *Service) resolve(ctx context.Context, cid, packed string) (*prog, error
 	case known:
 		q, err := s.program(ctx, ktext, kmeta)
 		if err != nil {
-			var ae *api.Error
-			if errors.As(err, &ae) {
+			if isBadProgram(err) {
 				return &prog{cid: cid, st: stInvalid}, nil
 			}
 			return nil, err
@@ -423,6 +479,14 @@ func (s *Service) resolve(ctx context.Context, cid, packed string) (*prog, error
 		return p, nil
 	}
 	return p, nil
+}
+
+// isBadProgram: the error says the program itself cannot be drawn (too long, too many problems to list), as
+// opposed to the service being busy, rate limited or down: those must not turn a good program's page into a
+// cached "invalid" card.
+func isBadProgram(err error) bool {
+	var ae *api.Error
+	return errors.As(err, &ae) && (ae.Status == http.StatusRequestEntityTooLarge || ae.Status == http.StatusUnprocessableEntity)
 }
 
 // name is what the program is called on its card and page.
@@ -496,7 +560,11 @@ func (s *Service) draw(ctx context.Context, p *prog, v Variant) ([]byte, error) 
 	s.flights[key] = f
 	s.mu.Unlock()
 
-	f.data, f.err = s.renderPNG(ctx, p, v)
+	if err := s.allowWork(ctx); err != nil {
+		f.err = err
+	} else {
+		f.data, f.err = s.renderPNG(ctx, p, v)
+	}
 	if f.err == nil {
 		s.cachePut(key, f.data)
 	}
@@ -543,7 +611,57 @@ func (s *Service) cacheGet(key string) []byte {
 	if err != nil || len(b) == 0 {
 		return nil
 	}
+	s.mu.Lock()
+	if f, ok := s.cfiles[key]; ok {
+		f.used = time.Now()
+		s.cfiles[key] = f
+	}
+	s.mu.Unlock()
 	return b
+}
+
+// indexCache reads CacheDir once: the books the cap is kept by. Leftover temp files of a crash go.
+func (s *Service) indexCache() {
+	s.cindex.Do(func() {
+		ents, err := os.ReadDir(s.o.CacheDir)
+		if err != nil {
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, e := range ents {
+			if strings.HasPrefix(e.Name(), ".card-") {
+				_ = os.Remove(filepath.Join(s.o.CacheDir, e.Name()))
+				continue
+			}
+			if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
+				s.cfiles[e.Name()] = cacheFile{size: info.Size(), used: info.ModTime()}
+				s.ctotal += info.Size()
+			}
+		}
+	})
+}
+
+// evictLocked deletes the least recently used cards until the cache fits its cap (keep is never deleted).
+func (s *Service) evictLocked(keep string) {
+	if s.ctotal <= s.o.CacheMaxBytes {
+		return
+	}
+	names := make([]string, 0, len(s.cfiles))
+	for n := range s.cfiles {
+		if n != keep {
+			names = append(names, n)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool { return s.cfiles[names[i]].used.Before(s.cfiles[names[j]].used) })
+	for _, n := range names {
+		if s.ctotal <= s.o.CacheMaxBytes {
+			break
+		}
+		_ = os.Remove(filepath.Join(s.o.CacheDir, n))
+		s.ctotal -= s.cfiles[n].size
+		delete(s.cfiles, n)
+	}
 }
 
 func (s *Service) cachePut(key string, b []byte) {
@@ -560,6 +678,7 @@ func (s *Service) cachePut(key string, b []byte) {
 		s.mem[key] = b
 		return
 	}
+	s.indexCache()
 	// write beside, then rename: a reader never sees half a file
 	tmp, err := os.CreateTemp(s.o.CacheDir, ".card-*.tmp")
 	if err != nil {
@@ -573,7 +692,16 @@ func (s *Service) cachePut(key string, b []byte) {
 	}
 	if err := os.Rename(tmp.Name(), filepath.Join(s.o.CacheDir, key)); err != nil {
 		_ = os.Remove(tmp.Name())
+		return
 	}
+	s.mu.Lock()
+	if old, ok := s.cfiles[key]; ok {
+		s.ctotal -= old.size
+	}
+	s.cfiles[key] = cacheFile{size: int64(len(b)), used: time.Now()}
+	s.ctotal += int64(len(b))
+	s.evictLocked(key)
+	s.mu.Unlock()
 }
 
 // pngBytes is a helper for tests: whether b is a PNG.

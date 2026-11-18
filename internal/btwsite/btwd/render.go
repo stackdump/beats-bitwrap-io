@@ -191,6 +191,25 @@ func (c *Client) StartRender(ctx context.Context, text string, o RenderOptions) 
 	}
 }
 
+// maxEventLine is the longest stderr line kept; a longer one is cut (the rest is read and dropped), so a child that
+// never prints a newline cannot grow the parent's memory.
+const maxEventLine = 1 << 20
+
+// readLine is br.ReadString('\n') that keeps at most max bytes of the line.
+func readLine(br *bufio.Reader, max int) (string, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if room := max - len(line); room > 0 {
+			line = append(line, chunk[:min(room, len(chunk))]...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue // the line goes on: keep reading, keep (at most) max
+		}
+		return string(line), err
+	}
+}
+
 // readEvents parses stderr lines. The first event goes to first (then it closes the channel after
 // handing it over); later ones update progress / end / error state.
 func (p *RenderProc) readEvents(r io.Reader, first chan<- event) {
@@ -198,7 +217,7 @@ func (p *RenderProc) readEvents(r io.Reader, first chan<- event) {
 	br := bufio.NewReaderSize(r, 64<<10)
 	sent := false
 	for {
-		line, err := br.ReadString('\n')
+		line, err := readLine(br, maxEventLine)
 		line = strings.TrimSpace(line)
 		if line != "" {
 			var ev event
