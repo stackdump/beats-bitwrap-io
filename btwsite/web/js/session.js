@@ -17,8 +17,24 @@ export class SessionLink {
     this.stopped = false;
     this.error = '';
     app.on((type) => {
-      if (type === 'eval' || type === 'stop' || type === 'check' || type === 'program' || type === 'edit' || type === 'user') this.dirty = true;
+      if (type === 'eval' || type === 'stop' || type === 'check' || type === 'program' || type === 'edit') this.dirty = true;
+      // a session belongs to whoever made it: signing in or out makes a new one, so an MCP token of this user reaches this tab
+      if (type === 'user' && this.id && this.userKey !== this.currentUserKey()) this.restart();
     });
+    this.userKey = this.currentUserKey();
+  }
+
+  currentUserKey() {
+    return (this.app.user && this.app.user.id) || '';
+  }
+
+  restart() {
+    if (this.es) this.es.close();
+    this.es = null;
+    this.connected = false;
+    this.id = null;
+    this.userKey = this.currentUserKey();
+    this.start();
   }
 
   async start() {

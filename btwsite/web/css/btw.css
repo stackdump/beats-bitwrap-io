@@ -256,7 +256,8 @@ html.record .hdr { min-height: 58px; font-size: 20px; padding: 0 26px; gap: 24px
 html.record .h-bar, html.record .h-gen, html.record .h-state { font-size: 17px; }
 html.record .h-phrase i { width: 13px; height: 13px; }
 html.record .h-prog { height: 4px; }
-html.record .transport { position: absolute; left: 0; right: 0; bottom: 0; min-height: 44px; padding: 8px 26px; background: rgba(15,20,36,.82); border-top: 1px solid var(--line-2); font-size: 15px; }
+html.record .transport { min-height: 44px; padding: 8px 26px; background: #0f1424; border-top: 1px solid var(--line-2); font-size: 15px; }
+html.record .t-status { color: var(--ink); font-size: 15px; }
 html.record .gl { font-size: 14px; }
 html.record .gd { width: 16px; } html.record .gd[data-kind]::after { width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; }
 html.record .gi { display: none; }

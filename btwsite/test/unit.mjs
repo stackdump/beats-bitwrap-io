@@ -608,6 +608,30 @@ test('driver: a program on a virtual clock counts its bars from 0 (the first gri
   assert.equal(d.last.status.song_bar, wantBar(39) + 1);
 });
 
+test('driver: the carried-forward status equals the real status() at every step (and asks the runtime for it rarely)', async () => {
+  const { Driver, VirtualSource, ManualClock } = await J('driver.js');
+  const text = program(0).replace(/(# tail \d+\n)+/, '');
+  const d = new Driver(facade);
+  const clock = new ManualClock(124);
+  assert.ok(d.evaluate(text, new VirtualSource(clock, 'manual')).ok);
+  let asked = 0;
+  const run = d.run;
+  const real = run.status.bind(run);
+  run.status = () => { asked++; return real(); };
+  d.tick();
+  let ticks = 0;
+  for (let i = 0; i < 230; i++) { // 57 beats: twelve bars, then the ending
+    clock.setTime(i * 0.25 * 60 / 124);
+    const f = d.tick();
+    ticks++;
+    const want = real();
+    for (const k of ['running', 'ended', 'bar', 'bar_in_phrase', 'phrase', 'section', 'section_bar', 'section_bars', 'song_bar', 'song_bars', 'generation']) {
+      assert.deepEqual(f.status[k], want[k], `step ${i} ${k}: ${f.status[k]} vs ${want[k]}`);
+    }
+  }
+  assert.ok(asked < ticks / 8, `status() was asked ${asked} times in ${ticks} frames`);
+});
+
 test('stream: an underrun re-anchors the next chunk and takes the gap off the media clock', async () => {
   const ctx = new FakeCtx();
   const first = [wavHeader(), pcm16(44100)];

@@ -267,7 +267,7 @@ try {
 
   // ---- 6. compose, sign-in, MCP ---------------------------------------------------------------------------------------------------------
   step = 6;
-  if (want() && isMock) {
+  if (want()) {
     await page.goto(url());
     await ready();
     await page.click('#btn-compose');
@@ -289,10 +289,10 @@ try {
     await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>b.textContent==="Compose").click()');
     await page.waitFor('document.querySelector("#drawer-body .okbox")', 10000);
     await page.waitFor('document.getElementById("btn-play").classList.contains("on")', 8000);
-    check('compose puts the program in the editor and starts the stream at once', (await page.eval('__app.driver.kind')) === 'stream' && /composed from/.test(await text()), await page.eval('__app.driver.kind'));
+    check('compose puts the program in the editor and starts the stream at once', (await page.eval('__app.driver.kind')) === 'stream' && (isMock ? /composed from/.test(await text()) : /section/.test(await text())), await page.eval('__app.driver.kind'));
     await shot(9, 'compose-done');
     check('fork-current is possible now that the program is stored', (await page.eval('!document.getElementById("c-fork").disabled')) === true);
-    for (const [prompt, expect] of [['FAIL', /unrepairable: see attempts/], ['LIMIT', /rate limited, try again in 38 s/], ['NOKEY', /compose is not configured/]]) {
+    if (isMock) for (const [prompt, expect] of [['FAIL', /unrepairable: see attempts/], ['LIMIT', /rate limited, try again in 38 s/], ['NOKEY', /compose is not configured/]]) {
       await page.eval('(()=>{const t=document.getElementById("c-prompt"); t.value=""; t.focus();})()');
       await page.type(prompt);
       await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>/^Compos/.test(b.textContent)).click()');
@@ -316,6 +316,40 @@ try {
 
   // ---- 7. the MCP bridge: a pushed eval, a get ----------------------------------------------------------------------------------------------
   step = 7;
+  if (want() && !isMock) {
+    // the real bridge: a token from the page's own MCP panel, then JSON-RPC to /mcp drives this tab
+    await page.goto(url());
+    await ready();
+    await sleep(600);
+    if (!(await page.eval('!!__app.user'))) { // the cookie of step 6 may still be there
+      await page.click('#btn-user');
+      await page.waitFor('document.getElementById("drawer-title").textContent==="Sign in"', 3000);
+      await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>/browser key/i.test(b.textContent)).click()');
+      await page.waitFor('__app.user', 8000);
+    }
+    await sleep(800);
+    await page.click('#btn-mcp');
+    await page.waitFor('document.getElementById("drawer-title").textContent==="MCP"', 3000);
+    await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>/Create an MCP token/.test(b.textContent)).click()');
+    await page.waitFor('document.querySelector("#drawer-body .okbox")', 5000);
+    const token = await q('#drawer-body .okbox pre');
+    const mcp = async (name, args, id = 1) => {
+      const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }) });
+      const j = JSON.parse((await r.text()).replace(/^event:.*\ndata: /s, ''));
+      return { isError: !!j.result.isError, body: (() => { try { return JSON.parse(j.result.content[0].text); } catch { return j.result.content[0].text; } })() };
+    };
+    const pushed = 'tempo 120\ndeck A: kick x ~ x ~\n# pushed over MCP\n';
+    const ev = await mcp('eval', { text: pushed, play: true });
+    check('MCP eval reaches this tab: text set, evaluated, playing', !ev.isError, JSON.stringify(ev.body).slice(0, 200));
+    await page.waitFor('document.getElementById("btn-play").classList.contains("on")', 10000);
+    check('the page took the program the assistant sent', (await text()) === pushed);
+    await sleep(900);
+    const g = await mcp('get', {}, 2);
+    check('MCP get reports the page state (text, cid, playing, source)', !g.isError && g.body && g.body.text === pushed && g.body.playing === true && !!g.body.cid, JSON.stringify(g.body).slice(0, 200));
+    const st = await mcp('stop', {}, 3);
+    await sleep(500);
+    check('MCP stop stops it', !st.isError && !(await playing()));
+  }
   if (want() && isMock) {
     await page.goto(url());
     await ready();

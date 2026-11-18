@@ -91,6 +91,7 @@ export class Driver {
     }
     this.evalText = text;
     this.evalCid = res.cid || run.cid();
+    this._st = null;
     return res;
   }
 
@@ -100,8 +101,39 @@ export class Driver {
     const grid = this.src.grid();
     const cmds = this.run.service(grid);
     this.src.handle(cmds);
-    this.last = { marks: this.run.marks(), status: this.run.status(), grid, evalText: this.evalText };
+    const marks = this.run.marks();
+    this.last = { marks, status: this.statusFor(marks), grid, evalText: this.evalText };
     return this.last;
+  }
+
+  /**
+   * What status() says, kept fresh from marks() between asking. status() is expensive (it hashes every net:
+   * tens of milliseconds a call on a big song) and marks() costs about 1 ms, so the runtime is asked for its
+   * status when the program starts, when the section changes (the header's span moves) and every 8 bars, and in
+   * between the numbers that move with the clock are carried forward from the marks: bar, phrase, song_bar,
+   * section_bar, generation, ended. A pure function of the marks and what was asked last, so a rendered video
+   * is the same whenever status() was called.
+   */
+  statusFor(marks) {
+    const line = Math.max(0, Math.floor((marks.bar || 0) + 1e-9));
+    const hs = marks.header && marks.header.span ? (marks.header.span.start16 ?? marks.header.span.start) : -1;
+    let c = this._st;
+    if (!c || c.hs !== hs || line < c.line || line - c.line >= 8 || c.running !== !!marks.running || c.ended !== !!marks.ended) {
+      c = this._st = { hs, line, running: !!marks.running, ended: !!marks.ended, s: this.run.status() };
+    }
+    const st = { ...c.s };
+    for (const k of ['words', 'controls', 'nets', 'text']) delete st[k];
+    st.running = !!marks.running;
+    st.ended = !!marks.ended;
+    if (!marks.running) return st; // ended or stopped: marks() has no position any more, status() was just asked and stands
+    const d = line - c.line;
+    st.bar = line;
+    st.bar_in_phrase = (line % 8) + 1;
+    st.phrase = Math.floor(line / 8) + 1;
+    if (st.song_bar != null) st.song_bar = c.s.song_bar + d;
+    if (st.section_bar != null) st.section_bar = c.s.section_bar + d;
+    if (marks.generation != null) st.generation = marks.generation;
+    return st;
   }
 
   /** Stop the program: the runtime puts back what its lines held, then the decks stop and the clock goes. */
@@ -118,5 +150,6 @@ export class Driver {
     this.evalText = null;
     this.evalCid = null;
     this.last = null;
+    this._st = null;
   }
 }

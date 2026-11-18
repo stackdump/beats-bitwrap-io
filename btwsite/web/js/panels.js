@@ -122,7 +122,8 @@ export class Panels {
     } else {
       out.push(h('p', { class: 'note' }, 'Describe a track. A model writes the program, the checker fixes it up to three times, and the result is stored as CC0 and plays at once.'));
     }
-    const prompt = h('textarea', { id: 'c-prompt', maxlength: '800', placeholder: 'dark techno, 128, with an acid line that opens up', 'aria-label': 'What to compose' });
+    const maxPrompt = String((info && info.limits && info.limits.max_prompt_chars) || 800);
+    const prompt = h('textarea', { id: 'c-prompt', maxlength: maxPrompt, placeholder: 'dark techno, 128, with an acid line that opens up', 'aria-label': 'What to compose' });
     const genre = h('input', { type: 'text', id: 'c-genre', list: 'c-genres', placeholder: 'genre' });
     const dl = h('datalist', { id: 'c-genres' }, ...GENRES.map((g) => h('option', { value: g })));
     const bpm = h('input', { type: 'number', id: 'c-bpm', min: '40', max: '300', step: '1', placeholder: 'bpm' });

@@ -428,6 +428,7 @@ export class App {
         engine = await m.createEngine({ context: this.ctx, destination: this.master, wasmUrl: this.btw && this.btw.wasmUrl });
       }
       await engine.ready;
+      if (engine.on) engine.on('error', (e) => { if (e && e.message) this.toast(`Engine: ${e.message}`, 'error'); });
       this.engine = engine;
       this.engineSrc = new EngineSource(engine);
       this.engineState = 'ready';
@@ -515,7 +516,13 @@ export class App {
   async playStream(text, report) {
     await this.ensureStored(report);
     const player = new StreamPlayer({ context: this.ctx, destination: this.master, url: this.api.renderUrl(report.cid), bpm: report.tempo || 120, onChange: () => this.updateTransport() });
-    await player.start();
+    this.pendingPlayer = player;
+    try {
+      await player.start();
+    } finally {
+      if (this.pendingPlayer === player) this.pendingPlayer = null;
+    }
+    if (player.stopped) return; // Esc while the render was starting
     const res = this.driver.evaluate(text, new VirtualSource(player, 'stream'));
     if (!res.ok) {
       player.stop();
@@ -549,6 +556,10 @@ export class App {
   }
 
   stop() {
+    if (this.pendingPlayer) {
+      this.pendingPlayer.stop();
+      this.pendingPlayer = null;
+    }
     if (!this.driver || !this.driver.src) return;
     this.driver.stopSound();
     this.player = null;
@@ -663,13 +674,11 @@ export class App {
       this.setText(el['h-state'], '');
       return;
     }
-    const secTxt = hm.section
-      ? `section ${hm.secN != null ? `${hm.secN}/${hm.secM}` : ''}`.replace(/\s+$/, '') + ` · ${hm.section}`
-      : rep && rep.loops ? 'loop' : 'playing';
+    const pre = hm.section ? `section${hm.secN != null ? ` ${hm.secN}/${hm.secM}` : ''}` : rep && rep.loops ? 'loop' : 'playing';
+    const secTxt = hm.section ? `${pre} · ${hm.section}` : pre;
     if (this._last.sec !== secTxt) {
       this._last.sec = secTxt;
-      const [pre, name] = hm.section ? [`section ${hm.secN != null ? `${hm.secN}/${hm.secM}` : ''}`.replace(/\s+$/, ''), hm.section] : [secTxt, ''];
-      el['h-sec-txt'].replaceChildren(pre, ...(name ? [' · ', h('span', { class: 'nm' }, name)] : []));
+      el['h-sec-txt'].replaceChildren(pre, ...(hm.section ? [' · ', h('span', { class: 'nm' }, hm.section)] : []));
     }
     el['h-bar'].hidden = false;
     this.setText(el['h-bar'], hm.songBars ? `bar ${hm.songBar}/${hm.songBars}` : `bar ${hm.bar}`);
