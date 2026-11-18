@@ -14,6 +14,16 @@
 #   btwsite/deploy/deploy.sh nginx-full  the real vhost (443 + proxy), nginx -t, reload
 #   btwsite/deploy/deploy.sh verify      curl the public URL
 #   btwsite/deploy/deploy.sh restart     stop + start the service only
+#   btwsite/deploy/deploy.sh nginx-http-beatscript   beatscript.app + www, port-80 vhost only (ACME), reload
+#   btwsite/deploy/deploy.sh cert-beatscript         certbot (webroot), one cert for beatscript.app + www; needs DNS A -> this host
+#   btwsite/deploy/deploy.sh nginx-full-beatscript   the real beatscript.app vhost (443 + proxy to the same backend), nginx -t, reload
+#   btwsite/deploy/deploy.sh verify-beatscript       curl https://beatscript.app
+#
+# beatscript.app is a second name for the SAME process (127.0.0.1:18097); no second instance. The server's
+# -public-url stays https://btw.bitwrap.io until pairing supports alt origins. To flip it later: change the
+# `-public-url` value in the btw-bitwrap CMD line of ~/services (and in console-app-btw-bitwrap.yaml `cmd:`), then
+# `~/services restart btw-bitwrap` (brief interruption of btw only). Pairing signatures bind one host, so paired
+# devices must re-pair after the flip unless alt-origin support has landed.
 #
 # Env: HOST (default pflow.dev), BTWD_LINUX (default <RUST>/dist/btwd-linux-x86_64), RUST (the Rust worktree),
 # BRANCH (default main). The Gemini key is NEVER read here: it was copied on the host into
@@ -125,6 +135,36 @@ verify)
   done
   printf 'compose (anonymous)      '; curl -s -m 15 -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{"prompt":"x"}' "https://$DOMAIN/api/compose"
   ;;
+nginx-http-beatscript)
+  scp -q "$HERE/nginx/beatscript.app.http.conf" "$HOST:/tmp/beatscript.app"
+  run bash -s <<'EOS'
+set -euo pipefail
+sudo -n install -m 644 /tmp/beatscript.app /etc/nginx/sites-available/beatscript.app
+[ -e /etc/nginx/sites-enabled/beatscript.app ] || sudo -n ln -s /etc/nginx/sites-available/beatscript.app /etc/nginx/sites-enabled/beatscript.app
+sudo -n nginx -t && sudo -n systemctl reload nginx && echo "nginx reloaded (beatscript.app http stage)"
+EOS
+  ;;
+cert-beatscript)
+  run "sudo -n certbot certonly --webroot -w /var/www/acme -d beatscript.app -d www.beatscript.app --non-interactive --agree-tos --keep-until-expiring 2>&1 | tail -15; sudo -n certbot certificates 2>/dev/null | grep -A3 'Name: beatscript.app'"
+  ;;
+nginx-full-beatscript)
+  scp -q "$HERE/nginx/beatscript.app.conf" "$HOST:/tmp/beatscript.app"
+  run bash -s <<'EOS'
+set -euo pipefail
+sudo -n test -e /etc/letsencrypt/live/beatscript.app/fullchain.pem
+sudo -n cp /etc/nginx/sites-available/beatscript.app /etc/nginx/sites-available/beatscript.app.bak.http
+sudo -n install -m 644 /tmp/beatscript.app /etc/nginx/sites-available/beatscript.app
+if sudo -n nginx -t; then sudo -n systemctl reload nginx && echo "nginx reloaded (beatscript.app full vhost)"; else
+  echo "nginx -t FAILED: restoring the http-stage vhost"; sudo -n cp /etc/nginx/sites-available/beatscript.app.bak.http /etc/nginx/sites-available/beatscript.app; sudo -n nginx -t; exit 1; fi
+EOS
+  ;;
+verify-beatscript)
+  for h in beatscript.app www.beatscript.app; do
+    for u in / /healthz /api/info /llms.txt; do
+      printf '%-20s %-12s ' "$h" "$u"; curl -s -o /dev/null -m 15 -w '%{http_code} %{content_type}\n' "https://$h$u"
+    done
+  done
+  ;;
 *)
-  sed -n 2,20p "$0"; exit 2 ;;
+  sed -n 2,28p "$0"; exit 2 ;;
 esac
