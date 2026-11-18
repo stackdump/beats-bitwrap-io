@@ -149,7 +149,43 @@ engine.setLevel(0..1); engine.dispose()
 ```
 The page owns the `BtwRun`, the clock loop and the markers; the engine owns the sound.
 
-## Go server (G1, G2, G3) — `internal/btwsite/…`
+## Package entry points (what G1's main wires; keep these names and shapes)
+```go
+// internal/btwsite/btwd (G1): the Rust subprocess as an api.Checker
+func btwd.New(bin string, opts btwd.Options) (*btwd.Client, error)   // implements api.Checker; Options{Timeout, MaxConcurrent}
+// internal/btwsite/auth (G1)
+func auth.New(opts auth.Options) (*auth.Service, error)              // implements api.Authenticator; Options{DataDir, Secret []byte, Secure bool, Origin string}
+func (s *auth.Service) Mount(mux *http.ServeMux)                      // /api/auth/*
+// internal/btwsite/compose (G2)
+func compose.New(o compose.Options) (*compose.Service, error)        // implements api.Composer
+type compose.Options struct {
+    Checker api.Checker; Store api.ProgramStore
+    Examples func() []api.Example; ExampleText func(name string) (string, bool)   // public CC0 examples for prompts + base_cid lookups
+    DataDir string; PublicURL string
+    Model string; APIKey string; Endpoint string                     // Endpoint "" = Google; tests point at httptest
+    FakeModel compose.Model                                           // non-nil (or Model=="fake") = the recorded-fixture model
+    Limits limits.Config; MaxPromptChars, MaxProgramBytes, MaxRepair int
+    Now func() time.Time                                              // tests
+}
+func (s *compose.Service) Handler(a api.Authenticator) http.Handler   // POST /api/compose (401 without a user; never anonymous)
+func (s *compose.Service) AdminHandler(adminToken string) http.Handler // POST /api/admin/compose {enabled}, GET /api/admin/stats
+// internal/btwsite/limits (G2)
+type limits.Config struct{ UserHour, UserDay, IPDay int; DailySpendUSD, PriceInPerM, PriceOutPerM float64; DataDir string }
+// internal/btwsite/mcpsrv (G3)
+func mcpsrv.Handler(b api.Backend, a api.Authenticator, publicURL string) http.Handler   // mounted at /mcp and /mcp/
+// internal/btwsite/docs (G3)
+func docs.Mount(mux *http.ServeMux, o docs.Options) error             // /llms.txt /llms-full.txt /docs/* ; Options{DocsDir, Checker, Examples, ExampleText, PublicURL}
+func docs.LoadExamples(dir string, c api.Checker) ([]api.Example, error)  // reads btwsite/examples/{*.btw,index.json}, fills CIDs via c
+// internal/btwsite/card (G4)
+func card.New(o card.Options) (*card.Service, error)                   // Options{Checker, Store api.ProgramStore, Examples..., PublicURL, CacheDir, WebDir}
+func (s *card.Service) Mount(mux *http.ServeMux)                       // /c/ and /card/
+func (s *card.Service) Render(text string, v card.Variant) ([]byte, error)  // pure, deterministic; used by tests and docs
+// internal/btwsite/server (G1)
+func server.New(cfg server.Config) (*server.Server, error)            // builds everything above; Handler() http.Handler; implements api.Backend
+```
+G1 wires G2/G3/G4 last, once their commits exist (`git log --oneline -- internal/btwsite/compose` etc.); until then stub with the interface.
+
+## Go server (G1, G2, G3, G4) — `internal/btwsite/…`
 
 Shared types, interfaces and the typed `*api.Error` are in `internal/btwsite/api/api.go`. All JSON errors are
 `{"error":{"code":"…","message":"…","retry_after":30}}` with the HTTP status in `api.Error.Status`.
