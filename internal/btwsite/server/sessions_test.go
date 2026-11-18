@@ -412,3 +412,48 @@ func TestSessionStreamsPerSessionAreBounded(t *testing.T) {
 	}
 	conns[len(conns)-1].next(t, "stop", 2*time.Second)
 }
+
+// A page that loaded anonymously and then signed in: its next report (or stream) with the cookie makes it
+// the user's session, so MCP "all my sessions" finds it and nobody else can drive it by id any more.
+func TestAnonymousSessionIsClaimedBySignInReport(t *testing.T) {
+	e := newEnv(t, nil)
+	s := e.newSession() // anonymous
+	alice, bob := e.newUser(), e.newUser()
+	c := e.sse("/api/session/" + s.ID + "/events")
+	if got := e.srv.Sessions(alice.user()); len(got) != 0 {
+		t.Fatalf("before: %v", got)
+	}
+	if n, _ := e.srv.Push(alice.user(), "", api.SessionEvent{Type: "stop"}); n != 0 {
+		t.Fatalf("'all mine' reached an unowned session: %d", n)
+	}
+	// anonymous reports change nothing
+	e.post("/api/session/"+s.ID+"/report", map[string]any{"text": "x"}).Body.Close()
+	if got := e.srv.Sessions(alice.user()); len(got) != 0 {
+		t.Fatalf("an anonymous report claimed it: %v", got)
+	}
+	// alice's page signs in and reports
+	if r := e.post("/api/session/"+s.ID+"/report", map[string]any{"text": progA}, cookie(alice.cookie)); r.StatusCode != 204 {
+		t.Fatalf("report: %d", r.StatusCode)
+	} else {
+		r.Body.Close()
+	}
+	if got := e.srv.Sessions(alice.user()); len(got) != 1 || got[0].ID != s.ID {
+		t.Fatalf("after the signed-in report: %v", got)
+	}
+	if n, err := e.srv.Push(alice.user(), "", api.SessionEvent{Type: "eval", Text: "t"}); err != nil || n != 1 {
+		t.Fatalf("push to all mine: %d %v", n, err)
+	}
+	c.next(t, "eval", 2*time.Second)
+	// now it is hers: bob cannot drive it by id, and cannot take it over by reporting
+	if _, err := e.srv.Push(bob.user(), s.ID, api.SessionEvent{Type: "stop"}); err == nil {
+		t.Fatal("bob drove alice's claimed session")
+	}
+	if r := e.post("/api/session/"+s.ID+"/report", map[string]any{"text": "evil"}, cookie(bob.cookie)); r.StatusCode != 404 {
+		t.Fatalf("bob's report: %d", r.StatusCode)
+	} else {
+		r.Body.Close()
+	}
+	if got := e.srv.Sessions(bob.user()); len(got) != 0 {
+		t.Fatalf("bob owns %v", got)
+	}
+}

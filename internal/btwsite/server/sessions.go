@@ -160,6 +160,15 @@ func (h *hub) closeAll() {
 	}
 }
 
+// claimLocked: a page that loaded anonymously and then signed in keeps its session id, so the first
+// report or stream from it that carries a valid cookie makes the signed-in user its owner (otherwise "all my
+// sessions" would never find it). The id is the capability that got the caller here.
+func (h *hub) claimLocked(s *session, u *api.User) {
+	if s.owner == "" && u != nil {
+		s.owner = u.ID
+	}
+}
+
 // pageAccess finds a session for the page-side routes: the id is the capability, but a signed-in user who
 // is not the owner is refused.
 func (h *hub) pageAccess(id string, u *api.User) (*session, bool) {
@@ -185,6 +194,7 @@ func (h *hub) subscribe(id string, u *api.User) (*subscriber, *api.Error) {
 		return nil, errNoSession()
 	}
 	h.seq++
+	h.claimLocked(s, u)
 	sub := &subscriber{ch: make(chan api.SessionEvent, 16), seq: h.seq}
 	for len(s.subs) >= maxStreamsPerSession {
 		var oldest *subscriber
@@ -219,6 +229,7 @@ func (h *hub) report(id string, u *api.User, st api.SessionState) (ok, limited b
 	if !found {
 		return false, false
 	}
+	h.claimLocked(s, u)
 	now := h.now()
 	// 20-report burst, refilled at 10/s: the page sends about 2/s
 	s.tokens = min(20, s.tokens+now.Sub(s.tokensAt).Seconds()*10)
