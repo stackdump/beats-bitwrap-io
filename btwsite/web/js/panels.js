@@ -396,8 +396,34 @@ export class Panels {
     };
     paint();
     notes.addEventListener('change', paint);
+    // The CID-only form: the program is kept on this server under its CID (rights: CC0-1.0), so the link is short. Signed-in only.
+    const shortBox = h('div', { class: 'stack' });
+    const paintShort = (links) => {
+      const row = (label, url) => h('div', {}, h('div', { class: 'note' }, label), h('div', { class: 'linkrow' }, h('input', { type: 'text', readonly: true, value: url, 'aria-label': label, onfocus: (e) => e.target.select() }), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(url) }, 'Copy')));
+      if (links) {
+        shortBox.replaceChildren(row('Short link (CID only; the page fetches and checks it)', links.short_url), row('Short link for posts (shows a card)', links.short_social_url), row('Short link in beats.bitwrap.io', links.short_beats_url));
+        return;
+      }
+      if (!app.user) {
+        shortBox.replaceChildren(h('div', { class: 'note' }, 'A CID-only short link keeps the program on this server. Sign in to make one.'), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => app.panel('user') }, 'Sign in'));
+        return;
+      }
+      const mk = h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => {
+        mk.disabled = true;
+        try {
+          const cur = this.lastShare;
+          paintShort(await app.api.putShare(cur.cid, { text: cur.canonical }));
+        } catch (e) {
+          mk.disabled = false;
+          if (e instanceof ApiError && e.code === 'auth_required') { app.user = null; app.updateUser(); paintShort(); return; }
+          app.showError(e);
+        }
+      } }, 'Make short link');
+      shortBox.replaceChildren(h('div', { class: 'note' }, 'A CID-only short link keeps the program on this server (public, CC0-1.0) instead of carrying it in the link.'), mk);
+    };
+    paintShort();
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
-      rows, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      rows, shortBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
       h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);

@@ -274,7 +274,7 @@
             "type": "string"
           },
           "url": {
-            "description": "A share link: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/ link, or a beats.bitwrap.io/p# link.",
+            "description": "A share link: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/ link, a beats.bitwrap.io/p# link, or a short /p/\u003cCID\u003e link (the program must be stored here).",
             "maxLength": 32768,
             "type": "string"
           }
@@ -292,12 +292,12 @@
         "readOnlyHint": true,
         "title": "Open a share link"
       },
-      "description": "Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/\u003cCID\u003e.\u003cpacked\u003e link, a beats.bitwrap.io/p# link, a bare #fragment, \u003cCID\u003e.\u003cpacked\u003e, or a bare CID (only resolved when the site has stored that program or it is an example). A link whose CID is not its text's is refused with cid_mismatch: do not trust or play its text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.",
+      "description": "Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/\u003cCID\u003e.\u003cpacked\u003e link, a beats.bitwrap.io/p# link, a bare #fragment or \u003cCID\u003e.\u003cpacked\u003e) or a CID-only link (https://btw.bitwrap.io/p/\u003cCID\u003e, /c/\u003cCID\u003e, https://beats.bitwrap.io/p/\u003cCID\u003e, #\u003cCID\u003e, or a bare CID), which is resolved from the programs the site has stored (shared signed in, composed or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "url": {
-            "description": "A share link, a #fragment, \u003cCID\u003e.\u003cpacked\u003e, or a bare CID.",
+            "description": "A share link (self-sealing #\u003cCID\u003e.\u003cpacked\u003e, or a short \u003csite\u003e/p/\u003cCID\u003e or /c/\u003cCID\u003e link), a #fragment, \u003cCID\u003e.\u003cpacked\u003e, or a bare CID.",
             "maxLength": 32768,
             "type": "string"
           }
@@ -393,13 +393,38 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
-        "readOnlyHint": true,
-        "title": "Make a share link"
+        "readOnlyHint": false,
+        "title": "Make share links"
       },
-      "description": "Make the self-sealing share link of a program: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cbase64url(deflate(canonical text))\u003e. The program travels inside the link; whoever opens it gets exactly that text, verified against the CID, and can play and fork it. Also gives social_url (https://btw.bitwrap.io/c/\u003cCID\u003e.\u003cpacked\u003e, the form to post where a link preview is wanted: it carries a card image) and the same link on beats.bitwrap.io. The program must pass check and must not use samples or \"use restricted\" (a private program is never shared); programs shared here are CC0. Links over about 2000 characters (chars says) may be cut by some apps. Read-only, no sign-in.",
+      "description": "Make the share links of a program. Always the self-sealing link: https://btw.bitwrap.io/#\u003cCID\u003e.\u003cbase64url(deflate(canonical text))\u003e; the program travels inside the link, and whoever opens it gets exactly that text, verified against the CID, and can play and fork it. Also social_url (https://btw.bitwrap.io/c/\u003cCID\u003e.\u003cpacked\u003e, the form to post where a link preview is wanted: it carries a card image) and the same link on beats.bitwrap.io. Called signed in (a bearer token), it also stores the program on the site (public, with its rights: license, forked_from, credits, name; the first share's rights stay) and returns the CID-only forms: short_url (https://btw.bitwrap.io/p/\u003cCID\u003e), short_social_url (https://btw.bitwrap.io/c/\u003cCID\u003e) and short_beats_url (https://beats.bitwrap.io/p/\u003cCID\u003e), plus fetch_url, a public GET that returns the canonical text and rights for a phone or an app. Opening a short link fetches the text, recompiles it, recomputes the CID and refuses a mismatch. Anonymous calls get the self-sealing links and short_url null. The program must pass check and must not use samples or \"use restricted\" (a private program is never shared or stored); programs shared here are CC0 unless license says otherwise. Links over about 2000 characters (chars says) may be cut by some apps; short links are not.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "credits": {
+            "description": "Who is credited, one short line each. Stored with the rights.",
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "forked_from": {
+            "description": "CID of the program this one was forked from. Stored with the rights.",
+            "maxLength": 100,
+            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "license": {
+            "description": "Rights kept with the stored program, an SPDX-style id (default CC0-1.0). Only used when the program is stored (signed in).",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "name": {
+            "description": "A name for the program (else its `#! name:` line).",
+            "maxLength": 80,
+            "type": "string"
+          },
           "text": {
             "description": "The program text. It must pass check.",
             "maxLength": 16384,

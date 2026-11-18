@@ -69,6 +69,10 @@ func (s *programStore) Get(cid string) (*api.Program, bool) {
 	if json.Unmarshal(b, &p) != nil || p.CID != cid || p.Text == "" {
 		return nil, false
 	}
+	// content addressing is checked on every read too: a file that does not hash to its name is not a program here
+	if want, err := btw.ProgramCID(p.Text); err != nil || want != cid {
+		return nil, false
+	}
 	return &p, true
 }
 
@@ -90,7 +94,7 @@ func (s *programStore) put(ctx context.Context, text string, meta api.Meta, expe
 	if !utf8.ValidString(text) {
 		return nil, nil, false, api.Errf(400, api.CodeBadRequest, "program text must be UTF-8")
 	}
-	if declaresNotPublic(text) {
+	if api.DeclaresNotPublic(text) {
 		return nil, nil, false, api.Errf(422, api.CodeRestricted, "a program that says it is not public (`#! visibility:`) is not stored on this site")
 	}
 	rep, err := s.checker.Check(ctx, text)
@@ -168,25 +172,6 @@ func (s *programStore) put(ctx context.Context, text string, meta api.Meta, expe
 	}
 	s.total.Add(int64(len(b)))
 	return prog, rep, true, nil
-}
-
-// declaresNotPublic reports a `#! visibility:` header line whose value is anything but "public". btwd's own
-// rule is the one spelling `#! visibility: private` (case and spaces between words aside), so `#!visibility:private`
-// or `#! visibility: restricted` would reach the store as public programs; whoever wrote them meant them private,
-// and this site never keeps, renders or sends to a model a program that says so. Stricter than btwd, never looser.
-func declaresNotPublic(text string) bool {
-	for _, l := range strings.Split(text, "\n") {
-		t := strings.TrimSpace(l)
-		rest, ok := strings.CutPrefix(t, "#!")
-		if !ok {
-			continue
-		}
-		squeezed := strings.ToLower(strings.Join(strings.Fields(rest), ""))
-		if v, ok := strings.CutPrefix(squeezed, "visibility:"); ok && v != "public" {
-			return true
-		}
-	}
-	return false
 }
 
 func firstDiagnostic(r *api.CheckReport) string {
