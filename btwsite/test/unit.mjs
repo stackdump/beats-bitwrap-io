@@ -571,15 +571,41 @@ test('stream: chunks are scheduled gaplessly, each starting where the one before
   assert.equal(p.done, true);
   assert.ok(Math.abs(p.received - 3) < 1e-9);
   const t0 = ctx.starts[0].t;
+  assert.equal(p.grid(), null, 'no clock until BtwRun has played a deck: a grid before its play would put bar 0 one bar late');
+  p.echo([{ op: 'play', deck: 'A', on: true }, { op: 'play', deck: 'B', on: false }]);
   assert.equal(p.grid().beat, 0, 'before the clock reaches the first sound the beat is 0');
   ctx.currentTime = t0 + 1;
   assert.ok(Math.abs(p.grid().beat - 2) < 1e-9, '120 bpm: one second is two beats');
-  p.echo([{ op: 'play', deck: 'A', on: true }, { op: 'play', deck: 'B', on: false }]);
   assert.deepEqual(p.grid().playing, { A: true, B: false });
   assert.equal(p.state, 'playing');
   ctx.currentTime = t0 + 99;
   assert.equal(p.state, 'ended');
   assert.ok(Math.abs(p.mediaTime() - 3) < 1e-9, 'the media clock stops at the end of what arrived');
+});
+
+test('driver: a program on a virtual clock counts its bars from 0 (the first grid the runtime sees comes after its play)', async () => {
+  const { Driver, VirtualSource, ManualClock } = await J('driver.js');
+  const text = program(0).replace(/(# tail \d+\n)+/, '');
+  const d = new Driver(facade);
+  const clock = new ManualClock(124);
+  assert.ok(d.evaluate(text, new VirtualSource(clock, 'manual')).ok);
+  assert.equal(clock.grid(), null, 'nothing plays yet: no clock');
+  d.tick(); // service(null): the runtime queues load + play, the source echoes them
+  assert.notEqual(clock.grid(), null);
+  d.tick(); // the first grid, at beat 0
+  const bars = [];
+  for (let i = 0; i < 40; i++) {
+    clock.setTime(i * 0.25 * 60 / 124 * 1);
+    const f = d.tick();
+    bars.push(f.status.bar);
+  }
+  // 10 beats at a quarter beat a step: bar 0 until beat 4 ... the runtime's bar is the clock's bar, not one behind
+  assert.equal(bars[0], 0);
+  const beat = (i) => (i * 0.25);
+  const wantBar = (i) => Math.floor(beat(i) / 4);
+  for (let i = 0; i < 40; i++) assert.equal(bars[i], wantBar(i), `step ${i} at beat ${beat(i)}`);
+  assert.equal(d.last.status.section, 'one');
+  assert.equal(d.last.status.song_bar, wantBar(39) + 1);
 });
 
 test('stream: an underrun re-anchors the next chunk and takes the gap off the media clock', async () => {

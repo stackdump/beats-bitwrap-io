@@ -160,6 +160,27 @@ try {
     await page.key('Escape');
     await sleep(300);
     check('Esc stops', !(await playing()));
+    if (!MOCKWASM) {
+      // a later eval uses the engine (loaded behind the stream), and the next edit hot-reloads on the same runtime
+      await page.waitFor('__app.engineState === "ready"', 30000);
+      await page.eval('(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=ta.value.replace(/\\n# a thought\\n$/, "\\n"); ta.dispatchEvent(new Event("input",{bubbles:true}));})()');
+      await page.key('Enter', { meta: true });
+      await page.waitFor('document.getElementById("btn-play").classList.contains("on")', 8000);
+      check('with the engine loaded, Cmd+Enter plays on the engine', (await page.eval('__app.driver.kind')) === 'engine', await page.eval('__app.driver.kind'));
+      await page.waitFor('__app.driver.last && __app.driver.last.grid && __app.driver.last.grid.playing && (__app.driver.last.grid.playing.A || __app.driver.last.grid.playing.B)', 15000);
+      check('after a stop and a play again the header names the section (no stale "ready")', !!(await page.waitFor('(()=>{const t=document.getElementById("h-sec-txt").textContent; return /section \\d+\\/\\d+/.test(t) ? t : null})()', 8000).catch(() => null)), await q('#h-sec-txt'));
+      await page.eval('window.__run0 = __app.driver.run');
+      await page.eval('(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=ta.value.replace(/^tempo \\d+/m, m=>"tempo "+(parseInt(m.slice(6))+2)); ta.dispatchEvent(new Event("input",{bubbles:true}));})()');
+      const tempo0 = await page.eval('__app.report.tempo');
+      await page.key('Enter', { meta: true });
+      await sleep(600);
+      check('the next edit hot-reloads on the same runtime (no restart)', (await page.eval('__app.driver.run === window.__run0')) === true && (await page.eval('__app.driver.evalText === __app.editor.text')) === true, `tempo ${tempo0}`);
+      await page.click('#btn-decks');
+      await sleep(600);
+      check('the decks panel lists each deck\'s roles', (await count('#decks .roles li')) >= 2, `${await count('#decks .roles li')}`);
+      await shot(15, 'decks');
+      await page.key('Escape');
+    }
   }
 
   // ---- 4. sections advance, the editor follows, follow toggles ---------------------------------------------------------------------
@@ -362,6 +383,12 @@ try {
       }
       return hashes;
     };
+    // bar 0 is at t = 0: the second section (bar 8, 140 bpm) starts at 13.714 s, not a bar later
+    await page.eval('window.__btw.reset()');
+    check('at t = 0 the header is section 1/9, bar 1', /section 1\/9 · intro/.test(await q('#h-sec-txt')) && (await q('#h-bar')) === 'bar 1/68', `${await q('#h-sec-txt')} | ${await q('#h-bar')}`);
+    let t8 = 0;
+    while (t8 < 13.8) { t8 += 1 / 30; await page.eval(`window.__btw.setTime(${t8}); window.__btw.frame(); 0`); }
+    check('and section 2 begins on bar 8 of the clock (no bar of lag)', /section 2\/9 · build/.test(await q('#h-sec-txt')) && (await q('#h-bar')) === 'bar 9/68', `${await q('#h-sec-txt')} | ${await q('#h-bar')}`);
     const times = [0, 6.2, 31.4];
     const a = await run('a', times);
     const b = await run('b', times);
@@ -374,6 +401,19 @@ try {
     for (let i = 0; i < 60; i++) await page.eval('window.__btw.setTime(' + (31.4 + (i + 1) / 30) + '); window.__btw.frame(); 0');
     console.log(`#   60 frames of service()+marks()+paint at 1920x1080: ${((Date.now() - t0) / 60).toFixed(1)} ms each (incl. CDP round trip)`);
     check('record mode started by cid works too', true);
+    // the evolve flash, on markers-demo: gen 1 begins on bar 12 of its 124 bpm
+    await page.goto(`${T('')}?${withQ('record=1&clock=manual&example=markers-demo')}`);
+    await ready();
+    let tt = 0;
+    while (tt < 23.5) { tt += 1 / 30; await page.eval(`window.__btw.setTime(${tt}); window.__btw.frame(); 0`); }
+    check('a new generation flashes the evolve block and says gen N', (await count('.lamp-evolve')) > 0 && /gen \d/.test(await q('.gen')), `${await count('.lamp-evolve')} ${await q('.gen')}`);
+    await shot(16, 'evolve-flash-record');
+    // reduced motion: the page reads the media query (lamps get a lower peak and a longer fade; nothing pulses)
+    await page.cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await page.goto(`${T('')}?${withQ('record=1&clock=manual&example=markers-demo')}`);
+    await ready();
+    check('prefers-reduced-motion is read', (await page.eval('__app.reduced')) === true);
+    await page.cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     await page.goto(`${T('')}?${withQ(`record=1&clock=manual&cid=${info.cid}`)}`);
     await ready();
     check('?record=1&cid=<CID> loads the program from /api/programs/<cid>', (await page.eval('window.__btw.info().cid')) === info.cid);

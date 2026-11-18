@@ -72,6 +72,8 @@ export class App {
     document.documentElement.classList.toggle('record', this.record);
     early(this);
     this.dom();
+    const mod = $('k-mod');
+    if (mod && !/Mac|iPhone|iPad/.test(navigator.platform || '')) mod.textContent = 'Ctrl';
     this.editor = new Editor($('ed'), {
       onInput: (t, o) => this.onInput(t, o),
       onEval: () => this.play('eval'),
@@ -173,6 +175,7 @@ export class App {
       this.driver = new Driver(this.btw);
       this.editor.setHighlighter((t) => this.btw.highlight(t));
       this.wasmOk = true;
+      this.updateTransport();
     } catch (e) {
       this.wasmOk = false;
       console.warn('btw: the module did not load', e);
@@ -459,7 +462,11 @@ export class App {
   }
 
   async play(trigger = 'eval') {
-    if (!this.btw || this.busy) return;
+    if (!this.btw) {
+      this.toast(this.wasmOk === false ? 'The language module did not load, so nothing can play.' : 'Still loading the language module (about 6 MB). Try again in a moment.', 'warn');
+      return;
+    }
+    if (this.busy) return;
     this.busy = true;
     try {
       this.ensureAudio();
@@ -614,6 +621,11 @@ export class App {
       this.renderEdges([]);
     }
     this.renderDecks(f.marks);
+    const live = !!(f.grid && f.grid.playing && (f.grid.playing.A || f.grid.playing.B));
+    if (live !== this._engineLive) {
+      this._engineLive = live;
+      this.updateTransport();
+    }
     this.updateTime(f);
     this.afterFrame(f, head);
     return f;
@@ -644,6 +656,7 @@ export class App {
     const el = this.el;
     const rep = this.evalReport;
     if (!hm || !hm.running) {
+      this._last.sec = null; // the running branch caches what it wrote; this one overwrites it
       this.setText(el['h-sec-txt'], this.report && this.report.ok ? 'ready' : 'not playing');
       el['h-bar'].hidden = true; el['h-phrase'].hidden = true; el['h-gen'].hidden = true;
       el['h-prog-fill'].style.width = '0%';
@@ -769,9 +782,15 @@ export class App {
       else if (st === 'buffering') { status = 'stream · buffering…'; busy = true; }
       else if (st === 'error') status = `stream error: ${this.player.error && this.player.error.message}`;
       else status = `stream · ${this.player.buffered().toFixed(1)} s ahead`;
-    } else if (playing) status = 'engine · live: edits land on the next bar';
+    } else if (playing) {
+      const g = this.driver.last && this.driver.last.grid;
+      const sounding = !!(g && g.playing && (g.playing.A || g.playing.B));
+      status = sounding ? 'engine · live: edits land on the next bar' : 'engine · preparing the song…';
+      busy = !sounding;
+    }
     else if (this.engineState === 'loading') { status = 'engine loading…'; busy = true; }
     else if (this.engineState === 'failed') status = 'engine unavailable: using stream';
+    else if (this.wasmOk === undefined) { status = 'loading the module…'; busy = true; }
     else status = this.wasmOk === false ? 'module not loaded' : 'stopped';
     this.setText(el['t-status'], status);
     el['t-status'].classList.toggle('busy', busy);
@@ -811,11 +830,15 @@ export class App {
       return;
     }
     const caret = this.editor.ta.selectionStart;
-    if (r.canonical === text) { this.toast('Already in canonical form.', 'ok'); return; }
-    this.editor.replaceUndoable(r.canonical);
-    const at = mapCaret(text, caret, r.canonical);
+    // `#!` lines at the top (name, license, forked-from) say what the program is; they are comments to the language,
+    // so they are not in the CID and canonical form drops them, but a format should not strip them from the page
+    const head = (/^(?:#![^\n]*\n)+/.exec(text) || [''])[0];
+    const out = head + r.canonical;
+    if (out === text) { this.toast('Already in canonical form.', 'ok'); return; }
+    this.editor.replaceUndoable(out);
+    const at = head.length + mapCaret(head ? text.slice(head.length) : text, Math.max(0, caret - head.length), r.canonical);
     this.editor.ta.setSelectionRange(at, at);
-    const n = (r.comments || []).length;
+    const n = (r.comments || []).filter((c) => !/^#!/.test(String(c).trim())).length;
     this.toast(`Formatted · ${shortCid(r.cid)}${n ? ` · ${n} comment${n === 1 ? '' : 's'} dropped (the canonical form has none; Cmd/Ctrl+Z restores them)` : ''}`, 'ok');
     this.runCheckNow();
   }

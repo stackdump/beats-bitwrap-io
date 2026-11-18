@@ -136,9 +136,13 @@ export class StreamPlayer {
     return Math.min(Math.max(this.ctx.currentTime - lat - this.t0 - this.stall, 0), this.received);
   }
 
-  /** The clock BtwRun runs on: beat = media seconds x tempo / 60. null until the first sound. */
+  /**
+   * The clock BtwRun runs on: beat = media seconds x tempo / 60. null until the first sound and until BtwRun has
+   * played a deck (virtual mode): the runtime puts the program's bar 0 on the first grid it sees with a clock, so
+   * a grid before its `play` command would make every bar count one late.
+   */
   grid() {
-    if (this.t0 == null) return null;
+    if (this.t0 == null || !(this.playing.A || this.playing.B)) return null;
     return { deck: 'A', beat: (this.mediaTime() * this.bpm) / 60, bpm: this.bpm, playing: { ...this.playing } };
   }
 

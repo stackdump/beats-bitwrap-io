@@ -205,7 +205,7 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
 .drawer .row { display: flex; gap: 8px; } .drawer .row > * { flex: 1; min-width: 0; }
 .drawer .note { color: var(--dim); font-size: 12.5px; line-height: 1.5; margin: 0; }
 .drawer .note.warn { color: var(--warn); }
-.drawer pre, .pop pre { margin: 0; background: var(--stage); border: 1px solid var(--line-2); border-radius: 4px; padding: 8px 10px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--code); }
+.drawer pre, .pop pre { margin: 0; background: var(--stage); border: 1px solid var(--line-2); border-radius: 4px; padding: 8px 10px; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--code); }
 .drawer .primary, .pop .primary { background: var(--accent); border-color: transparent; color: #fff; }
 .drawer .err { background: #3a1822; border: 1px solid #7a2a3a; border-radius: 4px; padding: 8px 10px; color: #ffd6dc; font-size: 12.5px; }
 .drawer .err pre { background: #26101a; border-color: #5a2030; margin-top: 6px; }

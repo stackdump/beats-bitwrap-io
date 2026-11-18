@@ -36,7 +36,7 @@
     <button type="button" class="tb" id="btn-user" title="Sign in" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">◉</span><span class="lbl" id="user-lbl">sign in</span></button>
   </header>
 
-  <div class="hdr" id="hdr" role="status" aria-live="off">
+  <div class="hdr" id="hdr">
     <span class="h-name" id="h-name" title="program name"></span>
     <span class="h-sec" id="h-sec"><span class="h-arrow" aria-hidden="true">▸</span> <span id="h-sec-txt">not playing</span></span>
     <span class="h-bar" id="h-bar" hidden></span>
@@ -69,7 +69,7 @@
       <svg class="ic-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>
       <svg class="ic-stop" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>
     </button>
-    <span class="t-hint" id="t-hint"><kbd>⌘</kbd><kbd>↵</kbd> eval <kbd>Esc</kbd> stop</span>
+    <span class="t-hint" id="t-hint"><kbd id="k-mod">⌘</kbd><kbd>↵</kbd> eval <kbd>Esc</kbd> stop</span>
     <div class="seg" id="t-source" role="group" aria-label="Sound source">
       <button type="button" aria-pressed="false" data-src="engine" id="src-engine" title="Live engine in this page: edits land on the next bar">engine</button>
       <button type="button" aria-pressed="false" data-src="stream" id="src-stream" title="The server's render, streamed">stream</button>

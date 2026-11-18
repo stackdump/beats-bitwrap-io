@@ -47,7 +47,9 @@ export class ManualClock {
   setTime(t) {
     this.t = t;
   }
+  /** null until a deck plays: the runtime anchors bar 0 on the first grid it sees, so it must not see one before its `play`. */
   grid() {
+    if (!this.playing.A && !this.playing.B) return null;
     return { deck: 'A', beat: (this.t * this.bpm) / 60, bpm: this.bpm, playing: { ...this.playing } };
   }
   echo(cmds) {
