@@ -846,3 +846,70 @@ func (h *hub) deviceStatus(dev string) (bool, time.Time, *api.SessionState) {
 	}
 	return len(s.subs) > 0, s.lastSeen, st
 }
+
+// ---------- api.Devices: MCP's view of the paired phones ----------
+
+var _ api.Devices = (*Server)(nil)
+
+// ownedDevices is u's devices, most recently paired first.
+func (s *Server) ownedDevices(owner string) []*device {
+	p := s.pair
+	p.mu.Lock()
+	var list []*device
+	for _, d := range p.devices {
+		if d.Owner == owner {
+			cp := *d
+			list = append(list, &cp)
+		}
+	}
+	p.mu.Unlock()
+	sort.Slice(list, func(i, j int) bool { return list[i].Paired > list[j].Paired })
+	return list
+}
+
+// Devices implements api.Devices.
+func (s *Server) Devices(u *api.User) []api.DeviceInfo {
+	if u == nil {
+		return nil
+	}
+	out := []api.DeviceInfo{}
+	for _, d := range s.ownedDevices(u.ID) {
+		di := api.DeviceInfo{ID: d.ID, Name: d.Name, Fingerprint: KeyFingerprint(d.Key), Paired: d.Paired}
+		connected, last, st := s.hub.deviceStatus(d.ID)
+		di.Connected, di.State = connected, st
+		if !last.IsZero() {
+			di.LastSeen = last.UTC().Format(time.RFC3339)
+		}
+		if connected {
+			di.Session = s.hub.deviceSessionID(d.Owner, d.ID)
+		}
+		out = append(out, di)
+	}
+	return out
+}
+
+// DeviceSession implements api.Devices.
+func (s *Server) DeviceSession(u *api.User, deviceID string) (string, error) {
+	if u == nil {
+		return "", api.Errf(http.StatusUnauthorized, api.CodeAuthRequired, "driving a paired phone needs a signed-in caller")
+	}
+	p := s.pair
+	p.mu.Lock()
+	d, ok := p.devices[deviceID]
+	var name, owner string
+	if ok {
+		name, owner = d.Name, d.Owner
+	}
+	p.mu.Unlock()
+	if !ok || owner != u.ID {
+		return "", api.Errf(http.StatusNotFound, api.CodeNotFound, "no paired phone has id %q on this account; call devices", deviceID)
+	}
+	if connected, _, _ := s.hub.deviceStatus(deviceID); !connected {
+		return "", api.Errf(http.StatusConflict, api.CodeNoSession, "%s is paired but not connected: open djrust on the phone", name)
+	}
+	sid := s.hub.deviceSessionID(owner, deviceID)
+	if sid == "" {
+		return "", api.Errf(http.StatusConflict, api.CodeNoSession, "%s is paired but not connected: open djrust on the phone", name)
+	}
+	return sid, nil
+}

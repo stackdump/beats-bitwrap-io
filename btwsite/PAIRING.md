@@ -65,6 +65,10 @@ byte for byte, so the two sides cannot drift.
   retires the oldest).
 - **A phone is a hub session** owned by the user (`SessionInfo.device` names it), so MCP's
   `eval` / `load` / `stop` / `get` with no session reach it as well as the user's open pages.
+- **Pairing grants MCP.** The owner's MCP token (the page's "MCP token" button) lists the owner's
+  phones with the `devices` tool and drives one alone with `device: <id>` on `eval` / `load` /
+  `get` / `stop`. No new credential is made at pairing and nothing about MCP is in the QR: the grant
+  is the device record's owner. Another account's token gets `not_found`.
   `/api/devices/<id>/push` runs the same checks as MCP's `eval`: no program with errors, and no
   restricted or asset-using program, is sent.
 - Limits: `POST /api/pair` and `POST /api/pair/claim` allow 20 per minute per address. Device

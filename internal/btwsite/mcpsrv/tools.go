@@ -22,6 +22,7 @@ import (
 var (
 	reCID     = regexp.MustCompile(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`)
 	reSession = regexp.MustCompile(`^[A-Za-z0-9_-]{6,64}$`)
+	reDevice  = regexp.MustCompile(`^[A-Za-z0-9_-]{6,64}$`)
 	reName    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	reLength  = regexp.MustCompile(`^(short|medium|long|[0-9]{1,3})$`)
 	reKey     = regexp.MustCompile(`^[A-Za-z0-9#:]{1,24}$`)
@@ -196,6 +197,37 @@ func (a args) session() (string, *api.Error) {
 	return v, nil
 }
 
+// target is the session to drive: the session argument, or the hub session of the paired phone named by
+// device (api.Devices), or "" for all of the caller's own. session and device together are refused.
+func (s *Server) target(c caller, a args) (string, *api.Error) {
+	session, e := a.session()
+	if e != nil {
+		return "", e
+	}
+	dev, ok, e := a.str("device", 64)
+	if e != nil {
+		return "", e
+	}
+	if !ok || dev == "" {
+		return session, nil
+	}
+	if !reDevice.MatchString(dev) {
+		return "", api.Errf(400, api.CodeBadRequest, "argument \"device\" is not a device id; call devices for the ids of your paired phones")
+	}
+	if session != "" {
+		return "", api.Errf(400, api.CodeBadRequest, "give session or device, not both")
+	}
+	dh, ok := s.b.(api.Devices)
+	if !ok {
+		return "", api.Errf(404, api.CodeNotFound, "this server has no paired phones")
+	}
+	sid, err := dh.DeviceSession(c.user, dev)
+	if err != nil {
+		return "", fail(err)
+	}
+	return sid, nil
+}
+
 // ---------- shared steps ----------
 
 func (s *Server) limitCPU(c caller) *api.Error {
@@ -333,6 +365,9 @@ func (s *Server) addTools() {
 	sessionArg := mcp.WithString("session",
 		mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9_-]{6,64}$`),
 		mcp.Description("Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get)."))
+	deviceArg := mcp.WithString("device",
+		mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9_-]{6,64}$`),
+		mcp.Description("Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session."))
 	playArg := mcp.WithBoolean("play", mcp.Description("Start playing too (default false: load it and leave it stopped, or leave a playing tab as it is)."))
 
 	s.add(mcp.NewTool("compose",
@@ -364,7 +399,7 @@ func (s *Server) addTools() {
 		mcp.WithDescription(s.evalDesc()), noExtra,
 		mcp.WithTitleAnnotation("Play a program in a browser tab"), hints(false, true, true, false), // replaces the editor's text
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check.")),
-		playArg, sessionArg,
+		playArg, sessionArg, deviceArg,
 	), s.eval)
 
 	s.add(mcp.NewTool("load",
@@ -373,13 +408,13 @@ func (s *Server) addTools() {
 		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (compose and render store theirs) or of an example.")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
 		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: https://btw.bitwrap.io/#<CID>.<packed>, a /c/ link, or a beats.bitwrap.io/p# link.")),
-		playArg, sessionArg,
+		playArg, sessionArg, deviceArg,
 	), s.load)
 
 	s.add(mcp.NewTool("get",
 		mcp.WithDescription(s.getDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("What a browser tab is playing"),
-		sessionArg,
+		sessionArg, deviceArg,
 	), s.get)
 
 	s.add(mcp.NewTool("share",
@@ -425,8 +460,13 @@ func (s *Server) addTools() {
 	s.add(mcp.NewTool("stop",
 		mcp.WithDescription(s.stopDesc()), noExtra,
 		mcp.WithTitleAnnotation("Stop a browser tab"), hints(false, false, true, false),
-		sessionArg,
+		sessionArg, deviceArg,
 	), s.stop)
+
+	s.add(mcp.NewTool("devices",
+		mcp.WithDescription(s.devicesDesc()), noExtra,
+		mcp.WithTitleAnnotation("Your paired phones"), hints(true, false, true, false),
+	), s.devices)
 }
 
 // ---------- compose ----------
@@ -576,7 +616,7 @@ func (s *Server) fmtTool(ctx context.Context, c caller, a args) (any, *api.Error
 // ---------- eval, load, stop, get ----------
 
 func (s *Server) eval(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("text", "play", "session"); e != nil {
+	if e := a.only("text", "play", "session", "device"); e != nil {
 		return nil, e
 	}
 	text, e := s.program(a, "text")
@@ -587,7 +627,7 @@ func (s *Server) eval(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if e != nil {
 		return nil, e
 	}
-	session, e := a.session()
+	session, e := s.target(c, a)
 	if e != nil {
 		return nil, e
 	}
@@ -623,7 +663,7 @@ func warningsOf(rep *api.CheckReport) []api.Diagnostic {
 }
 
 func (s *Server) load(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("cid", "example", "url", "play", "session"); e != nil {
+	if e := a.only("cid", "example", "url", "play", "session", "device"); e != nil {
 		return nil, e
 	}
 	cid, hasCID, e := a.str("cid", 100)
@@ -651,7 +691,7 @@ func (s *Server) load(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if e != nil {
 		return nil, e
 	}
-	session, e := a.session()
+	session, e := s.target(c, a)
 	if e != nil {
 		return nil, e
 	}
@@ -709,10 +749,10 @@ func (s *Server) load(ctx context.Context, c caller, a args) (any, *api.Error) {
 }
 
 func (s *Server) stop(_ context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("session"); e != nil {
+	if e := a.only("session", "device"); e != nil {
 		return nil, e
 	}
-	session, e := a.session()
+	session, e := s.target(c, a)
 	if e != nil {
 		return nil, e
 	}
@@ -724,10 +764,10 @@ func (s *Server) stop(_ context.Context, c caller, a args) (any, *api.Error) {
 }
 
 func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("session"); e != nil {
+	if e := a.only("session", "device"); e != nil {
 		return nil, e
 	}
-	session, e := a.session()
+	session, e := s.target(c, a)
 	if e != nil {
 		return nil, e
 	}
@@ -760,6 +800,32 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 		*api.SessionState
 		Connected int `json:"sessions_connected,omitempty"`
 	}{st, connected}, nil
+}
+
+// devices lists the caller's paired phones.
+func (s *Server) devices(_ context.Context, c caller, a args) (any, *api.Error) {
+	if e := a.only(); e != nil {
+		return nil, e
+	}
+	list := []api.DeviceInfo{}
+	if dh, ok := s.b.(api.Devices); ok {
+		if l := dh.Devices(c.user); l != nil {
+			list = l
+		}
+	}
+	n := 0
+	for _, d := range list {
+		if d.Connected {
+			n++
+		}
+	}
+	note := "Pass a phone's id as device to eval, load, get or stop to drive that phone alone."
+	if len(list) == 0 {
+		note = fmt.Sprintf("No phone is paired with this account. Open %s signed in, press Phone, and scan the code with djrust's btw.bitwrap.io pairing.", s.public)
+	} else if n == 0 {
+		note = "No paired phone is connected now: open djrust on the phone (it connects on its own). " + note
+	}
+	return map[string]any{"devices": list, "connected": n, "note": note}, nil
 }
 
 // latestSession picks the session seen most recently.
