@@ -325,3 +325,4 @@ html.record .t-status::before { display: none !important; }
 .drawer .pair-devices { display: flex; flex-direction: column; gap: 8px; }
 .drawer .pair-device { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .drawer .pair-device > div { flex-basis: 100%; }
+.pair-page { max-width: 560px; margin: 40px auto; padding: 0 16px; line-height: 1.5; }

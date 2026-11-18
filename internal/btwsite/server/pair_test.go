@@ -189,6 +189,15 @@ func TestPairFlow(t *testing.T) {
 	}
 }
 
+func TestPairPage(t *testing.T) {
+	e := newEnv(t, nil)
+	resp := e.get("/pair")
+	b := readAll(t, resp)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "Scan to connect") || resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("/pair: %d %s", resp.StatusCode, b)
+	}
+}
+
 func TestPairRefusals(t *testing.T) {
 	e := newEnv(t, nil)
 	u := e.newUser()

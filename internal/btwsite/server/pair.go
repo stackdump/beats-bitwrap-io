@@ -209,6 +209,7 @@ func (s *Server) refuseCrossSite(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) pairRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /pair", s.handlePairPage)
 	mux.HandleFunc("POST /api/pair", s.handlePairNew)
 	mux.HandleFunc("GET /api/pair/{id}", s.handlePairState)
 	mux.HandleFunc("POST /api/pair/claim", s.handlePairClaim)
@@ -221,6 +222,26 @@ func (s *Server) pairRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/device/report", s.handleDeviceReport)
 	mux.HandleFunc("POST /api/device/reply", s.handleDeviceReply)
 }
+
+// handlePairPage answers a pairing QR code opened in a browser (a phone's camera app follows the link):
+// the code is for djrust's own scanner. The token is in the fragment, so it never reaches this server.
+func (s *Server) handlePairPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	_, _ = io.WriteString(w, pairPageHTML)
+}
+
+const pairPageHTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>Pair a phone with btw</title><link rel="stylesheet" href="/css/btw.css"></head>
+<body><main class="pair-page">
+<h1>This is a pairing code for djrust</h1>
+<p>Open <b>djrust</b> on your Android phone, tap the menu, then <b>btw.bitwrap.io</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
+<p>A phone camera app cannot pair: the code is only for djrust's own scanner, and it works once, for two minutes.</p>
+<p><a href="/">Back to btw.bitwrap.io</a></p>
+</main></body></html>
+`
 
 // ---------- the page: make an offer, watch it, list and unpair devices, push to one ----------
 
