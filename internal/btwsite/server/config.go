@@ -31,6 +31,9 @@ type Config struct {
 	AltOrigins  string // -alt-origins: comma list of other origins this site answers for (an old name, during a move)
 	MovedTo     string // -moved-to: the origin the site now lives at; set on the OLD server to tell phones and pages
 	SiteID      string // -site-id: the stable id of this site (default: <data>/site.json, made on first start)
+	// LegacyHosts are earlier public hosts (comma-separated, e.g. "btw.bitwrap.io" after the move to beatscript.app):
+	// a phone paired under one of them signs that host into its requests, and those signatures stay good.
+	LegacyHosts string // -legacy-hosts
 
 	Model    string // -model ("fake" = the recorded-fixture model)
 	Thinking string // -thinking: Gemini thinking level MINIMAL|LOW|MEDIUM|HIGH ("" = LOW)
@@ -112,6 +115,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.AltOrigins, "alt-origins", "other origins this site answers for, comma separated (an old name during a move): their host is accepted in btw-pair/1 signatures and Origin checks")
 	str(&c.MovedTo, "moved-to", "the origin this site has moved to: phones and pages are told, the old name keeps answering")
 	str(&c.SiteID, "site-id", "the site's stable id (default: <data>/site.json, made on first start; copy that file when you move the data)")
+	str(&c.LegacyHosts, "legacy-hosts", "earlier public hosts, comma-separated: phones paired under them keep working")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
 	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")
 	num(&c.ComposeUserHour, "compose-user-hour", "compose requests per signed-in user per hour")

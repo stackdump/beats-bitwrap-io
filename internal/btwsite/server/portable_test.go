@@ -111,11 +111,10 @@ func TestPairV1HostBoundNeedsTheOldNameAsAlias(t *testing.T) {
 	}
 	e.cfg.AltOrigins = "https://btw.test"
 	e3 := e.restart()
-	if r := e3.signed(p, "GET", "/api/device", nil); r.StatusCode != 200 {
-		t.Fatalf("with -alt-origins: %d", r.StatusCode)
-	}
 	var hello map[string]any
-	decode(t, e3.signed(p, "GET", "/api/device", nil), &hello)
+	if code := decode(t, e3.signed(p, "GET", "/api/device", nil), &hello); code != 200 {
+		t.Fatalf("with -alt-origins: %d", code)
+	}
 	if hello["origin"] != "https://beatscript.test" || hello["site_id"] == nil {
 		t.Fatalf("hello does not give the phone the new origin and the site id: %v", hello)
 	}

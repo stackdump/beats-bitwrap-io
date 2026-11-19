@@ -126,10 +126,22 @@ func (s *Server) publicHost() string {
 // acceptedHosts are the hosts this site answers for: the primary one first, then -alt-origins.
 func (s *Server) acceptedHosts() []string {
 	hosts := []string{s.publicHost()}
-	for _, o := range parseOrigins(s.cfg.AltOrigins) {
-		if h := hostOf(o); h != "" && h != hosts[0] {
+	add := func(h string) {
+		h = strings.ToLower(strings.TrimSpace(h))
+		for _, x := range hosts {
+			if x == h {
+				return
+			}
+		}
+		if h != "" {
 			hosts = append(hosts, h)
 		}
+	}
+	for _, o := range parseOrigins(s.cfg.AltOrigins) {
+		add(hostOf(o))
+	}
+	for _, h := range strings.Split(s.cfg.LegacyHosts, ",") { // earlier hosts, as -legacy-hosts has always meant
+		add(h)
 	}
 	return hosts
 }

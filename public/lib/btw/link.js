@@ -53,12 +53,12 @@ export async function openLink(input) {
 
 // ---- CID-only links: https://beats.bitwrap.io/p/<CID> (and /p#<CID>) -----------------------------------------------
 //
-// A short link carries only the CID. The program and its rights are kept by btw.bitwrap.io (the one programs store:
+// A short link carries only the CID. The program and its rights are kept by beatscript.app (btw.bitwrap.io before; the one programs store:
 // PUT /api/shares/<CID> writes it, signed in; GET /api/programs/<CID> is public and readable cross-origin), so this page
 // fetches the canonical text from there and then does what it does for a self-sealing link: recompute the CID from the
 // text and refuse a mismatch. What the store says is never trusted; only the hash is.
 
-export const STORE_ORIGIN = 'https://btw.bitwrap.io';
+export const STORE_ORIGIN = 'https://beatscript.app';
 const CID_ONLY = /^z[1-9A-HJ-NP-Za-km-z]{40,80}$/;
 
 /** The CID of a `/p/<CID>` path, or null. */

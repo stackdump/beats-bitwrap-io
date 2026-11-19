@@ -16,7 +16,7 @@ const packed = (t) => deflateRawSync(Buffer.from(t)).toString('base64url');
 const json = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const store = (map) => async (url) => {
   const cid = url.split('/api/programs/')[1];
-  assert.ok(url.startsWith('https://btw.bitwrap.io/api/programs/'), url);
+  assert.ok(url.startsWith('https://beatscript.app/api/programs/'), url);
   return map[cid] ? json(200, map[cid]) : json(404, { error: { code: 'not_found' } });
 };
 

@@ -272,7 +272,7 @@ func main() {
 		r.URL.Path = "/p.html"
 		staticHandler.ServeHTTP(w, r)
 	})
-	// /p/<CID>: the CID-only form of a btw link. The same page; it fetches the program from btw.bitwrap.io (the one
+	// /p/<CID>: the CID-only form of a btw link. The same page; it fetches the program from beatscript.app (the one
 	// programs store) and checks it against the CID in the browser, so there is no second store here.
 	mux.HandleFunc("GET /p/{cid}", func(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = "/p.html"
