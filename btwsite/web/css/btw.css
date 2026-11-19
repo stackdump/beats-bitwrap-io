@@ -165,6 +165,9 @@ a.tb { text-decoration: none; color: inherit; }
 .pr-row .sev-error { color: var(--red); } .pr-row .sev-warning { color: var(--warn); }
 .pr-row .more { display: block; color: var(--dim); padding-left: 3.4ch; }
 .pr-row .more.help { color: var(--amber); }
+.pr-fixes { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 14px 8px 3.4ch; border-bottom: 1px solid #1b2340; }
+.pr-apply { font: 12px/1.3 var(--mono); color: var(--amber); background: none; border: 1px solid currentColor; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.pr-apply:hover, .pr-apply:focus-visible { background: rgba(255,255,255,.08); }
 
 /* ---- decks + transport ----------------------------------------------------------------------------- */
 .decks { display: flex; gap: 12px; padding: 10px 14px; background: var(--panel-2); border-top: 1px solid var(--line-2); flex: none; }
@@ -272,6 +275,7 @@ a.tb { text-decoration: none; color: inherit; }
   .pr-sum { display: none; }
   .pr-list { max-height: 38vh; border-top: 1px solid var(--line-2); }
   .pr-row { min-height: 44px; padding: 10px 14px; }
+  .pr-apply { min-height: 44px; padding: 8px 14px; }
 
   .transport { flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 0; padding: 6px max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
   .play { order: 1; width: 48px; height: 48px; }

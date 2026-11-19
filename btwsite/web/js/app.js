@@ -13,6 +13,7 @@ import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
 import { headerModel, programName } from './header-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
+import { suggestionsFor } from './suggest.js';
 import { h, debounce, fmtTime, shortCid, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
 import { fragmentOf, guardLink } from './link.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
@@ -405,6 +406,13 @@ export class App {
     for (const b of [this.el['pr-sum'], this.el['t-prob']]) b.setAttribute('aria-expanded', String(!list.hidden));
   }
 
+  /** Apply one suggestion: a single undoable edit (Ctrl/Cmd+Z restores), then re-check at once. */
+  applySuggestion(f) {
+    if (this.reportText !== this.editor.text) return;
+    this.editor.applyEdit(f.from, f.to, f.replacement);
+    this.runCheckNow();
+  }
+
   renderProblems() {
     const r = this.report;
     const ds = (r && r.diagnostics) || [];
@@ -424,7 +432,14 @@ export class App {
       const b = h('button', { type: 'button', class: 'pr-row', title: 'Jump to this' }, h('span', { class: 'pos' }, `${d.line}:${d.col}`), h('span', { class: `sev-${d.severity || 'error'}` }, `${d.severity || 'error'}: `), d.message,
         ...diagDetails(d).map((t) => h('span', { class: `more${t.startsWith('did you mean') ? ' help' : ''}` }, t)));
       b.addEventListener('click', () => this.editor.jumpTo(d.line, d.col, d.end_col));
-      return h('li', {}, b);
+      // one Apply button per candidate, only while the report still matches the text (a stale span is never edited)
+      const fixes = this.reportText === this.editor.text ? suggestionsFor(d, this.reportText) : [];
+      const apply = fixes.map((f) => {
+        const a = h('button', { type: 'button', class: 'pr-apply', 'aria-label': `Apply: ${f.label} at line ${f.line}, column ${f.col}`, title: f.label }, `Apply \`${f.replacement}\``);
+        a.addEventListener('click', () => this.applySuggestion(f));
+        return a;
+      });
+      return h('li', {}, b, ...(apply.length ? [h('div', { class: 'pr-fixes' }, ...apply)] : []));
     }));
     if (!ds.length && !list.hidden) {
       list.hidden = true;

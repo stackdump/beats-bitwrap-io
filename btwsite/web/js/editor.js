@@ -112,6 +112,24 @@ export class Editor {
     this.on.onInput && this.on.onInput(this._text, { programmatic: true });
   }
 
+  /** Replace [from, to) with `text` as ONE undoable edit (the browser's undo stack keeps the old text), caret just after it. */
+  applyEdit(from, to, text) {
+    const ta = this.ta;
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(from, to);
+    const ok = typeof document.execCommand === 'function' && document.execCommand('insertText', false, text);
+    if (!ok) {
+      ta.setRangeText(text, from, to, 'end');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const at = from + text.length;
+    ta.setSelectionRange(at, at);
+    this._text = ta.value;
+    this.render();
+    this._revealCaret();
+    this.on.onInput && this.on.onInput(this._text, { programmatic: true });
+  }
+
   render() {
     const text = this._text;
     const starts = lineStarts(text);

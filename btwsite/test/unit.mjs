@@ -1129,3 +1129,61 @@ test('engine worklet centres the crossfader when it builds the Dj (deck B is aud
   assert.equal(p.dj.crossfader, 0.5, 'the crossfader is at the centre: both decks at full level');
   assert.ok(calls.findIndex((c) => c[0] === 'new') < calls.findIndex((c) => c[0] === 'crossfader'), 'centred after the Dj exists');
 });
+
+// ---- suggest.js: "did you mean" as one-click edits ----------------------------------------------------------
+const sg = await J('suggest.js');
+
+test('suggest: parseHelp reads single tokens, several candidates, and refuses prose and templates', () => {
+  assert.deepEqual(sg.parseHelp('did you mean `kick`?'), ['kick']);
+  assert.deepEqual(sg.parseHelp('did you mean: hihat'), ['hihat']);
+  assert.deepEqual(sg.parseHelp('hihat'), ['hihat']);
+  assert.deepEqual(sg.parseHelp("did you mean 'snare', `clap` or \"kick\"?"), ['snare', 'clap', 'kick']);
+  assert.deepEqual(sg.parseHelp('did you mean: snare, clap or kick'), ['snare', 'clap', 'kick']);
+  assert.deepEqual(sg.parseHelp('did you mean `hip-hop` or `hip-hop`'), ['hip-hop']);
+  for (const no of [null, undefined, '', '   ', 'kick x ~ x ~', 'decks are A and B', '}', 'did you mean `a b`?', 'try `kick` instead of that', 'did you mean `x` or maybe something else', 'did you mean `kick x ~`'])
+    assert.deepEqual(sg.parseHelp(no), [], String(no));
+});
+
+test('suggest: suggestionsFor computes the span from line/col/end_col, in code points, over UTF-16', () => {
+  const d = { line: 2, col: 6, end_col: 10, found: '`kikc`', help: 'did you mean `kick`?', severity: 'error' };
+  const text = 'tempo 120\ndeck kikc x ~ x ~';
+  // "deck " is 5 chars, so col 6 is the k of kikc
+  const [s] = sg.suggestionsFor(d, text);
+  assert.equal(text.slice(s.from, s.to), 'kikc');
+  assert.equal(s.replacement, 'kick');
+  assert.equal(s.label, 'Replace `kikc` with `kick`');
+  assert.deepEqual(sg.applySuggestion(text, s), { text: 'tempo 120\ndeck kick x ~ x ~', caret: s.from + 4 });
+  // astral and multi-byte text before the span: columns count code points, offsets are UTF-16
+  const t2 = 'é😀 sn4re x'; // é(1) 😀(1 col, 2 units) space(1) -> sn4re starts at col 4
+  const d2 = { line: 1, col: 4, end_col: 9, found: 'sn4re', help: 'snare' };
+  const [s2] = sg.suggestionsFor(d2, t2);
+  assert.equal(t2.slice(s2.from, s2.to), 'sn4re');
+  assert.equal(s2.from, 4);
+  assert.equal(sg.applySuggestion(t2, s2).text, 'é😀 snare x');
+  // the replacement itself may be multi-byte-free but the caret is a UTF-16 offset just after it
+  assert.equal(sg.applySuggestion(t2, s2).caret, 4 + 5);
+});
+
+test('suggest: several candidates give one edit each; none, stale or ambiguous spans give none', () => {
+  const text = 'deck A: snar x';
+  const d = { line: 1, col: 9, end_col: 13, found: 'snar', help: 'did you mean `snare`, `snap` or `sonar`?' };
+  const fx = sg.suggestionsFor(d, text);
+  assert.deepEqual(fx.map((f) => f.replacement), ['snare', 'snap', 'sonar']);
+  assert.ok(fx.every((f) => text.slice(f.from, f.to) === 'snar'));
+  assert.deepEqual(sg.suggestionsFor({ ...d, help: null }, text), []);
+  assert.deepEqual(sg.suggestionsFor({ ...d, help: 'kick x ~ x ~' }, text), []);
+  assert.deepEqual(sg.suggestionsFor({ ...d, found: 'other' }, text), [], 'the text under the span is not what the checker found');
+  assert.deepEqual(sg.suggestionsFor({ ...d, col: 8, end_col: 13 }, text), [], 'a span with a space in it is not one token');
+  assert.deepEqual(sg.suggestionsFor({ ...d, line: 9 }, text), []);
+  assert.deepEqual(sg.suggestionsFor({ ...d, help: 'snar' }, text), [], 'the suggestion equals the text: nothing to apply');
+  assert.deepEqual(sg.suggestionsFor(null, text), []);
+});
+
+test('suggest: header terms (`#! genre:`) and a span clamped to its line', () => {
+  const text = '#! genre: housee\ntempo 120';
+  const d = { line: 1, col: 11, end_col: 17, found: 'housee', help: 'did you mean `house`?' };
+  const [s] = sg.suggestionsFor(d, text);
+  assert.equal(sg.applySuggestion(text, s).text, '#! genre: house\ntempo 120');
+  const [c] = sg.suggestionsFor({ ...d, end_col: 99 }, text);
+  assert.equal(text.slice(c.from, c.to), 'housee', 'end_col past the line never reaches the next line');
+});

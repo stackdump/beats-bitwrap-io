@@ -125,6 +125,22 @@ try {
     await setText('tempo 126\ndeck A: kick x ~ x ~ | snare ~ x ~ x\n');
     await sleep(500);
     check('after the fix the squiggles are gone and the bar says no problems', (await count('.sq')) === 0 && (await q('#pr-sum-txt')) === 'no problems');
+    // a one-click "did you mean": Apply replaces the span in one undoable edit, re-checks, and Undo brings the text back
+    await setText('tempp 120\ndeck A: kick x ~ x ~\n');
+    await sleep(500);
+    if ((await q('#pr-sum-txt')) !== 'no problems') {
+      await page.click('#pr-sum');
+      await sleep(100);
+      const label = await page.eval('(document.querySelector(".pr-apply")||{}).getAttribute ? document.querySelector(".pr-apply").getAttribute("aria-label") : ""');
+      check('a misspelt keyword gets an Apply button with an aria-label naming the change', /tempp.*tempo/.test(label || ''), String(label));
+      await page.eval('document.querySelector(".pr-apply").focus()');
+      await page.eval('document.querySelector(".pr-apply").click()');
+      await sleep(500);
+      check('Apply fixes the text and the re-check is clean', (await page.eval('__app.editor.text')).startsWith('tempo 120') && (await q('#pr-sum-txt')) === 'no problems');
+      await page.eval('document.querySelector(".ed-ta").focus(); document.execCommand("undo")');
+      await sleep(500);
+      check('Undo restores the misspelt text', (await page.eval('__app.editor.text')).startsWith('tempp 120'));
+    } else check('a misspelt keyword is reported', false, 'no problems');
   }
 
   // ---- 3. an example, evaluated: markers on a program that is playing ---------------------------------------------------------
