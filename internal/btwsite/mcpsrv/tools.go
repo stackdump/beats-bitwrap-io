@@ -890,6 +890,19 @@ func latestSession(list []api.SessionInfo) string {
 
 // ---------- share, open ----------
 
+// siteLinks makes the engine's share links this site's own, as the web's share does (server.fixShare): the
+// engine builds them on its default origin, so url = <public>/#<CID>.<packed> and social_url =
+// <public>/c/<CID>.<packed> (the sealed part, without ~notes). Links with no fragment are left as they are.
+func (s *Server) siteLinks(url, social string) (string, string) {
+	i := strings.Index(url, "#")
+	if i < 0 || s.public == "" {
+		return url, social
+	}
+	frag := url[i+1:]
+	sealed, _, _ := strings.Cut(frag, "~")
+	return s.public + "/#" + frag, s.public + "/c/" + sealed
+}
+
 func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if e := a.only("text", "license", "forked_from", "credits", "name"); e != nil {
 		return nil, e
@@ -930,10 +943,11 @@ func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) 
 	if rep == nil || !rep.OK {
 		return nil, api.Errf(422, api.CodeBadRequest, "the program cannot be shared")
 	}
+	url, social := s.siteLinks(rep.URL, rep.SocialURL)
 	out := map[string]any{
-		"ok": true, "url": rep.URL, "social_url": rep.SocialURL, "beats_url": rep.BeatsURL, "cid": rep.CID, "chars": rep.Chars,
+		"ok": true, "url": url, "social_url": social, "beats_url": rep.BeatsURL, "cid": rep.CID, "chars": rep.Chars,
 		"canonical": rep.Canonical, "warnings": rep.Warnings,
-		"jsonld_url": rep.SocialURL + ".jsonld", "context": ld.ContextURL(s.public),
+		"jsonld_url": social + ".jsonld", "context": ld.ContextURL(s.public),
 		"note": "jsonld_url is the program as linked data (its @context is the context URL). url is the self-sealing link (the program is in the link; opening it checks the CID). Post social_url where a link preview is wanted.",
 	}
 	// The CID-only forms are for a signed-in caller: the program is kept on the site (public, with its rights) and
