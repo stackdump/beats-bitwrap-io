@@ -971,3 +971,45 @@ func BenchmarkDrawSquare(b *testing.B) {
 		}
 	}
 }
+
+// A public program's page embeds its JSON-LD, points at it with Link: rel=describedby, and /c/<cid>.jsonld is that document.
+func TestPageEmbedsJSONLD(t *testing.T) {
+	s, es, _ := newTestService(t, Options{})
+	var ex api.Example
+	for _, e := range es.list {
+		if e.Name == "hand-dubstep-140-v4" {
+			ex = e
+		}
+	}
+	if ex.CID == "" {
+		t.Skip("hand-dubstep-140-v4 is not an example")
+	}
+	rec := serve(t, s, "/c/"+ex.CID)
+	body := rec.Body.String()
+	m := regexp.MustCompile(`(?s)<script type="application/ld\+json">(.*?)</script>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("no embedded JSON-LD")
+	}
+	var embedded map[string]any
+	if err := json.Unmarshal([]byte(m[1]), &embedded); err != nil {
+		t.Fatalf("embedded JSON-LD is not JSON: %v\n%s", err, m[1])
+	}
+	if embedded["@context"] != "https://btw.bitwrap.io/context/v1.jsonld" || embedded["cid"] != ex.CID || embedded["@type"] != "djrust:Program" {
+		t.Errorf("embedded document: %v", embedded)
+	}
+	if got, want := rec.Header().Get("Link"), `<https://btw.bitwrap.io/c/`+ex.CID+`.jsonld>; rel="describedby"; type="application/ld+json"`; got != want {
+		t.Errorf("Link = %q, want %q", got, want)
+	}
+	doc := serve(t, s, "/c/"+ex.CID+".jsonld")
+	if doc.Code != 200 || !strings.HasPrefix(doc.Header().Get("Content-Type"), "application/ld+json") || doc.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("jsonld: %d %v", doc.Code, doc.Header())
+	}
+	var alone map[string]any
+	if err := json.Unmarshal(doc.Body.Bytes(), &alone); err != nil || alone["cid"] != ex.CID {
+		t.Fatalf("jsonld body: %v %s", err, doc.Body.String())
+	}
+	// a program that is not public has no document
+	if r := serve(t, s, "/c/not-a-program.jsonld"); r.Code == 200 {
+		t.Errorf("a non-program has a document: %d", r.Code)
+	}
+}

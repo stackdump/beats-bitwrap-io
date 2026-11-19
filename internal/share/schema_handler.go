@@ -95,6 +95,8 @@ func HandleBeatsShareSchema(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Content-Type", "application/ld+json")
 		w.Header().Set("Cache-Control", "public, max-age=300")
+		// the context is described by its JSON-Schema (pflow.xyz/schema does the same for its ontology)
+		w.Header().Set("Link", `</schema/beats-share.schema.json>; rel="describedby"; type="application/schema+json"`)
 		w.Write(beatsShareContextBytes)
 	}
 }

@@ -470,7 +470,7 @@ func TestIntegrationCardsAndIndexMeta(t *testing.T) {
 	if strings.Contains(r.Header.Get("Content-Security-Policy"), "'unsafe-inline'") && strings.Contains(r.Header.Get("Content-Security-Policy"), "script-src 'self' 'unsafe-inline'") {
 		t.Error("the card page needs no inline script")
 	}
-	if inline := regexp.MustCompile(`<script(?:\s[^>]*)?>[^<]`).FindString(page); inline != "" && !strings.Contains(inline, "src=") {
+	if inline := regexp.MustCompile(`<script(?:\s[^>]*)?>[^<]`).FindString(page); inline != "" && !strings.Contains(inline, "src=") && !strings.Contains(inline, "application/ld+json") { // a JSON-LD data block is not a script
 		t.Errorf("inline script on a card page: %q", inline)
 	}
 	// the PNG

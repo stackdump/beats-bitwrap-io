@@ -3,6 +3,7 @@ package card
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -13,6 +14,7 @@ import (
 
 	"beats-bitwrap-io/internal/btw"
 	"beats-bitwrap-io/internal/btwsite/api"
+	"beats-bitwrap-io/internal/btwsite/ld"
 )
 
 // Mount registers the card routes on mux:
@@ -23,6 +25,7 @@ import (
 //	                        which fetches the program from the store and checks it against the CID
 //	GET /card/<cid>.png     1200x630 card            GET /card/<cid>.square.png   1080x1080
 //	GET /card/<cid>.<packed>.png (and .square.png): stateless, for the page of a link whose program is not stored
+//	GET /c/<cid>[.<packed>].jsonld   the program as JSON-LD (the page embeds the same document and points at it with Link: rel=describedby)
 //	GET /card/default.png   the generic card         GET /card/go.js   the one-line redirect script the pages use
 func (s *Service) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /c/", s.ServePage)
@@ -150,6 +153,7 @@ type pageData struct {
 	Title, Desc, URL, Image, Alt, Open string
 	OGType                             string
 	NoIndex                            bool
+	LD                                 string // the program as JSON-LD, put in <script type="application/ld+json"> after the template ran
 	Width, Height                      int
 }
 
@@ -174,6 +178,7 @@ func (s *Service) origin(r *http.Request) string {
 func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	short := strings.HasPrefix(r.URL.Path, "/p/")
 	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/c/"), "/p/"), "/")
+	name, wantLD := strings.CutSuffix(name, ".jsonld") // /c/<cid>[.<packed>].jsonld (and /p/<cid>.jsonld): the document the page embeds, on its own
 	cid, packed, _ := strings.Cut(name, ".")
 	if short && (packed != "" || !validCID(cid)) {
 		http.NotFound(w, r)
@@ -190,6 +195,7 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	d := pageData{OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
 		Alt: "BeatScript: a few lines of code on a dark stage, over a strip of song sections"}
 	cache := cachePage
+	var doc []byte
 	switch st := p.state(); st {
 	case stOK:
 		d.OGType = "music.song"
@@ -197,6 +203,9 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		if short { // the address bar keeps the CID: the page opens it by fetching, not from a copy of the text in the URL
 			d.URL, d.Open = origin+"/p/"+p.cid, "/#"+p.cid
 		}
+		doc = ld.Marshal(ld.Document(origin, ld.Program{CID: p.cid, Name: p.name(), Key: p.report.Key, Tempo: p.report.Tempo,
+			Sections: p.report.Sections, License: p.meta.License, Author: p.meta.Author}))
+		d.LD = string(doc)
 	case stPrivate, stRestricted:
 		d.Title, d.Desc = privateTitle, privateDesc
 	case stUnknown:
@@ -215,6 +224,19 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		d.NoIndex = true
 		w.Header().Set("X-Robots-Tag", "noindex")
 	}
+	if wantLD {
+		if doc == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", "application/ld+json; charset=utf-8")
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Cache-Control", cache)
+		h.Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(doc)
+		return
+	}
 	var buf bytes.Buffer
 	if err := pageTpl.Execute(&buf, d); err != nil {
 		http.Error(w, "page error", http.StatusInternalServerError)
@@ -224,7 +246,24 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", cache)
 	h.Set("X-Btw-Card", stateName(p.state()))
-	_, _ = w.Write(buf.Bytes())
+	if doc != nil {
+		h.Set("Link", ld.DescribedBy(origin+"/c/"+p.cid+".jsonld"))
+	}
+	out := buf.Bytes()
+	if doc != nil {
+		// a data block, not code: html/template would escape the document as a JS string, so it goes in after.
+		// json.Marshal has already escaped <, > and &, so the document cannot close the element.
+		out = bytes.Replace(out, []byte(`<meta name="x-ld">`), []byte(`<script type="application/ld+json">`+string(compactJSON(doc))+`</script>`), 1)
+	}
+	_, _ = w.Write(out)
+}
+
+func compactJSON(doc []byte) []byte {
+	var b bytes.Buffer
+	if json.Compact(&b, doc) != nil {
+		return doc
+	}
+	return b.Bytes()
 }
 
 // programPage fills the page of a public program.
@@ -294,7 +333,8 @@ var pageTpl = template.Must(template.New("page").Parse(`<!doctype html>
 <meta name="twitter:description" content="{{.Desc}}">
 <meta name="twitter:image" content="{{.Image}}">
 <meta name="twitter:image:alt" content="{{.Alt}}">
-<style>
+{{if .LD}}<meta name="x-ld">
+{{end}}<style>
 :root{color-scheme:dark}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b12;color:#e6ecf5;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 main{width:min(92vw,720px);padding:24px 0}
