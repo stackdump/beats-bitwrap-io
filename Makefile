@@ -2,7 +2,7 @@ BINARY := beats-bitwrap-io
 ADDR   := :8089
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build run dev dev-lan clean docs test test-audio test-e2e test-cohesion-parity test-model-parity \
+.PHONY: build run dev dev-lan clean docs test test-audio test-e2e test-cohesion-parity test-model-parity test-btw-link \
         test-wave test-wave-browser test-scope-browser wave-render wave-bench \
         djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
         test-djrust-golden test-djrust-neutral test-djrust-cpu djrust-ref cid-freeze \
@@ -102,11 +102,16 @@ test-model-parity:
 	@go build -o /tmp/beats-model-cid ./tools/parity
 	@GO_MODEL_CID=/tmp/beats-model-cid node tools/parity/model-cid-parity.mjs
 
+# The CID-only btw link (/p/<CID>): fetched from the program store, checked against the CID in the page.
+test-btw-link:
+	@node scripts/test-btw-link.mjs
+
 # Full pre-commit gate: Go unit tests + both Go↔JS parity checks.
 test:
 	go test ./...
 	@$(MAKE) --no-print-directory test-cohesion-parity
 	@$(MAKE) --no-print-directory test-model-parity
+	@$(MAKE) --no-print-directory test-btw-link
 	@$(MAKE) --no-print-directory test-wave
 	@$(MAKE) --no-print-directory check-djrust-pin
 	@$(MAKE) --no-print-directory cid-freeze

@@ -393,8 +393,8 @@ func TestStatelessLink(t *testing.T) {
 	if m["og:url"] != "https://btw.bitwrap.io/#"+frag {
 		t.Errorf("og:url = %q", m["og:url"])
 	}
-	if !strings.HasPrefix(m["og:title"], "btw "+shortCID(rep.CID)+" · ") {
-		t.Errorf("og:title = %q (a link has no name: btw <short cid>)", m["og:title"])
+	if !strings.HasPrefix(m["og:title"], "BeatScript "+shortCID(rep.CID)+" · ") {
+		t.Errorf("og:title = %q (a link has no name: BeatScript <short cid>)", m["og:title"])
 	}
 	img := "https://btw.bitwrap.io/card/" + frag + ".png"
 	if m["og:image"] != img {
@@ -566,7 +566,7 @@ func TestRestrictedAndAssetsAreGeneric(t *testing.T) {
 		page := serve(t, s, "/c/"+path)
 		requireGeneric(t, s, page, true, "phrygian")
 		m := metas(page.Body.String())
-		if m["og:title"] != "a private btw program" {
+		if m["og:title"] != "a private BeatScript program" {
 			t.Errorf("og:title = %q, want the private title", m["og:title"])
 		}
 		img := serve(t, s, "/card/"+path+".png")
@@ -592,7 +592,7 @@ func TestPrivateMetaIsGeneric(t *testing.T) {
 	s, _, _ := newTestService(t, Options{Checker: c, Store: st, Examples: func() []api.Example { return nil }})
 	page := serve(t, s, "/c/"+p.CID)
 	requireGeneric(t, s, page, true, "secret-demo")
-	if m := metas(page.Body.String()); m["og:title"] != "a private btw program" {
+	if m := metas(page.Body.String()); m["og:title"] != "a private BeatScript program" {
 		t.Errorf("og:title = %q", m["og:title"])
 	}
 	img := serve(t, s, "/card/"+p.CID+".png")
@@ -969,5 +969,47 @@ func BenchmarkDrawSquare(b *testing.B) {
 		if _, err := drawCard(genericContent("btw"), Square); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// A public program's page embeds its JSON-LD, points at it with Link: rel=describedby, and /c/<cid>.jsonld is that document.
+func TestPageEmbedsJSONLD(t *testing.T) {
+	s, es, _ := newTestService(t, Options{})
+	var ex api.Example
+	for _, e := range es.list {
+		if e.Name == "hand-dubstep-140-v4" {
+			ex = e
+		}
+	}
+	if ex.CID == "" {
+		t.Skip("hand-dubstep-140-v4 is not an example")
+	}
+	rec := serve(t, s, "/c/"+ex.CID)
+	body := rec.Body.String()
+	m := regexp.MustCompile(`(?s)<script type="application/ld\+json">(.*?)</script>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("no embedded JSON-LD")
+	}
+	var embedded map[string]any
+	if err := json.Unmarshal([]byte(m[1]), &embedded); err != nil {
+		t.Fatalf("embedded JSON-LD is not JSON: %v\n%s", err, m[1])
+	}
+	if embedded["@context"] != "https://btw.bitwrap.io/context/v1.jsonld" || embedded["cid"] != ex.CID || embedded["@type"] != "djrust:Program" {
+		t.Errorf("embedded document: %v", embedded)
+	}
+	if got, want := rec.Header().Get("Link"), `<https://btw.bitwrap.io/c/`+ex.CID+`.jsonld>; rel="describedby"; type="application/ld+json"`; got != want {
+		t.Errorf("Link = %q, want %q", got, want)
+	}
+	doc := serve(t, s, "/c/"+ex.CID+".jsonld")
+	if doc.Code != 200 || !strings.HasPrefix(doc.Header().Get("Content-Type"), "application/ld+json") || doc.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("jsonld: %d %v", doc.Code, doc.Header())
+	}
+	var alone map[string]any
+	if err := json.Unmarshal(doc.Body.Bytes(), &alone); err != nil || alone["cid"] != ex.CID {
+		t.Fatalf("jsonld body: %v %s", err, doc.Body.String())
+	}
+	// a program that is not public has no document
+	if r := serve(t, s, "/c/not-a-program.jsonld"); r.Code == 200 {
+		t.Errorf("a non-program has a document: %d", r.Code)
 	}
 }

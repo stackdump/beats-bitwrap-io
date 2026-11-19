@@ -50,6 +50,9 @@ type Options struct {
 	// RenderPerHour is how many programs one client may have stored for rendering through the render
 	// tool per hour (the stream itself has the server's own limits). Default 30.
 	RenderPerHour int
+	// SharePerHour is how many programs one signed-in client may have stored by the share tool (the CID-only
+	// short link) per hour. Default 60.
+	SharePerHour int
 	// ComposeTimeout bounds one compose call. Default 150 s.
 	ComposeTimeout time.Duration
 	// Now is the clock (tests).
@@ -64,6 +67,7 @@ func WithMaxProgramBytes(n int) Option                   { return func(o *Option
 func WithMaxPromptChars(n int) Option                    { return func(o *Options) { o.MaxPromptChars = n } }
 func WithCheckPerMin(n int) Option                       { return func(o *Options) { o.CheckPerMin = n } }
 func WithRenderPerHour(n int) Option                     { return func(o *Options) { o.RenderPerHour = n } }
+func WithSharePerHour(n int) Option                      { return func(o *Options) { o.SharePerHour = n } }
 func WithComposeTimeout(d time.Duration) Option          { return func(o *Options) { o.ComposeTimeout = d } }
 func WithNow(f func() time.Time) Option                  { return func(o *Options) { o.Now = f } }
 
@@ -83,6 +87,9 @@ func (o *Options) defaults() {
 	if o.RenderPerHour <= 0 {
 		o.RenderPerHour = 30
 	}
+	if o.SharePerHour <= 0 {
+		o.SharePerHour = 60
+	}
 	if o.ComposeTimeout <= 0 {
 		o.ComposeTimeout = 150 * time.Second
 	}
@@ -100,13 +107,15 @@ type Server struct {
 	mcp    *server.MCPServer
 	http   *server.StreamableHTTPServer
 
-	cpu    *limiter // check, fmt, share, open (+ the checks inside eval, load, render)
-	render *limiter // programs stored for rendering
+	cpu      *limiter // check, fmt, share, open (+ the checks inside eval, load, render)
+	render   *limiter // programs stored for rendering
+	shareLim *limiter // programs stored by share (the short link): signed-in callers only
 	// Per-address ceilings over all the signed-in callers of one address: a user costs nothing to make (any key
 	// signs in), so an allowance counted per user alone is no limit on one machine. Anonymous callers are
 	// already counted by address in cpu and render.
 	cpuIP    *limiter
 	renderIP *limiter
+	shareIP  *limiter
 	inst     instrumentsCache
 }
 
@@ -131,6 +140,8 @@ func New(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) *
 	s := &Server{b: b, auth: a, public: strings.TrimRight(publicURL, "/"), opt: o}
 	s.cpu = newLimiter(o.CheckPerMin, time.Minute, o.Now)
 	s.render = newLimiter(o.RenderPerHour, time.Hour, o.Now)
+	s.shareLim = newLimiter(o.SharePerHour, time.Hour, o.Now)
+	s.shareIP = newLimiter(ipCeilingFactor*o.SharePerHour, time.Hour, o.Now)
 	s.cpuIP = newLimiter(ipCeilingFactor*o.CheckPerMin, time.Minute, o.Now)
 	s.renderIP = newLimiter(ipCeilingFactor*o.RenderPerHour, time.Hour, o.Now)
 

@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"beats-bitwrap-io/internal/btwsite/api"
+	"beats-bitwrap-io/internal/btwsite/ld"
 )
 
 var (
@@ -334,17 +335,46 @@ func (s *Server) exampleCID(name string) (string, bool) {
 
 // storedText finds a program by CID in the store, then among the examples.
 func (s *Server) storedText(cid string) (text, source string, ok bool) {
+	t, src, _, ok := s.storedProgram(cid)
+	return t, src, ok
+}
+
+// storedProgram is storedText plus the rights kept with it (an example's: its licence).
+func (s *Server) storedProgram(cid string) (text, source string, meta api.Meta, ok bool) {
 	if p, found := s.b.Get(cid); found && p != nil {
-		return p.Text, "store", true
+		return p.Text, "store", p.Meta, true
 	}
 	for _, e := range s.b.Examples() {
 		if e.CID == cid {
 			if t, found := s.b.Example(e.Name); found {
-				return t, "example", true
+				return t, "example", api.Meta{License: e.License, Visibility: "public", Name: e.Title, Source: "example"}, true
 			}
 		}
 	}
-	return "", "", false
+	return "", "", api.Meta{}, false
+}
+
+// shortLinkRE is a CID-only link: <origin>/p/<CID> (the short link, on btw or on beats), <origin>/c/<CID> (its
+// link-preview page) or <origin>/#<CID> (the page opening a bare CID). A /c/ or # link with a packed program is
+// not one: the checker opens that, from its own text.
+var shortLinkRE = regexp.MustCompile(`^https?://[^/?#\s]+/(?:(?:p|c)/(z[1-9A-HJ-NP-Za-km-z]{20,100})/?|#(z[1-9A-HJ-NP-Za-km-z]{20,100}))(?:[?#][^\s]*)?$`)
+
+// bareCID reads a bare CID out of u: u itself, or a CID-only short link (see shortLinkRE).
+func bareCID(u string) (string, bool) {
+	u = strings.TrimSpace(u)
+	if reCID.MatchString(u) {
+		return u, true
+	}
+	if strings.HasPrefix(u, "#") && reCID.MatchString(u[1:]) {
+		return u[1:], true
+	}
+	if m := shortLinkRE.FindStringSubmatch(u); m != nil {
+		if m[1] != "" {
+			return m[1], true
+		}
+		return m[2], true
+	}
+	return "", false
 }
 
 // ---------- the tools ----------
@@ -407,7 +437,7 @@ func (s *Server) addTools() {
 		mcp.WithTitleAnnotation("Load a stored program into a browser tab"), hints(false, true, true, false),
 		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (compose and render store theirs) or of an example.")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
-		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: "+s.public+"/#<CID>.<packed>, a /c/ link, or a beats.bitwrap.io/p# link.")),
+		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: "+s.public+"/#<CID>.<packed>, a /c/ link, a beats.bitwrap.io/p# link, or a short /p/<CID> link (the program must be stored here).")),
 		playArg, sessionArg, deviceArg,
 	), s.load)
 
@@ -418,15 +448,19 @@ func (s *Server) addTools() {
 	), s.get)
 
 	s.add(mcp.NewTool("share",
-		mcp.WithDescription(s.shareDesc()), noExtra, hints(true, false, true, false),
-		mcp.WithTitleAnnotation("Make a share link"),
+		mcp.WithDescription(s.shareDesc()), noExtra, hints(false, false, true, false), // signed in, it stores the program (idempotent, additive)
+		mcp.WithTitleAnnotation("Make share links"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check.")),
+		mcp.WithString("license", mcp.MaxLength(40), mcp.Description("Rights kept with the stored program, an SPDX-style id (default CC0-1.0). Only used when the program is stored (signed in).")),
+		mcp.WithString("forked_from", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of the program this one was forked from. Stored with the rights.")),
+		mcp.WithArray("credits", mcp.WithStringItems(mcp.MaxLength(api.MaxCreditChars)), mcp.MaxItems(api.MaxCredits), mcp.Description("Who is credited, one short line each. Stored with the rights.")),
+		mcp.WithString("name", mcp.MaxLength(80), mcp.Description("A name for the program (else its `#! name:` line).")),
 	), s.share)
 
 	s.add(mcp.NewTool("open",
 		mcp.WithDescription(s.openDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Open a share link"),
-		mcp.WithString("url", mcp.Required(), mcp.MaxLength(32768), mcp.Description("A share link, a #fragment, <CID>.<packed>, or a bare CID.")),
+		mcp.WithString("url", mcp.Required(), mcp.MaxLength(32768), mcp.Description("A share link (self-sealing #<CID>.<packed>, or a short <site>/p/<CID> or /c/<CID> link), a #fragment, <CID>.<packed>, or a bare CID.")),
 	), s.open)
 
 	s.add(mcp.NewTool("render",
@@ -678,6 +712,11 @@ func (s *Server) load(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if e != nil {
 		return nil, e
 	}
+	if hasURL {
+		if sc, ok := bareCID(url); ok && !hasCID { // a CID-only link names a stored program: the cid path loads it
+			cid, hasCID, url, hasURL = sc, true, "", false
+		}
+	}
 	n := 0
 	for _, b := range []bool{hasCID && cid != "", hasEx && example != "", hasURL && url != ""} {
 		if b {
@@ -796,10 +835,16 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if st == nil {
 		return nil, s.noSession(session)
 	}
+	var jsonld, ctxURL string
+	if st.CID != "" {
+		jsonld, ctxURL = s.public+"/c/"+st.CID+".jsonld", ld.ContextURL(s.public)
+	}
 	return struct {
 		*api.SessionState
-		Connected int `json:"sessions_connected,omitempty"`
-	}{st, connected}, nil
+		JSONLD    string `json:"jsonld_url,omitempty"` // the program as linked data (only a stored program has one)
+		Context   string `json:"context,omitempty"`    // the @context URL that document names
+		Connected int    `json:"sessions_connected,omitempty"`
+	}{st, jsonld, ctxURL, connected}, nil
 }
 
 // devices lists the caller's paired phones.
@@ -846,10 +891,14 @@ func latestSession(list []api.SessionInfo) string {
 // ---------- share, open ----------
 
 func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("text"); e != nil {
+	if e := a.only("text", "license", "forked_from", "credits", "name"); e != nil {
 		return nil, e
 	}
 	text, e := s.program(a, "text")
+	if e != nil {
+		return nil, e
+	}
+	meta, e := s.rights(a)
 	if e != nil {
 		return nil, e
 	}
@@ -871,6 +920,9 @@ func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) 
 	if e := private(chk, "it cannot be shared"); e != nil {
 		return nil, e
 	}
+	if api.DeclaresNotPublic(text) {
+		return nil, api.Errf(422, api.CodeRestricted, "the program says `#! visibility:` something but public, so it cannot be shared or stored: private programs never leave the machine they were written on.")
+	}
 	rep, err := s.b.Share(ctx, text)
 	if err != nil {
 		return nil, fail(err)
@@ -878,11 +930,108 @@ func (s *Server) share(ctx context.Context, c caller, a args) (any, *api.Error) 
 	if rep == nil || !rep.OK {
 		return nil, api.Errf(422, api.CodeBadRequest, "the program cannot be shared")
 	}
-	return map[string]any{
+	out := map[string]any{
 		"ok": true, "url": rep.URL, "social_url": rep.SocialURL, "beats_url": rep.BeatsURL, "cid": rep.CID, "chars": rep.Chars,
 		"canonical": rep.Canonical, "warnings": rep.Warnings,
-		"note": "url is the self-sealing link (the program is in the link; opening it checks the CID). Post social_url where a link preview is wanted.",
-	}, nil
+		"jsonld_url": rep.SocialURL + ".jsonld", "context": ld.ContextURL(s.public),
+		"note": "jsonld_url is the program as linked data (its @context is the context URL). url is the self-sealing link (the program is in the link; opening it checks the CID). Post social_url where a link preview is wanted.",
+	}
+	// The CID-only forms are for a signed-in caller: the program is kept on the site (public, with its rights) and
+	// the link carries only the CID. An anonymous caller gets the self-sealing links alone.
+	if c.user == nil {
+		out["short_url"], out["short_social_url"], out["short_beats_url"] = nil, nil, nil
+		out["stored"] = false
+		out["short_note"] = "No short (CID-only) link: that needs a signed-in call, because the program is stored on the site. " + s.authHelp()
+		return out, nil
+	}
+	ok, retry := s.shareLim.allow(c.key)
+	if ok {
+		ok, retry = s.ipCeiling(s.shareIP, c)
+	}
+	if !ok {
+		e := api.Errf(429, api.CodeRateLimited, "too many programs stored by share; the self-sealing link above still works")
+		e.RetryAfter = retry
+		return nil, e
+	}
+	prog, _, err := s.b.Put(ctx, rep.Canonical, meta)
+	if err != nil || prog == nil || prog.CID != rep.CID {
+		msg := "the program could not be stored"
+		if err != nil {
+			msg = fail(err).Message
+		}
+		out["short_url"], out["short_social_url"], out["short_beats_url"] = nil, nil, nil
+		out["stored"] = false
+		out["short_note"] = msg + ". The self-sealing link above still works."
+		return out, nil
+	}
+	l := api.ShortLinksOf(s.public, prog.CID)
+	out["short_url"], out["short_social_url"], out["short_beats_url"] = l.URL, l.SocialURL, l.BeatsURL
+	out["stored"] = true
+	out["meta"] = prog.Meta
+	out["fetch_url"] = s.public + "/api/programs/" + prog.CID
+	out["note"] = "url is the self-sealing link (the program is in the link; opening it checks the CID). short_url is the CID-only link: the program is stored on the site (public, " + prog.Meta.License + "; the first share's rights stay), and opening it fetches the text and checks it against the CID. Post social_url or short_social_url where a link preview is wanted."
+	return out, nil
+}
+
+// rights reads share's optional rights arguments into the Meta the store keeps.
+func (s *Server) rights(a args) (api.Meta, *api.Error) {
+	m := api.Meta{License: "CC0-1.0", Visibility: "public", Source: "share"}
+	if v, ok, e := a.str("license", 40); e != nil {
+		return m, e
+	} else if ok && strings.TrimSpace(v) != "" {
+		if !reLicense.MatchString(strings.TrimSpace(v)) {
+			return m, api.Errf(400, api.CodeBadRequest, "argument \"license\" is a short SPDX-style id such as CC0-1.0 or CC-BY-4.0")
+		}
+		m.License = strings.TrimSpace(v)
+	}
+	if v, ok, e := a.str("forked_from", 100); e != nil {
+		return m, e
+	} else if ok && strings.TrimSpace(v) != "" {
+		if !reCID.MatchString(strings.TrimSpace(v)) {
+			return m, api.Errf(400, api.CodeBadRequest, "argument \"forked_from\" is a CID (it starts with z)")
+		}
+		m.ForkedFrom = strings.TrimSpace(v)
+	}
+	if v, ok, e := a.str("name", 80); e != nil {
+		return m, e
+	} else if ok {
+		if n, good := oneLine(v, 80); good {
+			m.Name = n
+		} else if strings.TrimSpace(v) != "" {
+			return m, api.Errf(400, api.CodeBadRequest, "argument \"name\" is one line of at most 80 characters")
+		}
+	}
+	if raw, ok := a["credits"]; ok && raw != nil {
+		list, isList := raw.([]any)
+		if !isList || len(list) > api.MaxCredits {
+			return m, api.Errf(400, api.CodeBadRequest, "argument \"credits\" is a list of at most %d short lines", api.MaxCredits)
+		}
+		for _, it := range list {
+			str, isStr := it.(string)
+			line, good := oneLine(str, api.MaxCreditChars)
+			if !isStr || !good || line == "" {
+				return m, api.Errf(400, api.CodeBadRequest, "each credit is one line of 1 to %d characters", api.MaxCreditChars)
+			}
+			m.Credits = append(m.Credits, line)
+		}
+	}
+	return m, nil
+}
+
+var reLicense = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+-]{0,39}$`)
+
+// oneLine trims v and reports whether it is a single line of at most max characters with no control characters.
+func oneLine(v string, max int) (string, bool) {
+	v = strings.TrimSpace(v)
+	if !utf8.ValidString(v) || utf8.RuneCountInString(v) > max {
+		return "", false
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return "", false
+		}
+	}
+	return v, true
 }
 
 func (s *Server) open(ctx context.Context, c caller, a args) (any, *api.Error) {
@@ -897,10 +1046,8 @@ func (s *Server) open(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if !ok || u == "" {
 		return nil, api.Errf(400, api.CodeBadRequest, "argument \"url\" is required: a share link, a #fragment or a CID")
 	}
-	if reCID.MatchString(u) { // a bare CID: only the stores can answer
-		if t, src, ok := s.storedText(u); ok {
-			return map[string]any{"ok": true, "cid": u, "canonical": t, "verified": true, "source": src}, nil
-		}
+	if cid, ok := bareCID(u); ok { // a bare CID or a CID-only short link: only the stores can answer
+		return s.openStored(ctx, c, cid)
 	}
 	if e := s.limitCPU(c); e != nil {
 		return nil, e
@@ -923,6 +1070,40 @@ func (s *Server) open(ctx context.Context, c caller, a args) (any, *api.Error) {
 		return nil, api.Errf(422, code, "%s", msg)
 	}
 	return rep, nil
+}
+
+// openStored opens a CID-only link: the text the store keeps under the CID, recompiled by the checker, its CID
+// recomputed and compared. A mismatch is refused (cid_mismatch), like a self-sealing link whose text is not its CID's.
+func (s *Server) openStored(ctx context.Context, c caller, cid string) (any, *api.Error) {
+	text, src, meta, ok := s.storedProgram(cid)
+	if !ok {
+		return nil, api.Errf(404, api.CodeNotFound, "no program %s is stored here. A CID alone names a program but does not carry it: open the self-sealing link (#<CID>.<packed>) instead, or share the program signed in to store it.", cid)
+	}
+	if e := s.limitCPU(c); e != nil {
+		return nil, e
+	}
+	chk, err := s.b.Check(ctx, text)
+	if err != nil {
+		return nil, fail(err)
+	}
+	if chk == nil || !chk.OK || chk.CID == "" {
+		return nil, api.Errf(422, api.CodeBadRequest, "the text stored under %s does not check; it is not loaded", cid)
+	}
+	if chk.CID != cid {
+		return nil, api.Errf(422, api.CodeCIDMismatch, "refused: the text stored under %s is program %s. Do not trust or play it.", cid, chk.CID)
+	}
+	return map[string]any{
+		"ok": true, "cid": cid, "canonical": chk.Canonical, "verified": true, "source": src, "meta": meta,
+		"warnings": warningTexts(chk),
+	}, nil
+}
+
+func warningTexts(rep *api.CheckReport) []string {
+	out := []string{}
+	for _, d := range warningsOf(rep) {
+		out = append(out, fmt.Sprintf("%d:%d %s", d.Line, d.Col, d.Message))
+	}
+	return out
 }
 
 // ---------- render ----------

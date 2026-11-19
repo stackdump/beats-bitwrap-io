@@ -95,6 +95,7 @@ export class Panels {
       if (u.kind === 'ed25519') {
         out.push(h('p', { class: 'note' }, 'Your identity is a key kept in this browser. Clearing site data loses it, and the account with it.'));
       }
+      out.push(this.legalLinks());
       return out;
     }
     out.push(h('p', { class: 'note' }, 'Anyone can read, play, share and open programs. Signing in is for composing with a model and for driving this page from an assistant over MCP. You prove who you are by signing a one-time message; no password and no email.'));
@@ -120,7 +121,13 @@ export class Panels {
       out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { await resetLocalKey(); this.render(); } }, 'Forget this key'));
     }
     out.push(status);
+    out.push(this.legalLinks());
     return out;
+  }
+
+  /** The privacy policy and the delete-account page: plain links, reachable without signing in. */
+  legalLinks() {
+    return h('p', { class: 'note' }, h('a', { href: '/privacy', class: 'link' }, 'Privacy policy'), ' · ', h('a', { href: '/delete-account', class: 'link' }, 'Delete your account and data'));
   }
 
   // ---- compose ----------------------------------------------------------------------------------------------------------
@@ -141,7 +148,7 @@ export class Panels {
       out.push(h('p', { class: 'note warn' }, 'Compose is switched off for now.'));
     } else {
       out.push(h('p', { class: 'note' }, 'Describe a track. A model writes the program, the checker fixes it up to three times, and the result is stored as CC0 and plays at once.'));
-      out.push(h('p', { class: 'note' }, (app.info && app.info.notice) || 'Everything generated here is public: the program, its link and its audio are released under CC0-1.0, and the prompt goes to a third-party model.', ' ', h('a', { href: '/privacy', class: 'link', target: '_blank', rel: 'noopener' }, 'Privacy and licence')));
+      out.push(h('p', { class: 'note' }, (app.info && app.info.notice) || 'Everything generated here is public: the program, its link and its audio are released under CC0-1.0, and the prompt goes to a third-party model.', ' ', h('a', { href: "/privacy#generated", class: "link", target: "_blank", rel: "noopener" }, 'Privacy and licence')));
     }
     const maxPrompt = String((info && info.limits && info.limits.max_prompt_chars) || 800);
     const prompt = h('textarea', { id: 'c-prompt', maxlength: maxPrompt, placeholder: 'dark techno, 128, with an acid line that opens up', 'aria-label': 'What to compose' });
@@ -397,8 +404,34 @@ export class Panels {
     };
     paint();
     notes.addEventListener('change', paint);
+    // The CID-only form: the program is kept on this server under its CID (rights: CC0-1.0), so the link is short. Signed-in only.
+    const shortBox = h('div', { class: 'stack' });
+    const paintShort = (links) => {
+      const row = (label, url) => h('div', {}, h('div', { class: 'note' }, label), h('div', { class: 'linkrow' }, h('input', { type: 'text', readonly: true, value: url, 'aria-label': label, onfocus: (e) => e.target.select() }), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(url) }, 'Copy')));
+      if (links) {
+        shortBox.replaceChildren(row('Short link (CID only; the page fetches and checks it)', links.short_url), row('Short link for posts (shows a card)', links.short_social_url), row('Short link in beats.bitwrap.io', links.short_beats_url));
+        return;
+      }
+      if (!app.user) {
+        shortBox.replaceChildren(h('div', { class: 'note' }, 'A CID-only short link keeps the program on this server. Sign in to make one.'), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => app.panel('user') }, 'Sign in'));
+        return;
+      }
+      const mk = h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => {
+        mk.disabled = true;
+        try {
+          const cur = this.lastShare;
+          paintShort(await app.api.putShare(cur.cid, { text: cur.canonical }));
+        } catch (e) {
+          mk.disabled = false;
+          if (e instanceof ApiError && e.code === 'auth_required') { app.user = null; app.updateUser(); paintShort(); return; }
+          app.showError(e);
+        }
+      } }, 'Make short link');
+      shortBox.replaceChildren(h('div', { class: 'note' }, 'A CID-only short link keeps the program on this server (public, CC0-1.0) instead of carrying it in the link.'), mk);
+    };
+    paintShort();
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
-      rows, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      rows, shortBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
       h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);

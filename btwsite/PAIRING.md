@@ -107,6 +107,16 @@ The answer is the web route's JSON in one body (the web route does not stream): 
 text) and `cid` to play on the phone, plus `check`, `attempts`, `share_url` and `render_url`. The
 result is stored publicly (CC0) like any compose. No credential beyond the device key is involved.
 
+## Share and fetch from the phone (CID-only links)
+
+`PUT /api/shares/<cid>` is the short link's write side (DESIGN.md "Short links"). A paired phone signs it like every device
+request and it runs **as the pairing owner**: JSON `{text, license?, forked_from?, credits?, name?}`, public programs only, counted
+per account (`-share-hour`, 60) and per address. The answer carries `short_url` (`https://btw.bitwrap.io/p/<CID>`),
+`short_beats_url` (`https://beats.bitwrap.io/p/<CID>`) and `short_social_url`. Fetching by CID needs no signature at all:
+`GET /api/programs/<cid>` is public (`{cid, text, meta}` with the rights), and the phone recomputes the CID from the text itself
+before it plays (a store that answers another program under a CID is refused). A CID alone does not carry a program: a CID the
+site has not stored is `404`; the self-sealing link is what works anywhere.
+
 ## Not done (decide)
 
 - The phone does not countersign with its own did:pkh wallet identity. That would need a biometric

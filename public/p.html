@@ -29,7 +29,7 @@
 <body>
 <header><h1>btw</h1><a href="/">beats.bitwrap.io</a></header>
 <main>
-  <p class="note">A <b>btw</b> link carries a program of the bitwrap language and the content ID of it. This page checks that the text is the program the ID names before showing it.</p>
+  <p class="note">A <b>btw</b> link carries a program of the bitwrap language and the content ID of it (<code>/p#CID.text</code>), or only the ID (<code>/p/CID</code>), and then the program is fetched from btw.bitwrap.io. Either way this page checks that the text is the program the ID names before showing it.</p>
   <div id="status"><span class="note">reading the link…</span></div>
   <p class="cid" id="cid"></p>
   <pre id="program" hidden></pre>
@@ -38,12 +38,12 @@
   <p class="warn" id="engine" hidden>Playing it here needs the btw language compiled for the browser's engine (djwasm), which is not built yet: open the program in djapp (<code>btw open</code>), or paste it there.</p>
 </main>
 <script type="module">
-  import { openLink } from '/lib/btw/link.js';
+  import { openLocation } from '/lib/btw/link.js';
   const $ = (id) => document.getElementById(id);
   async function run() {
     const status = $('status');
     try {
-      const { link, computed, verified } = await openLink(location.hash || '');
+      const { link, computed, verified, meta } = await openLocation(location);
       $('cid').textContent = link.cid;
       if (link.text == null) {
         status.innerHTML = '<span class="badge bad">no program</span> <span class="note">this is a CID alone: there is nothing here to check.</span>';
@@ -54,6 +54,7 @@
         return;
       }
       status.innerHTML = '<span class="badge ok">verified</span> <span class="note">the text below is exactly the program the ID names.</span>';
+      if (meta) { const p = document.createElement('p'); p.className = 'note'; const bits = [meta.name, meta.license && 'license ' + meta.license, meta.forked_from && 'forked from ' + meta.forked_from, meta.credits && meta.credits.length && 'credits: ' + meta.credits.join(', ')].filter(Boolean); p.textContent = 'Kept by btw.bitwrap.io' + (bits.length ? ': ' + bits.join(' · ') : '') + '. (Rights are the sharer\'s statement; the ID covers only the text.)'; $('notes').appendChild(p); }
       $('program').textContent = link.text; $('program').hidden = false;
       $('copy').hidden = false; $('engine').hidden = false;
       $('copy').onclick = () => navigator.clipboard.writeText(link.text);

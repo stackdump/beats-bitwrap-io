@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#16213e">
 <meta name="color-scheme" content="dark">
-<title>btw, the bitwrap language</title>
+<title>BeatScript: write a whole track as text</title>
 <!-- btw:card-meta -->
 <meta name="author" content="Matt York">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -15,7 +15,7 @@
 <a class="skip" href="#ed">Skip to the editor</a>
 <div class="app" id="app">
   <header class="top" id="top">
-    <a class="brand" href="/" aria-label="btw home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">btw</span></a>
+    <a class="brand" href="/" aria-label="BeatScript home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">BeatScript</span></a>
     <label class="pick"><span class="sr">Examples</span>
       <select id="examples" aria-label="Examples"><option value="">examples</option></select>
     </label>
@@ -27,7 +27,6 @@
     <button type="button" class="tb" id="btn-mcp" title="MCP: let an assistant drive this page" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">⌘</span><span class="lbl">mcp</span></button>
     <button type="button" class="tb" id="btn-phone" title="Phone: connect djrust on Android by scanning a QR code" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">▯</span><span class="lbl">phone</span></button>
     <a class="tb" id="lnk-docs" href="/docs/cheatsheet.md" target="_blank" rel="noopener" title="The language on one page (opens in a new tab)"><span class="gl-ic" aria-hidden="true">?</span><span class="lbl">docs</span></a>
-    <a class="tb" id="lnk-privacy" href="/privacy" target="_blank" rel="noopener" title="Privacy and licence: everything generated here is public CC0 (opens in a new tab)"><span class="gl-ic" aria-hidden="true">©</span><span class="lbl">CC0</span></a>
     <button type="button" class="tb" id="btn-user" title="Sign in" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">◉</span><span class="lbl" id="user-lbl">sign in</span></button>
   </header>
 
@@ -78,6 +77,7 @@
       <span class="meter" aria-hidden="true"><i id="meter"></i></span>
     </label>
     <span class="t-time" id="t-time"></span>
+    <nav class="t-legal" aria-label="About BeatScript"><a href="/privacy">privacy</a><a href="/delete-account">delete account</a></nav>
     <button type="button" class="tb tb-sm" id="btn-decks" aria-expanded="false" aria-controls="decks" title="Show the decks"><span aria-hidden="true">⌃</span><span class="sr">Decks</span></button>
   </footer>
 
@@ -87,7 +87,7 @@
   </aside>
 </div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
-<noscript><p class="noscript">btw needs JavaScript: the editor, the checker and the sound run in your browser.</p></noscript>
+<noscript><p class="noscript">BeatScript needs JavaScript: the editor, the checker and the sound run in your browser.</p></noscript>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

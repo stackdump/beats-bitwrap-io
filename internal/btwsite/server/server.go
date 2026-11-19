@@ -41,6 +41,7 @@ type Server struct {
 
 	checkIP   *ipLimiter
 	putIP     *ipLimiter
+	shareAcct *ipLimiter // PUT /api/shares per account (the key is the account id, not an address)
 	sessionIP *ipLimiter
 	pairIP    *ipLimiter
 	claimIP   *ipLimiter
@@ -88,7 +89,7 @@ func New(cfg Config) (*Server, error) {
 		p *int
 		v int
 	}{{&cfg.RenderConcurrency, def.RenderConcurrency}, {&cfg.RenderMaxBars, def.RenderMaxBars}, {&cfg.RenderCacheMB, def.RenderCacheMB},
-		{&cfg.StoreMaxMB, def.StoreMaxMB}, {&cfg.RenderIPHour, def.RenderIPHour}, {&cfg.PutIPHour, def.PutIPHour}, {&cfg.CheckIPMin, def.CheckIPMin}} {
+		{&cfg.StoreMaxMB, def.StoreMaxMB}, {&cfg.RenderIPHour, def.RenderIPHour}, {&cfg.PutIPHour, def.PutIPHour}, {&cfg.ShareHour, def.ShareHour}, {&cfg.CheckIPMin, def.CheckIPMin}} {
 		if *d.p == 0 {
 			*d.p = d.v
 		}
@@ -149,6 +150,7 @@ func New(cfg Config) (*Server, error) {
 	// limits
 	s.checkIP = newIPLimiter(cfg.CheckIPMin, time.Minute, cfg.Now)
 	s.putIP = newIPLimiter(cfg.PutIPHour, time.Hour, cfg.Now)
+	s.shareAcct = newIPLimiter(cfg.ShareHour, time.Hour, cfg.Now)
 	s.sessionIP = newIPLimiter(120, time.Hour, cfg.Now)
 	s.pairIP = newIPLimiter(20, time.Minute, cfg.Now)
 	s.claimIP = newIPLimiter(20, time.Minute, cfg.Now)
@@ -239,7 +241,6 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/info", s.handleInfo)
 	mux.HandleFunc("GET /.well-known/btw-site", s.handleSiteDoc)
-	mux.HandleFunc("GET /privacy", s.handlePrivacy)
 	mux.HandleFunc("GET /api/examples", s.handleExamples)
 	mux.HandleFunc("GET /examples/{name}", s.handleExampleFile)
 	mux.HandleFunc("GET /api/instruments", s.handleInstruments)
@@ -249,6 +250,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/open", s.handleOpen)
 	mux.HandleFunc("PUT /api/programs/{cid}", s.handlePutProgram)
 	mux.HandleFunc("GET /api/programs/{cid}", s.handleGetProgram)
+	mux.HandleFunc("PUT /api/shares/{cid}", s.handlePutShare)
 	mux.HandleFunc("GET /api/render/{cid}", s.handleRender)
 	mux.HandleFunc("GET /api/render/{cid}/status", s.handleRenderStatus)
 	mux.HandleFunc("POST /api/session", s.handleSessionCreate)

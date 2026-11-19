@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // Error is the typed error every layer returns; HTTP handlers write it as
@@ -193,10 +194,55 @@ type Meta struct {
 	Name       string `json:"name,omitempty"`
 	ComposedBy string `json:"composed_by,omitempty"` // "gemini-<model>", e.g. "gemini-3.8-flash"
 	ForkedFrom string `json:"forked_from,omitempty"`
-	PromptSHA  string `json:"prompt_sha256,omitempty"`
-	Author     string `json:"author,omitempty"`
-	Created    string `json:"created,omitempty"` // RFC 3339, informational (never in a CID or a card)
-	Source     string `json:"source,omitempty"`  // "compose" | "put" | "example"
+	// Credits are who is thanked for the program (at most MaxCredits lines of MaxCreditChars). Only a signed-in
+	// share (PUT /api/shares/<cid>, the MCP share tool) sets them; like the rest of Meta they are not in the CID.
+	Credits   []string `json:"credits,omitempty"`
+	PromptSHA string   `json:"prompt_sha256,omitempty"`
+	Author    string   `json:"author,omitempty"`
+	Created   string   `json:"created,omitempty"` // RFC 3339, informational (never in a CID or a card)
+	Source    string   `json:"source,omitempty"`  // "compose" | "put" | "example"
+}
+
+// Limits of the rights a share carries.
+const (
+	MaxCredits     = 8
+	MaxCreditChars = 80
+	// BeatsOrigin is where the same CID-only link opens in the beat sequencer's page: <BeatsOrigin>/p/<CID>.
+	BeatsOrigin = "https://beats.bitwrap.io"
+)
+
+// ShortLinks are the CID-only forms of a stored program, next to the self-sealing link that carries the program
+// itself. Opening one fetches the canonical text from the store (GET /api/programs/<cid>), recompiles it,
+// recomputes the CID and refuses a mismatch, the same check a self-sealing link gets.
+type ShortLinks struct {
+	URL       string `json:"short_url"`        // <site>/p/<CID>
+	SocialURL string `json:"short_social_url"` // <site>/c/<CID>: the link-preview page, for posts
+	BeatsURL  string `json:"short_beats_url"`  // https://beats.bitwrap.io/p/<CID>
+}
+
+// ShortLinksOf builds them from the site origin.
+func ShortLinksOf(site, cid string) ShortLinks {
+	site = strings.TrimRight(site, "/")
+	return ShortLinks{URL: site + "/p/" + cid, SocialURL: site + "/c/" + cid, BeatsURL: BeatsOrigin + "/p/" + cid}
+}
+
+// DeclaresNotPublic reports a `#! visibility:` header line whose value is anything but "public". btwd's own
+// rule is the one spelling `#! visibility: private` (case and spaces between words aside), so `#!visibility:private`
+// or `#! visibility: restricted` would reach the store as public programs; whoever wrote them meant them private,
+// and this site never keeps, renders or sends to a model a program that says so. Stricter than btwd, never looser.
+func DeclaresNotPublic(text string) bool {
+	for _, l := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(l)
+		rest, ok := strings.CutPrefix(t, "#!")
+		if !ok {
+			continue
+		}
+		squeezed := strings.ToLower(strings.Join(strings.Fields(rest), ""))
+		if v, ok := strings.CutPrefix(squeezed, "visibility:"); ok && v != "public" {
+			return true
+		}
+	}
+	return false
 }
 
 // Program is a stored program: canonical text, its CID and its meta.

@@ -129,3 +129,29 @@ func TestAuthorIdentityOnSchemaGlossaries(t *testing.T) {
 		assertAuthorIdentity(t, name, rec.Body.String())
 	}
 }
+
+// A share page embeds its payload as JSON-LD; the Link header says where that document is served alone and
+// which schema defines it. Pages that are not share cards carry no such header.
+func TestShareCardLinksItsJSONLD(t *testing.T) {
+	store, _ := newTestStore(t)
+	cid := computeCid([]byte(fixturePayload))
+	if err := store.SealDirect(cid, []byte(fixturePayload)); err != nil {
+		t.Fatalf("SealDirect: %v", err)
+	}
+	h := DecoratedIndex(store, os.DirFS(filepath.Join(repoRoot(t), "public")), "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/?cid="+cid, nil)
+	req.Host = "beats.bitwrap.io"
+	h.ServeHTTP(rec, req)
+	links := strings.Join(rec.Header().Values("Link"), ", ")
+	for _, want := range []string{"/o/" + cid + `>; rel="describedby"; type="application/ld+json"`, `/schema/beats-share>; rel="describedby"`} {
+		if !strings.Contains(links, want) {
+			t.Errorf("Link %q lacks %q", links, want)
+		}
+	}
+	plain := httptest.NewRecorder()
+	h.ServeHTTP(plain, httptest.NewRequest(http.MethodGet, "/", nil))
+	if l := plain.Header().Get("Link"); l != "" {
+		t.Errorf("the plain shell has Link %q", l)
+	}
+}

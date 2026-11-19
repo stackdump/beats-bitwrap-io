@@ -26,12 +26,13 @@ version is `/privacy`. `GET /.well-known/btw-site` names the site (`site_id`, it
 | `GET /api/instruments` | | the voices, families, drum kits and palettes a program may name |
 | `POST /api/check`, `/api/fmt`, `/api/share`, `/api/open` | | the language tools, below; limited per IP |
 | `PUT /api/programs/<cid>`, `GET /api/programs/<cid>[.btw]` | | store and read programs |
+| `PUT /api/shares/<cid>` | cookie, bearer or paired phone | store a public program with its rights for a CID-only share link, [Share links](#share-links) |
 | `GET /api/render/<cid>?format=opus\|wav` | | stream the offline render, [Render](#render) |
 | `POST /api/session`, `GET /api/session/<id>/events`, `POST /api/session/<id>/report`, `POST /api/session/<id>/reply` | cookie optional | the browser to MCP bridge, [Sessions](#sessions) |
 | `GET /api/auth/challenge`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/token`, `DELETE /api/auth/token` | | [Sign-in and tokens](#sign-in-and-tokens) |
 | `POST /api/compose` | cookie or bearer | [Compose](#compose) |
 | `POST /mcp` (and a landing page on `GET`) | write tools need a bearer token | [MCP](#mcp) |
-| `GET /c/<cid>`, `GET /c/<cid>.<packed>`, `GET /card/<cid>.png` | | share pages with link previews, and their card images |
+| `GET /c/<cid>`, `GET /c/<cid>.<packed>`, `GET /p/<cid>`, `GET /card/<cid>.png` | | share pages with link previews, and their card images; `/p/<cid>` is the CID-only short link |
 | `GET /llms.txt`, `/llms-full.txt`, `/docs/BTW.md`, `/docs/cheatsheet.md`, `/docs/api.md` | | the docs |
 
 ## Errors and limits
@@ -200,8 +201,8 @@ Without the header the read tools still work; `compose`, `eval`, `load`, `get` a
 | `check` | | `text` | check a program: diagnostics with line:col, cid, canonical text. **Run it before anything else and fix the errors** |
 | `fmt` | | `text` | the canonical form and its CID |
 | `compose` | yes | `prompt`, `genre`, `bpm`, `key`, `length`, `base_cid` | write a program with the model, as [Compose](#compose) |
-| `share` | | `text` | the self-sealing link, the social link, the CID |
-| `open` | | `url` | decode a link, a fragment or a CID, verified |
+| `share` | for the short links | `text`, `license`, `forked_from`, `credits`, `name` | the self-sealing link, the social link, the CID; with a token also stores the program and gives the CID-only `short_url`, `short_social_url`, `short_beats_url` and `fetch_url` |
+| `open` | | `url` | decode a link (self-sealing or CID-only: `/p/<CID>`, `/c/<CID>`, `#<CID>`, a bare CID), verified, with its rights |
 | `render` | | `text` or `cid` or `example`, `format` | store the program and answer `stream_url`, `status_url`, `cid`, `seconds` |
 | `record` | | `text` or `cid` or `example` | store the program and answer the demo-recording setup: `record_url` (the page in record mode), `record_url_manual_clock` (a fake clock a script steps frame by frame), `audio_url`, and the `recipe` for `btwsite/tools/record-demo.mjs` (captures nothing itself) |
 | `list_examples` | | `name` | the example programs (and one's text) |
@@ -223,6 +224,21 @@ curl -s https://btw.bitwrap.io/mcp -H 'content-type: application/json' -H 'accep
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{"text":"tempo 126\ndeck A: kick x ~ x ~\n"}}}'
 ```
 
+## Linked data (JSON-LD)
+
+A program is also published as linked data, in the same convention as pflow.xyz: a stable, versioned `@context` URL.
+
+```text
+https://btw.bitwrap.io/context/v1.jsonld      the @context (application/ld+json, CORS *, immutable; a change is a new version, v2)
+https://btw.bitwrap.io/context.jsonld         the latest version (cached five minutes)
+https://btw.bitwrap.io/c/<CID>.jsonld         a program: @id, @type djrust:Program, cid, name, key, tempo, sections, licenseId
+https://btw.bitwrap.io/c/<CID>.<packed>.jsonld   the same for a program the site has not stored (the link carries it)
+```
+
+`/c/<CID>` embeds that document in a `<script type="application/ld+json">` block and answers with `Link: <.../c/<CID>.jsonld>; rel="describedby"`.
+The context's vocabulary is the bitwrap ontology (`https://ontology.bitwrap.io/ns#`); the MCP `share` tool returns `jsonld_url` and `context`, and `get` does too.
+`btw jsonld` (djctl) names the same context URL. Genre, tags and Euclidean rhythms need the engine's ontology, so only `btw jsonld` adds them.
+
 ## Share links
 
 ```text
@@ -235,6 +251,22 @@ The program is **in** the link: nothing is stored for it to work, and whoever op
 where they differ. Optional `~<base64url(deflate(notes))>` after the sealed part carries the comments, which are in neither the CID nor the
 signature and are shown as unverified; an optional `.<sig>` is the author's signature over the CID. Links over about 2000 characters
 may be cut by some apps; `POST /api/share` and the MCP `share` tool report `chars`. `GET /c/<CID>` shows a card for a program the site has stored.
+
+**CID-only short links** keep the program on the site instead of in the link:
+
+```text
+https://btw.bitwrap.io/p/<CID>        (opens the page; it fetches the program and checks it against the CID)
+https://beats.bitwrap.io/p/<CID>      (the same, on beats.bitwrap.io)
+https://btw.bitwrap.io/c/<CID>        (for posts: the link-preview page of a stored program)
+```
+
+Store one with `PUT /api/shares/<CID>` (signed in with a cookie or `Authorization: Bearer btw_...`, or from a paired phone), body
+`{"text": "<the program>", "license": "CC0-1.0", "forked_from": "<CID>", "credits": ["..."], "name": "..."}` (all but `text` optional;
+at most 8 credits of 80 characters). The text must check and hash to `<CID>`; only public programs are stored (`use restricted`,
+`sample`/`loop` and `#! visibility:` anything but public are refused with `restricted` and stay inline-only); the first share's
+rights stay. It is limited per account (60 an hour) and per address. The MCP `share` tool does the same when called with a token.
+Reading is public: `GET /api/programs/<CID>` answers `{"cid", "text", "meta"}` (the canonical text and its rights), cross-origin, and the
+reader recomputes the CID from the text and refuses a mismatch, exactly as for a self-sealing link. A CID the site has not stored is `404`.
 
 ## For models
 

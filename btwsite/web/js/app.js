@@ -282,7 +282,7 @@ export class App {
     this.el['h-name'].textContent = n;
     this.progName = n;
     if (this.bg) this.bg.sync();
-    document.title = this.name && this.name !== 'starter' ? `${n} · btw` : 'btw, the bitwrap language';
+    document.title = this.name && this.name !== 'starter' ? `${n} · BeatScript` : 'BeatScript: write a whole track as text';
   }
 
   async loadExample(name, { play, quiet } = {}) {

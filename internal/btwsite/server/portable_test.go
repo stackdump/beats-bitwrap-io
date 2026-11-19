@@ -179,10 +179,10 @@ func TestPrivacyNoticeEverywhereGeneratedWorkIsServed(t *testing.T) {
 	if s, _ := info["notice"].(string); !strings.Contains(s, "CC0-1.0") || info["license"] != "CC0-1.0" {
 		t.Fatalf("info: %v", info)
 	}
-	resp := e.get("/privacy")
-	body := string(readAll(t, resp))
-	if resp.StatusCode != 200 || !strings.Contains(body, "CC0") || !strings.Contains(body, "audio") {
-		t.Fatalf("privacy: %d %s", resp.StatusCode, body)
+	// the human version is the static policy page: it must carry the CC0 statement about generated work and streams
+	page, err := os.ReadFile(filepath.Join("..", "..", "..", "btwsite", "web", "privacy", "index.html"))
+	if err != nil || !strings.Contains(string(page), `id="generated"`) || !strings.Contains(string(page), "CC0 1.0") || !strings.Contains(string(page), "audio stream") {
+		t.Fatalf("privacy page lacks the CC0 notice for generated work: %v", err)
 	}
 	cid := e.put("tempo 120\nkick: x...x...x...x...\n")
 	r := e.get("/api/programs/" + cid)

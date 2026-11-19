@@ -3,6 +3,7 @@ package card
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -14,17 +15,22 @@ import (
 
 	"beats-bitwrap-io/internal/btw"
 	"beats-bitwrap-io/internal/btwsite/api"
+	"beats-bitwrap-io/internal/btwsite/ld"
 )
 
 // Mount registers the card routes on mux:
 //
 //	GET /c/<cid>            the link-preview page of a stored program or example (HTML with og:/twitter: tags)
 //	GET /c/<cid>.<packed>   the same, stateless: the path carries the program as a share link does
+//	GET /p/<cid>            the CID-only short link: the same page and card, and a person is sent to /#<cid>,
+//	                        which fetches the program from the store and checks it against the CID
 //	GET /card/<cid>.png     1200x630 card            GET /card/<cid>.square.png   1080x1080
 //	GET /card/<cid>.<packed>.png (and .square.png): stateless, for the page of a link whose program is not stored
+//	GET /c/<cid>[.<packed>].jsonld   the program as JSON-LD (the page embeds the same document and points at it with Link: rel=describedby)
 //	GET /card/default.png   the generic card         GET /card/go.js   the one-line redirect script the pages use
 func (s *Service) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /c/", s.ServePage)
+	mux.HandleFunc("GET /p/{cid}", s.ServePage)
 	mux.HandleFunc("GET /card/", s.ServeCard)
 }
 
@@ -149,13 +155,14 @@ type pageData struct {
 	OGType                             string
 	NoIndex                            bool
 	Site                               string
+	LD                                 string // the program as JSON-LD, put in <script type="application/ld+json"> after the template ran
 	Width, Height                      int
 }
 
-const genericTitle = "btw: write a whole track as text"
-const genericDesc = "btw is a small, deterministic language for writing whole music tracks as text. A program is its own link: the same text always has the same CID, and it plays in the browser."
-const privateTitle = "a private btw program"
-const privateDesc = "This btw program is private. btw is a small language for writing whole music tracks as text."
+const genericTitle = "BeatScript: write a whole track as text"
+const genericDesc = "BeatScript is where you write whole music tracks as text, in btw, a small, deterministic music language. A program is its own link: the same text always has the same CID, and it plays in the browser."
+const privateTitle = "a private BeatScript program"
+const privateDesc = "This btw program is private. BeatScript is where you write whole music tracks as text."
 
 // origin is the site's https origin: Options.PublicURL, else what the request says.
 func (s *Service) origin(r *http.Request) string {
@@ -169,10 +176,16 @@ func (s *Service) origin(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// ServePage answers /c/<cid> and /c/<cid>.<packed>.
+// ServePage answers /c/<cid>, /c/<cid>.<packed> and /p/<cid> (the short link: CID only, nothing packed).
 func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/c/"), "/")
+	short := strings.HasPrefix(r.URL.Path, "/p/")
+	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/c/"), "/p/"), "/")
+	name, wantLD := strings.CutSuffix(name, ".jsonld") // /c/<cid>[.<packed>].jsonld (and /p/<cid>.jsonld): the document the page embeds, on its own
 	cid, packed, _ := strings.Cut(name, ".")
+	if short && (packed != "" || !validCID(cid)) {
+		http.NotFound(w, r)
+		return
+	}
 	origin := s.origin(r)
 	ctx, cancel := context.WithTimeout(withAddr(r.Context(), api.ClientIP(r)), 60*time.Second)
 	defer cancel()
@@ -182,18 +195,28 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := pageData{Site: s.site, OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
-		Alt: "btw: a few lines of code on a dark stage, over a strip of song sections"}
+		Alt: "BeatScript: a few lines of code on a dark stage, over a strip of song sections"}
 	cache := cachePage
+	var doc []byte
 	switch st := p.state(); st {
 	case stOK:
 		d.OGType = "music.song"
 		s.programPage(&d, p, origin, packed)
+		if short { // the address bar keeps the CID: the page opens it by fetching, not from a copy of the text in the URL
+			d.URL, d.Open = origin+"/p/"+p.cid, "/#"+p.cid
+		}
+		doc = ld.Marshal(ld.Document(origin, ld.Program{CID: p.cid, Name: p.name(), Key: p.report.Key, Tempo: p.report.Tempo,
+			Sections: p.report.Sections, License: p.meta.License, Author: p.meta.Author}))
+		d.LD = string(doc)
 	case stPrivate, stRestricted:
 		d.Title, d.Desc = privateTitle, privateDesc
 	case stUnknown:
 		d.Title, d.Desc = genericTitle, genericDesc
 		if validCID(cid) {
 			d.URL, d.Open = origin+"/c/"+cid, "/#"+cid
+			if short {
+				d.URL = origin + "/p/" + cid
+			}
 		}
 		cache = cacheShort
 	default:
@@ -202,6 +225,19 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	if st := p.state(); noIndex(st) {
 		d.NoIndex = true
 		w.Header().Set("X-Robots-Tag", "noindex")
+	}
+	if wantLD {
+		if doc == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", "application/ld+json; charset=utf-8")
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Cache-Control", cache)
+		h.Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(doc)
+		return
 	}
 	var buf bytes.Buffer
 	if err := pageTpl.Execute(&buf, d); err != nil {
@@ -212,7 +248,24 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", cache)
 	h.Set("X-Btw-Card", stateName(p.state()))
-	_, _ = w.Write(buf.Bytes())
+	if doc != nil {
+		h.Set("Link", ld.DescribedBy(origin+"/c/"+p.cid+".jsonld"))
+	}
+	out := buf.Bytes()
+	if doc != nil {
+		// a data block, not code: html/template would escape the document as a JS string, so it goes in after.
+		// json.Marshal has already escaped <, > and &, so the document cannot close the element.
+		out = bytes.Replace(out, []byte(`<meta name="x-ld">`), []byte(`<script type="application/ld+json">`+string(compactJSON(doc))+`</script>`), 1)
+	}
+	_, _ = w.Write(out)
+}
+
+func compactJSON(doc []byte) []byte {
+	var b bytes.Buffer
+	if json.Compact(&b, doc) != nil {
+		return doc
+	}
+	return b.Bytes()
 }
 
 // programPage fills the page of a public program.
@@ -267,7 +320,7 @@ var pageTpl = template.Must(template.New("page").Parse(`<!doctype html>
 {{if .NoIndex}}<meta name="robots" content="noindex">
 {{end}}<link rel="canonical" href="{{.URL}}">
 <meta property="og:type" content="{{.OGType}}">
-<meta property="og:site_name" content="{{.Site}}">
+<meta property="og:site_name" content="BeatScript">
 <meta property="og:title" content="{{.Title}}">
 <meta property="og:description" content="{{.Desc}}">
 <meta property="og:url" content="{{.URL}}">
@@ -282,7 +335,8 @@ var pageTpl = template.Must(template.New("page").Parse(`<!doctype html>
 <meta name="twitter:description" content="{{.Desc}}">
 <meta name="twitter:image" content="{{.Image}}">
 <meta name="twitter:image:alt" content="{{.Alt}}">
-<style>
+{{if .LD}}<meta name="x-ld">
+{{end}}<style>
 :root{color-scheme:dark}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b12;color:#e6ecf5;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 main{width:min(92vw,720px);padding:24px 0}
@@ -298,8 +352,8 @@ a.open:hover{text-decoration:underline}
 <a href="{{.Open}}"><img src="{{.Image}}" width="{{.Width}}" height="{{.Height}}" alt="{{.Alt}}"></a>
 <h1>{{.Title}}</h1>
 <p>{{.Desc}}</p>
-<p><a id="open" class="open" href="{{.Open}}">Open in btw &rarr;</a></p>
-<noscript><p>JavaScript is off: <a href="{{.Open}}">open this in btw</a>.</p></noscript>
+<p><a id="open" class="open" href="{{.Open}}">Open in BeatScript &rarr;</a></p>
+<noscript><p>JavaScript is off: <a href="{{.Open}}">open this in BeatScript</a>.</p></noscript>
 </main>
 <script src="/card/go.js" defer></script>
 </body>
@@ -325,7 +379,7 @@ func GenericMetaAt(origin, path string) string {
 	w(`<meta name="description" content="%s">`, e(genericDesc))
 	w(`<link rel="canonical" href="%s">`, e(origin+path))
 	w(`<meta property="og:type" content="website">`)
-	w(`<meta property="og:site_name" content="%s">`, e(siteOf(origin)))
+	w(`<meta property="og:site_name" content="BeatScript">`)
 	w(`<meta property="og:title" content="%s">`, e(genericTitle))
 	w(`<meta property="og:description" content="%s">`, e(genericDesc))
 	w(`<meta property="og:url" content="%s">`, e(origin+path))
@@ -334,7 +388,7 @@ func GenericMetaAt(origin, path string) string {
 	w(`<meta property="og:image:type" content="image/png">`)
 	w(`<meta property="og:image:width" content="1200">`)
 	w(`<meta property="og:image:height" content="630">`)
-	w(`<meta property="og:image:alt" content="%s">`, e("btw: a few lines of code on a dark stage, over a strip of song sections"))
+	w(`<meta property="og:image:alt" content="%s">`, e("BeatScript: a few lines of code on a dark stage, over a strip of song sections"))
 	w(`<meta name="twitter:card" content="summary_large_image">`)
 	w(`<meta name="twitter:title" content="%s">`, e(genericTitle))
 	w(`<meta name="twitter:description" content="%s">`, e(genericDesc))

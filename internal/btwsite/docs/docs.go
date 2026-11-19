@@ -236,6 +236,7 @@ func (s *server) llmsTxt() string {
 	w("- [MCP server](%s/mcp): streamable HTTP; tools compose, check, fmt, eval, load, get, share, open, render, record, list_examples, instruments, stop; writes need a bearer token\n", p)
 	w("- [Compose](%s/docs/api.md#compose): POST %s/api/compose writes a program from a prompt (signed in, rate limited, capped)\n", p, p)
 	w("- [Render](%s/docs/api.md#render): GET %s/api/render/<CID>?format=opus|wav streams the offline render as it renders\n", p, p)
+	w("- [Linked data](%s/docs/api.md#linked-data-json-ld): the versioned JSON-LD @context (%s/context/v1.jsonld) and a program's JSON-LD document (%s/c/<CID>.jsonld)\n", p, p, p)
 	w("- [Share links](%s/docs/api.md#share-links): the link format, and how to open one safely\n", p)
 	w("- [Sign-in and tokens](%s/docs/api.md#sign-in-and-tokens): wallet or browser-key challenge, cookie, bearer tokens for MCP\n\n", p)
 

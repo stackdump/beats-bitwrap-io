@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16213e">
+<meta name="color-scheme" content="dark">
+<title>Delete your account · BeatScript</title>
+<meta name="description" content="How to delete your BeatScript identity and the data our server holds about it: tokens, paired phones and logs.">
+<link rel="canonical" href="https://beatscript.app/delete-account">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BeatScript">
+<meta property="og:title" content="Delete your BeatScript account and data">
+<meta property="og:url" content="https://beatscript.app/delete-account">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/css/legal.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/" aria-label="BeatScript home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">BeatScript</span></a>
+  <span class="spacer"></span>
+  <nav aria-label="Site"><a href="/privacy">Privacy</a><a href="/delete-account" aria-current="page">Delete account</a></nav>
+</header>
+
+<main>
+<h1>Delete your BeatScript account and data</h1>
+<p class="meta">For the BeatScript Android app (<code>app.beatscript</code>) and beatscript.app. You don't need to sign in to use this page.</p>
+
+<p class="lede">BeatScript has no username, password or email account. Your "account" is an identity: a key that lives on your device. Only its public half (a wallet address or public key) ever reaches our server. Deleting it has two parts: what is on your device, which you delete yourself, and what our server holds, which we delete when you ask.</p>
+
+<h2>1. On your Android phone</h2>
+<ul>
+<li><strong>Delete single items:</strong> in the program list, choose <em>Delete…</em> on a program. For a saved, signed item, choose <em>Forget it</em>. Either way it is removed from the phone. Copies you already shared with other apps stay wherever you sent them.</li>
+<li><strong>Delete everything, your identity key included:</strong> go to Android <em>Settings → Apps → BeatScript → Storage → Clear storage</em>, or uninstall the app. This removes your programs, saved items, the Compose token and the identity key. The app turns off Android backup, so no copy is left in a cloud backup. This can't be undone: a deleted identity key can't be recovered by us or anyone else.</li>
+</ul>
+<p>The Google Play build of the app stores nothing about you on our server, except the Compose log entries described below if you used Compose.</p>
+
+<h2>2. On the website, by yourself</h2>
+<p>If you signed in on beatscript.app, you can remove these straight away:</p>
+<ul>
+<li><strong>MCP tokens:</strong> sign in, open <em>MCP</em> and choose <em>Revoke all my tokens</em>.</li>
+<li><strong>Paired phones:</strong> sign in, open <em>Phone</em> and choose <em>Unpair</em> next to each device.</li>
+<li><strong>A browser key:</strong> open <em>Sign in</em> and choose <em>Forget this key</em>, or clear this site's data in your browser. This removes the key from your browser. It doesn't remove what our server holds about that identity: see step 3.</li>
+</ul>
+
+<h2>3. Ask us to delete what our server holds</h2>
+<p>Email <a href="mailto:myork@stackdump.com?subject=Delete%20my%20BeatScript%20data">myork@stackdump.com</a> with the subject "Delete my BeatScript data". Send it from the address you want our reply to go to, and include your <strong>identity address</strong>:</p>
+<ul>
+<li>for a wallet sign-in, your wallet address (<code>0x…</code>),</li>
+<li>for a browser key, the key shown in the Sign in or Account panel (<code>ed25519:…</code>), or</li>
+<li>if you used Compose only from the app, the date you used it and the token you pasted (the first few characters are enough).</li>
+</ul>
+<p>We may ask you to sign a short message with your key, to prove the identity is yours before we delete anything.</p>
+
+<h3>What we delete</h3>
+<ul>
+<li>every MCP token hash linked to your identity,</li>
+<li>every paired-device record linked to your identity (the device's public key, its name and the pairing time),</li>
+<li>your entries in the Compose log (prompt hash, first 80 characters, usage and cost),</li>
+<li>your Compose usage counters,</li>
+<li>any server request-log lines that carry your identity. These are also deleted automatically after 30 days.</li>
+</ul>
+
+<h3>What we keep</h3>
+<ul>
+<li><strong>Public programs you already shared.</strong> A public program is stored under its content ID (CID), is CC0 (public domain) by default and isn't linked to your identity on our server. Others may have copied it or linked to it, so we keep it to keep those links working. If a public program contains something personal that you want removed, send us its CID and we will consider removing it.</li>
+<li><strong>Anything copied elsewhere.</strong> Items you shared through Android's share sheet, or links you posted, are outside our control.</li>
+</ul>
+
+<h3>How long it takes</h3>
+<p>We delete the data <strong>within 30 days</strong> of your request, or of your proof of identity if we asked for one. We email you when it's done.</p>
+
+<h2>Questions</h2>
+<p>See the <a href="/privacy">privacy policy</a>, or email <a href="mailto:myork@stackdump.com">myork@stackdump.com</a>.</p>
+</main>
+
+<footer class="site">
+  <a href="/">BeatScript</a> · <a href="/privacy">Privacy</a> · <a href="/delete-account">Delete account</a> · <a href="mailto:myork@stackdump.com">Contact</a>
+</footer>
+</body>
+</html>
