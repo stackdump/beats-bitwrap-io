@@ -41,6 +41,7 @@ type Config struct {
 	MaxPromptChars  int     // -max-prompt-chars
 	MaxProgramBytes int     // -max-program-bytes
 	MaxRepair       int     // -max-repair
+	MaxRefine       int     // -max-refine
 	ComposeEnabled  bool    // -compose-enabled / BTW_COMPOSE_ENABLED=0|1: the kill switch's initial position
 
 	RenderIPHour      int // -render-ip-hour
@@ -75,7 +76,7 @@ func DefaultConfig() Config {
 		Addr: ":18097", WebDir: "btwsite/web", ExamplesDir: "btwsite/examples", DocsDir: "btwsite/web/docs", DataDir: "./data",
 		PublicURL: "https://btw.bitwrap.io", Model: "gemini-3.8-flash", FFmpeg: "ffmpeg",
 		ComposeUserHour: 10, ComposeUserDay: 50, ComposeIPDay: 40, DailySpendUSD: 2.00, PriceInPerM: 1.50, PriceOutPerM: 7.50,
-		MaxPromptChars: 800, MaxProgramBytes: 16384, MaxRepair: 3, ComposeEnabled: true,
+		MaxPromptChars: 800, MaxProgramBytes: 16384, MaxRepair: 3, MaxRefine: 1, ComposeEnabled: true,
 		RenderIPHour: 30, RenderConcurrency: 2, RenderMaxBars: 256, RenderMaxSeconds: 600, RenderCacheMB: 512,
 		PutIPHour: 60, ShareHour: 60, CheckIPMin: 120, StoreMaxMB: 256,
 	}
@@ -117,6 +118,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	num(&c.MaxPromptChars, "max-prompt-chars", "longest compose prompt")
 	num(&c.MaxProgramBytes, "max-program-bytes", "largest program stored or composed")
 	num(&c.MaxRepair, "max-repair", "compose repair rounds after the first attempt")
+	num(&c.MaxRefine, "max-refine", "compose rounds that send a passing program's warnings back (0 = none)")
 	fs.BoolVar(&c.ComposeEnabled, "compose-enabled", c.ComposeEnabled, "compose kill switch's initial position [env BTW_COMPOSE_ENABLED=0|1]")
 	num(&c.RenderIPHour, "render-ip-hour", "uncached renders per IP per hour")
 	num(&c.RenderConcurrency, "render-concurrency", "simultaneous btwd render processes")

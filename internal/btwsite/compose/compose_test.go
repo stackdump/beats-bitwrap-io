@@ -235,7 +235,7 @@ func TestUnrepairableIsACleanFourTwentyTwo(t *testing.T) {
 
 func TestWarningsDoNotFailAProgram(t *testing.T) {
 	m := &scriptModel{steps: []scriptStep{{text: "tempo 120\nkey am\n# WARN\ndeck A: kick x ~ x ~\n", use: Usage{In: 100, Out: 50}}}}
-	r := newRig(t, rigOpts{mutate: func(o *Options) { o.FakeModel = m }})
+	r := newRig(t, rigOpts{mutate: func(o *Options) { o.FakeModel = m; o.MaxRefine = -1 }})
 	res := mustOK(t, r.post("u1", jbody("x")))
 	at := res["attempts"].([]any)
 	if len(at) != 1 || at[0].(map[string]any)["ok"] != true {

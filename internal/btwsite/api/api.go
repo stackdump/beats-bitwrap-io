@@ -286,6 +286,7 @@ type ComposeRequest struct {
 type Attempt struct {
 	N           int          `json:"n"`
 	OK          bool         `json:"ok"`
+	Refine      bool         `json:"refine,omitempty"` // a round that asked the model to clear the warnings of a program that already passed
 	Errors      int          `json:"errors"`
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 	TokensIn    int          `json:"tokens_in"`

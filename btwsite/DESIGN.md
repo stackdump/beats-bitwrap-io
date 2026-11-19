@@ -249,7 +249,7 @@ Shared types, interfaces and the typed `*api.Error` are in `internal/btwsite/api
 model), `GEMINI_API_KEY` (env only, never a flag, never logged, never sent to a client), `-compose-user-hour 10`,
 `-compose-user-day 50`, `-compose-ip-day 40`, `-daily-spend-usd 2.00`, `-price-in-per-m 1.50 -price-out-per-m 7.50`
 (Google's 2027 list prices for `gemini-3.8-flash`: $1.50 / $7.50 per 1M tokens; $0.75 / $3.75 until 2026-12-31),
-`-max-prompt-chars 800`, `-max-program-bytes 16384`, `-max-repair 3`, `-max-output-tokens 16384` (per model call, thinking included), `BTW_THINKING=LOW` (`MINIMAL|LOW|MEDIUM|HIGH`, passed as `thinkingLevel`), `-render-ip-hour 30`, `-render-concurrency 2`,
+`-max-prompt-chars 800`, `-max-program-bytes 16384`, `-max-repair 3`, `-max-refine 1`, `-max-output-tokens 16384` (per model call, thinking included), `BTW_THINKING=LOW` (`MINIMAL|LOW|MEDIUM|HIGH`, passed as `thinkingLevel`), `-render-ip-hour 30`, `-render-concurrency 2`,
 `-render-max-bars 256`, `-render-max-seconds 600`, `BTW_ADMIN_TOKEN`, `BTW_COMPOSE_ENABLED=0|1`, `BTW_SESSION_SECRET` (else generated into `-data`).
 Compose is **"not configured"** (503 `not_configured`) when there is no key and the model is not `fake`.
 
@@ -312,7 +312,7 @@ Response 200:
 ```
 Pipeline: validate → limits (kill switch, user/hour, user/day, ip/day, global spend) → system prompt = `btwd cheatsheet` + `btwd instruments`
 + 2–3 public CC0 example programs (never restricted, never private) → model → `check` → on errors send the diagnostics (`render` form) back, up to
-`-max-repair` (3) repair rounds → success or `422 unrepairable` with the last diagnostics and every attempt. With `base_cid`: the base program (public,
+`-max-repair` (3) repair rounds → success or `422 unrepairable` with the last diagnostics and every attempt. A program that passes with warnings gets `-max-refine` (1) more rounds: its warnings go back to the model, and a reply replaces it only if it passes every check the first one did and has fewer warnings (an attempt with `"refine": true`); a worse or failed reply, a model error, a refused reservation or the kill switch ends refining and the passing program stands. With `base_cid`: the base program (public,
 unrestricted, from the programs store or examples) is given to the model as the program to edit; the result records `forkedFrom`.
 Output is stored via the programs store with meta `{license:"CC0-1.0", composedBy:"gemini-<model>", forkedFrom, prompt_sha256, created}`.
 The `#! composed-by:` etc. header lives in the **stored object / `.btw` download**, never in the canonical text (comments are not in the CID);

@@ -324,6 +324,47 @@ func userMessage(r api.ComposeRequest, base string, maxBytes int) string {
 
 // repairMessage is the next user turn after a failed attempt: the diagnostics, in the caret form the checker
 // renders plus where they are and what to do.
+// refineMessage asks for the warnings of a passing program to be cleared, keeping the music.
+func refineMessage(diags []api.Diagnostic) string {
+	var ws []api.Diagnostic
+	for _, d := range diags {
+		if d.Severity == "warning" {
+			ws = append(ws, d)
+		}
+	}
+	var b strings.Builder
+	if len(ws) == 1 {
+		b.WriteString("Your program passes, but the checker has 1 warning. ")
+	} else {
+		fmt.Fprintf(&b, "Your program passes, but the checker has %d warnings. ", len(ws))
+	}
+	b.WriteString("Fix every warning while keeping the music the same: the same tempo, key, sections, length and parts. " +
+		"A pattern must divide the bar into sixteenths (16, 8, 4 or 2 steps per bar). " +
+		"Reply with the complete corrected program only: no prose, no code fences, no \"#!\" lines.\n")
+	const maxShown = 10
+	for i, d := range ws {
+		if i == maxShown {
+			fmt.Fprintf(&b, "\n(%d more warnings not shown)\n", len(ws)-maxShown)
+			break
+		}
+		b.WriteString("\n")
+		if d.Line > 0 {
+			fmt.Fprintf(&b, "[%d] line %d, col %d:\n", i+1, d.Line, d.Col)
+		} else {
+			fmt.Fprintf(&b, "[%d]\n", i+1)
+		}
+		if d.Render != "" {
+			b.WriteString(strings.TrimRight(d.Render, "\n") + "\n")
+		} else {
+			fmt.Fprintf(&b, "warning: %s\n", d.Message)
+		}
+		if d.Help != "" && !strings.Contains(d.Render, d.Help) {
+			fmt.Fprintf(&b, "help: %s\n", d.Help)
+		}
+	}
+	return b.String()
+}
+
 func repairMessage(diags []api.Diagnostic) string {
 	var errs []api.Diagnostic
 	for _, d := range diags {

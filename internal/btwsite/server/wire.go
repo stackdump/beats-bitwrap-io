@@ -55,7 +55,7 @@ func (s *Server) wire(mux *http.ServeMux) error {
 		Model: cfg.Model, APIKey: cfg.GeminiKey,
 		Limits: limits.Config{UserHour: cfg.ComposeUserHour, UserDay: cfg.ComposeUserDay, IPDay: cfg.ComposeIPDay,
 			DailySpendUSD: cfg.DailySpendUSD, PriceInPerM: cfg.PriceInPerM, PriceOutPerM: cfg.PriceOutPerM, DataDir: cfg.DataDir},
-		MaxPromptChars: cfg.MaxPromptChars, MaxProgramBytes: cfg.MaxProgramBytes, MaxRepair: repairRounds(cfg.MaxRepair),
+		MaxPromptChars: cfg.MaxPromptChars, MaxProgramBytes: cfg.MaxProgramBytes, MaxRepair: repairRounds(cfg.MaxRepair), MaxRefine: repairRounds(cfg.MaxRefine),
 		Thinking: cfg.Thinking, Now: cfg.Now,
 	})
 	if err != nil {

@@ -47,6 +47,7 @@ type Options struct {
 	MaxPromptChars  int // runes; default 800
 	MaxProgramBytes int // default 16384
 	MaxRepair       int // repair rounds after the first attempt; default 3, negative = none
+	MaxRefine       int // rounds that send a passing program's warnings back; default 1, negative = none
 
 	MaxOutputTokens int    // per model call, thinking included; default DefaultMaxOutputTokens
 	Thinking        string // MINIMAL | LOW | MEDIUM | HIGH; default LOW (BTW_THINKING)
@@ -93,6 +94,12 @@ func New(o Options) (*Service, error) {
 	}
 	if o.MaxRepair < 0 {
 		o.MaxRepair = 0
+	}
+	if o.MaxRefine == 0 {
+		o.MaxRefine = 1
+	}
+	if o.MaxRefine < 0 {
+		o.MaxRefine = 0
 	}
 	if o.MaxOutputTokens <= 0 {
 		o.MaxOutputTokens = DefaultMaxOutputTokens
@@ -517,6 +524,8 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 			att.OK = true
 			att.Diagnostics = report.Diagnostics // warnings, if any
 			tr.attempts = append(tr.attempts, att)
+			msgs = append(msgs, Message{Role: "model", Text: modelTx})
+			prog, report = s.refine(ctx, system, msgs, prog, report, tr)
 			return s.finish(ctx, u, req, prog, report, tr)
 		}
 
@@ -536,6 +545,66 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 	e := api.Errf(422, api.CodeUnrepairable, "the model could not write a program that passes the checker in %d attempts", len(tr.attempts))
 	e.Details = map[string]any{"diagnostics": lastDiags, "attempts": tr.attempts, "last_text": lastText, "cost_usd": tr.cost}
 	return nil, e
+}
+
+// refine sends the warnings of a program that already passed back to the model, up to MaxRefine rounds. It
+// never makes the result worse: a reply is kept only when it passes everything the first program passed
+// (checker OK, no restricted sounds or assets, no #! header claim, within the size cap) and has fewer
+// warnings. Anything else (a model error, a refused reservation, the kill switch, a worse reply) ends the
+// refining and the best program so far is the result. Every call is paid for and recorded as an attempt.
+func (s *Service) refine(ctx context.Context, system string, msgs []Message, prog string, rep *api.CheckReport, tr *trace) (string, *api.CheckReport) {
+	for i := 0; i < s.opt.MaxRefine && rep.Warnings > 0; i++ {
+		if k := s.lim.Kill(); k.Disabled {
+			break
+		}
+		ask := append(append([]Message(nil), msgs...), Message{Role: "user", Text: refineMessage(rep.Diagnostics)})
+		rsv, err := s.lim.Reserve(s.worstCase(system, ask))
+		if err != nil {
+			break
+		}
+		text, use, merr := s.model.Generate(ctx, system, ask)
+		if merr != nil && use.In == 0 && use.Out == 0 {
+			use.In = estimateTokens(system, ask)
+			var me *ModelError
+			if errors.As(merr, &me) && me.Aborted {
+				use.Out = s.opt.MaxOutputTokens
+			}
+		}
+		cost := s.lim.Cost(use.In, use.Out)
+		rsv.Settle(cost, use.In, use.Out)
+		tr.tokensIn += use.In
+		tr.tokensOut += use.Out
+		tr.cost += cost
+		att := api.Attempt{N: len(tr.attempts) + 1, Refine: true, TokensIn: use.In, TokensOut: use.Out}
+		if merr != nil {
+			att.Errors = 1
+			tr.attempts = append(tr.attempts, att)
+			s.logf("compose: refine round ended by the model: %v", merr)
+			break
+		}
+		cand := ExtractProgram(text)
+		if cand == "" || len(cand) > s.opt.MaxProgramBytes {
+			att.Errors = 1
+			tr.attempts = append(tr.attempts, att)
+			break
+		}
+		r2, err := s.opt.Checker.Check(ctx, cand)
+		if err != nil || r2 == nil {
+			att.Errors = 1
+			tr.attempts = append(tr.attempts, att)
+			break
+		}
+		att.Diagnostics = r2.Diagnostics
+		att.Errors = r2.Errors
+		att.OK = r2.OK && !r2.Restricted && !r2.UsesAssets && headerClaim(cand) == "" && r2.Warnings < rep.Warnings
+		tr.attempts = append(tr.attempts, att)
+		if !att.OK {
+			break
+		}
+		msgs = append(ask, Message{Role: "model", Text: cand})
+		prog, rep = cand, r2
+	}
+	return prog, rep
 }
 
 // worstCase is the most one model call can cost: the input as it stands and a full output allowance (thinking
