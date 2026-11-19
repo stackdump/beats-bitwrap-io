@@ -393,8 +393,8 @@ func TestStatelessLink(t *testing.T) {
 	if m["og:url"] != "https://btw.bitwrap.io/#"+frag {
 		t.Errorf("og:url = %q", m["og:url"])
 	}
-	if !strings.HasPrefix(m["og:title"], "btw "+shortCID(rep.CID)+" · ") {
-		t.Errorf("og:title = %q (a link has no name: btw <short cid>)", m["og:title"])
+	if !strings.HasPrefix(m["og:title"], "BeatScript "+shortCID(rep.CID)+" · ") {
+		t.Errorf("og:title = %q (a link has no name: BeatScript <short cid>)", m["og:title"])
 	}
 	img := "https://btw.bitwrap.io/card/" + frag + ".png"
 	if m["og:image"] != img {
@@ -566,7 +566,7 @@ func TestRestrictedAndAssetsAreGeneric(t *testing.T) {
 		page := serve(t, s, "/c/"+path)
 		requireGeneric(t, s, page, true, "phrygian")
 		m := metas(page.Body.String())
-		if m["og:title"] != "a private btw program" {
+		if m["og:title"] != "a private BeatScript program" {
 			t.Errorf("og:title = %q, want the private title", m["og:title"])
 		}
 		img := serve(t, s, "/card/"+path+".png")
@@ -592,7 +592,7 @@ func TestPrivateMetaIsGeneric(t *testing.T) {
 	s, _, _ := newTestService(t, Options{Checker: c, Store: st, Examples: func() []api.Example { return nil }})
 	page := serve(t, s, "/c/"+p.CID)
 	requireGeneric(t, s, page, true, "secret-demo")
-	if m := metas(page.Body.String()); m["og:title"] != "a private btw program" {
+	if m := metas(page.Body.String()); m["og:title"] != "a private BeatScript program" {
 		t.Errorf("og:title = %q", m["og:title"])
 	}
 	img := serve(t, s, "/card/"+p.CID+".png")

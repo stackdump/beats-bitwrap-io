@@ -29,7 +29,7 @@ import (
 )
 
 // version is part of every cached file's name: bump it when the look changes.
-const version = "1"
+const version = "2"
 
 // Options configures a Service.
 type Options struct {
@@ -496,7 +496,7 @@ func (p *prog) name() string {
 		n = cleanText(p.exName, 60)
 	}
 	if n == "" {
-		n = "btw " + shortCID(p.cid)
+		n = "BeatScript " + shortCID(p.cid)
 	}
 	return n
 }

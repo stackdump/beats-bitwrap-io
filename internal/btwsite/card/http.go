@@ -159,7 +159,7 @@ type pageData struct {
 
 const genericTitle = "BeatScript: write a whole track as text"
 const genericDesc = "BeatScript is where you write whole music tracks as text, in btw, a small, deterministic music language. A program is its own link: the same text always has the same CID, and it plays in the browser."
-const privateTitle = "a private btw program"
+const privateTitle = "a private BeatScript program"
 const privateDesc = "This btw program is private. BeatScript is where you write whole music tracks as text."
 
 // origin is the site's https origin: Options.PublicURL, else what the request says.
