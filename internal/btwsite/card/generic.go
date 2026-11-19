@@ -21,7 +21,7 @@ section drop 8 bars {
 arrange drop
 `
 
-func genericContent() *content {
+func genericContent(site string) *content {
 	lines := strings.Split(strings.TrimRight(genericProgram, "\n"), "\n")
 	var rl []rline
 	for i, l := range lines {
@@ -29,7 +29,7 @@ func genericContent() *content {
 	}
 	return &content{
 		Seed: "btw-generic", Name: "write a whole track as text", License: "CC0-1.0",
-		Canonical: genericProgram, Spans: basicSpans(genericProgram), Lines: rl, Section: "drop", Generic: true,
+		Canonical: genericProgram, Spans: basicSpans(genericProgram), Lines: rl, Section: "drop", Generic: true, Site: site,
 		Sections: []api.Section{{Name: "intro", Start: 0, Bars: 4}, {Name: "build", Start: 4, Bars: 4}, {Name: "drop", Start: 8, Bars: 8}, {Name: "outro", Start: 16, Bars: 4}},
 	}
 }

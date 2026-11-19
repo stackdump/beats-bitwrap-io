@@ -407,7 +407,7 @@ func (s *Server) addTools() {
 		mcp.WithTitleAnnotation("Load a stored program into a browser tab"), hints(false, true, true, false),
 		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (compose and render store theirs) or of an example.")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
-		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: https://btw.bitwrap.io/#<CID>.<packed>, a /c/ link, or a beats.bitwrap.io/p# link.")),
+		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: "+s.public+"/#<CID>.<packed>, a /c/ link, or a beats.bitwrap.io/p# link.")),
 		playArg, sessionArg, deviceArg,
 	), s.load)
 
@@ -821,7 +821,7 @@ func (s *Server) devices(_ context.Context, c caller, a args) (any, *api.Error) 
 	}
 	note := "Pass a phone's id as device to eval, load, get or stop to drive that phone alone."
 	if len(list) == 0 {
-		note = fmt.Sprintf("No phone is paired with this account. Open %s signed in, press Phone, and scan the code with djrust's btw.bitwrap.io pairing.", s.public)
+		note = fmt.Sprintf("No phone is paired with this account. Open %s signed in, press Phone, and scan the code with djrust's btw pairing.", s.public)
 	} else if n == 0 {
 		note = "No paired phone is connected now: open djrust on the phone (it connects on its own). " + note
 	}

@@ -620,7 +620,7 @@ func (s *Service) finish(ctx context.Context, u *api.User, req api.ComposeReques
 	}
 	res := &api.ComposeResult{
 		Program: rep.Canonical, Text: prog, CID: rep.CID, Check: rep, Attempts: tr.attempts,
-		Model: s.modelName, ForkedFrom: req.BaseCID, License: "CC0-1.0", ComposedBy: s.by, Header: header,
+		Model: s.modelName, ForkedFrom: req.BaseCID, License: "CC0-1.0", Notice: api.PublicNotice, ComposedBy: s.by, Header: header,
 		RenderURL: "/api/render/" + rep.CID + "?format=opus", ShareURL: s.shareURL(ctx, rep),
 		CostUSD: tr.cost, Usage: api.Usage{In: tr.tokensIn, Out: tr.tokensOut},
 	}

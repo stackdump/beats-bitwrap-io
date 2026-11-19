@@ -56,6 +56,9 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"name":       "btw",
 		"version":    s.version(),
 		"public_url": s.cfg.PublicURL,
+		"site":       s.siteDoc(),
+		"license":    contentLicense,
+		"notice":     api.PublicNotice,
 		"model":      cs.Model,
 		"compose": map[string]any{
 			"enabled": cs.Enabled, "configured": cs.Configured, "reason": reason,

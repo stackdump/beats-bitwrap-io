@@ -67,8 +67,9 @@ type Options struct {
 
 // Service renders cards and answers /c/ and /card/.
 type Service struct {
-	o   Options
-	sem chan struct{}
+	o    Options
+	site string // the host drawn on cards and named as og:site_name
+	sem  chan struct{}
 
 	mu      sync.Mutex
 	flights map[string]*flight
@@ -134,6 +135,7 @@ func New(o Options) (*Service, error) {
 	}
 	return &Service{
 		o:       o,
+		site:    siteOf(o.PublicURL),
 		sem:     make(chan struct{}, o.RenderConcurrency),
 		flights: map[string]*flight{},
 		mem:     map[string][]byte{},
@@ -171,7 +173,7 @@ func (s *Service) Generic(v Variant) ([]byte, error) {
 	if v == Square {
 		i = 1
 	}
-	s.genOnce[i].Do(func() { s.generic[i], s.genErr[i] = drawCard(genericContent(), v) })
+	s.genOnce[i].Do(func() { s.generic[i], s.genErr[i] = drawCard(genericContent(s.site), v) })
 	return s.generic[i], s.genErr[i]
 }
 
@@ -517,6 +519,10 @@ func nameHash(p *prog) string {
 
 func (s *Service) cacheName(p *prog, v Variant) string {
 	n := p.cid + "." + v.String() + ".v" + version
+	if s.site != "btw" { // the host is drawn on the card, so a card made under another name is another file
+		h := sha256.Sum256([]byte(s.site))
+		n += ".s" + hex.EncodeToString(h[:3])
+	}
 	if h := nameHash(p) + licenseHash(p); h != "" {
 		n += "." + h
 	}
@@ -588,7 +594,7 @@ func (s *Service) renderPNG(ctx context.Context, p *prog, v Variant) ([]byte, er
 	rep := p.report
 	ct := &content{
 		Seed: p.cid, CID: p.cid, Name: p.name(), License: p.meta.License, Canonical: text, Spans: spans,
-		Key: rep.Key, Bars: rep.SongBars, Sections: rep.Sections,
+		Key: rep.Key, Bars: rep.SongBars, Sections: rep.Sections, Site: s.site,
 	}
 	if rep.Tempo != nil {
 		ct.Tempo = *rep.Tempo

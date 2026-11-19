@@ -141,6 +141,7 @@ export class Panels {
       out.push(h('p', { class: 'note warn' }, 'Compose is switched off for now.'));
     } else {
       out.push(h('p', { class: 'note' }, 'Describe a track. A model writes the program, the checker fixes it up to three times, and the result is stored as CC0 and plays at once.'));
+      out.push(h('p', { class: 'note' }, (app.info && app.info.notice) || 'Everything generated here is public: the program, its link and its audio are released under CC0-1.0, and the prompt goes to a third-party model.', ' ', h('a', { href: '/privacy', class: 'link', target: '_blank', rel: 'noopener' }, 'Privacy and licence')));
     }
     const maxPrompt = String((info && info.limits && info.limits.max_prompt_chars) || 800);
     const prompt = h('textarea', { id: 'c-prompt', maxlength: maxPrompt, placeholder: 'dark techno, 128, with an acid line that opens up', 'aria-label': 'What to compose' });
@@ -256,7 +257,7 @@ export class Panels {
   phoneBody() {
     const app = this.app;
     const out = [];
-    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then btw.bitwrap.io › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
+    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then btw › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
     if (!app.user) {
       out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
       return out;
@@ -374,7 +375,7 @@ export class Panels {
       this.trigger && this.trigger.setAttribute('aria-expanded', 'false');
       return;
     }
-    const origin = (app.info && app.info.public_url) || 'https://btw.bitwrap.io';
+    const origin = (app.info && app.info.public_url) || location.origin;
     const build = (withNotes) => {
       const r = app.btw.share(text, null, !!withNotes, origin);
       if (!r.ok) throw new ApiError({ code: 'bad_request', message: r.error || 'the program could not be shared' });

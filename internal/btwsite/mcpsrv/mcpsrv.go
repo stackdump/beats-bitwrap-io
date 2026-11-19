@@ -95,7 +95,7 @@ func (o *Options) defaults() {
 type Server struct {
 	b      api.Backend
 	auth   api.Authenticator
-	public string // https://btw.bitwrap.io, no trailing slash
+	public string // the site origin, no trailing slash
 	opt    Options
 	mcp    *server.MCPServer
 	http   *server.StreamableHTTPServer

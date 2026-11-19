@@ -193,10 +193,27 @@ export class App {
     }
   }
 
+  /** The site has moved (the server says moved_to): offer the new address once it names the same site. */
+  movedBanner() {
+    const site = this.info && this.info.site;
+    const to = site && site.moved_to;
+    if (!to) return;
+    const go = async () => {
+      try {
+        const r = await fetch(`${to}/.well-known/btw-site`, { mode: 'cors' });
+        const d = await r.json();
+        if (d.site_id !== site.site_id) throw new Error('not the same site');
+        location.href = `${to}${location.pathname}${location.search}${location.hash}`;
+      } catch { this.toast(`${to} did not confirm it is this site. Open it by hand if you trust it.`, 'warn'); }
+    };
+    this.banner({ kind: 'info', html: [h('span', { class: 'grow' }, `This site has moved to ${to}. Your programs are links, so they open there unchanged. Signed-in browser keys do not move: export first if you use one.`)], actions: [{ label: 'Go to the new address', primary: true, run: go }] });
+  }
+
   async loadInfo() {
     try {
       this.info = await this.api.info();
       this.serverOk = true;
+      this.movedBanner();
     } catch {
       this.serverOk = false;
     }

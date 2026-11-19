@@ -958,7 +958,7 @@ func TestNewNeedsAChecker(t *testing.T) {
 
 func BenchmarkDrawWide(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		if _, err := drawCard(genericContent(), Wide); err != nil {
+		if _, err := drawCard(genericContent("btw"), Wide); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -966,7 +966,7 @@ func BenchmarkDrawWide(b *testing.B) {
 
 func BenchmarkDrawSquare(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		if _, err := drawCard(genericContent(), Square); err != nil {
+		if _, err := drawCard(genericContent("btw"), Square); err != nil {
 			b.Fatal(err)
 		}
 	}

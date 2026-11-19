@@ -40,10 +40,11 @@ const TokenPrefix = "btw_"
 
 // Options configures the Service.
 type Options struct {
-	DataDir string // tokens.json lives here ("" = tokens are kept in memory only)
-	Secret  []byte // HMAC key for the cookie; at least 16 bytes
-	Secure  bool   // set the Secure cookie attribute (true behind https)
-	Origin  string // https://btw.bitwrap.io: the host is named in the challenge message
+	DataDir  string   // tokens.json lives here ("" = tokens are kept in memory only)
+	Secret   []byte   // HMAC key for the cookie; at least 16 bytes
+	Secure   bool     // set the Secure cookie attribute (true behind https)
+	Origin   string   // the site's public origin: its host is named in the challenge message
+	AltHosts []string // other hosts the site answers for (a move in progress): accepted as the Origin of a browser request
 
 	CookieTTL        time.Duration // default 7 days
 	ChallengeTTL     time.Duration // default 5 minutes
@@ -103,7 +104,7 @@ func New(o Options) (*Service, error) {
 	if o.Verify == nil {
 		o.Verify = share.VerifyPersonal
 	}
-	s := &Service{o: o, domain: "btw.bitwrap.io", challenges: map[string]challenge{}, tokens: map[string]tokenRec{}}
+	s := &Service{o: o, domain: "localhost", challenges: map[string]challenge{}, tokens: map[string]tokenRec{}}
 	if u, err := url.Parse(o.Origin); err == nil && u.Host != "" {
 		s.domain = u.Host
 	}
@@ -355,7 +356,15 @@ func (s *Service) crossSite(r *http.Request) bool {
 			return true // "null" (a sandboxed frame, a no-referrer form post) and anything unreadable
 		}
 		h := strings.ToLower(u.Host)
-		return h != strings.ToLower(r.Host) && h != strings.ToLower(s.domain)
+		if h == strings.ToLower(r.Host) || h == strings.ToLower(s.domain) {
+			return false
+		}
+		for _, a := range s.o.AltHosts {
+			if h == strings.ToLower(a) {
+				return false
+			}
+		}
+		return true
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
 	case "cross-site", "same-site":

@@ -28,6 +28,9 @@ type Config struct {
 	BtwdBin     string // -btwd
 	FFmpeg      string // -ffmpeg
 	PublicURL   string // -public-url
+	AltOrigins  string // -alt-origins: comma list of other origins this site answers for (an old name, during a move)
+	MovedTo     string // -moved-to: the origin the site now lives at; set on the OLD server to tell phones and pages
+	SiteID      string // -site-id: the stable id of this site (default: <data>/site.json, made on first start)
 
 	Model    string // -model ("fake" = the recorded-fixture model)
 	Thinking string // -thinking: Gemini thinking level MINIMAL|LOW|MEDIUM|HIGH ("" = LOW)
@@ -105,6 +108,9 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.BtwdBin, "btwd", "path of the btwd executable (the Rust checker and renderer)")
 	str(&c.FFmpeg, "ffmpeg", "ffmpeg executable for Ogg Opus renders (needs libopus)")
 	str(&c.PublicURL, "public-url", "the site's public origin, for share links and cookies (https => Secure cookie)")
+	str(&c.AltOrigins, "alt-origins", "other origins this site answers for, comma separated (an old name during a move): their host is accepted in btw-pair/1 signatures and Origin checks")
+	str(&c.MovedTo, "moved-to", "the origin this site has moved to: phones and pages are told, the old name keeps answering")
+	str(&c.SiteID, "site-id", "the site's stable id (default: <data>/site.json, made on first start; copy that file when you move the data)")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
 	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")
 	num(&c.ComposeUserHour, "compose-user-hour", "compose requests per signed-in user per hour")
@@ -199,6 +205,14 @@ func (c *Config) validate() error {
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 	if c.PublicURL == "" {
 		return errors.New("-public-url must not be empty")
+	}
+	for _, o := range append(parseOrigins(c.AltOrigins), parseOrigins(c.MovedTo)...) {
+		if hostOf(o) == "" {
+			return fmt.Errorf("%q is not an http(s) origin (-alt-origins / -moved-to)", o)
+		}
+	}
+	if hostOf(c.PublicURL) == "" {
+		return fmt.Errorf("-public-url %q is not an http(s) origin", c.PublicURL)
 	}
 	return nil
 }

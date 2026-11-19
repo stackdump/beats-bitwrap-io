@@ -1022,7 +1022,7 @@ test('background: the stream is offered after a long enough background, once, fo
 });
 
 test('background: what the lock screen shows', () => {
-  assert.deepEqual(bgm.mediaInfo({ name: ' hand-dubstep ', source: 'engine', tempo: 139.6 }), { title: 'hand-dubstep', artist: 'btw.bitwrap.io', album: 'live engine · 140 bpm' });
+  assert.deepEqual(bgm.mediaInfo({ name: ' hand-dubstep ', source: 'engine', tempo: 139.6 }), { title: 'hand-dubstep', artist: 'btw', album: 'live engine · 140 bpm' });
   assert.equal(bgm.mediaInfo({ name: '', source: 'stream' }).title, 'btw');
   assert.equal(bgm.mediaInfo({ name: 'x', source: 'stream' }).album, 'streamed render');
   assert.equal(bgm.mediaState({ playing: true, loaded: true }), 'playing');

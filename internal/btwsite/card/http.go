@@ -8,6 +8,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -147,6 +148,7 @@ type pageData struct {
 	Title, Desc, URL, Image, Alt, Open string
 	OGType                             string
 	NoIndex                            bool
+	Site                               string
 	Width, Height                      int
 }
 
@@ -179,7 +181,7 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		s.unavailable(w, err)
 		return
 	}
-	d := pageData{OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
+	d := pageData{Site: s.site, OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
 		Alt: "btw: a few lines of code on a dark stage, over a strip of song sections"}
 	cache := cachePage
 	switch st := p.state(); st {
@@ -265,7 +267,7 @@ var pageTpl = template.Must(template.New("page").Parse(`<!doctype html>
 {{if .NoIndex}}<meta name="robots" content="noindex">
 {{end}}<link rel="canonical" href="{{.URL}}">
 <meta property="og:type" content="{{.OGType}}">
-<meta property="og:site_name" content="btw.bitwrap.io">
+<meta property="og:site_name" content="{{.Site}}">
 <meta property="og:title" content="{{.Title}}">
 <meta property="og:description" content="{{.Desc}}">
 <meta property="og:url" content="{{.URL}}">
@@ -323,7 +325,7 @@ func GenericMetaAt(origin, path string) string {
 	w(`<meta name="description" content="%s">`, e(genericDesc))
 	w(`<link rel="canonical" href="%s">`, e(origin+path))
 	w(`<meta property="og:type" content="website">`)
-	w(`<meta property="og:site_name" content="btw.bitwrap.io">`)
+	w(`<meta property="og:site_name" content="%s">`, e(siteOf(origin)))
 	w(`<meta property="og:title" content="%s">`, e(genericTitle))
 	w(`<meta property="og:description" content="%s">`, e(genericDesc))
 	w(`<meta property="og:url" content="%s">`, e(origin+path))
@@ -365,4 +367,12 @@ func InjectGeneric(doc []byte, origin, path string) []byte {
 		return append(out, doc[i:]...)
 	}
 	return doc
+}
+
+// siteOf is the host of an origin as the brand name ("btw" when there is none).
+func siteOf(origin string) string {
+	if u, err := url.Parse(origin); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "btw"
 }

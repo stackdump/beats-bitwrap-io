@@ -137,8 +137,8 @@ type OpenReport struct {
 // ShareReport is `btwd share` (+ the site's origin).
 type ShareReport struct {
 	OK        bool     `json:"ok"`
-	URL       string   `json:"url"`        // https://btw.bitwrap.io/#<CID>.<packed>
-	SocialURL string   `json:"social_url"` // https://btw.bitwrap.io/c/<CID>.<packed>
+	URL       string   `json:"url"`        // <origin>/#<CID>.<packed>
+	SocialURL string   `json:"social_url"` // <origin>/c/<CID>.<packed>
 	BeatsURL  string   `json:"beats_url"`  // https://beats.bitwrap.io/p#<CID>.<packed>
 	CID       string   `json:"cid"`
 	Chars     int      `json:"chars"`
@@ -260,6 +260,7 @@ type ComposeResult struct {
 	Model      string       `json:"model"`
 	ForkedFrom string       `json:"forkedFrom"`
 	License    string       `json:"license"`
+	Notice     string       `json:"notice"` // PublicNotice: what happens to what was composed
 	ComposedBy string       `json:"composedBy"`
 	Header     []string     `json:"header"`
 	RenderURL  string       `json:"render_url"`
@@ -267,6 +268,11 @@ type ComposeResult struct {
 	CostUSD    float64      `json:"cost_usd"`
 	Usage      Usage        `json:"usage"`
 }
+
+// PublicNotice is said wherever something is generated: with every compose result, on /privacy, in the
+// docs and the MCP tool descriptions. Keep it one sentence and true: a program, its share link and its audio
+// are public the moment they exist.
+const PublicNotice = "Everything generated here is published: the program, its CID, share link and rendered audio are stored publicly and released under CC0-1.0 (public domain), and anyone with the link can play, copy and reuse them. The prompt goes to a third-party model provider. Do not put anything private in a prompt."
 
 // Composer is implemented by the compose package. It enforces auth-agnostic rules itself (limits,
 // kill switch, spend cap, size caps); the HTTP layer and MCP check authentication first and pass the user.

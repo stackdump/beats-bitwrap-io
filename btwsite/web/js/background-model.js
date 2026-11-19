@@ -66,7 +66,7 @@ export function mediaInfo({ name, source, tempo }) {
   const title = (name && String(name).trim()) || 'btw';
   const how = source === 'stream' ? 'streamed render' : source === 'engine' ? 'live engine' : '';
   const album = [how, tempo ? `${Math.round(tempo)} bpm` : ''].filter(Boolean).join(' · ');
-  return { title, artist: 'btw.bitwrap.io', album };
+  return { title, artist: 'btw', album };
 }
 
 /** The Media Session's playback state: 'playing' while a program plays; 'paused' while one is loaded and checks (so the lock screen keeps a Play); else 'none'. */
