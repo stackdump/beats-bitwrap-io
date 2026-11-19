@@ -36,11 +36,11 @@ export function headerModel(status, marks, sections) {
   };
 }
 
-/** A name to show for a program: `#! name:` in its text, else a short first comment, else "btw <short cid>". */
+/** A name to show for a program: `#! name:` in its text, else a short first comment, else "BeatScript <short cid>". */
 export function programName(text, cid) {
   const m = /^#!\s*name:\s*(.+)$/m.exec(text || '');
-  if (m) return cleanName(m[1]) || (cid ? `btw ${cid.slice(-6)}` : 'untitled');
+  if (m) return cleanName(m[1]) || (cid ? `BeatScript ${cid.slice(-6)}` : 'untitled');
   const c = /^#\s*([^!\n][^\n]{2,60})$/m.exec(text || '');
   if (c && !/^(intro|build|drop)/i.test(c[1])) return cleanName(c[1].trim().replace(/[:.]$/, ''));
-  return cid ? `btw ${cid.slice(-6)}` : 'untitled';
+  return cid ? `BeatScript ${cid.slice(-6)}` : 'untitled';
 }

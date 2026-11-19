@@ -745,7 +745,7 @@ func TestRealMCPClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if init.ServerInfo.Name != "btw" || !strings.Contains(init.Instructions, "check") || !strings.Contains(init.Instructions, "MCP token") {
+	if init.ServerInfo.Name != "beatscript" || !strings.Contains(init.Instructions, "check") || !strings.Contains(init.Instructions, "MCP token") {
 		t.Fatalf("initialize = %+v", init)
 	}
 	tools, err := c.ListTools(ctx, mcp.ListToolsRequest{})

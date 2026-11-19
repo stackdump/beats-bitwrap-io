@@ -145,7 +145,7 @@ func New(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) *
 	s.cpuIP = newLimiter(ipCeilingFactor*o.CheckPerMin, time.Minute, o.Now)
 	s.renderIP = newLimiter(ipCeilingFactor*o.RenderPerHour, time.Hour, o.Now)
 
-	s.mcp = server.NewMCPServer("btw", "0.1.0",
+	s.mcp = server.NewMCPServer("beatscript", "0.1.0",
 		server.WithToolCapabilities(false),
 		server.WithRecovery(),
 		server.WithInstructions(s.instructions()),
@@ -285,7 +285,7 @@ Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.
 <p>Without the header the read tools still work (check, fmt, share, open, render, list_examples, instruments);
 compose, eval, load, get and stop need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
 <b>MCP token</b>. Other clients take the same URL and header:</p>
-<pre><code>{ "mcpServers": { "btw": { "type": "http", "url": "%s",
+<pre><code>{ "mcpServers": { "beatscript": { "type": "http", "url": "%s",
     "headers": { "Authorization": "Bearer btw_..." } } } }</code></pre>
 <h2>Tools (%d)</h2>
 `, html.EscapeString(endpoint), html.EscapeString(s.public), html.EscapeString(s.public),

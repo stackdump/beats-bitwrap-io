@@ -26,7 +26,7 @@ export class Editor {
     this.diagLayer = h('div', { class: 'ly ly-diag', 'aria-hidden': 'true' });
     this.ta = h('textarea', {
       class: 'ed-ta', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off',
-      'aria-label': 'btw program', 'aria-describedby': 'ed-help', rows: '1',
+      'aria-label': 'BeatScript program', 'aria-describedby': 'ed-help', rows: '1',
     });
     this.measure = h('span', { class: 'ed-measure', 'aria-hidden': 'true' }, 'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM');
     this.tip = h('div', { class: 'ed-tip', role: 'tooltip', hidden: true });

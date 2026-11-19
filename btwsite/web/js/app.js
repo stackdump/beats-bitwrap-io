@@ -187,7 +187,7 @@ export class App {
     } catch (e) {
       this.wasmOk = false;
       console.warn('btw: the module did not load', e);
-      this.banner({ kind: 'error', text: 'The btw module could not be loaded, so checking, formatting and sound are off. You can still edit text.', detail: String(e && e.message ? e.message : e) });
+      this.banner({ kind: 'error', text: 'The BeatScript module could not be loaded, so checking, formatting and sound are off. You can still edit text.', detail: String(e && e.message ? e.message : e) });
       this.el['btn-play'].disabled = true;
       this.el['btn-fmt'].disabled = true;
       this.el['btn-share'].disabled = true;
