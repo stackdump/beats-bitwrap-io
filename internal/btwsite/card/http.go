@@ -150,10 +150,10 @@ type pageData struct {
 	Width, Height                      int
 }
 
-const genericTitle = "btw: write a whole track as text"
-const genericDesc = "btw is a small, deterministic language for writing whole music tracks as text. A program is its own link: the same text always has the same CID, and it plays in the browser."
+const genericTitle = "BeatScript: write a whole track as text"
+const genericDesc = "BeatScript is where you write whole music tracks as text, in btw, a small, deterministic music language. A program is its own link: the same text always has the same CID, and it plays in the browser."
 const privateTitle = "a private btw program"
-const privateDesc = "This btw program is private. btw is a small language for writing whole music tracks as text."
+const privateDesc = "This btw program is private. BeatScript is where you write whole music tracks as text."
 
 // origin is the site's https origin: Options.PublicURL, else what the request says.
 func (s *Service) origin(r *http.Request) string {
@@ -180,7 +180,7 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := pageData{OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
-		Alt: "btw: a few lines of code on a dark stage, over a strip of song sections"}
+		Alt: "BeatScript: a few lines of code on a dark stage, over a strip of song sections"}
 	cache := cachePage
 	switch st := p.state(); st {
 	case stOK:
@@ -265,7 +265,7 @@ var pageTpl = template.Must(template.New("page").Parse(`<!doctype html>
 {{if .NoIndex}}<meta name="robots" content="noindex">
 {{end}}<link rel="canonical" href="{{.URL}}">
 <meta property="og:type" content="{{.OGType}}">
-<meta property="og:site_name" content="btw.bitwrap.io">
+<meta property="og:site_name" content="BeatScript">
 <meta property="og:title" content="{{.Title}}">
 <meta property="og:description" content="{{.Desc}}">
 <meta property="og:url" content="{{.URL}}">
@@ -296,8 +296,8 @@ a.open:hover{text-decoration:underline}
 <a href="{{.Open}}"><img src="{{.Image}}" width="{{.Width}}" height="{{.Height}}" alt="{{.Alt}}"></a>
 <h1>{{.Title}}</h1>
 <p>{{.Desc}}</p>
-<p><a id="open" class="open" href="{{.Open}}">Open in btw &rarr;</a></p>
-<noscript><p>JavaScript is off: <a href="{{.Open}}">open this in btw</a>.</p></noscript>
+<p><a id="open" class="open" href="{{.Open}}">Open in BeatScript &rarr;</a></p>
+<noscript><p>JavaScript is off: <a href="{{.Open}}">open this in BeatScript</a>.</p></noscript>
 </main>
 <script src="/card/go.js" defer></script>
 </body>
@@ -323,7 +323,7 @@ func GenericMetaAt(origin, path string) string {
 	w(`<meta name="description" content="%s">`, e(genericDesc))
 	w(`<link rel="canonical" href="%s">`, e(origin+path))
 	w(`<meta property="og:type" content="website">`)
-	w(`<meta property="og:site_name" content="btw.bitwrap.io">`)
+	w(`<meta property="og:site_name" content="BeatScript">`)
 	w(`<meta property="og:title" content="%s">`, e(genericTitle))
 	w(`<meta property="og:description" content="%s">`, e(genericDesc))
 	w(`<meta property="og:url" content="%s">`, e(origin+path))
@@ -332,7 +332,7 @@ func GenericMetaAt(origin, path string) string {
 	w(`<meta property="og:image:type" content="image/png">`)
 	w(`<meta property="og:image:width" content="1200">`)
 	w(`<meta property="og:image:height" content="630">`)
-	w(`<meta property="og:image:alt" content="%s">`, e("btw: a few lines of code on a dark stage, over a strip of song sections"))
+	w(`<meta property="og:image:alt" content="%s">`, e("BeatScript: a few lines of code on a dark stage, over a strip of song sections"))
 	w(`<meta name="twitter:card" content="summary_large_image">`)
 	w(`<meta name="twitter:title" content="%s">`, e(genericTitle))
 	w(`<meta name="twitter:description" content="%s">`, e(genericDesc))

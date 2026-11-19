@@ -95,6 +95,7 @@ export class Panels {
       if (u.kind === 'ed25519') {
         out.push(h('p', { class: 'note' }, 'Your identity is a key kept in this browser. Clearing site data loses it, and the account with it.'));
       }
+      out.push(this.legalLinks());
       return out;
     }
     out.push(h('p', { class: 'note' }, 'Anyone can read, play, share and open programs. Signing in is for composing with a model and for driving this page from an assistant over MCP. You prove who you are by signing a one-time message; no password and no email.'));
@@ -120,7 +121,13 @@ export class Panels {
       out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { await resetLocalKey(); this.render(); } }, 'Forget this key'));
     }
     out.push(status);
+    out.push(this.legalLinks());
     return out;
+  }
+
+  /** The privacy policy and the delete-account page: plain links, reachable without signing in. */
+  legalLinks() {
+    return h('p', { class: 'note' }, h('a', { href: '/privacy', class: 'link' }, 'Privacy policy'), ' · ', h('a', { href: '/delete-account', class: 'link' }, 'Delete your account and data'));
   }
 
   // ---- compose ----------------------------------------------------------------------------------------------------------
