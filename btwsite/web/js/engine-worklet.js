@@ -31,6 +31,7 @@ import './engine-polyfill.js';
 import * as glue from '../wasm/btw.js';
 
 const QUANTUM = 128;
+const CROSSFADER_CENTRE = 0.5; // both decks at full level, as on the desktop
 const TICK_EVERY = 4; // quanta between Dj.tick() (the beat clock, landed composes, song ends): ~10.7 ms at 48 kHz; the cadence of render_offline
 const GRID_SECONDS = 0.025; // how often the page hears where the decks are
 const DEFAULT_BUDGET = 12 * 1024; // bytes of an install taken in per render quantum (a frame is never split: the biggest take 5-15 ms)
@@ -64,6 +65,10 @@ class BtwEngine extends AudioWorkletProcessor {
     up(moduleOrBytes) {
         glue.initSync({ module: moduleOrBytes });
         this.dj = new glue.Dj(sampleRate);
+        // The engine starts with its crossfader at 0 (all deck A). The desktop centres it when its audio starts (djapp
+        // audio_io.rs) and the offline render mixes both decks; without this every part on deck B was faded out here.
+        // A program's own `crossfader` still moves it from the centre.
+        this.dj.set_crossfader(CROSSFADER_CENTRE);
         this.port.postMessage({ type: 'ready', version: glue.engine_version() });
         const q = this.queue;
         this.queue = [];

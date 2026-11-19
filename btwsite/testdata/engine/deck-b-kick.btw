@@ -1,0 +1,6 @@
+#! btw 1
+#! name: deck-b-kick
+#! license: CC0-1.0
+# the same kick on deck B alone (engine-decks.mjs: each deck must be heard on its own)
+tempo 124
+deck B: kick x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~
