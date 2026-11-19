@@ -43,7 +43,8 @@ import (
 )
 
 const (
-	pairProto         = "btw-pair/1"
+	pairProto         = "btw-pair/1" // signs the host (still accepted, for phones paired before the site had an id)
+	pairProto2        = "btw-pair/2" // signs the site id: survives a change of domain
 	pairTTL           = 2 * time.Minute
 	maxOffersPerUser  = 3
 	maxDevicesPerUser = 8
@@ -175,33 +176,44 @@ func RequestMessage(host, deviceID, method, path string, ts int64, body []byte) 
 		pairProto, host, deviceID, method, path, ts, sha256Hex(body))
 }
 
-// pairHosts is the public host, then each legacy host: the hosts a phone's signature may name.
-func (s *Server) pairHosts() []string {
-	hosts := []string{s.publicHost()}
-	for _, h := range strings.Split(s.cfg.LegacyHosts, ",") {
-		h = strings.ToLower(strings.TrimSpace(h))
-		if h != "" && h != hosts[0] {
-			hosts = append(hosts, h)
-		}
-	}
-	return hosts
+// ClaimMessage2 is the btw-pair/2 claim: the same text with the site's id where v1 has its host, so the
+// signature does not change when the site is served from another origin.
+func ClaimMessage2(siteID, pairID, token, key, name string, ts int64) string {
+	return fmt.Sprintf("%s claim\nsite: %s\npair: %s\ntoken: %s\nkey: %s\nname: %s\nts: %d",
+		pairProto2, siteID, pairID, sha256Hex([]byte(token)), key, name, ts)
 }
 
-// verifyHosts: does sig verify over msg(host) for one of pairHosts?
-func (s *Server) verifyHosts(key ed25519.PublicKey, sig []byte, msg func(host string) string) bool {
-	for _, h := range s.pairHosts() {
-		if ed25519.Verify(key, []byte(msg(h)), sig) {
+// RequestMessage2 is the btw-pair/2 request.
+func RequestMessage2(siteID, deviceID, method, path string, ts int64, body []byte) string {
+	return fmt.Sprintf("%s request\nsite: %s\ndevice: %s\nmethod: %s\npath: %s\nts: %d\nbody: %s",
+		pairProto2, siteID, deviceID, method, path, ts, sha256Hex(body))
+}
+
+// verifyClaim: sig signs the claim as btw-pair/2 (this site's id) or, for a phone that has not learnt the
+// id, as btw-pair/1 under any host this site answers for.
+func (s *Server) verifyClaim(key ed25519.PublicKey, proto string, c claimBody, sig []byte) bool {
+	if proto == pairProto2 {
+		return ed25519.Verify(key, []byte(ClaimMessage2(s.siteID, c.PairID, c.Token, c.Key, c.Name, c.TS)), sig)
+	}
+	for _, h := range s.acceptedHosts() {
+		if ed25519.Verify(key, []byte(ClaimMessage(h, c.PairID, c.Token, c.Key, c.Name, c.TS)), sig) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Server) publicHost() string {
-	if u, err := url.Parse(s.cfg.PublicURL); err == nil && u.Host != "" {
-		return strings.ToLower(u.Host)
+// verifyRequest tries the v2 text, then the v1 text under every host this site answers for.
+func (s *Server) verifyRequest(key ed25519.PublicKey, d *device, method, path string, ts int64, body, sig []byte) bool {
+	if ed25519.Verify(key, []byte(RequestMessage2(s.siteID, d.ID, method, path, ts, body)), sig) {
+		return true
 	}
-	return "btw.bitwrap.io"
+	for _, h := range s.acceptedHosts() {
+		if ed25519.Verify(key, []byte(RequestMessage(h, d.ID, method, path, ts, body)), sig) {
+			return true
+		}
+	}
+	return false
 }
 
 // crossSite: a browser request started from another origin (the same rule as auth's, for the cookie routes
@@ -213,7 +225,7 @@ func (s *Server) crossSite(r *http.Request) bool {
 			return true
 		}
 		h := strings.ToLower(u.Host)
-		return h != strings.ToLower(r.Host) && h != s.publicHost()
+		return h != strings.ToLower(r.Host) && !s.knownHost(h)
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
 	case "cross-site", "same-site":
@@ -260,9 +272,9 @@ const pairPageHTML = `<!doctype html>
 <meta name="robots" content="noindex"><title>Pair a phone with btw</title><link rel="stylesheet" href="/css/btw.css"></head>
 <body><main class="pair-page">
 <h1>This is a pairing code for djrust</h1>
-<p>Open <b>djrust</b> on your Android phone, tap the menu, then <b>btw.bitwrap.io</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
+<p>Open <b>djrust</b> on your Android phone, tap the menu, then <b>btw</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
 <p>A phone camera app cannot pair: the code is only for djrust's own scanner, and it works once, for two minutes.</p>
-<p><a href="/">Back to btw.bitwrap.io</a></p>
+<p><a href="/">Back to the site</a></p>
 </main></body></html>
 `
 
@@ -316,7 +328,9 @@ func (s *Server) handlePairNew(w http.ResponseWriter, r *http.Request) {
 		"qr":         "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
 		"expires":    o.expires.UTC().Format(time.RFC3339),
 		"expires_in": int(pairTTL / time.Second),
-		"protocol":   pairProto,
+		"protocol":   pairProto2,
+		"site_id":    s.siteID,
+		"origin":     s.cfg.PublicURL,
 	})
 }
 
@@ -515,8 +529,8 @@ func (s *Server) handlePairClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bad := func(code int, kind, msg string) { api.WriteError(w, api.Errf(code, kind, "%s", msg)) }
-	if c.Proto != pairProto {
-		bad(http.StatusBadRequest, api.CodeBadRequest, "proto must be "+pairProto)
+	if c.Proto != pairProto && c.Proto != pairProto2 {
+		bad(http.StatusBadRequest, api.CodeBadRequest, "proto must be "+pairProto2+" (or "+pairProto+")")
 		return
 	}
 	key, err := decodeKey(c.Key)
@@ -534,7 +548,7 @@ func (s *Server) handlePairClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(c.Sig)
-	if err != nil || !s.verifyHosts(key, sig, func(h string) string { return ClaimMessage(h, c.PairID, c.Token, c.Key, c.Name, c.TS) }) {
+	if err != nil || !s.verifyClaim(key, c.Proto, c, sig) {
 		bad(http.StatusUnauthorized, api.CodeBadSignature, "the claim's signature does not verify")
 		return
 	}
@@ -612,8 +626,11 @@ func (s *Server) deviceHello(d *device) map[string]any {
 	if i := strings.IndexByte(owner, ':'); i >= 0 {
 		addr = owner[i+1:]
 	}
-	return map[string]any{
-		"proto":       pairProto,
+	h := map[string]any{
+		"proto":       pairProto2,
+		"protos":      []string{pairProto2, pairProto},
+		"site_id":     s.siteID,
+		"origin":      s.cfg.PublicURL,
 		"device_id":   d.ID,
 		"name":        d.Name,
 		"fingerprint": KeyFingerprint(d.Key),
@@ -622,6 +639,10 @@ func (s *Server) deviceHello(d *device) map[string]any {
 		"server":      s.cfg.PublicURL,
 		"events":      "/api/device/events",
 	}
+	if m := strings.TrimRight(s.cfg.MovedTo, "/"); m != "" {
+		h["moved_to"] = m
+	}
+	return h
 }
 
 // deviceFrom authenticates a phone's request: `Authorization: BtwDevice <device>.<ts>.<sig>`, sig an Ed25519
@@ -670,7 +691,7 @@ func (s *Server) deviceFrom(w http.ResponseWriter, r *http.Request, maxBody int6
 		return nil, nil, false
 	}
 	key, _ := decodeKey(d.Key)
-	if !s.verifyHosts(key, sig, func(h string) string { return RequestMessage(h, d.ID, r.Method, r.URL.Path, ts, body) }) {
+	if !s.verifyRequest(key, d, r.Method, r.URL.Path, ts, body, sig) {
 		return fail("the request's signature does not verify")
 	}
 	p.sweepLocked(now)
@@ -722,7 +743,7 @@ func (s *Server) handleDeviceEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.hub.unsubscribe(sid, sub)
 	extra, _ := json.Marshal(s.deviceHello(d))
-	s.streamEvents(w, r, sub, &api.SessionEvent{Type: "hello", Extra: extra})
+	s.streamEvents(w, r, sub, &api.SessionEvent{Type: "hello", Extra: extra}, s.movedEvent())
 }
 
 func (s *Server) handleDeviceReport(w http.ResponseWriter, r *http.Request) {

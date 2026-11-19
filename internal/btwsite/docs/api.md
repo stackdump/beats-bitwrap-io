@@ -10,6 +10,12 @@ service stores or shares is **CC0-1.0** (public domain); programs that use `samp
 and are refused by every route that stores, shares or renders. A program's **CID** (`z4EBG9j...`) is the hash of its *canonical text*
 (the parse printed again: spacing, comments, number and note spellings do not change it), so the same program is always the same CID.
 
+**Privacy and licence.** Everything generated here is published: a composed program, its CID, share link, social card and every render or
+audio stream made from it are stored publicly and released under CC0-1.0, and anyone with the link can play, copy and reuse them. A compose
+prompt goes to a third-party model provider, so never put anything private in one. Responses that carry generated work send
+`X-Content-License: CC0-1.0` and a `Link: </privacy>; rel="privacy-policy"` header, a compose result has a `notice` field, and the human
+version is `/privacy`. `GET /.well-known/btw-site` names the site (`site_id`, its origins, `moved_to` once it has moved).
+
 ## Routes
 
 | route | auth | does |

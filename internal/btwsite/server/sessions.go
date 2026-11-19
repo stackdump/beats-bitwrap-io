@@ -381,7 +381,7 @@ func (h *hub) State(ctx context.Context, u *api.User, sessionID string) (*api.Se
 	}
 	if len(targets) == 0 {
 		h.mu.Unlock()
-		return nil, api.Errf(http.StatusConflict, api.CodeNoSession, "no browser session is connected for you: open https://btw.bitwrap.io signed in, then retry")
+		return nil, api.Errf(http.StatusConflict, api.CodeNoSession, "no browser session is connected for you: open this site in a browser tab, signed in, then retry")
 	}
 	s := targets[0] // the most recently seen
 	now := h.now()
@@ -530,7 +530,7 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 
 // streamEvents writes a subscriber's events as SSE until it closes, the client goes, or the server stops.
 // hello, if given, is sent first (event name, JSON data).
-func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, sub *subscriber, hello *api.SessionEvent) {
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, sub *subscriber, hello *api.SessionEvent, after ...*api.SessionEvent) {
 	rc := http.NewResponseController(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -550,6 +550,15 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, sub *subsc
 	if hello != nil {
 		b, _ := json.Marshal(hello)
 		if !write("event: %s\ndata: %s\n\n", hello.Type, b) {
+			return
+		}
+	}
+	for _, ev := range after {
+		if ev == nil {
+			continue
+		}
+		b, _ := json.Marshal(ev)
+		if !write("event: %s\ndata: %s\n\n", ev.Type, b) {
 			return
 		}
 	}

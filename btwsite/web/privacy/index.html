@@ -95,6 +95,9 @@
 <h3 id="compose">Compose</h3>
 <p>Compose asks a language model to write a program for you. When you use it, from the website or from the app, our server sends your prompt and the current program to <strong>Google's Gemini API</strong>, which returns a program. Google processes that request under its own terms. For each Compose request we log your identity, a salted hash of your IP address, the prompt's length, a hash of the prompt, its first 80 characters (with anything that looks like a secret removed), the model, token counts, cost and outcome. We use the log to enforce usage limits and to fix problems. We never log the full prompt or your token.</p>
 
+<h3 id="generated">Everything generated here is public (CC0)</h3>
+<p><strong>Everything generated here is published: the program, its CID, its share link and social card, and every audio stream or render made from it are stored publicly and released under CC0 1.0 (public domain). Anyone with the link can play, copy and reuse them.</strong> That holds for a program composed from the web page, by an assistant over MCP, or from a paired phone, and for audio streamed from any stored program. Compose results carry this notice in a <code>notice</code> field and responses that carry generated work send <code>X-Content-License: CC0-1.0</code>. The prompt, and the program being edited, go to Google's Gemini API, so do not put anything private in a prompt. A program marked <code>#! visibility: private</code>, or one that uses samples or <code>use restricted</code>, is never stored, shared or rendered, and Compose will not produce one.</p>
+
 <h3>Server logs</h3>
 <p>For each request our server records the time, method, path, status, response size and duration. It also records a keyed hash of your IP address, which can't be reversed into the address, and your identity if you are signed in. It does not record cookies, tokens, keys, query strings, request bodies or prompt text.</p>
 

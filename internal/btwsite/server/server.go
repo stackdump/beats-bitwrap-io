@@ -33,6 +33,7 @@ type Server struct {
 	examples *exampleSet
 	hub      *hub
 	pair     *pairing // paired phones (pair.go)
+	siteID   string   // the stable identity of this site (site.go)
 	rs       *renderService
 	log      *accessLog
 	composer api.Composer // never nil: a stub says "not configured" when compose is not wired
@@ -138,7 +139,7 @@ func New(cfg Config) (*Server, error) {
 			return nil, err
 		}
 		logKey = append([]byte("btw-log-ip-v1:"), secret...)
-		svc, err := auth.New(auth.Options{DataDir: cfg.DataDir, Secret: secret, Secure: cfg.secureCookie(), Origin: cfg.PublicURL,
+		svc, err := auth.New(auth.Options{DataDir: cfg.DataDir, Secret: secret, Secure: cfg.secureCookie(), Origin: cfg.PublicURL, AltHosts: altHosts(cfg.AltOrigins),
 			Now: cfg.Now, Allow: s.authAllow})
 		if err != nil {
 			return nil, err
@@ -166,6 +167,10 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.examples, s.warnings, err = loadExamples(cfg.ExamplesDir, s.checker)
+	if err != nil {
+		return nil, err
+	}
+	s.siteID, err = loadSite(cfg.DataDir, cfg.SiteID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +240,7 @@ func (s *Server) authAllow(r *http.Request, bucket string) (bool, int) {
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/info", s.handleInfo)
+	mux.HandleFunc("GET /.well-known/btw-site", s.handleSiteDoc)
 	mux.HandleFunc("GET /api/examples", s.handleExamples)
 	mux.HandleFunc("GET /examples/{name}", s.handleExampleFile)
 	mux.HandleFunc("GET /api/instruments", s.handleInstruments)
@@ -434,7 +440,7 @@ func (notConfiguredComposer) Status() api.ComposeStatus {
 // ---------- middleware ----------
 
 func (s *Server) middleware(next http.Handler) http.Handler {
-	h := s.recoverer(s.securityHeaders(s.corsReadOnly(s.checkerOwner(next))))
+	h := s.recoverer(s.securityHeaders(s.licenseHeaders(s.corsReadOnly(s.checkerOwner(next)))))
 	h = s.log.middleware(h)
 	return api.ResolveClientIP(h)
 }

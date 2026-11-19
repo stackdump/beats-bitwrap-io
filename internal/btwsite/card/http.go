@@ -9,6 +9,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -153,6 +154,7 @@ type pageData struct {
 	Title, Desc, URL, Image, Alt, Open string
 	OGType                             string
 	NoIndex                            bool
+	Site                               string
 	LD                                 string // the program as JSON-LD, put in <script type="application/ld+json"> after the template ran
 	Width, Height                      int
 }
@@ -192,7 +194,7 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 		s.unavailable(w, err)
 		return
 	}
-	d := pageData{OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
+	d := pageData{Site: s.site, OGType: "website", Image: origin + "/card/default.png", Width: 1200, Height: 630, URL: origin + "/", Open: "/",
 		Alt: "BeatScript: a few lines of code on a dark stage, over a strip of song sections"}
 	cache := cachePage
 	var doc []byte
@@ -419,4 +421,12 @@ func InjectGeneric(doc []byte, origin, path string) []byte {
 		return append(out, doc[i:]...)
 	}
 	return doc
+}
+
+// siteOf is the host of an origin as the brand name ("btw" when there is none).
+func siteOf(origin string) string {
+	if u, err := url.Parse(origin); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "btw"
 }

@@ -58,6 +58,7 @@ type content struct {
 	Seconds   float64
 	Sections  []api.Section
 	Generic   bool
+	Site      string // the brand text, top right: the site's host ("" = "btw")
 }
 
 type layout struct {
@@ -264,7 +265,7 @@ func (p *painter) petriMark(x, y float64) float64 {
 
 func (p *painter) header(c *content, L layout) {
 	// brand, top right
-	const site = "btw.bitwrap.io"
+	site := c.siteName()
 	sw := p.width(fSans, L.brandSize, site)
 	p.text(fSans, L.brandSize, L.W-L.M-sw, L.brandBase, colSub, site)
 	p.petriMark(L.W-L.M-sw-60, L.brandBase-L.brandSize*0.36)
@@ -760,7 +761,7 @@ func (p *painter) facts(c *content, L layout) {
 	right := L.W - L.M
 	idText := shortCID(c.CID)
 	if c.Generic {
-		idText = "btw.bitwrap.io"
+		idText = c.siteName()
 	}
 	rowRight := base
 	if L.twoRowFacts {
@@ -811,4 +812,12 @@ func (p *painter) facts(c *content, L layout) {
 		}
 		x += vw + uw + 34
 	}
+}
+
+// siteName is the host shown as the brand: the site's own, whatever it is called this year.
+func (c *content) siteName() string {
+	if c.Site != "" {
+		return c.Site
+	}
+	return "btw"
 }

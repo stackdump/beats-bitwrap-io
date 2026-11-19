@@ -1,6 +1,6 @@
-# Pairing a phone with btw.bitwrap.io (`btw-pair/1`)
+# Pairing a phone with the btw site (`btw-pair/2`)
 
-djrust on Android (djandroid, `se.vevr.djandroid`) connects to btw.bitwrap.io by scanning a QR
+djrust on Android (djandroid, `se.vevr.djandroid`) connects to the btw site by scanning a QR
 code. Once paired, the site (and an assistant over its MCP) can send btw programs to the phone and
 play them there, and the site sees what the phone plays. Server: `internal/btwsite/server/pair.go`.
 Phone: djandroid `rust/src/btwpair.rs` (the protocol core, `network` feature only) and
@@ -27,10 +27,29 @@ POST /api/devices/<id>/push ─▶ eval | load | stop ────────�
 DELETE /api/devices/<id> ────▶ unpaired ────────────────────────────────▶  (or the phone: DELETE /api/device)
 ```
 
+## Protocol versions and the site id
+
+`btw-pair/2` (current) signs the site's **id**, not its host: `site: <site id>` where v1 has `host: <host>`. The id is
+random, made once (`<data>/site.json`) and travels with the data directory, so the same site served from another
+domain keeps every pairing. The phone learns the id from the offer answer (`site_id`), the claim answer, or
+`GET <origin>/.well-known/btw-site`. A server verifies a request as v2 first, then as v1 under every host it answers
+for (`-alt-origins`), so phones paired before v2 keep working while the old name is an alias. A claim names its
+version in `proto`; both are accepted. Pins: `testdata/pair/vectors.json` (v1) and `vectors-v2.json`.
+
+### A moved site
+
+A server started with `-moved-to https://NEW` puts `moved_to` in `/.well-known/btw-site`, in the device hello, and
+sends a `moved` event (`{moved_to, site_id, from}`) right after `hello` on every phone stream. The phone must fetch
+`NEW/.well-known/btw-site`, check that `site_id` is the one it has stored, and only then switch its origin; it keeps its
+device id and key and signs v2 as before, so nothing is re-scanned. A phone that was away finds out the same way when
+it next connects (the old name redirects with 308 and keeps answering the well-known document). The runbook is
+`btwsite/deploy/MIGRATION.md`.
+
 ## What is signed
 
 Both messages are UTF-8 text, signed with the phone's Ed25519 key (64-byte signature, base64url
-without padding). `host` is the server's public host (`btw.bitwrap.io`).
+without padding). Shown as v1; v2 is the same with `btw-pair/2` and `site: <site id>` in place of `host: <host>`
+(`host` is the server's public host).
 
 ```
 btw-pair/1 claim                      btw-pair/1 request
@@ -111,5 +130,10 @@ site has not stored is `404`; the self-sealing link is what works anywhere.
 
 - The phone does not countersign with its own did:pkh wallet identity. That would need a biometric
   prompt at pairing; the server would accept an optional `wallet` field on the claim.
-- An Android App Link for `https://btw.bitwrap.io/pair` (opening the app straight from the camera)
+- An Android App Link for `https://<site>/pair` (opening the app straight from the camera)
   needs `/.well-known/assetlinks.json` with the release key's fingerprint.
+
+## Privacy
+
+A program composed from a paired phone is stored publicly under CC0-1.0 like any other, and the answer says so (`notice`,
+`license`). The prompt goes to a third-party model. See `/privacy`.

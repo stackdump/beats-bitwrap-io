@@ -46,7 +46,7 @@ Run check first. eval checks too and refuses a program with errors (nothing is s
 }
 
 func (s *Server) loadDesc() string {
-	return fmt.Sprintf(`Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at %[1]s, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; compose and render store theirs), example (a name from list_examples), url (a share link https://btw.bitwrap.io/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.`, s.public)
+	return fmt.Sprintf(`Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at %[1]s, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; compose and render store theirs), example (a name from list_examples), url (a share link %[1]s/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.`, s.public)
 }
 
 func (s *Server) getDesc() string {

@@ -1,0 +1,23 @@
+# Redirect-only vhost for a retired name (like tens.city): @OLD@ -> @NEW@, path, query and all.
+# A 308 keeps the method, so an MCP client's POST /mcp and a phone's signed requests reach the new origin.
+# Share links are https://@OLD@/#<CID>.<packed> and /c/<CID>.<packed>: the fragment survives a redirect, and
+# /c/ keeps its path, so every link already posted keeps opening. Keep the cert renewing for as long as this exists.
+server {
+    server_name @OLD@;
+    listen 80;
+    include /etc/nginx/snippets/acme-challenge.conf;
+    location / { return 308 https://@NEW@$request_uri; }
+}
+
+server {
+    server_name @OLD@;
+    listen 443 ssl;
+    ssl_certificate     /etc/letsencrypt/live/@OLD@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@OLD@/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # the site document stays readable here so a phone that was away can still learn where the site went
+    location = /.well-known/btw-site { proxy_pass http://127.0.0.1:18097; proxy_set_header Host $host; }
+    location / { return 308 https://@NEW@$request_uri; }
+}

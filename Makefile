@@ -401,6 +401,7 @@ btwsite-build:
 	go build -o btwsite/bin/btwsite ./cmd/btwsite
 
 btwsite-test:
+	scripts/btw-host-literals.sh
 	go vet ./cmd/btwsite/ ./internal/btwsite/...
 	go test -race -count=1 ./cmd/btwsite/ ./internal/btwsite/...
 
