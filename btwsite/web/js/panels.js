@@ -381,7 +381,7 @@ export class Panels {
       this.trigger && this.trigger.setAttribute('aria-expanded', 'false');
       return;
     }
-    const origin = (app.info && app.info.public_url) || 'https://btw.bitwrap.io';
+    const origin = (app.info && app.info.public_url) || 'https://beatscript.app';
     const build = (withNotes) => {
       const r = app.btw.share(text, null, !!withNotes, origin);
       if (!r.ok) throw new ApiError({ code: 'bad_request', message: r.error || 'the program could not be shared' });

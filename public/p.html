@@ -29,7 +29,7 @@
 <body>
 <header><h1>btw</h1><a href="/">beats.bitwrap.io</a></header>
 <main>
-  <p class="note">A <b>btw</b> link carries a program of the bitwrap language and the content ID of it (<code>/p#CID.text</code>), or only the ID (<code>/p/CID</code>), and then the program is fetched from btw.bitwrap.io. Either way this page checks that the text is the program the ID names before showing it.</p>
+  <p class="note">A <b>btw</b> link carries a program of the bitwrap language and the content ID of it (<code>/p#CID.text</code>), or only the ID (<code>/p/CID</code>), and then the program is fetched from beatscript.app. Either way this page checks that the text is the program the ID names before showing it.</p>
   <div id="status"><span class="note">reading the link…</span></div>
   <p class="cid" id="cid"></p>
   <pre id="program" hidden></pre>
@@ -54,7 +54,7 @@
         return;
       }
       status.innerHTML = '<span class="badge ok">verified</span> <span class="note">the text below is exactly the program the ID names.</span>';
-      if (meta) { const p = document.createElement('p'); p.className = 'note'; const bits = [meta.name, meta.license && 'license ' + meta.license, meta.forked_from && 'forked from ' + meta.forked_from, meta.credits && meta.credits.length && 'credits: ' + meta.credits.join(', ')].filter(Boolean); p.textContent = 'Kept by btw.bitwrap.io' + (bits.length ? ': ' + bits.join(' · ') : '') + '. (Rights are the sharer\'s statement; the ID covers only the text.)'; $('notes').appendChild(p); }
+      if (meta) { const p = document.createElement('p'); p.className = 'note'; const bits = [meta.name, meta.license && 'license ' + meta.license, meta.forked_from && 'forked from ' + meta.forked_from, meta.credits && meta.credits.length && 'credits: ' + meta.credits.join(', ')].filter(Boolean); p.textContent = 'Kept by beatscript.app' + (bits.length ? ': ' + bits.join(' · ') : '') + '. (Rights are the sharer\'s statement; the ID covers only the text.)'; $('notes').appendChild(p); }
       $('program').textContent = link.text; $('program').hidden = false;
       $('copy').hidden = false; $('engine').hidden = false;
       $('copy').onclick = () => navigator.clipboard.writeText(link.text);

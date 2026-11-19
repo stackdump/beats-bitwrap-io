@@ -175,6 +175,28 @@ func RequestMessage(host, deviceID, method, path string, ts int64, body []byte) 
 		pairProto, host, deviceID, method, path, ts, sha256Hex(body))
 }
 
+// pairHosts is the public host, then each legacy host: the hosts a phone's signature may name.
+func (s *Server) pairHosts() []string {
+	hosts := []string{s.publicHost()}
+	for _, h := range strings.Split(s.cfg.LegacyHosts, ",") {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h != "" && h != hosts[0] {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
+// verifyHosts: does sig verify over msg(host) for one of pairHosts?
+func (s *Server) verifyHosts(key ed25519.PublicKey, sig []byte, msg func(host string) string) bool {
+	for _, h := range s.pairHosts() {
+		if ed25519.Verify(key, []byte(msg(h)), sig) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) publicHost() string {
 	if u, err := url.Parse(s.cfg.PublicURL); err == nil && u.Host != "" {
 		return strings.ToLower(u.Host)
@@ -512,7 +534,7 @@ func (s *Server) handlePairClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(c.Sig)
-	if err != nil || !ed25519.Verify(key, []byte(ClaimMessage(s.publicHost(), c.PairID, c.Token, c.Key, c.Name, c.TS)), sig) {
+	if err != nil || !s.verifyHosts(key, sig, func(h string) string { return ClaimMessage(h, c.PairID, c.Token, c.Key, c.Name, c.TS) }) {
 		bad(http.StatusUnauthorized, api.CodeBadSignature, "the claim's signature does not verify")
 		return
 	}
@@ -648,7 +670,7 @@ func (s *Server) deviceFrom(w http.ResponseWriter, r *http.Request, maxBody int6
 		return nil, nil, false
 	}
 	key, _ := decodeKey(d.Key)
-	if !ed25519.Verify(key, []byte(RequestMessage(s.publicHost(), d.ID, r.Method, r.URL.Path, ts, body)), sig) {
+	if !s.verifyHosts(key, sig, func(h string) string { return RequestMessage(h, d.ID, r.Method, r.URL.Path, ts, body) }) {
 		return fail("the request's signature does not verify")
 	}
 	p.sweepLocked(now)

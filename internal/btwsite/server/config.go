@@ -28,6 +28,9 @@ type Config struct {
 	BtwdBin     string // -btwd
 	FFmpeg      string // -ffmpeg
 	PublicURL   string // -public-url
+	// LegacyHosts are earlier public hosts (comma-separated, e.g. "btw.bitwrap.io" after the move to beatscript.app):
+	// a phone paired under one of them signs that host into its requests, and those signatures stay good.
+	LegacyHosts string // -legacy-hosts
 
 	Model    string // -model ("fake" = the recorded-fixture model)
 	Thinking string // -thinking: Gemini thinking level MINIMAL|LOW|MEDIUM|HIGH ("" = LOW)
@@ -106,6 +109,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.BtwdBin, "btwd", "path of the btwd executable (the Rust checker and renderer)")
 	str(&c.FFmpeg, "ffmpeg", "ffmpeg executable for Ogg Opus renders (needs libopus)")
 	str(&c.PublicURL, "public-url", "the site's public origin, for share links and cookies (https => Secure cookie)")
+	str(&c.LegacyHosts, "legacy-hosts", "earlier public hosts, comma-separated: phones paired under them keep working")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
 	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")
 	num(&c.ComposeUserHour, "compose-user-hour", "compose requests per signed-in user per hour")
