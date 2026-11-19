@@ -14,6 +14,8 @@ node btwsite/test/smoke.mjs --server http://127.0.0.1:18197   against the real G
                                                        pushed-event checks are the mock's, the real server gets the
                                                        MCP JSON-RPC variant of step 7
 node --test btwsite/test/unit.mjs                      the pure-JS unit tests (no browser)
+node btwsite/test/engine-decks.mjs                     each deck is heard on its own through the engine (needs the built wasm)
+node btwsite/test/download-browser.mjs --server URL    the download button against a real btwsite (-btwd): links, WAV header, the bar limit, the phone path
 node btwsite/test/mobile.mjs [--shots DIR]             the phone layout (412 x 915, touch) and that the desktop one is unchanged
 node btwsite/test/mobile-shots.mjs --prefix before     screenshots of the page as a phone shows it, for before/after
 node btwsite/test/background-browser.mjs [--seconds 30] [--mode frozen] [--without-pump]

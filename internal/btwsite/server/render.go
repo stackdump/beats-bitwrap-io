@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -651,7 +652,8 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", key.contentType())
 	h.Set("X-Btw-Cid", key.cid)
-	h.Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", key.cid+"."+key.format))
+	download := isDownload(r)
+	h.Set("Content-Disposition", contentDisposition(download, p, key))
 
 	if r.Method == http.MethodHead {
 		rs.mu.Lock()
@@ -697,6 +699,24 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		api.WriteError(w, s.asAPIError(job.startErr))
 		return
 	}
+	if download && key.format == "wav" {
+		// A file to keep: a WAV header with the real sizes, not the stream's "unknown length". Wait for the render to finish,
+		// then serve the finished file (Content-Length, Range). If it is gone from the cache by then, stream it as usual.
+		if s.awaitJob(r, job) {
+			rs.mu.Lock()
+			path, e, hit := rs.lookupLocked(key)
+			rs.mu.Unlock()
+			if hit {
+				s.serveComplete(w, r, key, path, e, rep)
+				return
+			}
+		} else if _, done, jerr, _ := job.snapshot(); !done || jerr != nil {
+			if jerr != nil {
+				api.WriteError(w, s.asAPIError(jerr))
+			}
+			return
+		}
+	}
 	cache := "miss"
 	if acq.joined {
 		cache = "joined"
@@ -706,6 +726,69 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-cache") // complete copies are immutable; a stream in progress is not yet
 	h.Set("X-Accel-Buffering", "no")   // nginx: pass each chunk on as it comes
 	s.streamJob(w, r, job)
+}
+
+// isDownload: `?download=1` asks for the render as a file to save (Content-Disposition: attachment).
+func isDownload(r *http.Request) bool {
+	switch r.URL.Query().Get("download") {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
+// contentDisposition names the render: `<program name>-<cid prefix>.<format>` when the program has a `#! name`,
+// else `<cid>.<format>`; inline for the player, attachment for a download.
+func contentDisposition(download bool, p *api.Program, key renderKey) string {
+	name := key.cid
+	if p != nil {
+		if slug := fileSlug(p.Meta.Name); slug != "" {
+			name = slug + "-" + key.cid[:min(len(key.cid), 12)]
+		}
+	}
+	kind := "inline"
+	if download {
+		kind = "attachment"
+	}
+	return mime.FormatMediaType(kind, map[string]string{"filename": name + "." + key.format})
+}
+
+// fileSlug keeps letters, digits, '-' and '_' (ASCII), folds the rest to '-', at most 60 characters.
+func fileSlug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'
+		if ok {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+		if b.Len() >= 60 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// awaitJob waits until job has finished; true when it finished without an error, false when it failed or the
+// client or the server went away first.
+func (s *Server) awaitJob(r *http.Request, job *renderJob) bool {
+	for {
+		_, done, err, notify := job.snapshot()
+		if done {
+			return err == nil
+		}
+		select {
+		case <-notify:
+		case <-r.Context().Done():
+			return false
+		case <-s.closing:
+			return false
+		}
+	}
 }
 
 // serveComplete serves a finished render as a file.

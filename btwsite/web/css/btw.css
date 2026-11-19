@@ -210,7 +210,7 @@ a.tb { text-decoration: none; color: inherit; }
 .drawer .note.warn { color: var(--warn); }
 .drawer pre, .pop pre { margin: 0; background: var(--stage); border: 1px solid var(--line-2); border-radius: 4px; padding: 8px 10px; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--code); }
 .drawer .primary, .pop .primary { background: var(--accent); border-color: transparent; color: #fff; }
-.drawer .err { background: #3a1822; border: 1px solid #7a2a3a; border-radius: 4px; padding: 8px 10px; color: #ffd6dc; font-size: 12.5px; }
+.drawer .err, .pop .err { background: #3a1822; border: 1px solid #7a2a3a; border-radius: 4px; padding: 8px 10px; color: #ffd6dc; font-size: 12.5px; }
 .drawer .err pre { background: #26101a; border-color: #5a2030; margin-top: 6px; }
 .drawer .okbox { background: #14301f; border: 1px solid #285a38; border-radius: 4px; padding: 8px 10px; }
 .pop { position: absolute; z-index: 40; top: 48px; right: 12px; width: min(520px, calc(100% - 24px)); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; box-shadow: 0 10px 34px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
@@ -245,7 +245,7 @@ a.tb { text-decoration: none; color: inherit; }
   :root { --fs: 13px; --lh: 20px; --gut-w: 58px; --padx: 10px; }
   .drawer { top: 46px; width: 100%; }
 }
-@media (max-width: 480px) { .t-bpm, #lnk-docs { display: none; } .tb { padding: 7px 8px; } }
+@media (max-width: 480px) { .t-bpm, #lnk-docs, #btn-download { display: none; } .tb { padding: 7px 8px; } }
 
 /* ---- a phone (under 480 px): the bar is stop/play, what is playing, the problems and a caret; the rest is in the sheet ---------------
    The bar keeps one row: [play] [status: an icon and a word] [problems: a dot and a count] ... [caret]. The sound source (engine | stream)

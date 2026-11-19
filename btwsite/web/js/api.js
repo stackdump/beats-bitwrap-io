@@ -57,6 +57,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     putProgram: rejecting((cid, text) => req('PUT', `/api/programs/${cidSeg(cid)}`, { text })),
     getProgram: rejecting((cid) => req('GET', `/api/programs/${cidSeg(cid)}`)),
     renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}`,
+    /** The render as a file to save (an attachment): the same render, the same limits, `download=1`. */
+    downloadUrl: (cid, format = 'opus') => `${base}/api/render/${cidSeg(cid)}?format=${format === 'wav' ? 'wav' : 'opus'}&download=1`,
     renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
     challenge: () => req('GET', '/api/auth/challenge'),

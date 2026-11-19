@@ -4,6 +4,7 @@
 import { h, shortCid } from './util.js';
 import { describeError, ApiError } from './errors.js';
 import { signIn, hasWallet, localKeyInfo, resetLocalKey } from './auth.js';
+import { plan as downloadPlan } from './download-model.js';
 
 const GENRES = ['ambient', 'dnb', 'dubstep', 'house', 'techno', 'trance', 'lofi', 'jazz', 'bossa', 'funk', 'hardcore', 'breakbeat', 'synthwave', 'garage'];
 
@@ -24,7 +25,7 @@ export class Panels {
   }
 
   show(which) {
-    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
+    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', user: 'btn-user', share: 'btn-share', download: 'btn-download', open: 'btn-open' }[which];
     if (this.current === which) return this.close();
     this.close();
     this.current = which;
@@ -42,7 +43,7 @@ export class Panels {
     const inPanel = !ae || ae === document.body || this.el.drawer.contains(ae) || !!(this.app.pop && this.app.pop.contains(ae));
     this.el.drawer.hidden = true;
     this.popClose();
-    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
+    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'btn-share', 'btn-download', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
@@ -64,6 +65,7 @@ export class Panels {
     if (!w) return;
     if (w === 'share') return this.share();
     if (w === 'open') return this.open();
+    if (w === 'download') return this.download();
     const body = this.el['drawer-body'];
     const title = { compose: 'Compose', mcp: 'MCP', phone: 'Phone', user: this.app.user ? 'Account' : 'Sign in' }[w];
     this.el['drawer-title'].textContent = title;
@@ -398,10 +400,61 @@ export class Panels {
     notes.addEventListener('change', paint);
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
       rows, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
-      h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
+      h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', id: 'sh-download', onclick: () => this.show('download') }, 'Download audio…'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);
     box.querySelector('input').focus({ preventScroll: true });
+  }
+
+  /** Refuse to open (a toast says why) and leave the button as it was. */
+  refuse(msg) {
+    this.app.toast(msg, 'warn');
+    this.current = null;
+    if (this.trigger) this.trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  async download() {
+    const app = this.app;
+    const text = app.editor.text;
+    const report = app.runCheckNow();
+    if (app.isPrivate(text, report)) return this.refuse('This program is private (restricted sounds, assets or #! visibility: private): it never goes to the server, and the file is the server\'s render, so there is no download for it.');
+    if (!report || !report.ok) return this.refuse('Fix the errors before downloading: the file is a render of a program that checks.');
+    if (app.serverOk === false) return this.refuse('The server is not reachable, and the file is the server\'s render.');
+    const maxBars = app.info && app.info.render && app.info.render.max_bars;
+    let p = downloadPlan({ bars: report.song_bars, maxBars, tempo: report.tempo, seconds: report.seconds });
+    const status = h('p', { class: 'note', id: 'dl-status' }, p.message);
+    const rows = h('div', { class: 'btnrow' });
+    const box = this.pop('Download the audio', h('p', { class: 'note' }, 'The server renders the program offline (the stream\'s sound) and hands it over as a file. Opus is small; WAV is lossless (it is sent once the render has finished).'), status, rows);
+    if (!p.ok) {
+      status.classList.add('err');
+      rows.replaceChildren(h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close'));
+      return;
+    }
+    rows.replaceChildren(h('span', { class: 'note' }, 'preparing…'));
+    try {
+      await app.ensureStored(report);
+      // the server's word on it: the same limit the render enforces
+      const st = await app.api.renderStatus(report.cid);
+      if (app.pop !== box) return; // closed meanwhile
+      p = downloadPlan({ bars: st.bars || report.song_bars, maxBars: st.max_bars || maxBars, tempo: report.tempo, seconds: st.seconds || report.seconds });
+      status.textContent = p.message;
+      if (!p.ok || st.restricted) {
+        status.classList.add('err');
+        if (st.restricted) status.textContent = 'Programs that use restricted sounds or sample/loop assets are not rendered on this site.';
+        rows.replaceChildren(h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close'));
+        return;
+      }
+      const opusOk = !st.formats || !st.formats.opus || st.formats.opus.available !== false;
+      const link = (fmt, label, primary) => h('a', { class: `tb${primary ? ' primary' : ''}`, id: `dl-${fmt}`, href: app.api.downloadUrl(report.cid, fmt), download: '', onclick: () => app.toast(`Downloading ${fmt === 'wav' ? 'WAV' : 'Opus'}: the server renders it first, which can take a moment for a long song.`, 'info') }, label);
+      rows.replaceChildren(...(opusOk ? [link('opus', 'Opus (.opus)', true)] : []), link('wav', 'WAV (.wav)', !opusOk), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close'));
+      const first = rows.querySelector('a');
+      if (first) first.focus({ preventScroll: true });
+    } catch (e) {
+      if (app.pop !== box) return;
+      status.classList.add('err');
+      status.textContent = describeError(e).title;
+      rows.replaceChildren(h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close'));
+    }
   }
 
   open() {

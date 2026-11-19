@@ -1107,3 +1107,38 @@ test('background: coming back resyncs the page and, on Android after a long back
   assert.ok(s.actions.includes('ensureAudio'), 'a suspended context is resumed');
   assert.match(s.banners[0].text, /paused the sound/);
 });
+
+// ---- download: the length limit is said before the request, in bars and minutes
+{
+  const dl = await J('download-model.js');
+  const { makeApi } = await J('api.js');
+  test('download plan: under the limit is fine and says how long', () => {
+    const p = dl.plan({ bars: 64, maxBars: 256, tempo: 138 });
+    assert.equal(p.ok, true);
+    assert.equal(p.length, '64 bars · 1:51');
+  });
+  test('download plan: exactly the limit is fine', () => {
+    assert.equal(dl.plan({ bars: 256, maxBars: 256, tempo: 120 }).ok, true);
+  });
+  test('download plan: over the limit is refused with the numbers and a way out', () => {
+    const p = dl.plan({ bars: 300, maxBars: 256, tempo: 120 });
+    assert.equal(p.ok, false);
+    assert.match(p.message, /300 bars \(10:00\)/);
+    assert.match(p.message, /at most 256 bars \(8:32 at 120 bpm\)/);
+    assert.match(p.message, /end at bar 256/);
+  });
+  test('download plan: no max from the server falls back to 256; no end is allowed and explained', () => {
+    assert.equal(dl.plan({ bars: 257 }).ok, false);
+    const p = dl.plan({ bars: null, maxBars: 256 });
+    assert.equal(p.ok, true);
+    assert.match(p.message, /no end/);
+  });
+  test('download url: an attachment of the render, opus unless wav', () => {
+    const api = makeApi();
+    const cid = 'z4EBG9jDaruEQHSBUAMxAFHKEUvnSTA5fHqFJpUkZsXPzYQcUFs';
+    assert.equal(api.downloadUrl(cid), `/api/render/${cid}?format=opus&download=1`);
+    assert.equal(api.downloadUrl(cid, 'wav'), `/api/render/${cid}?format=wav&download=1`);
+    assert.equal(api.downloadUrl(cid, 'x&y'), `/api/render/${cid}?format=opus&download=1`);
+    assert.throws(() => api.downloadUrl('../etc'));
+  });
+}
