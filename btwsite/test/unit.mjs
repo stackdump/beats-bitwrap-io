@@ -518,7 +518,7 @@ test('header: section n/m, bar, phrase and generation from status, marks and the
   assert.equal(headerModel({ running: true, ended: true }, null, null).ended, true);
   assert.equal(headerModel({}, null, null).running, false);
   assert.equal(programName('#! name: night bus\ntempo 1\n', 'zQ1234567'), 'night bus');
-  assert.equal(programName('tempo 120\n', 'z4EBG9jFNsEJ8p6Gr'), 'btw J8p6Gr');
+  assert.equal(programName('tempo 120\n', 'z4EBG9jFNsEJ8p6Gr'), 'BeatScript J8p6Gr');
 });
 
 test('util: the caret keeps its place in the code when the text is replaced by its canonical form', () => {
@@ -920,7 +920,7 @@ test('security: names and messages from outside are cleaned and cut before they 
   assert.equal(trunc('x'.repeat(1000)).length, 300);
   assert.equal(trunc('short'), 'short');
   assert.equal(programName('#! name: ' + 'long '.repeat(100) + '\ntempo 120\n', null).length <= 80, true);
-  assert.equal(programName('#! name: ‮​\n', 'zabcdef123456'), 'btw 123456', 'a name that is nothing but marks falls back');
+  assert.equal(programName('#! name: ‮​\n', 'zabcdef123456'), 'BeatScript 123456', 'a name that is nothing but marks falls back');
   assert.equal(programName('#! name: <img src=x onerror=alert(1)>\n', null), '<img src=x onerror=alert(1)>', 'markup stays text (it is put in with textContent)');
   // private programs
   assert.equal(marksPrivate('#! btw 1\n#! visibility: private\ntempo 120\n'), true);
@@ -1023,7 +1023,7 @@ test('background: the stream is offered after a long enough background, once, fo
 
 test('background: what the lock screen shows', () => {
   assert.deepEqual(bgm.mediaInfo({ name: ' hand-dubstep ', source: 'engine', tempo: 139.6 }), { title: 'hand-dubstep', artist: 'BeatScript', album: 'live engine · 140 bpm' });
-  assert.equal(bgm.mediaInfo({ name: '', source: 'stream' }).title, 'btw');
+  assert.equal(bgm.mediaInfo({ name: '', source: 'stream' }).title, 'BeatScript');
   assert.equal(bgm.mediaInfo({ name: 'x', source: 'stream' }).album, 'streamed render');
   assert.equal(bgm.mediaState({ playing: true, loaded: true }), 'playing');
   assert.equal(bgm.mediaState({ playing: false, loaded: true }), 'paused', 'the lock screen keeps a Play');

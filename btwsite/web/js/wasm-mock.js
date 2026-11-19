@@ -274,7 +274,7 @@ function unb64url(s) {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 }
 
-export function mockShare(text, _sig, _notes, origin = 'https://btw.bitwrap.io') {
+export function mockShare(text, _sig, _notes, origin = 'https://beatscript.app') {
   const c = mockCheck(text);
   if (!c.ok) return { ok: false, error: 'the program has errors' };
   const packed = b64url(c.canonical);
@@ -283,7 +283,7 @@ export function mockShare(text, _sig, _notes, origin = 'https://btw.bitwrap.io')
 
 export function mockOpen(s) {
   const m = /([zZ][1-9A-HJ-NP-Za-km-z]{20,})(?:\.([A-Za-z0-9_-]+))?/.exec(s || '');
-  if (!m) return { ok: false, error: 'not a btw link or CID', cid: null };
+  if (!m) return { ok: false, error: 'not a BeatScript link or CID', cid: null };
   if (!m[2]) return { ok: false, cid: m[1], error: 'a bare CID has no text: fetch it from the server' };
   let text;
   try { text = unb64url(m[2]); } catch { return { ok: false, cid: m[1], error: 'the link text is not valid' }; }

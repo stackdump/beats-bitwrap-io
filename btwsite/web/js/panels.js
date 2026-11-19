@@ -141,7 +141,7 @@ export class Panels {
     const disabledAll = !signedIn || notConfigured || (info && info.enabled === false);
     const out = [];
     if (!signedIn) {
-      out.push(h('p', { class: 'note warn' }, 'Compose is for signed-in users: a model writes a btw program for you, and it costs something to run. Sign in (a wallet or a key in this browser), then come back.'));
+      out.push(h('p', { class: 'note warn' }, 'Compose is for signed-in users: a model writes a BeatScript program for you, and it costs something to run. Sign in (a wallet or a key in this browser), then come back.'));
       out.push(h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
     } else if (notConfigured) {
       out.push(h('p', { class: 'note warn' }, 'Compose is not configured on this server (there is no model key).'));
@@ -235,7 +235,7 @@ export class Panels {
       make.disabled = true;
       try {
         const r = await app.api.createToken();
-        const cmd = `claude mcp add --transport http btw ${origin.replace(/\/$/, '')}/mcp --header "Authorization: Bearer ${r.token}"`;
+        const cmd = `claude mcp add --transport http beatscript ${origin.replace(/\/$/, '')}/mcp --header "Authorization: Bearer ${r.token}"`;
         this.tokenView = h('div', { class: 'okbox' }, h('b', {}, 'Your token (shown once):'), h('pre', {}, r.token), h('div', { class: 'note' }, 'Add it to Claude Code:'), h('pre', {}, cmd),
           h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(cmd) }, 'Copy the command'),
           h('p', { class: 'note warn' }, 'It is not stored and cannot be shown again. Make another if you lose it. It leaves this page when you close this panel.'));
@@ -265,7 +265,7 @@ export class Panels {
   phoneBody() {
     const app = this.app;
     const out = [];
-    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then btw › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
+    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then BeatScript › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
     if (!app.user) {
       out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
       return out;
@@ -466,7 +466,7 @@ export class Panels {
 
   open() {
     const app = this.app;
-    const input = h('input', { type: 'text', id: 'open-in', placeholder: 'a btw link (#CID.packed) or a bare CID', 'aria-label': 'Link or CID' });
+    const input = h('input', { type: 'text', id: 'open-in', placeholder: 'a BeatScript link (#CID.packed) or a bare CID', 'aria-label': 'Link or CID' });
     const go = async () => {
       const v = input.value.trim();
       if (!v) return;
