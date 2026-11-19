@@ -18,12 +18,14 @@
 #   btwsite/deploy/deploy.sh cert-beatscript         certbot (webroot), one cert for beatscript.app + www (CERT_NAMES="-d beatscript.app" for apex only; re-run later to --expand); needs DNS A -> this host
 #   btwsite/deploy/deploy.sh nginx-full-beatscript   the real beatscript.app vhost (443 + proxy to the same backend), nginx -t, reload
 #   btwsite/deploy/deploy.sh verify-beatscript       curl https://beatscript.app
+#   btwsite/deploy/deploy.sh public-url              make beatscript.app the public origin: the btw-bitwrap CMD in ~/services gets
+#                                                    -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io (backup first), restart
+#   btwsite/deploy/deploy.sh nginx-redirect-btw      btw.bitwrap.io becomes a 301 to beatscript.app, except /api/, /mcp, /context/
+#                                                    (nginx/btw.bitwrap.io.redirect.conf), nginx -t, reload; restores on failure
 #
-# beatscript.app is a second name for the SAME process (127.0.0.1:18097); no second instance. The server's
-# -public-url stays https://btw.bitwrap.io until pairing supports alt origins. To flip it later: change the
-# `-public-url` value in the btw-bitwrap CMD line of ~/services (and in console-app-btw-bitwrap.yaml `cmd:`), then
-# `~/services restart btw-bitwrap` (brief interruption of btw only). Pairing signatures bind one host, so paired
-# devices must re-pair after the flip unless alt-origin support has landed.
+# beatscript.app is the public origin (since 2026-11-19); btw.bitwrap.io is a second name for the SAME process
+# (127.0.0.1:18097, no second instance) that redirects pages there. Phones paired under btw.bitwrap.io sign that
+# host; -legacy-hosts btw.bitwrap.io keeps their signatures good, so nobody has to re-pair.
 #
 # Env: HOST (default pflow.dev), BTWD_LINUX (default <RUST>/dist/btwd-linux-x86_64), RUST (the Rust worktree),
 # BRANCH (default main). The Gemini key is NEVER read here: it was copied on the host into
@@ -86,13 +88,13 @@ if '"btw-bitwrap"' in s:
     print("services already has btw-bitwrap"); sys.exit(0)
 a='    ["windwheel-bitwrap"]="18096|windwheel.bitwrap.io|$HOME/Workspace/windwheel-bitwrap-io"\n'
 assert s.count(a)==1, "SERVICES anchor"
-s=s.replace(a, a+'    ["btw-bitwrap"]="18097|btw.bitwrap.io|$HOME/Workspace/btw-bitwrap-io"\n')
+s=s.replace(a, a+'    ["btw-bitwrap"]="18097|beatscript.app|$HOME/Workspace/btw-bitwrap-io"\n')
 b='"windwheel" "windwheel-bitwrap")'
 assert s.count(b)==1, "SERVICE_ORDER anchor"
 s=s.replace(b,'"windwheel" "windwheel-bitwrap" "btw-bitwrap")')
 c='        windwheel-bitwrap)CMD="./windwheel-web -port 18096" ;;\n'
 assert s.count(c)==1, "case anchor"
-s=s.replace(c, c+'        btw-bitwrap)    CMD="./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://btw.bitwrap.io" ;;\n')
+s=s.replace(c, c+'        btw-bitwrap)    CMD="./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io" ;;\n')
 open(p,'w').write(s); print("patched")
 PY
 bash -n "$f" && echo "services syntax ok"
@@ -156,6 +158,37 @@ sudo -n cp /etc/nginx/sites-available/beatscript.app /etc/nginx/sites-available/
 sudo -n install -m 644 /tmp/beatscript.app /etc/nginx/sites-available/beatscript.app
 if sudo -n nginx -t; then sudo -n systemctl reload nginx && echo "nginx reloaded (beatscript.app full vhost)"; else
   echo "nginx -t FAILED: restoring the http-stage vhost"; sudo -n cp /etc/nginx/sites-available/beatscript.app.bak.http /etc/nginx/sites-available/beatscript.app; sudo -n nginx -t; exit 1; fi
+EOS
+  ;;
+public-url)
+  run bash -s <<'EOS'
+set -euo pipefail
+F=$HOME/services
+OLD='-public-url https://btw.bitwrap.io"'
+NEW='-public-url https://beatscript.app -legacy-hosts btw.bitwrap.io"'
+if grep -qF -- "$NEW" "$F"; then echo "already: $NEW"; else
+  grep -qF -- "$OLD" "$F" || { echo "no btw-bitwrap CMD with $OLD in $F: change it by hand" >&2; exit 1; }
+  cp "$F" "$F.bak.$(date +%Y%m%d%H%M%S)"
+  python3 - "$F" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace('-public-url https://btw.bitwrap.io"', '-public-url https://beatscript.app -legacy-hosts btw.bitwrap.io"', 1)
+s = s.replace('["btw-bitwrap"]="18097|btw.bitwrap.io|', '["btw-bitwrap"]="18097|beatscript.app|', 1)
+open(p, "w").write(s)
+PY
+  grep -n "btw-bitwrap" "$F"
+fi
+~/services restart btw-bitwrap
+EOS
+  ;;
+nginx-redirect-btw)
+  scp -q "$HERE/nginx/btw.bitwrap.io.redirect.conf" "$HOST:/tmp/btw.bitwrap.io"
+  run bash -s <<'EOS'
+set -euo pipefail
+sudo -n cp /etc/nginx/sites-available/btw.bitwrap.io /etc/nginx/sites-available/btw.bitwrap.io.bak.proxy
+sudo -n install -m 644 /tmp/btw.bitwrap.io /etc/nginx/sites-available/btw.bitwrap.io
+if sudo -n nginx -t; then sudo -n systemctl reload nginx && echo "nginx reloaded (btw.bitwrap.io redirects to beatscript.app)"; else
+  echo "nginx -t FAILED: restoring the proxy vhost"; sudo -n cp /etc/nginx/sites-available/btw.bitwrap.io.bak.proxy /etc/nginx/sites-available/btw.bitwrap.io; sudo -n nginx -t; exit 1; fi
 EOS
   ;;
 verify-beatscript)

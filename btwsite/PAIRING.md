@@ -46,6 +46,15 @@ ts: <unix ms>                         body: <hex sha256(body)>   (of the empty s
 of 0x01). `pair_test.go TestPairVectors` makes it, and djandroid's `btwpair.rs` tests reproduce it
 byte for byte, so the two sides cannot drift.
 
+## The host after the move (2026-11-19)
+
+`host` in both signed texts is the server's public host. The public origin moved from btw.bitwrap.io to
+**beatscript.app**: a new pairing code is `https://beatscript.app/pair#…` and signs `host: beatscript.app`. A phone
+paired before the move keeps its origin (`https://btw.bitwrap.io`) and signs `host: btw.bitwrap.io`; the server
+accepts every host in `-legacy-hosts` (btw.bitwrap.io), and nginx keeps `/api/` on btw.bitwrap.io proxied rather
+than redirected (the phone does not follow redirects), so nobody re-pairs. djandroid still treats only btw.bitwrap.io
+as the official host, so it asks "Connect?" before pairing with a beatscript.app code until it learns the new name.
+
 ## Rules
 
 - **Nothing long-lived is in the QR.** The token is 128 random bits and works once, for two minutes.
