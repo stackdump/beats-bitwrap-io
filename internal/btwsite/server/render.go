@@ -579,7 +579,8 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 // ---------- HTTP ----------
 
 func parseRenderParams(r *http.Request, rs *renderService) (renderKey, *api.Error) {
-	k := renderKey{cid: r.PathValue("cid"), sr: 44100}
+	cid, _, _ := strings.Cut(r.PathValue("cid"), ".") // <cid>.<packed>: the program travels in the URL (fromLink)
+	k := renderKey{cid: cid, sr: 44100}
 	if !reCID.MatchString(k.cid) {
 		return k, api.Errf(http.StatusNotFound, api.CodeNotFound, "no such program")
 	}
@@ -642,6 +643,12 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	if key.format == "opus" && !rs.ffmpegOK() {
 		api.WriteError(w, api.Errf(http.StatusServiceUnavailable, api.CodeNotConfigured, "Ogg Opus needs ffmpeg with libopus on the server, and there is none: ask for format=wav"))
 		return
+	}
+	if _, packed, ok := strings.Cut(r.PathValue("cid"), "."); ok {
+		if e := s.fromLink(r, key.cid, packed); e != nil {
+			api.WriteError(w, e)
+			return
+		}
 	}
 	p, rep, err := s.renderable(r, key.cid)
 	if err != nil {
@@ -850,4 +857,44 @@ func (s *Server) handleRenderStatus(w http.ResponseWriter, r *http.Request) {
 		out["seconds"] = *rep.Seconds
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// fromLink makes GET /api/render/<cid>.<packed> work with no program stored: the URL carries the program as a
+// self-sealing share link does (<packed> = base64url(deflate(canonical text))). It is opened and checked against the
+// CID (a mismatch is refused, as a link is), then stored like an anonymous PUT /api/programs/<cid> (the same per-address
+// limit, the same refusals: restricted and asset-using programs are never stored) and rendered as a stored one.
+// A program already here needs nothing: the CID names it.
+func (s *Server) fromLink(r *http.Request, cid, packed string) error {
+	if _, ok := s.Get(cid); ok {
+		return nil
+	}
+	if packed == "" || len(packed) > 3*s.cfg.MaxProgramBytes {
+		return api.Errf(http.StatusBadRequest, api.CodeBadRequest, "after <cid>. the URL carries the packed program, as a share link does")
+	}
+	if ok, retry := s.putIP.Allow(ClientIP(r)); !ok {
+		e := api.Errf(http.StatusTooManyRequests, api.CodeRateLimited, "too many new programs from this address; try again later")
+		e.RetryAfter = retry
+		return e
+	}
+	rep, err := s.checker.Open(r.Context(), cid+"."+packed)
+	if err != nil {
+		return s.asAPIError(err)
+	}
+	if rep != nil && rep.Canonical != "" && (!rep.Verified || rep.CID != cid) {
+		return api.Errf(http.StatusUnprocessableEntity, api.CodeCIDMismatch, "the program in the URL is not %s", cid)
+	}
+	if rep == nil || !rep.OK || rep.Canonical == "" {
+		msg := "the program in the URL does not open"
+		if rep != nil && rep.Error != "" {
+			msg = rep.Error
+		}
+		return api.Errf(http.StatusUnprocessableEntity, api.CodeBadRequest, "%s", msg)
+	}
+	if !rep.Verified || rep.CID != cid {
+		return api.Errf(http.StatusUnprocessableEntity, api.CodeCIDMismatch, "the program in the URL is %s, not %s", rep.CID, cid)
+	}
+	if _, _, _, perr := s.store.put(r.Context(), rep.Canonical, api.Meta{}, cid); perr != nil {
+		return s.asAPIError(perr)
+	}
+	return nil
 }
