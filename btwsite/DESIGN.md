@@ -13,6 +13,10 @@ markers like the desktop's, fmt / share / open-by-CID, examples, a slim transpor
 
 - `POST /api/compose` — Gemini Flash writes a program (signed-in, rate-limited, capped).
 - `GET /api/render/<cid>?format=opus|wav` — streams the Rust offline render as it renders.
+- `GET /api/render/<cid>.<packed>?format=opus|wav` — the same stream with the program in the URL (the share link's
+  `<CID>.<packed>`), nothing stored first: it is opened and checked against the CID (a mismatch is 422 `cid_mismatch`),
+  stored like an anonymous `PUT /api/programs/<cid>` (same per-address limit; restricted/asset programs refused), then
+  rendered. Audio only, no page: `<audio src>`, `curl`, `mpv`, a phone or djapp can play it directly.
 - `https://btw.bitwrap.io/mcp` — MCP (streamable HTTP) over the same things.
 - `/llms.txt`, `/llms-full.txt`, `/docs/*`, `/examples/*.btw`.
 
@@ -265,6 +269,7 @@ Compose is **"not configured"** (503 `not_configured`) when there is no key and 
 | `PUT /api/shares/<cid>` | **cookie, bearer or `BtwDevice`** | the CID-only share link's write side: JSON `{text, license?, forked_from?, credits?, name?, visibility?}`; same store as `PUT /api/programs`, with rights, signed in, public programs only. See Short links |
 | `GET /p/<cid>` | – | the short link's page: the card of the stored program; a person is sent to `/#<cid>`, which fetches and checks it. See Short links |
 | `GET /api/render/<cid>?format=opus\|wav&sr=44100` | – | chunked stream, see Render; `GET …/status` |
+| `GET /api/render/<cid>.<packed>?format=opus\|wav` | – | the same, the program carried in the URL (verified, then stored) |
 | `POST /api/session` / `GET /api/session/<id>/events` (SSE) / `POST /api/session/<id>/report` / `POST …/reply` | cookie optional | the browser ↔ MCP bridge, see Sessions |
 | `GET /api/auth/challenge` `POST /api/auth/login` `POST /api/auth/logout` `GET /api/auth/me` `POST /api/auth/token` `DELETE /api/auth/token` | – / cookie | see Auth |
 | `POST /api/compose` | **cookie or bearer** | see Compose |
