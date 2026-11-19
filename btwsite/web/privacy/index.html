@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16213e">
+<meta name="color-scheme" content="dark">
+<title>Privacy policy · BeatScript</title>
+<meta name="description" content="How the BeatScript Android app and beatscript.app handle your data: what is collected, why, who it is shared with, how long it is kept and how to delete it.">
+<link rel="canonical" href="https://beatscript.app/privacy">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BeatScript">
+<meta property="og:title" content="BeatScript privacy policy">
+<meta property="og:url" content="https://beatscript.app/privacy">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/css/legal.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/" aria-label="BeatScript home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">BeatScript</span></a>
+  <span class="spacer"></span>
+  <nav aria-label="Site"><a href="/privacy" aria-current="page">Privacy</a><a href="/delete-account">Delete account</a></nav>
+</header>
+
+<main>
+<h1>Privacy policy</h1>
+<p class="meta">Effective 18 November 2026. Covers the BeatScript Android app (<code>app.beatscript</code>) and the website <a href="https://beatscript.app/">beatscript.app</a>, which is also served at btw.bitwrap.io.</p>
+
+<p class="lede">BeatScript lets you write whole music tracks as text, in a small language called btw, and hear them. It is run by Matt York. You can reach us at <a href="mailto:myork@stackdump.com">myork@stackdump.com</a>.</p>
+
+<div class="box">
+<p><strong>The short version</strong></p>
+<ul>
+<li>You don't need an account. Writing, playing and saving programs work without signing in.</li>
+<li>The Android app contains no ads, no analytics and no crash-reporting SDKs. The website has no ads, analytics or third-party trackers.</li>
+<li>The app does not ask for the microphone. The music is made on your device, and nothing you play is uploaded.</li>
+<li>Your identity key stays on your device. We never receive it.</li>
+<li>We send data to a third party in only one case: when you use Compose, your prompt goes to Google's Gemini API.</li>
+<li>We don't sell your data or use it for advertising.</li>
+</ul>
+</div>
+
+<h2>The Android app</h2>
+
+<h3>What stays on your phone</h3>
+<ul>
+<li><strong>Your programs and saved items.</strong> These are stored in the app's private storage. The app turns off Android backup (<code>allowBackup="false"</code>), so they are not copied to a cloud backup.</li>
+<li><strong>Your identity wallet.</strong> The app makes a signing key (secp256k1) and keeps it in a vault protected by the Android Keystore. Each save that uses it asks for your biometric or screen-lock confirmation. The key never leaves the phone, and signing and saving need no network. The Google Play build has no feature that publishes signed items to a server. A signed item leaves the phone only when you share it yourself through Android's share sheet, to the app you choose.</li>
+<li><strong>Sound.</strong> The audio engine runs on the phone. The app does not ask for the microphone (<code>RECORD_AUDIO</code>) and does not record you.</li>
+<li><strong>Your Compose token</strong>, if you paste one, is kept in the app's private preferences.</li>
+</ul>
+
+<h3>When the app uses the network</h3>
+<ul>
+<li><strong>Compose</strong> (<code>https://btw.bitwrap.io</code>). When you open the btw tab, the app sends a small request with no content to see whether Compose is available. If you use Compose, it sends your prompt, the program in the editor (unless that program is marked private, in which case nothing is sent), and the sign-in token you pasted. The server's handling of a Compose request is described under <a href="#compose">Compose</a> below.</li>
+<li><strong>Sound pack download</strong>. If you choose to download the optional MuseScore General SoundFont, the app fetches it from <code>ftp.osuosl.org</code>. That request carries nothing about you beyond what every web request does: your IP address and a generic user agent.</li>
+<li><strong>HEOS speakers on your own network.</strong> If you use HEOS, the app finds speakers on your Wi-Fi by local multicast and streams the mix to the speakers you pick. That traffic stays on your local network.</li>
+<li><strong>QR scanning.</strong> The QR scanner is provided by Google Play services (the Google code scanner), which handles the camera itself. The app gets only the scanned text. Google may collect diagnostic data about that component under <a href="https://policies.google.com/privacy">Google's privacy policy</a>.</li>
+</ul>
+<p>Everything the app sends over the internet uses HTTPS. The Compose client refuses plain-http addresses and won't follow a redirect to one.</p>
+
+<h3>Permissions</h3>
+<ul>
+<li><strong>Internet, network state</strong>: Compose and the optional sound pack download.</li>
+<li><strong>Wi-Fi state, Wi-Fi multicast</strong>: finding HEOS speakers on your network.</li>
+<li><strong>Foreground service (media playback), wake lock</strong>: keeping music playing with the screen off, and showing the media notification.</li>
+<li><strong>Biometric</strong>: the prompt that unlocks your identity key for signing.</li>
+</ul>
+<p>The app does not request location, contacts, the microphone, or access to your files.</p>
+
+<h2>The website (beatscript.app)</h2>
+
+<h3>Using it without signing in</h3>
+<p>You can read, write, play, share and open programs without an account. The site uses your browser's own storage for settings such as volume and follow mode. To check, format, render or share a program, the page sends the program's text to our server.</p>
+<ul>
+<li>A program you <strong>share publicly</strong> or have the server <strong>render</strong> is stored on our server under its content ID (CID). Public programs are CC0 (public domain) by default, and anyone with the link or CID can open them.</li>
+<li>A program marked <strong>private</strong> is never stored on our server.</li>
+</ul>
+
+<h3>Signing in</h3>
+<p>Signing in is optional. You need it only for Compose and for letting an assistant drive the page over MCP. There is no password and no email. You sign a one-time message with either:</p>
+<ul>
+<li>an Ethereum wallet, in which case your identity is your public wallet address, or</li>
+<li>a browser key, an Ed25519 key that the page makes and keeps in your browser (IndexedDB), in which case your identity is its public key.</li>
+</ul>
+<p>We get only the public address or public key, never a private key. A signed session cookie keeps you signed in for up to 7 days.</p>
+
+<h3>MCP tokens and paired phones</h3>
+<ul>
+<li>If you create an <strong>MCP token</strong>, we store a hash of it together with your identity and the time you created it. You can revoke all your tokens from the MCP panel.</li>
+<li>If you <strong>pair a phone</strong> from the web page, we store that device's public key, its name, your identity and the pairing time. Nothing secret is stored. You can unpair from the Phone panel. The Google Play build of the app does not include pairing.</li>
+<li>While an assistant drives your page over MCP, the page's state goes through our server to the assistant you connected.</li>
+</ul>
+
+<h3 id="compose">Compose</h3>
+<p>Compose asks a language model to write a program for you. When you use it, from the website or from the app, our server sends your prompt and the current program to <strong>Google's Gemini API</strong>, which returns a program. Google processes that request under its own terms. For each Compose request we log your identity, a salted hash of your IP address, the prompt's length, a hash of the prompt, its first 80 characters (with anything that looks like a secret removed), the model, token counts, cost and outcome. We use the log to enforce usage limits and to fix problems. We never log the full prompt or your token.</p>
+
+<h3>Server logs</h3>
+<p>For each request our server records the time, method, path, status, response size and duration. It also records a keyed hash of your IP address, which can't be reversed into the address, and your identity if you are signed in. It does not record cookies, tokens, keys, query strings, request bodies or prompt text.</p>
+
+<h2>Who we share data with</h2>
+<ul>
+<li><strong>Google (Gemini API)</strong>: Compose prompts and the current program, only when you use Compose.</li>
+<li><strong>Google Play services</strong>: the QR scanner component in the Android app.</li>
+<li><strong>Everyone, by design</strong>: programs you share publicly can be opened by anyone with the link or CID.</li>
+</ul>
+<p>Our server is one we run ourselves, hosted on Amazon Web Services. We don't sell personal data, use it for advertising or share it with data brokers. We would disclose data only if the law required it.</p>
+
+<h2>How long we keep it</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Data</th><th>Kept</th></tr></thead>
+<tbody>
+<tr><td>Server request logs (hashed IP)</td><td>30 days, then deleted automatically</td></tr>
+<tr><td>Compose log</td><td>Until we delete it. Your entries are deleted when you ask us to delete your data.</td></tr>
+<tr><td>MCP token hashes</td><td>Until you revoke them, or ask us to delete your data</td></tr>
+<tr><td>Paired-device records</td><td>Until you unpair, or ask us to delete your data</td></tr>
+<tr><td>Public programs (by CID)</td><td>Indefinitely: they are public, content-addressed and CC0 by default, so links keep working</td></tr>
+<tr><td>Anything on your phone or in your browser</td><td>Until you delete it, clear the app's or site's data, or uninstall</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Security</h2>
+<p>All traffic between the app or the website and our server uses HTTPS (TLS). beatscript.app is on the browser HSTS preload list, so browsers refuse plain http. Identity keys stay on your device: in the Android Keystore-protected vault in the app, and in browser storage on the website. Tokens are stored only as hashes.</p>
+
+<h2>Your choices and deleting your data</h2>
+<ul>
+<li>Use BeatScript without signing in, and don't use Compose, and none of your data goes to Google.</li>
+<li>Mark a program private to keep it off our server and out of Compose.</li>
+<li>Revoke MCP tokens and unpair phones yourself on the website.</li>
+<li>Delete saved items in the app, or uninstall it to remove everything it holds, your identity key included.</li>
+<li>To have everything we hold about your identity deleted from our server, follow <a href="/delete-account">Delete your BeatScript account and data</a>.</li>
+</ul>
+<p>You can also email us to ask what we hold about your identity, or to correct it.</p>
+
+<h2>Children</h2>
+<p>BeatScript is meant for people aged 13 and over and is not directed at children under 13. We don't knowingly collect personal data from children under 13. If you think a child under 13 has given us data, email <a href="mailto:myork@stackdump.com">myork@stackdump.com</a> and we will delete it.</p>
+
+<h2>Changes to this policy</h2>
+<p>If our data practices change, we will update this page and its effective date. If a change is significant, we will also say so on beatscript.app or in the app.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: <a href="mailto:myork@stackdump.com">myork@stackdump.com</a>.</p>
+</main>
+
+<footer class="site">
+  <a href="/">BeatScript</a> · <a href="/privacy">Privacy</a> · <a href="/delete-account">Delete account</a> · <a href="mailto:myork@stackdump.com">Contact</a>
+</footer>
+</body>
+</html>
