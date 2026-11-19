@@ -56,6 +56,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     open: (url) => req('POST', '/api/open', { json: { url } }),
     putProgram: rejecting((cid, text) => req('PUT', `/api/programs/${cidSeg(cid)}`, { text })),
     getProgram: rejecting((cid) => req('GET', `/api/programs/${cidSeg(cid)}`)),
+    // the CID-only share link's write side: signed in, public programs only (DESIGN.md "Short links")
+    putShare: rejecting((cid, body) => req('PUT', `/api/shares/${cidSeg(cid)}`, { json: body })),
     renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}`,
     renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),

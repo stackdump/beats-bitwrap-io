@@ -19,11 +19,14 @@ import (
 //
 //	GET /c/<cid>            the link-preview page of a stored program or example (HTML with og:/twitter: tags)
 //	GET /c/<cid>.<packed>   the same, stateless: the path carries the program as a share link does
+//	GET /p/<cid>            the CID-only short link: the same page and card, and a person is sent to /#<cid>,
+//	                        which fetches the program from the store and checks it against the CID
 //	GET /card/<cid>.png     1200x630 card            GET /card/<cid>.square.png   1080x1080
 //	GET /card/<cid>.<packed>.png (and .square.png): stateless, for the page of a link whose program is not stored
 //	GET /card/default.png   the generic card         GET /card/go.js   the one-line redirect script the pages use
 func (s *Service) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /c/", s.ServePage)
+	mux.HandleFunc("GET /p/{cid}", s.ServePage)
 	mux.HandleFunc("GET /card/", s.ServeCard)
 }
 
@@ -167,10 +170,15 @@ func (s *Service) origin(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// ServePage answers /c/<cid> and /c/<cid>.<packed>.
+// ServePage answers /c/<cid>, /c/<cid>.<packed> and /p/<cid> (the short link: CID only, nothing packed).
 func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/c/"), "/")
+	short := strings.HasPrefix(r.URL.Path, "/p/")
+	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/c/"), "/p/"), "/")
 	cid, packed, _ := strings.Cut(name, ".")
+	if short && (packed != "" || !validCID(cid)) {
+		http.NotFound(w, r)
+		return
+	}
 	origin := s.origin(r)
 	ctx, cancel := context.WithTimeout(withAddr(r.Context(), api.ClientIP(r)), 60*time.Second)
 	defer cancel()
@@ -186,12 +194,18 @@ func (s *Service) ServePage(w http.ResponseWriter, r *http.Request) {
 	case stOK:
 		d.OGType = "music.song"
 		s.programPage(&d, p, origin, packed)
+		if short { // the address bar keeps the CID: the page opens it by fetching, not from a copy of the text in the URL
+			d.URL, d.Open = origin+"/p/"+p.cid, "/#"+p.cid
+		}
 	case stPrivate, stRestricted:
 		d.Title, d.Desc = privateTitle, privateDesc
 	case stUnknown:
 		d.Title, d.Desc = genericTitle, genericDesc
 		if validCID(cid) {
 			d.URL, d.Open = origin+"/c/"+cid, "/#"+cid
+			if short {
+				d.URL = origin + "/p/" + cid
+			}
 		}
 		cache = cacheShort
 	default:

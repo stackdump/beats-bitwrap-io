@@ -40,7 +40,7 @@ func loadExamples(dir string, c api.Checker) (*exampleSet, []string, error) {
 	defer cancel()
 	for _, ex := range loaded.List() {
 		text, _ := loaded.Text(ex.Name)
-		if declaresNotPublic(text) {
+		if api.DeclaresNotPublic(text) {
 			return nil, nil, fmt.Errorf("example %s says it is not public (`#! visibility:`): examples are public programs", ex.Name)
 		}
 		rep, err := c.Check(ctx, text)

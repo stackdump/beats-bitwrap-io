@@ -120,12 +120,12 @@ func TestToolNamesAreTheContract(t *testing.T) {
 	if _, _, req := tool("open"); len(req) != 1 || req[0] != "url" {
 		t.Errorf("open required = %v", req)
 	}
-	for _, n := range []string{"check", "fmt", "get", "share", "open", "list_examples", "instruments"} { // (get needs a token but changes nothing)
+	for _, n := range []string{"check", "fmt", "get", "open", "list_examples", "instruments"} { // (get needs a token but changes nothing)
 		if h := res.Tools[byName[n]].Annotations.ReadOnlyHint; h == nil || !*h {
 			t.Errorf("%s should be annotated read-only", n)
 		}
 	}
-	for _, n := range []string{"compose", "eval", "load", "stop"} {
+	for _, n := range []string{"compose", "eval", "load", "stop", "share"} { // share stores the program when signed in (idempotent, additive)
 		if h := res.Tools[byName[n]].Annotations.ReadOnlyHint; h != nil && *h {
 			t.Errorf("%s writes and must not be read-only", n)
 		}

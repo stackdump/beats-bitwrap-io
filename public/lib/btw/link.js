@@ -50,3 +50,46 @@ export async function openLink(input) {
     const computed = await computeCidForJsonLd({ format: 1, text: link.text, type: 'djrust.live' });
     return { link, computed, verified: computed === link.cid };
 }
+
+// ---- CID-only links: https://beats.bitwrap.io/p/<CID> (and /p#<CID>) -----------------------------------------------
+//
+// A short link carries only the CID. The program and its rights are kept by btw.bitwrap.io (the one programs store:
+// PUT /api/shares/<CID> writes it, signed in; GET /api/programs/<CID> is public and readable cross-origin), so this page
+// fetches the canonical text from there and then does what it does for a self-sealing link: recompute the CID from the
+// text and refuse a mismatch. What the store says is never trusted; only the hash is.
+
+export const STORE_ORIGIN = 'https://btw.bitwrap.io';
+const CID_ONLY = /^z[1-9A-HJ-NP-Za-km-z]{40,80}$/;
+
+/** The CID of a `/p/<CID>` path, or null. */
+export function cidFromPath(pathname) {
+    const m = /^\/p\/(z[1-9A-HJ-NP-Za-km-z]{40,80})\/?$/.exec(String(pathname || ''));
+    return m ? m[1] : null;
+}
+
+/** Fetch `cid` from the store and verify it: { link, computed, verified, meta } ; throws with a message when it is not stored. */
+export async function openStored(cid, { store = STORE_ORIGIN, fetchFn = (...a) => fetch(...a) } = {}) {
+    if (!CID_ONLY.test(cid)) throw new Error('that is not a CID');
+    let res;
+    try {
+        res = await fetchFn(`${store}/api/programs/${cid}`, { headers: { Accept: 'application/json' } });
+    } catch (e) {
+        throw new Error('the program store (' + store + ') could not be reached');
+    }
+    if (res.status === 404) throw new Error('no program ' + cid + ' is stored: a CID alone names a program but does not carry it. Ask for the self-sealing link instead.');
+    if (!res.ok) throw new Error('the program store answered ' + res.status);
+    const p = await res.json();
+    const text = p && typeof p.text === 'string' ? p.text : null;
+    if (text == null) throw new Error('the program store answered no text');
+    const computed = await computeCidForJsonLd({ format: 1, text, type: 'djrust.live' });
+    return { link: { cid, text, sig: null, notes: [] }, computed, verified: computed === cid, meta: (p && p.meta) || null };
+}
+
+/** Open what the page was given: a /p/<CID> path, else the fragment (a self-sealing link, or a bare CID fetched from the store). */
+export async function openLocation(loc, opts) {
+    const pc = cidFromPath(loc.pathname);
+    if (pc) return openStored(pc, opts);
+    const r = await openLink(loc.hash || '');
+    if (r.link.text == null) return openStored(r.link.cid, opts);
+    return r;
+}
