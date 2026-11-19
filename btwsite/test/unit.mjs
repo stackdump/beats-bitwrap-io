@@ -1107,3 +1107,25 @@ test('background: coming back resyncs the page and, on Android after a long back
   assert.ok(s.actions.includes('ensureAudio'), 'a suspended context is resumed');
   assert.match(s.banners[0].text, /paused the sound/);
 });
+
+// engine-worklet.js, without the wasm: the engine's crossfader starts at 0 (all deck A), so the worklet must centre it
+// when it builds the Dj, or every part a program puts on deck B (melody, harmony, bass) is silent while deck A plays.
+test('engine worklet centres the crossfader when it builds the Dj (deck B is audible)', async () => {
+  let src = fs.readFileSync(path.join(web, 'js', 'engine-worklet.js'), 'utf8');
+  src = src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+  const calls = [];
+  class Dj { constructor(sr) { calls.push(['new', sr]); this.crossfader = 0; } set_crossfader(v) { calls.push(['crossfader', v]); this.crossfader = v; } }
+  let Proc;
+  const glue = { initSync() {}, Dj, engine_version: () => 'test' };
+  const posted = [];
+  class AudioWorkletProcessor { constructor() { this.port = { postMessage: (m) => posted.push(m), onmessage: null }; } }
+  const registerProcessor = (_n, c) => { Proc = c; };
+  new Function('glue', 'AudioWorkletProcessor', 'registerProcessor', 'sampleRate', src)(glue, AudioWorkletProcessor, registerProcessor, 48000);
+  assert.ok(Proc, 'the worklet registers its processor');
+  const p = new Proc();
+  p.up(new Uint8Array(0));
+  const xf = calls.filter((c) => c[0] === 'crossfader');
+  assert.ok(xf.length >= 1, 'set_crossfader is called when the engine comes up');
+  assert.equal(p.dj.crossfader, 0.5, 'the crossfader is at the centre: both decks at full level');
+  assert.ok(calls.findIndex((c) => c[0] === 'new') < calls.findIndex((c) => c[0] === 'crossfader'), 'centred after the Dj exists');
+});
