@@ -81,6 +81,23 @@
     },
     {
       "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Your paired phones"
+      },
+      "description": "List the phones paired with the token's account (djrust on Android scans the QR code that https://btw.bitwrap.io shows under Phone; btwsite/PAIRING.md): id, name, fingerprint (the code both ends showed at pairing), paired, connected (djrust has its stream open now), last_seen, and state (what it last reported: cid, playing, section, bar). Pairing is the grant: a phone paired by an account is driven over MCP with that account's token and no other.\n\nPass a phone's id as device to eval, load, get or stop to drive that phone alone (eval and load run the same checks as for a tab; a program with errors, samples or \"use restricted\" is not sent). Needs a bearer token. Read-only.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "devices"
+    },
+    {
+      "annotations": {
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false,
@@ -91,6 +108,12 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "device": {
+            "description": "Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
           "play": {
             "description": "Start playing too (default false: load it and leave it stopped, or leave a playing tab as it is).",
             "type": "boolean"
@@ -151,6 +174,12 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "device": {
+            "description": "Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
           "session": {
             "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
             "maxLength": 64,
@@ -220,6 +249,12 @@
             "description": "CID of a program the site has stored (compose and render store theirs) or of an example.",
             "maxLength": 100,
             "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+            "type": "string"
+          },
+          "device": {
+            "description": "Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
             "type": "string"
           },
           "example": {
@@ -390,6 +425,12 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "device": {
+            "description": "Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
           "session": {
             "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
             "maxLength": 64,

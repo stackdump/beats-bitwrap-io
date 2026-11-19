@@ -306,7 +306,8 @@ type SessionEvent struct {
 
 type SessionInfo struct {
 	ID       string `json:"id"`
-	Owner    string `json:"owner,omitempty"` // user id, "" for anonymous
+	Owner    string `json:"owner,omitempty"`  // user id, "" for anonymous
+	Device   string `json:"device,omitempty"` // a paired phone's device id (POST /api/pair), "" for a browser page
 	LastSeen string `json:"last_seen"`
 	CID      string `json:"cid,omitempty"`
 	Playing  bool   `json:"playing"`
@@ -355,4 +356,29 @@ type Backend interface {
 	PublicURL() string
 	// AuthHelp is the words for an unauthenticated caller of a write tool: how to get a token.
 	AuthHelp() string
+}
+
+// ---------- paired phones (btwsite/PAIRING.md) ----------
+
+// DeviceInfo is one paired phone of a user, as MCP's devices tool lists it. Pairing is the grant:
+// a phone paired by a user is driven over MCP with that user's bearer token, and no other.
+type DeviceInfo struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Fingerprint string        `json:"fingerprint"` // sha256(key)[:4], as both ends showed it at pairing
+	Paired      string        `json:"paired"`
+	Connected   bool          `json:"connected"`           // djrust has its event stream open now
+	LastSeen    string        `json:"last_seen,omitempty"` // RFC 3339
+	Session     string        `json:"session,omitempty"`   // its hub session (changes when it reconnects; pass device instead)
+	State       *SessionState `json:"state,omitempty"`     // what it last reported
+}
+
+// Devices is implemented by a backend with paired phones (the server package). MCP checks for it with a type
+// assertion, so a backend without pairing still builds; its devices tool then answers an empty list.
+type Devices interface {
+	// Devices lists u's paired phones, most recently paired first.
+	Devices(u *User) []DeviceInfo
+	// DeviceSession is the hub session of u's device id: a not_found *Error when u has no such device, a
+	// no_session *Error when it is paired but not connected.
+	DeviceSession(u *User, deviceID string) (string, error)
 }

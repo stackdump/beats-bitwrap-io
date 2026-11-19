@@ -10,7 +10,7 @@ func (s *Server) instructions() string {
 
 Workflow: read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples, call instruments for the voices you may name, write a program, call check and fix every line:col error, then share (a link), render (audio you can open), or eval / load (play it in a browser tab open at %[1]s). compose writes a program for you from a prompt. The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
 
-Tools that write (compose, eval, load, stop) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one.`, s.public)
+Tools that write (compose, eval, load, stop) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop.`, s.public)
 }
 
 func (s *Server) composeDesc() string {
@@ -83,4 +83,10 @@ func (s *Server) instrumentsDesc() string {
 
 func (s *Server) stopDesc() string {
 	return fmt.Sprintf(`Stop what a browser tab at %[1]s is playing: the program ends and whatever its lines held (a filter, a mute) is put back. Reaches every live tab of the token's account, or one tab by session (the id the page's MCP panel shows). Needs a bearer token. No tab connected: a no_session error that says how to connect one.`, s.public)
+}
+
+func (s *Server) devicesDesc() string {
+	return fmt.Sprintf(`List the phones paired with the token's account (djrust on Android scans the QR code that %[1]s shows under Phone; btwsite/PAIRING.md): id, name, fingerprint (the code both ends showed at pairing), paired, connected (djrust has its stream open now), last_seen, and state (what it last reported: cid, playing, section, bar). Pairing is the grant: a phone paired by an account is driven over MCP with that account's token and no other.
+
+Pass a phone's id as device to eval, load, get or stop to drive that phone alone (eval and load run the same checks as for a tab; a program with errors, samples or "use restricted" is not sent). Needs a bearer token. Read-only.`, s.public)
 }

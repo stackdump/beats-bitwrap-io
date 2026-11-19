@@ -1,5 +1,5 @@
 // Package mcpsrv is the MCP server of btw.bitwrap.io: the btw language, the compose pipeline, the
-// renderer and the browser sessions as twelve tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
+// renderer and the browser sessions as fourteen tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
 //
 //	mux.Handle("/mcp", mcpsrv.Handler(backend, auth, "https://btw.bitwrap.io"))
 //	mux.Handle("/mcp/", ...the same handler...)
@@ -31,7 +31,7 @@ import (
 
 // ToolNames is the contract: the names tools/list answers, in this order.
 var ToolNames = []string{
-	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop",
+	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices",
 }
 
 // Options tunes the handler. The zero value of each field means its default.
@@ -325,4 +325,4 @@ compose, eval, load, get and stop need a token. Sign in on <a href="%s">%s</a> w
 // authTools are the tools that need a signed-in caller.
 // get is one of them: the hub only lets an authenticated caller read a session (btwsite/DESIGN.md "Sessions":
 // even an anonymous tab is reached with its id *and* a token).
-var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true}
+var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true, "devices": true}

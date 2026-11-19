@@ -32,6 +32,7 @@ type Server struct {
 	store    *programStore
 	examples *exampleSet
 	hub      *hub
+	pair     *pairing // paired phones (pair.go)
 	rs       *renderService
 	log      *accessLog
 	composer api.Composer // never nil: a stub says "not configured" when compose is not wired
@@ -40,6 +41,8 @@ type Server struct {
 	checkIP   *ipLimiter
 	putIP     *ipLimiter
 	sessionIP *ipLimiter
+	pairIP    *ipLimiter
+	claimIP   *ipLimiter
 	authIP    map[string]*ipLimiter
 
 	checkMu      sync.Mutex
@@ -146,6 +149,8 @@ func New(cfg Config) (*Server, error) {
 	s.checkIP = newIPLimiter(cfg.CheckIPMin, time.Minute, cfg.Now)
 	s.putIP = newIPLimiter(cfg.PutIPHour, time.Hour, cfg.Now)
 	s.sessionIP = newIPLimiter(120, time.Hour, cfg.Now)
+	s.pairIP = newIPLimiter(20, time.Minute, cfg.Now)
+	s.claimIP = newIPLimiter(20, time.Minute, cfg.Now)
 	s.authIP = map[string]*ipLimiter{
 		"challenge": newIPLimiter(30, time.Minute, cfg.Now),
 		"login":     newIPLimiter(20, time.Minute, cfg.Now),
@@ -163,6 +168,10 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.hub = newHub(cfg.Now)
+	s.pair, err = newPairing(cfg.DataDir, cfg.Now)
+	if err != nil {
+		return nil, err
+	}
 	bg, cancel := context.WithCancel(context.Background())
 	s.cancelBg, s.bg = cancel, bg
 	go s.hub.sweeper(bg)
@@ -239,6 +248,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/session/{id}/events", s.handleSessionEvents)
 	mux.HandleFunc("POST /api/session/{id}/report", s.handleSessionReport)
 	mux.HandleFunc("POST /api/session/{id}/reply", s.handleSessionReply)
+	s.pairRoutes(mux)
 	if s.authSvc != nil {
 		s.authSvc.Mount(mux)
 	}

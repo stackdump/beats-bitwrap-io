@@ -34,6 +34,7 @@
     <button type="button" class="tb" id="btn-open" title="Open a link or a CID"><span class="gl-ic" aria-hidden="true">⤓</span><span class="lbl">open</span></button>
     <button type="button" class="tb" id="btn-compose" title="Compose with a model (sign in)" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">✦</span><span class="lbl">compose</span></button>
     <button type="button" class="tb" id="btn-mcp" title="MCP: let an assistant drive this page" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">⌘</span><span class="lbl">mcp</span></button>
+    <button type="button" class="tb" id="btn-phone" title="Phone: connect djrust on Android by scanning a QR code" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">▯</span><span class="lbl">phone</span></button>
     <a class="tb" id="lnk-docs" href="/docs/cheatsheet.md" target="_blank" rel="noopener" title="The language on one page (opens in a new tab)"><span class="gl-ic" aria-hidden="true">?</span><span class="lbl">docs</span></a>
     <button type="button" class="tb" id="btn-user" title="Sign in" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">◉</span><span class="lbl" id="user-lbl">sign in</span></button>
   </header>
@@ -76,10 +77,11 @@
       <button type="button" aria-pressed="false" data-src="engine" id="src-engine" title="Live engine in this page: edits land on the next bar">engine</button>
       <button type="button" aria-pressed="false" data-src="stream" id="src-stream" title="The server's render, streamed">stream</button>
     </div>
-    <span class="t-status" id="t-status" role="status"></span>
+    <span class="t-status" id="t-status" role="status"><i class="st-ic" aria-hidden="true"></i><span class="st-long" id="st-long"></span><span class="st-short" id="st-short"></span></span>
+    <button type="button" class="t-prob" id="t-prob" aria-expanded="false" aria-controls="pr-list" aria-label="Problems" title="Problems"><span class="pr-dot" id="t-prob-dot"></span><span class="t-prob-n" id="t-prob-n"></span></button>
     <span class="spacer"></span>
     <span class="t-bpm" id="t-bpm" title="tempo"></span>
-    <label class="t-level" title="Level"><span class="sr">Level</span>
+    <label class="t-level" title="Level"><span class="sr lv-sr">Level</span><span class="lv-lbl" aria-hidden="true">Level</span>
       <input type="range" id="level" min="0" max="1" step="0.01" value="0.8">
       <span class="meter" aria-hidden="true"><i id="meter"></i></span>
     </label>
