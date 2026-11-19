@@ -281,6 +281,11 @@ type ComposeRequest struct {
 	Key     string  `json:"key,omitempty"`
 	Length  string  `json:"length,omitempty"` // short | medium | long | "<bars>"
 	BaseCID string  `json:"base_cid,omitempty"`
+	// Current is the program the caller is editing ("change this"): the phone's Code tab sends what is in its
+	// editor with every prompt after the first. It is vetted like a base_cid program (public CC0 by its own
+	// header, no assets, checks without errors) and then given to the model as the program to modify.
+	// base_cid wins when both are sent.
+	Current string `json:"current,omitempty"`
 }
 
 type Attempt struct {

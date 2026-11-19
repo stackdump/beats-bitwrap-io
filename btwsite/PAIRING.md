@@ -111,7 +111,7 @@ as the official host, so it asks "Connect?" before pairing with a beatscript.app
 every device request (the `btw-pair/1 request` text, so the body's SHA-256 is covered) and runs
 compose **as the pairing owner**: the same per-user hourly and daily allowance (shared with the web
 and MCP, counted against the owner's account), the per-address day limit, the kill switch and the
-daily spend cap. Body `{prompt, genre?, key?, length?, bpm?, base_cid?}`, unknown fields refused.
+daily spend cap. Body `{prompt, genre?, key?, length?, bpm?, base_cid?, current?}` (`current`: the program in the phone's editor, sent with every prompt after the first; vetted like a `base_cid` program and given to the model to modify), unknown fields refused with a 400 that names the field.
 The answer is the web route's JSON in one body (the web route does not stream): `program` (canonical
 text) and `cid` to play on the phone, plus `check`, `attempts`, `share_url` and `render_url`. The
 result is stored publicly (CC0) like any compose. No credential beyond the device key is involved.

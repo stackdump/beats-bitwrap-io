@@ -47,6 +47,7 @@ type composeBody struct {
 	Key     string     `json:"key"`
 	Length  flexString `json:"length"`
 	BaseCID string     `json:"base_cid"`
+	Current string     `json:"current"`
 }
 
 // composeResponse is api.ComposeResult with forkedFrom as null (not "") when there is no parent.
@@ -71,7 +72,8 @@ func writeErr(w http.ResponseWriter, err error) {
 // path through it: a request with no user is a 401 and nothing else about the service (configuration, kill
 // switch, limits) is revealed to it.
 func (s *Service) Handler(a api.Authenticator) http.Handler {
-	maxBody := int64(s.opt.MaxPromptChars)*6 + 4096 // every character may be a \uXXXX escape
+	// every character may be a \uXXXX escape, of the prompt and of the current program
+	maxBody := int64(s.opt.MaxPromptChars)*6 + int64(s.opt.MaxProgramBytes)*6 + 4096
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var u *api.User
 		var err error
@@ -121,6 +123,7 @@ func (s *Service) Handler(a api.Authenticator) http.Handler {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
 		res, err := s.Compose(r.Context(), u, api.ClientIP(r), api.ComposeRequest{
 			Prompt: body.Prompt, Genre: body.Genre, BPM: body.BPM, Key: body.Key, Length: string(body.Length), BaseCID: body.BaseCID,
+			Current: body.Current,
 		})
 		if err != nil {
 			writeErr(w, err)

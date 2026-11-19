@@ -459,7 +459,7 @@ func TestValidation(t *testing.T) {
 		{"not json", `prompt=x`, 400, api.CodeBadRequest},
 		{"empty body", ``, 400, api.CodeBadRequest},
 		{"wrong type", `{"prompt":5}`, 400, api.CodeBadRequest},
-		{"huge body", `{"prompt":"` + strings.Repeat("a", 20000) + `"}`, 413, api.CodeTooLarge},
+		{"huge body", `{"prompt":"` + strings.Repeat("a", 200000) + `"}`, 413, api.CodeTooLarge},
 		{"bpm low", `{"prompt":"x","bpm":10}`, 400, api.CodeBadRequest},
 		{"bpm high", `{"prompt":"x","bpm":999}`, 400, api.CodeBadRequest},
 		{"bad key", `{"prompt":"x","key":"h#"}`, 400, api.CodeBadRequest},
