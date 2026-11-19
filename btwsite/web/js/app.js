@@ -258,7 +258,7 @@ export class App {
     const n = this.name && this.name !== 'starter' ? cleanName(this.name) : programName(this.editor.text, this.cid);
     this.el['h-name'].textContent = n;
     this.progName = n;
-    document.title = this.name && this.name !== 'starter' ? `${n} · btw` : 'btw, the bitwrap language';
+    document.title = this.name && this.name !== 'starter' ? `${n} · BeatScript` : 'BeatScript: write a whole track as text';
   }
 
   async loadExample(name, { play, quiet } = {}) {

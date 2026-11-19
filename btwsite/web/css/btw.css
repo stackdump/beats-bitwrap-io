@@ -190,6 +190,9 @@ a.tb { text-decoration: none; color: inherit; }
 .t-status { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .t-status.busy::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; border: 2px solid var(--amber-2); border-right-color: transparent; vertical-align: -1px; animation: spin 0.9s linear infinite; }
 .t-bpm, .t-time { font: 12.5px var(--mono); color: var(--dim); white-space: nowrap; }
+.t-legal { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
+.t-legal a { color: var(--faint); text-decoration: none; }
+.t-legal a:hover, .t-legal a:focus-visible { color: var(--dim); text-decoration: underline; }
 .t-level { display: inline-flex; align-items: center; gap: 8px; }
 .t-level input { width: 84px; accent-color: var(--accent); }
 .meter { width: 44px; height: 6px; background: #0b0d12; border: 1px solid var(--line-2); border-radius: 3px; overflow: hidden; display: block; }
@@ -231,7 +234,7 @@ a.tb { text-decoration: none; color: inherit; }
 
 /* ---- narrow screens: the editor first, the toolbars collapse ----------------------------------------------- */
 @media (max-width: 760px) {
-  .lbl, .t-hint, .h-name, .t-time, #btn-follow kbd { display: none; }
+  .lbl, .t-hint, .h-name, .t-time, .t-legal, #btn-follow kbd { display: none; }
   .top { gap: 6px; padding: 0 8px; }
   .brand-name { display: none; }
   .tb { padding: 7px 9px; }
