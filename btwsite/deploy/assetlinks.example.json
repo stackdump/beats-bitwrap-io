@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.beatscript",
+      "sha256_cert_fingerprints": [
+        "B6:64:E3:34:FB:56:4F:12:C0:0B:74:38:94:1E:99:1A:64:5A:DF:47:26:AD:BB:18:CF:01:35:2E:55:8A:8D:47",
+        "REPLACE_WITH_PLAY_APP_SIGNING_SHA256_FROM_PLAY_CONSOLE_APP_INTEGRITY"
+      ]
+    }
+  }
+]

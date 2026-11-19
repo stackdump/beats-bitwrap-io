@@ -3,6 +3,7 @@
 
 import { h, shortCid } from './util.js';
 import { describeError, ApiError } from './errors.js';
+import { qrChoice } from './qr-model.js';
 import { signIn, hasWallet, localKeyInfo, resetLocalKey } from './auth.js';
 
 const GENRES = ['ambient', 'dnb', 'dubstep', 'house', 'techno', 'trance', 'lofi', 'jazz', 'bossa', 'funk', 'hardcore', 'breakbeat', 'synthwave', 'garage'];
@@ -406,7 +407,31 @@ export class Panels {
     notes.addEventListener('change', paint);
     // The CID-only form: the program is kept on this server under its CID (rights: CC0-1.0), so the link is short. Signed-in only.
     const shortBox = h('div', { class: 'stack' });
+    // The QR code: the app's link (`/p#CID.packed`, no notes), else the short link, else a note. Drawn by POST /api/qr.
+    const qrBox = h('div', { class: 'qrbox' });
+    let shortStored = false;
+    let qrSeq = 0;
+    const paintQR = async () => {
+      const seq = ++qrSeq;
+      let rep;
+      try { rep = build(false); } catch { qrBox.replaceChildren(); return; }
+      const c = qrChoice({ report: rep, origin, signedIn: !!app.user, shortStored: shortStored && this.lastShare && this.lastShare.cid === rep.cid });
+      if (!c.link) { qrBox.replaceChildren(h('div', { class: 'note' }, c.message)); return; }
+      qrBox.replaceChildren(h('div', { class: 'note' }, 'Drawing the QR code…'));
+      try {
+        const q = await app.api.qr(c.link);
+        if (seq !== qrSeq) return;
+        // whole pixels per module, at least 3 (a camera needs it), up to 8 for a small code; the quiet zone is 4 modules a side
+        const side = (q.modules + 8) * Math.max(3, Math.min(8, Math.floor(300 / (q.modules + 8))));
+        qrBox.replaceChildren(
+          h('img', { class: 'qrimg', src: q.qr, width: side, height: side, alt: `QR code for the link to this program (${c.chars} characters). Scan it with a phone camera to open the program in BeatScript.` }),
+          h('div', { class: 'note' }, c.message));
+      } catch (e) {
+        if (seq === qrSeq) qrBox.replaceChildren(h('div', { class: 'note' }, `No QR code: ${describeError(e).title}. The links above still work.`));
+      }
+    };
     const paintShort = (links) => {
+      if (links) { shortStored = true; paintQR(); }
       const row = (label, url) => h('div', {}, h('div', { class: 'note' }, label), h('div', { class: 'linkrow' }, h('input', { type: 'text', readonly: true, value: url, 'aria-label': label, onfocus: (e) => e.target.select() }), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(url) }, 'Copy')));
       if (links) {
         shortBox.replaceChildren(row('Short link (CID only; the page fetches and checks it)', links.short_url), row('Short link for posts (shows a card)', links.short_social_url), row('Short link in beats.bitwrap.io', links.short_beats_url));
@@ -430,8 +455,9 @@ export class Panels {
       shortBox.replaceChildren(h('div', { class: 'note' }, 'A CID-only short link keeps the program on this server (public, CC0-1.0) instead of carrying it in the link.'), mk);
     };
     paintShort();
+    paintQR();
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
-      rows, shortBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      rows, qrBox, shortBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
       h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);

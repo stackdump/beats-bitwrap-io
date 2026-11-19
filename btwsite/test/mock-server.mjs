@@ -194,6 +194,7 @@ async function route(req, res) {
   if (p === '/api/instruments') return send(res, 200, M.instruments());
   if (m === 'POST' && p === '/api/check') return send(res, 200, M.check((await readJson(req)).text || ''));
   if (m === 'POST' && p === '/api/fmt') return send(res, 200, M.fmt((await readJson(req)).text || ''));
+  if (m === 'POST' && p === '/api/qr') { const t = (await readJson(req)).text || ''; return send(res, 200, { qr: 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"><rect width="29" height="29" fill="#fff"/></svg>').toString('base64'), url: t, modules: 21 }); }
   if (m === 'POST' && p === '/api/share') return send(res, 200, M.share((await readJson(req)).text || ''));
   if (m === 'POST' && p === '/api/open') return send(res, 200, M.open((await readJson(req)).url || ''));
   if ((mm = /^\/api\/programs\/([^/]+?)(\.btw)?$/.exec(p))) {

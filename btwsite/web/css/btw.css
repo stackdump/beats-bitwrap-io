@@ -232,6 +232,9 @@ a.tb { text-decoration: none; color: inherit; }
 .drawer fieldset.plain { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .drawer .check, .pop .check { flex-direction: row; align-items: center; gap: 8px; display: flex; }
 .pop .check.dim { color: var(--dim); font-size: 12.5px; }
+.pop .qrbox { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+/* dark modules on white whatever the theme: the code is drawn with its own white quiet zone, and a scanner needs the contrast */
+.pop .qrimg { max-width: 100%; height: auto; background: #fff; border-radius: 2px; }
 .pop .stack { display: flex; flex-direction: column; gap: 8px; }
 .pop .btnrow { display: flex; gap: 8px; }
 .link { color: var(--link); }

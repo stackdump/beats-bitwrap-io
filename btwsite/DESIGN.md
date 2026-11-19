@@ -261,6 +261,8 @@ Compose is **"not configured"** (503 `not_configured`) when there is no key and 
 | `GET /api/examples` `GET /examples/<name>.btw` | – | list `[{name,title,description,cid,bpm,bars,license}]`, raw text |
 | `GET /api/instruments` | – | btwd instruments JSON |
 | `POST /api/check` `/api/fmt` `/api/share` `/api/open` | – | body `{"text":…}` (or `{"url":…}` for open); rate-limited per IP |
+| `POST /api/qr` | – | body `{"text":<link>}`; only this site's `<public_url>/p#<CID>.<packed>` and `<public_url>/p/<CID>`, ≤ 2000 chars, else 400; per-IP limit shared with check. Reply `{qr: "data:image/svg+xml;base64,…", url, modules}`. The Share panel's QR, drawn by the pairing QR's encoder (skip2/go-qrcode, level L) |
+| `GET /.well-known/assetlinks.json` | – | Android App Links verification: the file named by `-assetlinks-file` / `BTW_ASSETLINKS_FILE`, as `application/json`; 404 when unset. See `deploy/ASSETLINKS.md` |
 | `PUT /api/programs/<cid>` | – | body = program text; accepted iff its canonical CID is `<cid>`, it checks ok, is not restricted/asset-using, ≤ max bytes; stored content-addressed; per-IP limited. `GET /api/programs/<cid>` → `{cid,text,meta}`; `GET /api/programs/<cid>.btw` → text with `#!` header |
 | `PUT /api/shares/<cid>` | **cookie, bearer or `BtwDevice`** | the CID-only share link's write side: JSON `{text, license?, forked_from?, credits?, name?, visibility?}`; same store as `PUT /api/programs`, with rights, signed in, public programs only. See Short links |
 | `GET /p/<cid>` | – | the short link's page: the card of the stored program; a person is sent to `/#<cid>`, which fetches and checks it. See Short links |

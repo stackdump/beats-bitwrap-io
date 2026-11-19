@@ -4,6 +4,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -34,6 +35,8 @@ type Config struct {
 	// LegacyHosts are earlier public hosts (comma-separated, e.g. "btw.bitwrap.io" after the move to beatscript.app):
 	// a phone paired under one of them signs that host into its requests, and those signatures stay good.
 	LegacyHosts string // -legacy-hosts
+	// AssetLinksFile is a JSON file served at /.well-known/assetlinks.json (Android App Links verification); "" = 404.
+	AssetLinksFile string // -assetlinks-file
 
 	Model    string // -model ("fake" = the recorded-fixture model)
 	Thinking string // -thinking: Gemini thinking level MINIMAL|LOW|MEDIUM|HIGH ("" = LOW)
@@ -116,6 +119,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.MovedTo, "moved-to", "the origin this site has moved to: phones and pages are told, the old name keeps answering")
 	str(&c.SiteID, "site-id", "the site's stable id (default: <data>/site.json, made on first start; copy that file when you move the data)")
 	str(&c.LegacyHosts, "legacy-hosts", "earlier public hosts, comma-separated: phones paired under them keep working")
+	str(&c.AssetLinksFile, "assetlinks-file", "JSON file served at /.well-known/assetlinks.json so Android opens share links in the BeatScript app (empty = 404)")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
 	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")
 	num(&c.ComposeUserHour, "compose-user-hour", "compose requests per signed-in user per hour")
@@ -207,6 +211,15 @@ func (c *Config) validate() error {
 	}
 	if c.RenderMaxSeconds < 10 {
 		return errors.New("-render-max-seconds must be at least 10")
+	}
+	if c.AssetLinksFile != "" {
+		b, err := os.ReadFile(c.AssetLinksFile)
+		if err != nil {
+			return fmt.Errorf("-assetlinks-file: %v", err)
+		}
+		if !json.Valid(b) {
+			return fmt.Errorf("-assetlinks-file %s is not valid JSON", c.AssetLinksFile)
+		}
 	}
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 	if c.PublicURL == "" {

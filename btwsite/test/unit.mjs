@@ -1187,3 +1187,59 @@ test('suggest: header terms (`#! genre:`) and a span clamped to its line', () =>
   const [c] = sg.suggestionsFor({ ...d, end_col: 99 }, text);
   assert.equal(text.slice(c.from, c.to), 'housee', 'end_col past the line never reaches the next line');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// the Share panel's QR code: what it holds, and when it falls back
+// ---------------------------------------------------------------------------------------------------------------
+
+const { qrChoice, appLink, QR_MAX_CHARS } = await J('qr-model.js');
+
+test('qr: the app link is the self-sealing fragment under /p, with no notes', () => {
+  const rep = { cid: 'zCID123456', url: 'https://beatscript.app/#zCID123456.abc_-DEF' };
+  assert.equal(appLink(rep, 'https://beatscript.app'), 'https://beatscript.app/p#zCID123456.abc_-DEF');
+  assert.equal(appLink({ url: 'https://x.test/#zCID123456.abc~bm90ZXM' }, 'https://x.test/'), 'https://x.test/p#zCID123456.abc', 'notes cut, trailing slash of the origin tolerated');
+  assert.equal(appLink({ url: 'https://x.test/' }, 'https://x.test'), '');
+  assert.equal(appLink({ url: 'https://x.test/#nodot' }, 'https://x.test'), '');
+  assert.equal(appLink(null, 'https://x.test'), '');
+});
+
+test('qr: a link at or under the threshold is the self-sealing app link, signed in or not', () => {
+  const origin = 'https://beatscript.app';
+  const head = `${origin}/p#zCID123456.`;
+  const rep = { cid: 'zCID123456', url: `${origin}/#zCID123456.${'A'.repeat(QR_MAX_CHARS - head.length)}` };
+  for (const signedIn of [false, true]) {
+    const c = qrChoice({ report: rep, origin, signedIn, shortStored: false });
+    assert.equal(c.kind, 'self');
+    assert.equal(c.link.length, QR_MAX_CHARS);
+    assert.match(c.link, /^https:\/\/beatscript\.app\/p#zCID123456\./);
+    assert.match(c.message, /Scan with your phone's camera to open it in BeatScript/);
+  }
+});
+
+test('qr: over the threshold, signed in: the short link once it is stored, a prompt until then', () => {
+  const origin = 'https://beatscript.app';
+  const rep = { cid: 'zCID123456', url: `${origin}/#zCID123456.${'A'.repeat(QR_MAX_CHARS)}` };
+  const pending = qrChoice({ report: rep, origin, signedIn: true, shortStored: false });
+  assert.equal(pending.kind, 'short-pending');
+  assert.equal(pending.link, undefined);
+  assert.match(pending.message, /too long/);
+  const stored = qrChoice({ report: rep, origin, signedIn: true, shortStored: true });
+  assert.equal(stored.kind, 'short');
+  assert.equal(stored.link, `${origin}/p/zCID123456`);
+  assert.match(stored.message, /needs a connection/);
+});
+
+test('qr: over the threshold, signed out: no code, the copy links remain', () => {
+  const origin = 'https://beatscript.app';
+  const rep = { cid: 'zCID123456', url: `${origin}/#zCID123456.${'A'.repeat(QR_MAX_CHARS)}` };
+  const c = qrChoice({ report: rep, origin, signedIn: false, shortStored: true });
+  assert.equal(c.kind, 'toolong');
+  assert.equal(c.link, undefined);
+  assert.match(c.message, /too long for a QR code/);
+  assert.match(c.message, /Copy a link/);
+});
+
+test('qr: the threshold is the same one the server accepts (a code drawn here is never refused there)', () => {
+  assert.equal(QR_MAX_CHARS, 1200);
+  assert.ok(QR_MAX_CHARS < 2000, 'under the server cap (maxQRLink)');
+});

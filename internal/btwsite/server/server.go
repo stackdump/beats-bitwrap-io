@@ -246,6 +246,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/instruments", s.handleInstruments)
 	mux.HandleFunc("POST /api/check", s.handleCheck)
 	mux.HandleFunc("POST /api/fmt", s.handleFmt)
+	mux.HandleFunc("GET /.well-known/assetlinks.json", s.handleAssetLinks)
+	mux.HandleFunc("POST /api/qr", s.handleQR)
 	mux.HandleFunc("POST /api/share", s.handleShare)
 	mux.HandleFunc("POST /api/open", s.handleOpen)
 	mux.HandleFunc("PUT /api/programs/{cid}", s.handlePutProgram)
