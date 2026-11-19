@@ -36,8 +36,9 @@ func TestShareLinksUseTheSitesOrigin(t *testing.T) {
 	if j, _ := body["jsonld_url"].(string); j != social+".jsonld" {
 		t.Errorf("jsonld_url = %q, want %q", j, social+".jsonld")
 	}
-	for k, v := range body {
-		if s, ok := v.(string); ok && strings.Contains(s, "btw.bitwrap.io") {
+	// the links (the test auth's sign-in hint names its own site, so the notes are not checked here)
+	for _, k := range []string{"url", "social_url", "jsonld_url", "context"} {
+		if s, _ := body[k].(string); strings.Contains(s, "btw.bitwrap.io") {
 			t.Errorf("%s still names btw.bitwrap.io: %q", k, s)
 		}
 	}
