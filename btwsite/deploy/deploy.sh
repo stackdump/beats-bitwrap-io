@@ -147,7 +147,7 @@ sudo -n nginx -t && sudo -n systemctl reload nginx && echo "nginx reloaded (beat
 EOS
   ;;
 cert-beatscript)
-  run "sudo -n certbot certonly --webroot -w /var/www/acme ${CERT_NAMES:--d beatscript.app -d www.beatscript.app} --expand --non-interactive --agree-tos --keep-until-expiring 2>&1 | tail -15; sudo -n certbot certificates 2>/dev/null | grep -A3 'Name: beatscript.app'"
+  run "sudo -n certbot certonly --webroot -w /var/www/acme ${CERT_NAMES:--d beatscript.app} --expand --non-interactive --agree-tos --keep-until-expiring 2>&1 | tail -15; sudo -n certbot certificates 2>/dev/null | grep -A3 'Name: beatscript.app'"
   ;;
 nginx-full-beatscript)
   scp -q "$HERE/nginx/beatscript.app.conf" "$HOST:/tmp/beatscript.app"
@@ -192,7 +192,7 @@ if sudo -n nginx -t; then sudo -n systemctl reload nginx && echo "nginx reloaded
 EOS
   ;;
 verify-beatscript)
-  for h in beatscript.app www.beatscript.app; do
+  for h in beatscript.app; do
     for u in / /healthz /api/info /llms.txt; do
       printf '%-20s %-12s ' "$h" "$u"; curl -s -o /dev/null -m 15 -w '%{http_code} %{content_type}\n' "https://$h$u"
     done
