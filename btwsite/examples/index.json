@@ -113,5 +113,19 @@
       "beat",
       "transforms"
     ]
+  },
+  {
+    "name": "pattern-sugar",
+    "title": "pattern sugar",
+    "description": "A 24-bar groove written with pattern sugar: x:4 replicate, c2@3 elongate, ply, poly, off, iter and palindrome. Each is written out before it plays, so it is the same song as its longhand.",
+    "bpm": 126,
+    "bars": 24,
+    "license": "CC0-1.0",
+    "tags": [
+      "beat",
+      "sections",
+      "sugar",
+      "transforms"
+    ]
   }
 ]
