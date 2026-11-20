@@ -40,7 +40,14 @@ type renderKey struct {
 	sr     int
 }
 
-func (k renderKey) name() string { return fmt.Sprintf("%s.%d.%s", k.cid, k.sr, k.format) }
+// renderVersion names what `btwd render` makes of a program: bump it when the renderer starts producing different audio for
+// the same CID, so cached files (served immutable) are not reused. r2 (2026-11-19): btwd renders control lines (deck and
+// master level, ramps, mixer moves, filter / reverb inserts); r1 files (no version in the name) had no section dynamics.
+const renderVersion = "r2"
+
+func (k renderKey) name() string {
+	return fmt.Sprintf("%s.%d.%s.%s", k.cid, k.sr, renderVersion, k.format)
+}
 
 func (k renderKey) contentType() string {
 	if k.format == "wav" {
@@ -155,7 +162,10 @@ type renderService struct {
 	wg    sync.WaitGroup
 }
 
-var reCacheName = regexp.MustCompile(`^(z[1-9A-HJ-NP-Za-km-z]{20,80})\.(\d+)\.(wav|opus)$`)
+var reCacheName = regexp.MustCompile(`^(z[1-9A-HJ-NP-Za-km-z]{20,80})\.(\d+)\.` + renderVersion + `\.(wav|opus)$`)
+
+// reStaleRender is a render of another renderer version (an r1 file has none in its name), or its meta: removed at start.
+var reStaleRender = regexp.MustCompile(`^(z[1-9A-HJ-NP-Za-km-z]{20,80})\.(\d+)\.(?:r\d+\.)?(wav|opus)(\.meta)?$`)
 
 func newRenderService(s *Server, base context.Context) (*renderService, error) {
 	rs := &renderService{s: s, dir: filepath.Join(s.cfg.DataDir, "render"), capB: int64(s.cfg.RenderCacheMB) << 20,
@@ -178,6 +188,9 @@ func newRenderService(s *Server, base context.Context) (*renderService, error) {
 				rs.cache[e.Name()] = &cacheEntry{size: info.Size(), used: info.ModTime(), chtimes: info.ModTime()}
 				rs.total += info.Size()
 			}
+		case reStaleRender.MatchString(e.Name()) && !reCacheName.MatchString(strings.TrimSuffix(e.Name(), ".meta")):
+			// made by another renderer version: never served again, so not kept
+			_ = os.Remove(p)
 		}
 	}
 	return rs, nil
@@ -733,7 +746,7 @@ func (s *Server) serveComplete(w http.ResponseWriter, r *http.Request, key rende
 	}
 	h.Set("X-Btw-Cache", "hit")
 	h.Set("Cache-Control", "public, max-age=31536000, immutable")
-	h.Set("ETag", fmt.Sprintf(`"%s-%d-%s"`, key.cid, key.sr, key.format))
+	h.Set("ETag", fmt.Sprintf(`"%s-%d-%s-%s"`, key.cid, key.sr, renderVersion, key.format))
 	http.ServeContent(w, r, key.name(), time.Time{}, f) // Range, If-None-Match, HEAD
 }
 
