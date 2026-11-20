@@ -91,6 +91,12 @@ a.tb { text-decoration: none; color: inherit; }
 /* ---- banner ------------------------------------------------------------------------------------ */
 .banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 13px; border-bottom: 1px solid var(--line); background: #1b2a4d; flex: none; }
 .banner.error { background: #3a1822; border-color: #7a2a3a; color: #ffd6dc; }
+.upnext { display: flex; align-items: baseline; gap: 10px; padding: 4px 14px; font-size: 12px; color: var(--dim, #8b949e); border-bottom: 1px solid var(--line); flex: none; overflow: hidden; }
+.upnext ol { display: flex; gap: 12px; margin: 0; padding: 0; list-style: none; overflow: hidden; white-space: nowrap; }
+.upnext li { overflow: hidden; text-overflow: ellipsis; }
+.upnext li + li::before { content: '›'; margin-right: 12px; opacity: .6; }
+.upnext-lbl { font-weight: 600; white-space: nowrap; }
+.upnext-paused { margin-left: auto; white-space: nowrap; color: #f0c674; }
 .banner.ok { background: #14301f; border-color: #285a38; }
 .banner b { font-weight: 600; }
 .banner code { font-family: var(--mono); font-size: 12px; color: var(--amber); }

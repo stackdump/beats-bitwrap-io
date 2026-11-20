@@ -51,6 +51,35 @@ type fakeBackend struct {
 	composeR *api.ComposeResult
 	composeE error
 	noHelp   bool // AuthHelp answers nothing
+
+	queueOps  []api.QueueOp // what Queue was asked
+	queueUser []*api.User
+	queueSess []string
+	queueView *api.QueueView // what Queue answers (default: the items added so far)
+	queueSent bool
+	queueErr  error
+}
+
+func (f *fakeBackend) Queue(u *api.User, session string, op api.QueueOp) (*api.QueueView, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queueOps = append(f.queueOps, op)
+	f.queueUser = append(f.queueUser, u)
+	f.queueSess = append(f.queueSess, session)
+	if f.queueErr != nil {
+		return nil, false, f.queueErr
+	}
+	if f.queueView != nil {
+		v := *f.queueView
+		return &v, f.queueSent, nil
+	}
+	v := &api.QueueView{Session: session, UpNext: []api.QueueItem{}, Listener: "present"}
+	for _, o := range f.queueOps {
+		if o.Action == "add" {
+			v.UpNext = append(v.UpNext, o.Items...)
+		}
+	}
+	return v, f.queueSent, nil
 }
 
 func newBackend() *fakeBackend {

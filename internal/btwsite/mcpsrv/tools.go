@@ -502,6 +502,8 @@ func (s *Server) addTools() {
 		mcp.WithDescription(s.devicesDesc()), noExtra,
 		mcp.WithTitleAnnotation("Your paired phones"), hints(true, false, true, false),
 	), s.devices)
+
+	s.addQueueTool(sessionArg, deviceArg, noExtra)
 }
 
 // ---------- compose ----------
@@ -893,12 +895,31 @@ func (s *Server) get(ctx context.Context, c caller, a args) (any, *api.Error) {
 	if st.CID != "" {
 		jsonld, ctxURL = s.public+"/c/"+st.CID+".jsonld", ld.ContextURL(s.public)
 	}
+	var upNext []api.QueueItem
+	var q *api.QueueView
+	if v := s.upNextOf(c, st.ID); v != nil {
+		upNext, q = v.UpNext, v
+	}
+	type queueInfo struct {
+		NowPlaying   *api.QueueItem `json:"now_playing,omitempty"`
+		Position     int            `json:"position"`
+		Length       int            `json:"length"`
+		PausedReason string         `json:"paused_reason,omitempty"`
+		Listener     string         `json:"listener"`
+		AutoAdvanced int            `json:"auto_advanced"`
+	}
+	var qi *queueInfo
+	if q != nil {
+		qi = &queueInfo{q.NowPlaying, q.Position, len(q.UpNext), q.PausedReason, q.Listener, q.AutoAdvanced}
+	}
 	return struct {
 		*api.SessionState
-		JSONLD    string `json:"jsonld_url,omitempty"` // the program as linked data (only a stored program has one)
-		Context   string `json:"context,omitempty"`    // the @context URL that document names
-		Connected int    `json:"sessions_connected,omitempty"`
-	}{st, jsonld, ctxURL, connected}, nil
+		JSONLD    string          `json:"jsonld_url,omitempty"` // the program as linked data (only a stored program has one)
+		Context   string          `json:"context,omitempty"`    // the @context URL that document names
+		Connected int             `json:"sessions_connected,omitempty"`
+		UpNext    []api.QueueItem `json:"up_next,omitempty"` // the queue tool's items, in order
+		Queue     *queueInfo      `json:"queue,omitempty"`   // queue position and why it is paused, if it is
+	}{st, jsonld, ctxURL, connected, upNext, qi}, nil
 }
 
 // devices lists the caller's paired phones.

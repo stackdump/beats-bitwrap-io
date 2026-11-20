@@ -66,6 +66,7 @@ type session struct {
 	state   *api.SessionState
 	stateAt time.Time
 	pending map[string]chan *api.SessionState
+	queue   *queueState // the up-next queue (queue.go), nil until MCP or the page touches it
 	// report rate limit: a token bucket
 	tokens   float64
 	tokensAt time.Time
@@ -78,14 +79,17 @@ type hub struct {
 	sessions map[string]*session
 	closed   bool
 	seq      int
-	bytes    int       // stateBytes of every stored report
+	bytes    int       // stateBytes of every stored report, plus every queue's bytes()
 	streams  ipCounter // open SSE streams per address
+	queueCfg QueueConfig
 }
 
 var _ api.Hub = (*hub)(nil)
 
 func newHub(now func() time.Time) *hub {
-	return &hub{now: now, sessions: map[string]*session{}}
+	h := &hub{now: now, sessions: map[string]*session{}}
+	h.queueCfg.defaults()
+	return h
 }
 
 func newID() string {
@@ -139,8 +143,8 @@ func (h *hub) dropLocked(s *session) {
 	for sub := range s.subs {
 		sub.close()
 	}
-	h.bytes -= stateBytes(s.state)
-	delete(h.sessions, s.id)
+	h.bytes -= stateBytes(s.state) + s.queue.bytes()
+	delete(h.sessions, s.id) // the queue goes with the session
 }
 
 // setStateLocked stores a report as s's latest and keeps the total under maxStateBytes.
@@ -284,6 +288,12 @@ func (h *hub) report(id string, u *api.User, st api.SessionState) (ok, limited b
 	s.tokens--
 	st.ID = id
 	st.TS = now.UTC().Format(time.RFC3339Nano)
+	if st.Presence != nil { // kept for the up-next queue even before it has items: a skip right after the first add has a listener
+		if s.queue == nil {
+			s.queue = &queueState{}
+		}
+		s.queue.notePresence(st.Presence, now)
+	}
 	h.setStateLocked(s, &st, now)
 	return true, false
 }

@@ -1,5 +1,5 @@
 // Package mcpsrv is the MCP server of btw.bitwrap.io: the btw language, the compose pipeline, the
-// renderer and the browser sessions as fourteen tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
+// renderer and the browser sessions as fifteen tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
 //
 //	mux.Handle("/mcp", mcpsrv.Handler(backend, auth, "https://btw.bitwrap.io"))
 //	mux.Handle("/mcp/", ...the same handler...)
@@ -31,7 +31,7 @@ import (
 
 // ToolNames is the contract: the names tools/list answers, in this order.
 var ToolNames = []string{
-	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices",
+	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices", "queue",
 }
 
 // Options tunes the handler. The zero value of each field means its default.
@@ -53,6 +53,11 @@ type Options struct {
 	// SharePerHour is how many programs one signed-in client may have stored by the share tool (the CID-only
 	// short link) per hour. Default 60.
 	SharePerHour int
+	// QueueWritesPerMin is how many queue writes (add, remove, clear, skip) one client may make a minute. Default 30.
+	QueueWritesPerMin int
+	// The queue's limits as the backend enforces them, for the tool's description. Defaults 50 items, 20 per add,
+	// 30 idle minutes, 8 tracks in a row (server.QueueConfig's).
+	QueueMaxItems, QueueMaxPerAdd, QueueIdleMinutes, QueueMaxAuto int
 	// ComposeTimeout bounds one compose call. Default 150 s.
 	ComposeTimeout time.Duration
 	// Now is the clock (tests).
@@ -68,6 +73,12 @@ func WithMaxPromptChars(n int) Option                    { return func(o *Option
 func WithCheckPerMin(n int) Option                       { return func(o *Options) { o.CheckPerMin = n } }
 func WithRenderPerHour(n int) Option                     { return func(o *Options) { o.RenderPerHour = n } }
 func WithSharePerHour(n int) Option                      { return func(o *Options) { o.SharePerHour = n } }
+func WithQueueWritesPerMin(n int) Option                 { return func(o *Options) { o.QueueWritesPerMin = n } }
+func WithQueueLimits(maxItems, maxPerAdd, idleMinutes, maxAuto int) Option {
+	return func(o *Options) {
+		o.QueueMaxItems, o.QueueMaxPerAdd, o.QueueIdleMinutes, o.QueueMaxAuto = maxItems, maxPerAdd, idleMinutes, maxAuto
+	}
+}
 func WithComposeTimeout(d time.Duration) Option          { return func(o *Options) { o.ComposeTimeout = d } }
 func WithNow(f func() time.Time) Option                  { return func(o *Options) { o.Now = f } }
 
@@ -89,6 +100,17 @@ func (o *Options) defaults() {
 	}
 	if o.SharePerHour <= 0 {
 		o.SharePerHour = 60
+	}
+	if o.QueueWritesPerMin <= 0 {
+		o.QueueWritesPerMin = 30
+	}
+	for _, q := range []struct {
+		p   *int
+		def int
+	}{{&o.QueueMaxItems, 50}, {&o.QueueMaxPerAdd, 20}, {&o.QueueIdleMinutes, 30}, {&o.QueueMaxAuto, 8}} {
+		if *q.p <= 0 {
+			*q.p = q.def
+		}
 	}
 	if o.ComposeTimeout <= 0 {
 		o.ComposeTimeout = 150 * time.Second
@@ -116,6 +138,8 @@ type Server struct {
 	cpuIP    *limiter
 	renderIP *limiter
 	shareIP  *limiter
+	queueLim *limiter // queue writes, per user
+	queueIP  *limiter
 	inst     instrumentsCache
 }
 
@@ -144,6 +168,8 @@ func New(b api.Backend, a api.Authenticator, publicURL string, opts ...Option) *
 	s.shareIP = newLimiter(ipCeilingFactor*o.SharePerHour, time.Hour, o.Now)
 	s.cpuIP = newLimiter(ipCeilingFactor*o.CheckPerMin, time.Minute, o.Now)
 	s.renderIP = newLimiter(ipCeilingFactor*o.RenderPerHour, time.Hour, o.Now)
+	s.queueLim = newLimiter(o.QueueWritesPerMin, time.Minute, o.Now)
+	s.queueIP = newLimiter(ipCeilingFactor*o.QueueWritesPerMin, time.Minute, o.Now)
 
 	s.mcp = server.NewMCPServer("beatscript", "0.1.0",
 		server.WithToolCapabilities(false),
@@ -283,7 +309,7 @@ Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.
 <h2>Add to Claude Code</h2>
 <pre><code>claude mcp add --transport http btw %s --header 'Authorization: Bearer btw_...'</code></pre>
 <p>Without the header the read tools still work (check, fmt, share, open, render, list_examples, instruments);
-compose, eval, load, get and stop need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
+compose, eval, load, get, stop, devices and queue need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
 <b>MCP token</b>. Other clients take the same URL and header:</p>
 <pre><code>{ "mcpServers": { "beatscript": { "type": "http", "url": "%s",
     "headers": { "Authorization": "Bearer btw_..." } } } }</code></pre>
@@ -336,4 +362,4 @@ compose, eval, load, get and stop need a token. Sign in on <a href="%s">%s</a> w
 // authTools are the tools that need a signed-in caller.
 // get is one of them: the hub only lets an authenticated caller read a session (btwsite/DESIGN.md "Sessions":
 // even an anonymous tab is reached with its id *and* a token).
-var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true, "devices": true}
+var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true, "devices": true, "queue": true}

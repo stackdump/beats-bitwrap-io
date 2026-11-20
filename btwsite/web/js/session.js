@@ -1,5 +1,5 @@
 // The browser <-> MCP bridge (DESIGN.md "Sessions"): POST /api/session gives an id, an EventSource on
-// /api/session/<id>/events delivers what an MCP tool asks (eval, load, stop, get), and the page reports its
+// /api/session/<id>/events delivers what an MCP tool asks (eval, load, stop, get, and queue: the up-next list changed), and the page reports its
 // state back about every 500 ms while it plays and whenever it changes. Reconnects with backoff; a session
 // the server forgot is made again.
 
@@ -63,8 +63,9 @@ export class SessionLink {
       this.connected = true;
       this.backoff = 1000;
       this.app.emit('session');
+      this.syncQueue();
     };
-    for (const type of ['eval', 'load', 'stop', 'get']) {
+    for (const type of ['eval', 'load', 'stop', 'get', 'queue']) {
       es.addEventListener(type, (m) => this.onEvent(type, m.data));
     }
     es.onerror = () => {
@@ -89,6 +90,15 @@ export class SessionLink {
     }, wait);
   }
 
+  /** Read this session's up-next queue (after a (re)connect: a queue event sent while the stream was down is lost). */
+  async syncQueue() {
+    if (!this.id || !this.app.upNext || !this.api.queueGet) return;
+    try {
+      const r = await this.api.queueGet(this.id);
+      if (r && r.queue) this.app.upNext.setView(r.queue);
+    } catch { /* an older server has no queue */ }
+  }
+
   /**
    * One pushed event. What arrives here is from whoever drives this session over MCP (the server has checked who), but the
    * page does not take it on trust: it can set the editor's text, load a CID or an example by name, play and stop, and
@@ -106,6 +116,13 @@ export class SessionLink {
       if (type === 'get') {
         const rid = str(ev.request_id);
         if (rid && rid.length <= 128) await this.api.reply(this.id, rid, app.reportState());
+      } else if (type === 'queue') {
+        // the queue changed (MCP add/remove/clear, or an advance), or MCP asked to skip: the page only shows the list,
+        // and a skip is an ordinary advance, under the same presence rules as the end of a track
+        const extra = ev.extra && typeof ev.extra === 'object' ? ev.extra : {};
+        if (app.upNext && extra.queue && typeof extra.queue === 'object') app.upNext.setView(extra.queue);
+        if (app.upNext && extra.action === 'skip') app.upNext.advance('skip');
+        return;
       } else if (type === 'stop') {
         app.stop();
       } else if (type === 'eval') {

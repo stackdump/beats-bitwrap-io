@@ -316,6 +316,99 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Up next: queue programs on a browser tab"
+      },
+      "description": "An \"up next\" queue on one browser tab at https://btw.bitwrap.io (the same tabs and rules as load: session, or device, else your most recently seen signed-in tab). When the playing program ends the page plays the next item, on the bar line where it can; a looping program (one that never ends) plays for the item's bars or minutes, else one full pass of its arrangement, and then advances. Needs a bearer token.\n\naction is one of: list (the queue, now_playing, position, paused_reason, listener), add (items: up to 20 per call, 50 in the queue), remove (item: an item id from list, or a CID), clear, skip (play the next item now).\n\nItems must already be programs: {cid} of a stored program (compose, render and share store theirs) or an example's CID, {example} by name from list_examples, or {url} a share link (verified exactly as load verifies it; a CID-only link must name a stored program). Optional per item: bars (1-1024) or minutes (0.1-120) to play, title. THE QUEUE NEVER COMPOSES OR CALLS A MODEL, and there is no way to make it: to queue generated music, call compose yourself (it is rate limited and spend-capped), then add the CIDs it returns. Do not loop compose to keep a queue full.\n\nThe queue advances only while a listener is plausibly present, as the page reports it: it pauses at the next track boundary when the tab's audio is suspended, when the tab has been hidden with no key, pointer, touch or media key for 30 minutes, or after 8 tracks in a row without any interaction; the page then shows \"Still listening? Press play to continue\". Only a person on the page lifts a pause: skip is refused while paused (paused_reason says why), and load still plays one program as it always has but does not resume the queue. Writes are limited to about 30 a minute. The queue lives with the tab's session and is gone when the tab is.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "list, add, remove, clear or skip.",
+            "enum": [
+              "list",
+              "add",
+              "remove",
+              "clear",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "device": {
+            "description": "Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          },
+          "item": {
+            "description": "remove: an item id from list (q1, q2, ...) or a CID (the first queued item with it).",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "items": {
+            "description": "add: the programs to append, each an object with exactly one of cid, example, url, and optionally bars, minutes, title.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bars": {
+                  "description": "Play this many bars, then advance (else until the program ends; a loop: one arrangement pass).",
+                  "maximum": 1024,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "cid": {
+                  "description": "CID of a stored program or an example.",
+                  "maxLength": 100,
+                  "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
+                  "type": "string"
+                },
+                "example": {
+                  "description": "Name of an example, from list_examples.",
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+                  "type": "string"
+                },
+                "minutes": {
+                  "description": "Play this long, then advance at the next bar line. Not with bars.",
+                  "maximum": 120,
+                  "minimum": 0.1,
+                  "type": "number"
+                },
+                "title": {
+                  "description": "What the page shows for it (else the program's name).",
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                "url": {
+                  "description": "A share link, verified as load verifies it.",
+                  "maxLength": 32768,
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "session": {
+            "description": "Session id of one browser tab, from the MCP panel of the page. Leave out to use your own signed-in tabs (every live one for eval/load/stop, the latest for get).",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{6,64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "queue"
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,

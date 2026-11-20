@@ -175,6 +175,8 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.hub = newHub(cfg.Now)
+	s.hub.queueCfg = QueueConfig{IdleMinutes: cfg.QueueIdleMinutes, MaxAuto: cfg.QueueMaxAuto, MaxItems: cfg.QueueMaxItems, MaxPerAdd: cfg.QueueMaxPerAdd}
+	s.hub.queueCfg.defaults()
 	s.pair, err = newPairing(cfg.DataDir, cfg.Now)
 	if err != nil {
 		return nil, err
@@ -259,6 +261,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/session/{id}/events", s.handleSessionEvents)
 	mux.HandleFunc("POST /api/session/{id}/report", s.handleSessionReport)
 	mux.HandleFunc("POST /api/session/{id}/reply", s.handleSessionReply)
+	mux.HandleFunc("POST /api/session/{id}/queue/next", s.handleQueueNext)
+	mux.HandleFunc("GET /api/session/{id}/queue", s.handleQueueGet)
 	s.pairRoutes(mux)
 	if s.authSvc != nil {
 		s.authSvc.Mount(mux)
