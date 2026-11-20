@@ -417,6 +417,7 @@ func (s *Server) addTools() {
 		mcp.WithDescription(s.checkDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Check a btw program"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description(fmt.Sprintf("The program text (at most %d bytes). Comments and blank lines are fine.", maxProg))),
+		mcp.WithString("same_as", mcp.MaxLength(maxProg), mcp.Description("Optional: another program to compare with, as its CID (stored here, or an example's), a short "+s.public+"/p/<CID> link, or its text. The answer gains same_as: whether the two are the same song by their compiled nets and song-level settings (tempo, key, swing, length, end, loop), not their text: a let/def/repeat refactor or a renamed section is the same song; a changed note is not, and diffs names the section and deck.")),
 	), s.check)
 
 	s.add(mcp.NewTool("fmt",
@@ -615,10 +616,14 @@ func trimReport(r *api.CheckReport) map[string]any {
 // ---------- check, fmt ----------
 
 func (s *Server) check(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("text"); e != nil {
+	if e := a.only("text", "same_as"); e != nil {
 		return nil, e
 	}
 	text, e := s.program(a, "text")
+	if e != nil {
+		return nil, e
+	}
+	other, hasOther, e := s.sameAsArg(a)
 	if e != nil {
 		return nil, e
 	}
@@ -626,7 +631,56 @@ func (s *Server) check(ctx context.Context, c caller, a args) (any, *api.Error) 
 	if e != nil {
 		return nil, e
 	}
-	return rep, nil // ok:false is an answer, not a tool error: the diagnostics are the product
+	if !hasOther {
+		return rep, nil // ok:false is an answer, not a tool error: the diagnostics are the product
+	}
+	cmp, e := s.sameAs(ctx, c, text, other)
+	if e != nil {
+		return nil, e
+	}
+	return checkWithSameAs{CheckReport: rep, SameAs: cmp}, nil
+}
+
+// checkWithSameAs is check's answer with a same_as argument: the report, plus the comparison.
+type checkWithSameAs struct {
+	*api.CheckReport
+	SameAs json.RawMessage `json:"same_as"`
+}
+
+// sameAsArg reads check's optional same_as: a CID (or a CID-only short link) of a program stored here or an
+// example, else the text of a program.
+func (s *Server) sameAsArg(a args) (text string, present bool, e *api.Error) {
+	v, ok, e := a.str("same_as", s.opt.MaxProgramBytes)
+	if e != nil || !ok {
+		return "", false, e
+	}
+	if strings.TrimSpace(v) == "" {
+		return "", false, api.Errf(400, api.CodeBadRequest, "argument \"same_as\" is empty: give a CID or a program's text")
+	}
+	if cid, isCID := bareCID(v); isCID {
+		t, _, found := s.storedText(cid)
+		if !found {
+			return "", false, api.Errf(404, api.CodeNotFound, "same_as: no program with CID %s is stored here or among the examples; pass its text instead", cid)
+		}
+		return t, true, nil
+	}
+	return v, true, nil
+}
+
+// sameAs runs the comparison (a second checker call, charged as one).
+func (s *Server) sameAs(ctx context.Context, c caller, a, b string) (json.RawMessage, *api.Error) {
+	sa, ok := s.b.(api.SameAser)
+	if !ok {
+		return nil, api.Errf(503, api.CodeNotConfigured, "this server cannot compare programs (same_as needs the btwd checker)")
+	}
+	if e := s.limitCPU(c); e != nil {
+		return nil, e
+	}
+	out, err := sa.SameAs(ctx, a, b)
+	if err != nil {
+		return nil, fail(err)
+	}
+	return out, nil
 }
 
 func (s *Server) fmtTool(ctx context.Context, c caller, a args) (any, *api.Error) {

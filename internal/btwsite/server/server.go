@@ -521,3 +521,11 @@ func (s *Server) corsReadOnly(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// SameAs is the checker's (btwd's `same-as`), when it has one: a fake checker without it answers not_configured.
+func (s *Server) SameAs(ctx context.Context, a, b string) (json.RawMessage, error) {
+	if sa, ok := s.Checker.(api.SameAser); ok {
+		return sa.SameAs(ctx, a, b)
+	}
+	return nil, api.Errf(503, api.CodeNotConfigured, "this checker cannot compare programs (same_as needs the btwd binary)")
+}
