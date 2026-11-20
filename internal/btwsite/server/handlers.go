@@ -53,13 +53,14 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		defFmt, formats = "wav", []string{"wav"}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name":       "btw",
-		"version":    s.version(),
-		"public_url": s.cfg.PublicURL,
-		"site":       s.siteDoc(),
-		"license":    contentLicense,
-		"notice":     api.PublicNotice,
-		"model":      cs.Model,
+		"name":             "btw",
+		"version":          s.version(),
+		"public_url":       s.cfg.PublicURL,
+		"android_beta_url": s.cfg.AndroidBetaURL,
+		"site":             s.siteDoc(),
+		"license":          contentLicense,
+		"notice":           api.PublicNotice,
+		"model":            cs.Model,
 		"compose": map[string]any{
 			"enabled": cs.Enabled, "configured": cs.Configured, "reason": reason,
 			"limits": map[string]any{

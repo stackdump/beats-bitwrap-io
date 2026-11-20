@@ -920,7 +920,7 @@ func (s *Server) devices(_ context.Context, c caller, a args) (any, *api.Error) 
 	}
 	note := "Pass a phone's id as device to eval, load, get or stop to drive that phone alone."
 	if len(list) == 0 {
-		note = fmt.Sprintf("No phone is paired with this account. Open %s signed in, press Phone, and scan the code with djrust's btw pairing.", s.public)
+		note = fmt.Sprintf("No phone is paired with this account. Open %s signed in, press Mobile, and scan the code with djrust's btw pairing.", s.public)
 	} else if n == 0 {
 		note = "No paired phone is connected now: open djrust on the phone (it connects on its own). " + note
 	}

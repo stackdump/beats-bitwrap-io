@@ -36,6 +36,8 @@ type Config struct {
 	// a phone paired under one of them signs that host into its requests, and those signatures stay good.
 	LegacyHosts string // -legacy-hosts
 	// AssetLinksFile is a JSON file served at /.well-known/assetlinks.json (Android App Links verification); "" = 404.
+	// AndroidBetaURL is the Google Play opt-in page for the Android beta; the mobile panel links it under the pairing QR. "" hides the link.
+	AndroidBetaURL string // -android-beta-url
 	AssetLinksFile string // -assetlinks-file
 
 	Model    string // -model ("fake" = the recorded-fixture model)
@@ -119,6 +121,7 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	str(&c.MovedTo, "moved-to", "the origin this site has moved to: phones and pages are told, the old name keeps answering")
 	str(&c.SiteID, "site-id", "the site's stable id (default: <data>/site.json, made on first start; copy that file when you move the data)")
 	str(&c.LegacyHosts, "legacy-hosts", "earlier public hosts, comma-separated: phones paired under them keep working")
+	str(&c.AndroidBetaURL, "android-beta-url", "Google Play page to join the Android beta, linked under the pairing QR in the mobile panel (empty = no link)")
 	str(&c.AssetLinksFile, "assetlinks-file", "JSON file served at /.well-known/assetlinks.json so Android opens share links in the BeatScript app (empty = 404)")
 	str(&c.Model, "model", "compose model name; \"fake\" selects the recorded fixture model")
 	str(&c.Thinking, "thinking", "Gemini thinking level: MINIMAL, LOW, MEDIUM or HIGH (empty = LOW)")

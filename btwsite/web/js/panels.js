@@ -66,7 +66,7 @@ export class Panels {
     if (w === 'share') return this.share();
     if (w === 'open') return this.open();
     const body = this.el['drawer-body'];
-    const title = { compose: 'Compose', mcp: 'MCP', phone: 'Phone', user: this.app.user ? 'Account' : 'Sign in' }[w];
+    const title = { compose: 'Compose', mcp: 'MCP', phone: 'Mobile', user: this.app.user ? 'Account' : 'Sign in' }[w];
     this.el['drawer-title'].textContent = title;
     body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : w === 'phone' ? this.phoneBody() : this.userBody()));
     this.el.drawer.hidden = false;
@@ -273,7 +273,10 @@ export class Panels {
     const qrBox = h('div', { class: 'pair-qr', role: 'status' });
     const list = h('div', { class: 'pair-devices' });
     const show = h('button', { type: 'button', class: 'tb primary', onclick: () => this.phoneOfferNew(qrBox, list) }, 'Show a pairing code');
-    out.push(show, qrBox, h('h3', {}, 'Paired phones'), list);
+    out.push(show, qrBox);
+    const beta = app.info && app.info.android_beta_url;
+    if (beta) out.push(h('p', { class: 'note pair-beta' }, 'Don\'t have the app? ', h('a', { href: beta, class: 'link', target: '_blank', rel: 'noopener' }, 'Join the Android beta on Google Play →')));
+    out.push(h('h3', {}, 'Paired phones'), list);
     out.push(h('p', { class: 'note' }, 'The code works once and for two minutes. It carries no lasting secret: the phone makes its own key, and only its public half is kept here. Unpair here or on the phone at any time.'));
     this.phoneList(list);
     return out;
