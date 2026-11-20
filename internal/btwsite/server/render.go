@@ -43,7 +43,7 @@ type renderKey struct {
 // renderVersion names what `btwd render` makes of a program: bump it when the renderer starts producing different audio for
 // the same CID, so cached files (served immutable) are not reused. r2 (2026-11-19): btwd renders control lines (deck and
 // master level, ramps, mixer moves, filter / reverb inserts); r1 files (no version in the name) had no section dynamics.
-const renderVersion = "r2"
+const renderVersion = api.RenderVersion
 
 func (k renderKey) name() string {
 	return fmt.Sprintf("%s.%d.%s.%s", k.cid, k.sr, renderVersion, k.format)
@@ -842,7 +842,7 @@ func (s *Server) handleRenderStatus(w http.ResponseWriter, r *http.Request) {
 	formats := map[string]fmtStatus{}
 	for _, f := range []string{"opus", "wav"} {
 		key := renderKey{cid, f, sr}
-		st := fmtStatus{State: "none", URL: fmt.Sprintf("/api/render/%s?format=%s&sr=%d", cid, f, sr), Available: f == "wav" || rs.ffmpegOK()}
+		st := fmtStatus{State: "none", URL: fmt.Sprintf("/api/render/%s?format=%s&sr=%d&v=%s", cid, f, sr, renderVersion), Available: f == "wav" || rs.ffmpegOK()}
 		rs.mu.Lock()
 		_, e, hit := rs.lookupLocked(key)
 		job := rs.jobs[key]

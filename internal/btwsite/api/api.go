@@ -323,6 +323,11 @@ type ComposeResult struct {
 // PublicNotice is said wherever something is generated: with every compose result, on /privacy, in the
 // docs and the MCP tool descriptions. Keep it one sentence and true: a program, its share link and its audio
 // are public the moment they exist.
+// RenderVersion names what `btwd render` makes of a program (see server/render.go renderVersion, which is this). Every
+// render URL the site hands out carries it as `v=`: renders are served immutable for a year, so a renderer that changes the
+// audio for the same CID must change the URL too, or a browser keeps the old file. The handler ignores the parameter.
+const RenderVersion = "r2"
+
 const PublicNotice = "Everything generated here is published: the program, its CID, share link and rendered audio are stored publicly and released under CC0-1.0 (public domain), and anyone with the link can play, copy and reuse them. The prompt goes to a third-party model provider. Do not put anything private in a prompt."
 
 // Composer is implemented by the compose package. It enforces auth-agnostic rules itself (limits,

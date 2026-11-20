@@ -34,7 +34,7 @@ func TestComposeGood(t *testing.T) {
 		t.Errorf("provenance: %v %v %v", m["license"], m["composedBy"], m["model"])
 	}
 	cid := m["cid"].(string)
-	if cid == "" || m["render_url"] != "/api/render/"+cid+"?format=opus" {
+	if cid == "" || m["render_url"] != "/api/render/"+cid+"?format=opus&v="+api.RenderVersion {
 		t.Errorf("render_url = %v", m["render_url"])
 	}
 	if !strings.HasPrefix(m["share_url"].(string), "https://btw.example.test/#"+cid) {

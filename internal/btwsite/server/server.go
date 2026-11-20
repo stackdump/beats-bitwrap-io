@@ -388,7 +388,7 @@ func (s *Server) RenderInfo(cid, format string) (streamURL, statusURL string, se
 	} else {
 		format = "wav" // no ffmpeg with libopus here: the URL must be one that works
 	}
-	streamURL = fmt.Sprintf("%s/api/render/%s?format=%s", s.cfg.PublicURL, cid, format)
+	streamURL = fmt.Sprintf("%s/api/render/%s?format=%s&v=%s", s.cfg.PublicURL, cid, format, api.RenderVersion)
 	statusURL = fmt.Sprintf("%s/api/render/%s/status", s.cfg.PublicURL, cid)
 	if p, ok := s.Get(cid); ok {
 		if rep, err := s.programReport(context.Background(), p); err == nil && rep.Seconds != nil {

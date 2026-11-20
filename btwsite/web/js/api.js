@@ -12,6 +12,8 @@ const seg = (re, what) => (v) => {
 };
 const cidSeg = seg(CID_RE, 'a CID');
 const nameSeg = seg(EXAMPLE_RE, 'an example name');
+// what the server's renderer is (internal/btwsite/api RenderVersion): part of every render URL, so a renderer change is a new URL
+export const RENDER_VERSION = 'r2';
 const sidSeg = seg(SESSION_RE, 'a session id');
 /** A call that returns a promise answers a bad argument with a rejection, not a throw. */
 const rejecting = (fn) => (...a) => {
@@ -60,7 +62,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     putShare: rejecting((cid, body) => req('PUT', `/api/shares/${cidSeg(cid)}`, { json: body })),
     // a QR code (SVG data URL) for one of this site's own share links; no sign-in
     qr: rejecting((text) => req('POST', '/api/qr', { json: { text } })),
-    renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}`,
+    // v= is the server's api.RenderVersion: renders are cached immutable, so a renderer change must change the URL (bump both)
+    renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}&v=${RENDER_VERSION}`,
     renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
     challenge: () => req('GET', '/api/auth/challenge'),
