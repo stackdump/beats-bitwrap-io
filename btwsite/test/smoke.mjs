@@ -196,6 +196,11 @@ try {
       await page.key('Enter', { meta: true });
       await sleep(600);
       check('the next edit hot-reloads on the same runtime (no restart)', (await page.eval('__app.driver.run === window.__run0')) === true && (await page.eval('__app.driver.evalText === __app.editor.text')) === true, `tempo ${tempo0}`);
+      // a line the engine cannot play is said beside the problems, not hidden under "no problems" (test/parity)
+      await page.eval('(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=ta.value.replace(/\\n*$/, "\\nmaster: delay 0.3\\n"); ta.dispatchEvent(new Event("input",{bubbles:true}));})()');
+      await page.key('Enter', { meta: true });
+      const noted = await page.waitFor('(()=>{const t=document.getElementById("pr-sum-txt").textContent; return /not played here/.test(t) ? t : null})()', 8000).catch(() => null);
+      check('a dropped insert (master delay) shows as "not played here" with the problems', !!noted && (await page.eval('[...document.querySelectorAll("#pr-list .pr-note")].some(e => /delay/.test(e.textContent))')) === true, `${await q('#pr-sum-txt')}`);
       await page.click('#btn-decks');
       await sleep(600);
       check('the decks panel lists each deck\'s roles', (await count('#decks .roles li')) >= 2, `${await count('#decks .roles li')}`);

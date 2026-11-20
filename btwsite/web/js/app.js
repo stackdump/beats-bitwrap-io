@@ -12,6 +12,7 @@ import { Follow } from './follow.js';
 import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
 import { headerModel, programName } from './header-model.js';
+import { chooseSource, renderEndedMessage } from './source-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
 import { h, debounce, fmtTime, shortCid, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
@@ -56,6 +57,7 @@ export class App {
     this.sourcePref = 'auto';
     this.info = null; this.examples = [];
     this.report = null; // the check of the text in the editor
+    this.engineNotes = new Set(); // what the in-browser engine ignored of the program it plays (engine-calls.js): shown with the problems
     this.evalReport = null; // the check of the text the running program was evaluated from
     this.cid = null; this.name = ''; this.stored = new Set();
     this.user = null;
@@ -416,17 +418,19 @@ export class App {
   renderProblems() {
     const r = this.report;
     const ds = (r && r.diagnostics) || [];
+    const notes = [...this.engineNotes];
     const sumEl = this.el['pr-sum-txt'];
-    sumEl.textContent = r ? summary(r) : '';
+    sumEl.textContent = r ? `${summary(r)}${notes.length ? ` · ${notes.length} not played here` : ''}` : '';
     const errs = ds.filter((d) => d.severity !== 'warning');
-    const dotClass = `pr-dot ${errs.length ? 'error' : ds.length ? 'warn' : ''}`;
+    const dotClass = `pr-dot ${errs.length ? 'error' : ds.length || notes.length ? 'warn' : ''}`;
     this.el['pr-dot'].className = dotClass;
     this.el['t-prob-dot'].className = dotClass;
-    this.setText(this.el['t-prob-n'], String(ds.length));
-    this.el['t-prob'].setAttribute('aria-label', ds.length ? `${summary(r)}: open the list of problems` : 'No problems');
-    this.el['t-prob'].title = ds.length ? summary(r) : 'No problems';
+    this.setText(this.el['t-prob-n'], String(ds.length + notes.length));
+    const said = `${r ? summary(r) : 'no problems'}${notes.length ? `, ${notes.length} not played here` : ''}`;
+    this.el['t-prob'].setAttribute('aria-label', ds.length || notes.length ? `${said}: open the list of problems` : 'No problems');
+    this.el['t-prob'].title = ds.length || notes.length ? said : 'No problems';
     const first = errs[0] || ds[0];
-    this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : '';
+    this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : notes.length ? `not played here: ${notes[0]}` : '';
     const list = this.el['pr-list'];
     list.replaceChildren(...ds.map((d) => {
       const b = h('button', { type: 'button', class: 'pr-row', title: 'Jump to this' }, h('span', { class: 'pos' }, `${d.line}:${d.col}`), h('span', { class: `sev-${d.severity || 'error'}` }, `${d.severity || 'error'}: `), d.message,
@@ -440,8 +444,9 @@ export class App {
         return a;
       });
       return h('li', {}, b, ...(apply.length ? [h('div', { class: 'pr-fixes' }, ...apply)] : []));
-    }));
-    if (!ds.length && !list.hidden) {
+    }), ...notes.map((what) => h('li', {}, h('div', { class: 'pr-row pr-note' }, h('span', { class: 'sev-note' }, 'not played here: '), what,
+      h('span', { class: 'more' }, 'the in-browser engine does not have this, so it is skipped (the program still checks). Stream mode plays no control lines at all.')))));
+    if (!ds.length && !notes.length && !list.hidden) {
       list.hidden = true;
       this.el['pr-sum'].setAttribute('aria-expanded', 'false');
       this.el['t-prob'].setAttribute('aria-expanded', 'false');
@@ -504,6 +509,9 @@ export class App {
       }
       await engine.ready;
       if (engine.on) engine.on('error', (e) => { if (e && e.message) this.toast(`Engine: ${e.message}`, 'error'); });
+      // a line the engine cannot play (a trick, a delay, a filter's resonance ...) is not a problem of the text, but it is not
+      // heard either: say so beside the problems, so the strip does not read "no problems" over a program that plays without it
+      if (engine.on) engine.on('ignored', (e) => { if (e && e.what && !this.engineNotes.has(e.what)) { this.engineNotes.add(e.what); this.renderProblems(); } });
       this.engine = engine;
       if (this.bg) this.bg.attachEngine(engine);
       this.engineSrc = new EngineSource(engine);
@@ -533,14 +541,7 @@ export class App {
 
   /** Which source plays this program: 'engine' | 'stream' | null. `trigger`: 'eval' (an edit, Cmd+Enter) or 'load' (open, compose). */
   pickSource(trigger, report) {
-    const e = !!this.engineSrc;
-    const s = this.canStream(report);
-    const pref = this.sourcePref;
-    if (pref === 'engine') return e ? 'engine' : null;
-    if (pref === 'stream') return s ? 'stream' : null;
-    if (trigger === 'load') return s ? 'stream' : e ? 'engine' : null;
-    if (e) return 'engine';
-    return s ? 'stream' : null;
+    return chooseSource({ engine: !!this.engineSrc, stream: this.canStream(report), pref: this.sourcePref, trigger, loops: !!(report && report.loops) });
   }
 
   async play(trigger = 'eval') {
@@ -584,6 +585,9 @@ export class App {
   }
 
   async playEngine(text, report) {
+    // the notes are about the program that plays: a new evaluation collects them afresh
+    if (this.engine && this.engine.resetNotes) this.engine.resetNotes();
+    if (this.engineNotes.size) { this.engineNotes.clear(); this.renderProblems(); }
     const res = this.driver.evaluate(text, this.engineSrc);
     if (!res.ok) {
       this.editor.setDiagnostics(res.diagnostics || []);
@@ -762,7 +766,7 @@ export class App {
 
   songEnded() {
     if (this.driver && this.driver.src && !this.record) {
-      this.toast(this.player ? 'The render ended.' : 'The song ended.', 'info');
+      this.toast(this.player ? renderEndedMessage(!!(this.evalReport && this.evalReport.loops)) : 'The song ended.', 'info');
       this.stop();
     }
   }
