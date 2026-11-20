@@ -163,6 +163,13 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+// PairLink is what a pairing QR code holds: https://<site>/pair#<pair id>.<token>. The token stays in the
+// fragment, so a camera app that opens the link never sends it to the server. The phone's parser
+// (beatscript-app rust/src/btwpair.rs) reads exactly this form; btwsite/testdata/pair/qr-golden.json pins one.
+func PairLink(publicURL, pairID, token string) string {
+	return strings.TrimRight(publicURL, "/") + "/pair#" + pairID + "." + token
+}
+
 // ClaimMessage is the text a phone signs to claim an offer. host is the server's public host; token is
 // hashed into it, so the signature is useless without the token and the token alone cannot pair a key.
 func ClaimMessage(host, pairID, token, key, name string, ts int64) string {
@@ -269,11 +276,11 @@ func (s *Server) handlePairPage(w http.ResponseWriter, r *http.Request) {
 
 const pairPageHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Pair a phone with btw</title><link rel="stylesheet" href="/css/btw.css"></head>
+<meta name="robots" content="noindex"><title>Pair a phone with BeatScript</title><link rel="stylesheet" href="/css/btw.css"></head>
 <body><main class="pair-page">
-<h1>This is a pairing code for djrust</h1>
-<p>Open <b>djrust</b> on your Android phone, tap the menu, then <b>btw</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
-<p>A phone camera app cannot pair: the code is only for djrust's own scanner, and it works once, for two minutes.</p>
+<h1>This is a pairing code for the BeatScript app</h1>
+<p>Open <b>BeatScript</b> on your Android phone, tap the menu, then <b>beatscript.app</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
+<p>It is not an invite code: scan it with <b>Scan to connect</b>, not from Identity. It works once, for two minutes; if it has run out, press <b>Show a pairing code</b> on the page again.</p>
 <p><a href="/">Back to the site</a></p>
 </main></body></html>
 `
@@ -316,7 +323,7 @@ func (s *Server) handlePairNew(w http.ResponseWriter, r *http.Request) {
 	p.offers[o.id] = o
 	p.mu.Unlock()
 
-	link := s.cfg.PublicURL + "/pair#" + o.id + "." + token
+	link := PairLink(s.cfg.PublicURL, o.id, token)
 	png, err := qrcode.Encode(link, qrcode.Medium, 320)
 	if err != nil {
 		api.WriteError(w, api.Errf(http.StatusInternalServerError, "internal", "could not draw the QR code: %v", err))

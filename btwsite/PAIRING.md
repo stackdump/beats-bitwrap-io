@@ -1,6 +1,6 @@
 # Pairing a phone with the btw site (`btw-pair/2`)
 
-djrust on Android (djandroid, `se.vevr.djandroid`) connects to the btw site by scanning a QR
+The BeatScript Android app (beatscript-app, formerly djandroid; `app.beatscript`) connects to the btw site by scanning a QR
 code. Once paired, the site (and an assistant over its MCP) can send btw programs to the phone and
 play them there, and the site sees what the phone plays. Server: `internal/btwsite/server/pair.go`.
 Phone: djandroid `rust/src/btwpair.rs` (the protocol core, `network` feature only) and
@@ -65,6 +65,31 @@ ts: <unix ms>                         body: <hex sha256(body)>   (of the empty s
 of 0x01). `pair_test.go TestPairVectors` makes it, and djandroid's `btwpair.rs` tests reproduce it
 byte for byte, so the two sides cannot drift.
 
+`btwsite/testdata/pair/qr-golden.json` pins one whole pairing QR payload as the site makes it
+(`PairLink`, `https://beatscript.app/pair#<22>.<22>`, with `-` and `_` in the token) and the v1 claim a
+phone signs for it. `pair_qr_golden_test.go` makes it and checks that a live offer's link is `PairLink`'s;
+beatscript-app copies it to `rust/tests/btw_pair_qr_golden.json`, and its `btwpair.rs` test parses the payload
+with the app's own parser and reproduces the claim byte for byte. `TestPairQRScanSingleUseExpiry` scans as the
+phone does on a beatscript.app site: the claim is accepted once, the same claim again is `410 pair_used`, and a
+code past two minutes is `410 pair_expired`, each telling the person to show a new code.
+
+## A pairing code is not an invite (2026-11-19)
+
+The app has two QR codes of its own kinds, and they are different credentials:
+
+- **A pairing code** (this document): `https://<site>/pair#<id>.<token>`, made by the site's phone panel. It
+  binds the phone's device key to the signed-in account. In the app: Menu › beatscript.app › Scan to connect,
+  or the phone's camera (the link opens the app).
+- **An invite** (`bitwrap-invite.v1`, the app's wallet, Menu › Identity › Redeem an invite): a signed JSON
+  credential one member gives another. The site never makes one.
+
+Scanning the site's code from the invite scanner used to answer "That isn't a BeatScript invite code"; that was
+the reported bug. The Play app was also built without the `network` feature, so it had no pairing scanner at all
+and a camera-opened `/pair` link did nothing. beatscript-app `fix/pairing-qr` sends every scanned code to the
+flow it belongs to (one router, whichever scanner read it), says what a code is when it cannot use it, and makes
+the Play build a network build. One credential flow stays: pairing is the only way a phone gets a site
+credential; an invite never becomes one.
+
 ## The host after the move (2026-11-19)
 
 `host` in both signed texts is the server's public host. The public origin moved from btw.bitwrap.io to
@@ -79,7 +104,7 @@ as the official host, so it asks "Connect?" before pairing with a beatscript.app
 - **Nothing long-lived is in the QR.** The token is 128 random bits and works once, for two minutes.
   Any claim with a wrong token burns the offer. Only its SHA-256 is kept, in memory. It sits in the
   link's fragment, so a camera app that opens the link never sends it to the server (`GET /pair`
-  explains that the code is for djrust's scanner).
+  explains that the code is for the BeatScript app's scanner).
 - **No secret is stored on the server.** A device record (`<data>/devices.json`, 0600) is its id,
   its owner, its name and its public key. The phone's key never leaves the phone (djandroid keeps the
   seed in `noBackupFilesDir`).
