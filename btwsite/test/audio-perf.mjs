@@ -3,6 +3,9 @@
 //
 //   node btwsite/test/audio-perf.mjs [--program hand-dubstep-140-v4] [--seconds 30] [--server URL] [--json out.json]
 //                                    [--sink null|device] [--query latency=interactive] [--max-overruns-per-min N] [--max-underruns N]
+//                                    [--parity out/report.json]
+//
+// --program is an example name, a .btw file, a programs-store .json (its "text"), or a URL path on the server.
 //
 // --query adds to the page's query string (latency=interactive is the page as it was before the 0.1 s buffer).
 //
@@ -18,6 +21,11 @@
 //   - the audio clock against the wall clock, baseLatency / outputLatency.
 //   - main-thread long tasks (PerformanceObserver 'longtask', > 50 ms) and the frame rate.
 //   - the engine's own stats (loads, prepare and install times).
+//   - where it happened: every 50 ms the page's audio time, section, bar and underrun count are sampled, so each slow block
+//     (by its worklet time) and each underrun gets a section and bar, and is marked when it falls within a bar of a section
+//     change (where nets are installed and land). Every slow block is kept as it is reported (stats.slow holds only 200).
+//     With btwsite/test/parity (its report.json, --parity FILE), the bars the parity run flagged for this program are listed
+//     beside the bars with slow blocks or underruns.
 // Prints a table and exits 1 when a --max-* threshold is given and broken. Skips (exit 0) without the wasm or Chrome.
 //
 // --sink null (the default) is Chrome's --disable-audio-output: a fake sink with the same callback cadence, no sound card.
@@ -39,6 +47,7 @@ const JSON_OUT = arg('json', null);
 const MAX_OVERRUNS = arg('max-overruns-per-min', null);
 const MAX_UNDERRUNS = arg('max-underruns', null);
 const QUERY = String(arg('query', ''));
+const PARITY = arg('parity', null);
 
 if (!SERVER && !fs.existsSync(path.join(site, 'web', 'wasm', 'btw_bg.wasm'))) { console.log('SKIP audio-perf: no built module in btwsite/web/wasm'); process.exit(0); }
 if (!fs.existsSync(CHROME)) { console.log(`SKIP audio-perf: no Chrome at ${CHROME}`); process.exit(0); }
@@ -55,7 +64,7 @@ if (!base) {
 
 // the program: an example name, a path to a .btw file, or a URL path on the server
 let text;
-if (fs.existsSync(PROGRAM)) text = fs.readFileSync(PROGRAM, 'utf8');
+if (fs.existsSync(PROGRAM)) { text = fs.readFileSync(PROGRAM, 'utf8'); if (PROGRAM.endsWith('.json')) text = JSON.parse(text).text; }
 else {
   const p = PROGRAM.startsWith('/') ? PROGRAM : `/examples/${PROGRAM.replace(/\.btw$/, '')}.btw`;
   const r = await fetch(`${base}${p}`);
@@ -69,6 +78,23 @@ const stats = (xs) => {
   const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];
   return { n: s.length, mean: s.reduce((a, b) => a + b, 0) / s.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: s[s.length - 1] };
 };
+
+/** Each slow block and underrun on the timeline: its section and bar, and whether a section changes within a bar of it. */
+function where(tl, slow) {
+  const at = (t) => { let k = -1; for (let i = 0; i < tl.length && tl[i][0] <= t; i++) k = i; return k < 0 ? null : tl[k]; };
+  const changes = [];
+  for (let i = 1; i < tl.length; i++) if (tl[i][2] !== tl[i - 1][2] && tl[i][2]) changes.push({ t: tl[i][0], section: tl[i][2] });
+  // a bar's length from the timeline: the time between bar numbers changing
+  const flips = [];
+  for (let i = 1; i < tl.length; i++) if (tl[i][1] != null && tl[i - 1][1] != null && Math.floor(tl[i][1]) !== Math.floor(tl[i - 1][1])) flips.push(tl[i][0]); // marks.bar runs on between bar lines
+  const gaps = flips.slice(1).map((t, i) => t - flips[i]).sort((x, y) => x - y);
+  const barS = gaps.length ? gaps[gaps.length >> 1] : 2;
+  const near = (t) => changes.some((c) => Math.abs(c.t - t) <= barS);
+  const slowAt = slow.map((x) => { const p = at(x.t); return { t: x.t, ms: x.ms, did: x.did, section: p && p[2], bar: p && p[1], nearChange: near(x.t) }; });
+  const underruns = [];
+  for (let i = 1; i < tl.length; i++) if (tl[i][3] != null && tl[i - 1][3] != null && tl[i][3] > tl[i - 1][3]) underruns.push({ t: tl[i][0], n: tl[i][3] - tl[i - 1][3], section: tl[i][2], bar: tl[i][1], nearChange: near(tl[i][0]) });
+  return { barS, changes, slow: slowAt, slowNearChange: slowAt.filter((x) => x.nearChange).length, underruns, underrunsNearChange: underruns.filter((u) => u.nearChange).reduce((x, u) => x + u.n, 0) };
+}
 
 const page = await launch({ width: 1280, height: 800, args: SINK === 'null' ? ['--disable-audio-output'] : [] });
 let out = null;
@@ -106,6 +132,15 @@ try {
              bar: l && l.marks ? l.marks.bar : null, section: l && l.status ? l.status.section : null, frames: window.__perf.frames, longtasks: window.__perf.longtasks.length };
   })()`);
   const a = await snap();
+  // the timeline: [audio time, bar, section, underrun events], and every slow block as it comes
+  await page.eval(`(()=>{
+    window.__tl = []; window.__slow = []; const seen = new WeakSet();
+    window.__tlTimer = setInterval(() => {
+      const c = __app.ctx, l = __app.driver && __app.driver.last, ps = c.playbackStats;
+      window.__tl.push([c.currentTime, l && l.marks ? l.marks.bar : null, l && l.status ? l.status.section : null, ps ? ps.underrunEvents : null]);
+      for (const b of (__app.engine.stats.slow || [])) if (!seen.has(b)) { seen.add(b); window.__slow.push(b); }
+    }, 50);
+  })()`);
   const sections = [];
   const t0 = Date.now();
   while (Date.now() - t0 < SECONDS * 1000) {
@@ -114,6 +149,8 @@ try {
     if (s.section && sections[sections.length - 1] !== s.section) sections.push(s.section);
   }
   const b = await snap();
+  const tl = await page.eval('(()=>{ clearInterval(window.__tlTimer); return window.__tl; })()');
+  const slowAll = await page.eval('window.__slow');
   await page.cdp('Tracing.end');
   await Promise.race([done, sleep(30000)]);
   const lt = (await page.eval('window.__perf.longtasks')).filter(([st]) => st >= a.wall && st <= b.wall).map(([, d]) => d);
@@ -152,7 +189,8 @@ try {
     deviceCallbacks: { n: cb.length, mean: stats(cb.map((e) => e.dur / 1000)).mean, max: stats(cb.map((e) => e.dur / 1000)).max },
     playback: a.ps && b.ps ? { underrunEvents: b.ps.underrunEvents - a.ps.underrunEvents, underrunMs: (b.ps.underrunDuration - a.ps.underrunDuration) * 1000, averageLatencyMs: b.ps.averageLatency * 1000, maximumLatencyMs: b.ps.maximumLatency * 1000 } : null,
     main: { longtasks: lt.length, longtasksPerMin: lt.length / min, longtaskMaxMs: lt.length ? Math.max(...lt) : 0, longtaskTotalMs: lt.reduce((x, y) => x + y, 0), fps: (b.frames - a.frames) / wallS },
-    slow: eng.slow || [],
+    slow: slowAll.length ? slowAll : eng.slow || [],
+    where: where(tl, slowAll.length ? slowAll : eng.slow || []),
     engine: { loads: eng.loads, prepareMs: stats(eng.prepareMs || []), installMs: stats(eng.installMs || []), installQuanta: stats(eng.installQuanta || []) },
   };
   const f = (x, d = 3) => (typeof x === 'number' ? x.toFixed(d) : String(x));
@@ -172,6 +210,22 @@ try {
     for (const x of out.slow) { const k = x.did || '-'; const e = (by[k] = by[k] || { n: 0, ms: 0, install: 0, bars: 0, render: 0, tick: 0, grid: 0 }); e.n++; for (const f2 of ['ms', 'install', 'bars', 'render', 'tick', 'grid']) e[f2] += x[f2]; }
     console.log('  slow blocks (>= 3 ms by the worklet clock), by what the block did: I install, L landed, B bar plays, T tick, G grid');
     for (const [k, e] of Object.entries(by).sort((x, y) => y[1].ms - x[1].ms)) console.log(`    ${k.padEnd(6)} ${String(e.n).padStart(4)} blocks, ${e.ms} ms: install ${e.install} bars ${e.bars} render ${e.render} tick ${e.tick} grid ${e.grid}`);
+  }
+  const w = out.where;
+  console.log(`  where                ${w.changes.length} section changes; slow blocks ${w.slow.length}, ${w.slowNearChange} within a bar of a change; underrun events ${w.underruns.reduce((x, u) => x + u.n, 0)}, ${w.underrunsNearChange} near a change`);
+  for (const x of w.slow.filter((y) => y.ms >= 6).slice(0, 12)) console.log(`    slow ${String(x.ms).padStart(3)} ms ${x.did || '-'} at ${x.t.toFixed(2)} s, ${x.section || '-'} bar ${x.bar ?? '-'}${x.nearChange ? ' (section change)' : ''}`);
+  for (const u of w.underruns.slice(0, 12)) console.log(`    underrun x${u.n} at ${u.t.toFixed(2)} s, ${u.section || '-'} bar ${u.bar ?? '-'}${u.nearChange ? ' (section change)' : ''}`);
+  if (PARITY) {
+    try {
+      const rep = JSON.parse(fs.readFileSync(PARITY, 'utf8'));
+      const key = path.basename(PROGRAM).replace(/\.(btw|json)$/, '');
+      const r = rep.results.find((x) => x.name === key || x.name.endsWith(`-${key}`));
+      if (r) {
+        const det = JSON.parse(fs.readFileSync(path.join(path.dirname(PARITY), `${r.name}.json`), 'utf8'));
+        out.parity = { name: r.name, flaggedBars: det.barsDetail.filter((x) => x.flags.length).map((x) => x.bar), meanScore: r.summary && r.summary.meanScore };
+        console.log(`  parity (${r.name})   flagged bars ${out.parity.flaggedBars.join(' ') || 'none'}; mean score ${out.parity.meanScore}`);
+      }
+    } catch (e) { console.log(`  parity: ${e.message}`); }
   }
   if (MAX_OVERRUNS !== null && p.overrunsPerMin > Number(MAX_OVERRUNS)) { console.log(` FAIL overruns ${f(p.overrunsPerMin, 1)}/min > ${MAX_OVERRUNS}`); failed++; }
   if (MAX_UNDERRUNS !== null && out.playback && out.playback.underrunEvents > Number(MAX_UNDERRUNS)) { console.log(` FAIL underruns ${out.playback.underrunEvents} > ${MAX_UNDERRUNS}`); failed++; }

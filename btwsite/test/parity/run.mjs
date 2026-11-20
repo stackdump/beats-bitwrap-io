@@ -78,6 +78,37 @@ function renderStream(text) {
 
 // ---------------------------------------------------------------- run
 fs.mkdirSync(OUT, { recursive: true });
+/**
+ * The worklet's slow blocks (stats.slow, ?perf=1) against the comparison: each block's audio time on the engine, less the
+ * alignment offset, is a time in the stream, so a bar of it. Which bars had one, how many of those are flagged, and each
+ * section's first bar: did it have a slow block (in it or the bar before, where its nets are installed), and did it land
+ * late (its onsets off by more than the threshold, or its hits unlike the stream's).
+ */
+function perfReport(perf, cmp, row) {
+    if (!perf) return null;
+    const barS = (4 * 60) / row.bpm, off = cmp.offsetMs / 1000;
+    const byBar = new Map(), byDid = {};
+    for (const b of perf.slow) {
+        const bar = Math.floor((b.t - off) / barS) + 1;
+        const e = byBar.get(bar) || { n: 0, ms: 0 };
+        e.n++; e.ms += b.ms; byBar.set(bar, e);
+        const d = (byDid[b.did || '-'] = byDid[b.did || '-'] || { n: 0, ms: 0 }); d.n++; d.ms += b.ms;
+    }
+    const rows = new Map(cmp.bars.map((r) => [r.bar, r]));
+    const slowBars = [...byBar.keys()].filter((b) => rows.has(b)).sort((a, b) => a - b);
+    const slowFlagged = slowBars.filter((b) => rows.get(b).flags.length).length;
+    const sectionStarts = [];
+    for (const s of row.sections || []) {
+        const bar = s.start + 1, r = rows.get(bar);
+        if (!r || bar === 1) continue; // the first bar has the start-up's installs in every program
+        const late = Math.abs(r.onsetMs) > THRESHOLDS.onsetMs || r.onsetCorr < THRESHOLDS.onsetCorr;
+        sectionStarts.push({ bar, section: s.name, slow: byBar.has(bar) || byBar.has(bar - 1), late, onsetMs: r.onsetMs, onsetCorr: r.onsetCorr });
+    }
+    const st = (xs) => (xs.length ? { n: xs.length, mean: +(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1), max: +Math.max(...xs).toFixed(1) } : { n: 0 });
+    return { slow: perf.slow.length, maxMs: perf.slow.reduce((m, b) => Math.max(m, b.ms), 0), byDid, slowBars, slowFlagged, bars: cmp.bars.length, flagged: cmp.summary.flagged,
+        sectionStarts, loads: perf.loads, prepareMs: st(perf.prepareMs), installMs: st(perf.installMs), installQuanta: st(perf.installQuanta) };
+}
+
 const progs = corpus();
 console.log(`parity: ${progs.length} programs, btwd ${BTWD}, out ${OUT}`);
 
@@ -119,25 +150,45 @@ for (const p of progs) {
     const calls = new Map();
     for (const c of eng.calls) if (c.noun) { const k = `${c.noun} ${JSON.stringify(Object.fromEntries(Object.entries(c.params || {}).filter(([k, v]) => k !== 'value' && typeof v !== 'number')))}`; calls.set(k, (calls.get(k) || 0) + 1); }
     row.calls = [...calls].map(([k, n]) => `${k} x${n}`);
-    fs.writeFileSync(path.join(OUT, `${p.name}.json`), JSON.stringify({ ...row, barsDetail: cmp.bars, trace: eng.trace, decksTrace: eng.decksTrace }, null, 1));
+    row.perf = perfReport(eng.perf, cmp, row);
+    fs.writeFileSync(path.join(OUT, `${p.name}.json`), JSON.stringify({ ...row, slow: eng.perf && eng.perf.slow, barsDetail: cmp.bars, trace: eng.trace, decksTrace: eng.decksTrace }, null, 1));
     if (KEEP) {
         fs.writeFileSync(path.join(OUT, `${p.name}.stream.wav`), wav(s.pcm, SR));
         fs.writeFileSync(path.join(OUT, `${p.name}.engine.wav`), wav(pcmE.subarray(Math.round(cmp.offsetMs * SR / 1000) * 4), SR));
     }
     row.worst = cmp.bars.filter((b) => b.flags.length).sort((a, b) => b.score - a.score).slice(0, 4).map((b) => ({ bar: b.bar, section: b.section, flags: b.flags }));
     results.push(row);
-    console.log(`  engine ${p.name}: offset ${cmp.offsetMs} ms, ${cmp.summary.flagged}/${cmp.summary.bars} bars flagged, mean score ${cmp.summary.meanScore}, dLUFS ${(cmp.summary.lufsEngine - cmp.summary.lufsStream).toFixed(1)}${eng.ignored.length ? `, ignored: ${eng.ignored.join('; ')}` : ''}`);
+    const pr = row.perf;
+    console.log(`  engine ${p.name}: offset ${cmp.offsetMs} ms, ${cmp.summary.flagged}/${cmp.summary.bars} bars flagged, mean score ${cmp.summary.meanScore}, dLUFS ${(cmp.summary.lufsEngine - cmp.summary.lufsStream).toFixed(1)}${pr ? `, slow ${pr.slow} (max ${pr.maxMs} ms, ${pr.slowBars.length} bars, ${pr.slowFlagged} flagged)` : ''}${eng.ignored.length ? `, ignored: ${eng.ignored.join('; ')}` : ''}`);
 }
 await h.close();
 
 results.sort((a, b) => (b.summary?.meanScore ?? -1) - (a.summary?.meanScore ?? -1));
-fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify({ thresholds: THRESHOLDS, sampleRate: SR, btwd: BTWD, wasm: (() => { try { return JSON.parse(fs.readFileSync(path.join(wasmDir(), 'hashes.json'), 'utf8')); } catch { return null; } })(), results }, null, 1));
+// stats.slow across the corpus: are bars with a slow block flagged more often than bars without one, and do section starts
+// with a slow block land late (their onsets off) more often?
+const perfAll = (() => {
+    const rs = results.filter((r) => r.perf);
+    const sum = (f) => rs.reduce((a, r) => a + f(r.perf), 0);
+    const slowBars = sum((p) => p.slowBars.length), slowFlagged = sum((p) => p.slowFlagged), bars = sum((p) => p.bars), flagged = sum((p) => p.flagged);
+    const starts = rs.flatMap((r) => r.perf.sectionStarts);
+    const withSlow = starts.filter((x) => x.slow), without = starts.filter((x) => !x.slow);
+    const lateRate = (xs) => (xs.length ? +(xs.filter((x) => x.late).length / xs.length).toFixed(3) : null);
+    const did = {};
+    for (const r of rs) for (const [k, v] of Object.entries(r.perf.byDid)) { const e = (did[k] = did[k] || { n: 0, ms: 0 }); e.n += v.n; e.ms += v.ms; }
+    return { programs: rs.length, slowBlocks: sum((p) => p.slow), maxMs: Math.max(0, ...rs.map((r) => r.perf.maxMs)), byDid: did,
+        bars, flagged, slowBars, slowFlagged,
+        flagRateSlowBars: slowBars ? +(slowFlagged / slowBars).toFixed(3) : null, flagRateOtherBars: bars - slowBars ? +((flagged - slowFlagged) / (bars - slowBars)).toFixed(3) : null,
+        sectionStarts: starts.length, sectionStartsSlow: withSlow.length, lateRateSlow: lateRate(withSlow), lateRateOther: lateRate(without) };
+})();
+fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify({ thresholds: THRESHOLDS, sampleRate: SR, perf: perfAll, btwd: BTWD, wasm: (() => { try { return JSON.parse(fs.readFileSync(path.join(wasmDir(), 'hashes.json'), 'utf8')); } catch { return null; } })(), results }, null, 1));
 const md = ['# parity results', '', `${results.length} programs. Thresholds per bar: |dLUFS| > ${THRESHOLDS.lufs} LU, log-mel L1 > ${THRESHOLDS.mel} dB, onsets > ${THRESHOLDS.onsetMs} ms, onset corr < ${THRESHOLDS.onsetCorr}.`, '',
-    '| program | bars | flagged | mean score | LUFS stream / engine | TP stream / engine | mean mel dB | offset ms | engine ignored |', '|---|---|---|---|---|---|---|---|---|'];
+    `stats.slow (?perf=1): ${perfAll.slowBlocks} slow blocks (>= 3 ms, max ${perfAll.maxMs} ms) in ${perfAll.slowBars} of ${perfAll.bars} bars; flagged: ${perfAll.flagRateSlowBars} of bars with one, ${perfAll.flagRateOtherBars} of bars without; section starts landing late: ${perfAll.lateRateSlow} with a slow block (${perfAll.sectionStartsSlow}), ${perfAll.lateRateOther} without (${perfAll.sectionStarts - perfAll.sectionStartsSlow}).`, '',
+    'Ranked by mean score: how far the engine strays from the render (btwd, the reference), per bar the largest measure over its threshold, averaged.', '',
+    '| program | bars | flagged | mean score | LUFS stream / engine | TP stream / engine | mean mel dB | offset ms | slow blocks (bars, flagged) | engine ignored |', '|---|---|---|---|---|---|---|---|---|---|'];
 for (const r of results) {
-    if (!r.summary) { md.push(`| ${r.name} | | | | | | | | ${r.skipped || r.error} |`); continue; }
+    if (!r.summary) { md.push(`| ${r.name} | | | | | | | | | ${r.skipped || r.error} |`); continue; }
     const s = r.summary;
-    md.push(`| ${r.name} | ${s.bars} | ${s.flagged} | ${s.meanScore} | ${s.lufsStream} / ${s.lufsEngine} | ${s.tpStream} / ${s.tpEngine} | ${s.meanMel} | ${r.offsetMs} | ${(r.ignored || []).join('; ')} |`);
+    md.push(`| ${r.name} | ${s.bars} | ${s.flagged} | ${s.meanScore} | ${s.lufsStream} / ${s.lufsEngine} | ${s.tpStream} / ${s.tpEngine} | ${s.meanMel} | ${r.offsetMs} | ${r.perf ? `${r.perf.slow} (${r.perf.slowBars.length}, ${r.perf.slowFlagged})` : ''} | ${(r.ignored || []).join('; ')} |`);
 }
 fs.writeFileSync(path.join(OUT, 'RESULTS.md'), `${md.join('\n')}\n`);
 console.log(`parity: wrote ${path.join(OUT, 'RESULTS.md')}`);

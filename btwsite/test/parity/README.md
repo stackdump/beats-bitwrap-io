@@ -32,6 +32,9 @@ blocks it, the launch fails with "Chrome did not come up".
 - **measure** (`analyze.mjs`), per bar: RMS, BS.1770 K-weighted loudness, sample and 4x true peak, mean |log-mel
   difference| (64 bands), local onset offset and onset-envelope correlation. A bar is flagged at |dLUFS| > 3 LU,
   mel > 6 dB, onsets > 15 ms or onset correlation < 0.6; each program also gets integrated LUFS (gated) for both.
+- **stats.slow**: the page is opened with `?perf=1`, so the worklet reports every block of 3 ms or more with where the time went;
+  each is placed in a bar of the render (`perf` per program and in `report.json`: slow bars, how many are flagged, section
+  starts with a slow block and whether they landed late). Real-time slow blocks and underrun: `test/audio-perf.mjs`.
 - **inventory**: every registry call the runtime hands the engine is recorded with the engine's `ignored` events and
   the console's `btw engine: ignoring ...` lines.
 

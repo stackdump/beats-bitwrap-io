@@ -50,7 +50,7 @@ export async function start() {
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
     const page = await cdp.launch({ width: 800, height: 400, args: ['--disable-audio-output'] });
-    await page.goto(`http://127.0.0.1:${port}/web/parity.html`);
+    await page.goto(`http://127.0.0.1:${port}/web/parity.html?perf=1`); // ?perf=1: the worklet's slow blocks (stats.slow) in every run
     await page.waitFor('window.parityRender !== undefined && window.parityReady === true', 20000);
     return {
         page,

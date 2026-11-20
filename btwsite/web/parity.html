@@ -18,12 +18,18 @@
 // and there is no output latency. The master is captured exactly (AudioBuffer), then sent as 16-bit PCM to the
 // harness's server (POST /upload/<name>), rounded the way btwd's s16 writer rounds.
 //
-//   window.parityRender({program, name, seconds, sampleRate}) -> {ok, frames, trace, calls, ignored, warns, errors}
+//   window.parityRender({program, name, seconds, sampleRate}) -> {ok, frames, trace, calls, ignored, warns, errors, perf}
+//
+// ?perf=1 (the harness always sets it, as test/audio-perf.mjs does) turns on the worklet's slow-block reports: every
+// block of 3 ms or more by its Date.now(), with where the time went (engine.stats.slow). They are collected as they come
+// (stats.slow keeps only the last 200) and returned in `perf` with the engine's prepare/install times. Offline, a slow
+// block cannot drop out (the render waits for it); what it tells is which bars carry the install and landing work.
 import { createEngine } from './js/engine.js';
 
 const out = document.getElementById('out');
 const say = (s) => { out.textContent += `${s}\n`; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const PERF = new URLSearchParams(location.search).get('perf') === '1';
 
 let gluePromise = null;
 async function glue() {
@@ -48,7 +54,10 @@ window.parityRender = async ({ program, name, seconds, sampleRate = 48000, step 
   const text = program;
   const frames = Math.ceil(seconds * sampleRate);
   const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
-  const engine = await createEngine({ context: ctx, destination: ctx.destination, composer: 'worker' });
+  const engine = await createEngine({ context: ctx, destination: ctx.destination, composer: 'worker', perf: PERF });
+  // every slow block the worklet reports (stats.slow is a ring of the last 200: take each as it arrives)
+  const slow = [], seenSlow = new WeakSet();
+  const takeSlow = () => { for (const b of engine.stats.slow) if (!seenSlow.has(b)) { seenSlow.add(b); slow.push(b); } };
   const ignored = [], warns = [], errors = [], calls = [], trace = [];
   engine.on('ignored', (e) => ignored.push(e.what));
   engine.on('warn', (e) => warns.push(e.message));
@@ -89,6 +98,7 @@ window.parityRender = async ({ program, name, seconds, sampleRate = 48000, step 
       const pl = ['A', 'B'].map((d) => (dk[d] && dk[d].playing ? 1 : 0)).join('');
       if (pl !== lastPlaying) { lastPlaying = pl; decksTrace.push({ t: +ctx.currentTime.toFixed(4), A: dk.A && { playing: dk.A.playing, beat: +(dk.A.beat || 0).toFixed(3) }, B: dk.B && { playing: dk.B.playing, beat: +(dk.B.beat || 0).toFixed(3) } }); }
     }
+    takeSlow();
     const gr = engine.grid();
     apply(JSON.parse(run.service(JSON.stringify(gr))));
     const st = JSON.parse(run.status());
@@ -116,6 +126,10 @@ window.parityRender = async ({ program, name, seconds, sampleRate = 48000, step 
   const t0 = performance.now();
   const buf = await ctx.startRendering();
   const renderMs = performance.now() - t0;
+  await sleep(20); // the last report (posted every second of audio) in flight
+  takeSlow();
+  const st = engine.stats;
+  const perf = PERF ? { slow, loads: st.loads, inline: st.inline, prepareMs: st.prepareMs.slice(), installMs: st.installMs.slice(), installQuanta: st.installQuanta.slice() } : null;
   engine.dispose();
   try { run.free(); } catch { /* gone */ }
 
@@ -125,7 +139,7 @@ window.parityRender = async ({ program, name, seconds, sampleRate = 48000, step 
   const res = await fetch(`/upload/${encodeURIComponent(name)}`, { method: 'POST', body: pcm.buffer });
   if (!res.ok) errors.push(`upload: HTTP ${res.status}`);
   say(`${name}: ${frames} frames in ${renderMs.toFixed(0)} ms`);
-  return { ok: true, frames, sampleRate, renderMs, trace, decksTrace, calls, ignored, warns, errors, cid: ev.cid };
+  return { ok: true, frames, sampleRate, renderMs, trace, decksTrace, calls, ignored, warns, errors, perf, cid: ev.cid };
 };
 window.parityReady = true;
 </script>
