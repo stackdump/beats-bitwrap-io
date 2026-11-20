@@ -276,11 +276,11 @@ func (s *Server) handlePairPage(w http.ResponseWriter, r *http.Request) {
 
 const pairPageHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Pair a phone with BeatScript</title><link rel="stylesheet" href="/css/btw.css"></head>
+<meta name="robots" content="noindex"><title>Pair your phone with BeatScript</title><link rel="stylesheet" href="/css/btw.css"></head>
 <body><main class="pair-page">
 <h1>This is a pairing code for the BeatScript app</h1>
 <p>Open <b>BeatScript</b> on your Android phone, tap the menu, then <b>beatscript.app</b> and <b>Scan to connect</b>, and scan the code again from there.</p>
-<p>It is not an invite code: scan it with <b>Scan to connect</b>, not from Identity. It works once, for two minutes; if it has run out, press <b>Show a pairing code</b> on the page again.</p>
+<p>It is not an invite code: scan it with <b>Scan to connect</b>, not from Identity. It works once, for two minutes; if it has run out, press <b>Show a pairing code</b> under <b>mobile</b> on the page again.</p>
 <p><a href="/">Back to the site</a></p>
 </main></body></html>
 `

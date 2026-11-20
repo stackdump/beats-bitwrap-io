@@ -77,7 +77,7 @@ code past two minutes is `410 pair_expired`, each telling the person to show a n
 
 The app has two QR codes of its own kinds, and they are different credentials:
 
-- **A pairing code** (this document): `https://<site>/pair#<id>.<token>`, made by the site's phone panel. It
+- **A pairing code** (this document): `https://<site>/pair#<id>.<token>`, made by the site's mobile panel. It
   binds the phone's device key to the signed-in account. In the app: Menu › beatscript.app › Scan to connect,
   or the phone's camera (the link opens the app).
 - **An invite** (`bitwrap-invite.v1`, the app's wallet, Menu › Identity › Redeem an invite): a signed JSON

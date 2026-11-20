@@ -331,7 +331,7 @@ html.record .ed-scroll { scrollbar-width: none; }
 html.record .ed-scroll::-webkit-scrollbar { display: none; }
 html.record .t-status::before { display: none !important; }
 
-/* the phone panel (pairing djrust on Android) */
+/* the mobile panel (pairing djrust on Android) */
 .drawer .pair-qr img.qr { display: block; width: 240px; height: 240px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 4px; }
 .drawer .pair-devices { display: flex; flex-direction: column; gap: 8px; }
 .drawer .pair-device { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

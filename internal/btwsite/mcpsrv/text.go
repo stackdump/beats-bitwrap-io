@@ -88,7 +88,7 @@ func (s *Server) stopDesc() string {
 }
 
 func (s *Server) devicesDesc() string {
-	return fmt.Sprintf(`List the phones paired with the token's account (djrust on Android scans the QR code that %[1]s shows under Phone; btwsite/PAIRING.md): id, name, fingerprint (the code both ends showed at pairing), paired, connected (djrust has its stream open now), last_seen, and state (what it last reported: cid, playing, section, bar). Pairing is the grant: a phone paired by an account is driven over MCP with that account's token and no other.
+	return fmt.Sprintf(`List the phones paired with the token's account (djrust on Android scans the QR code that %[1]s shows under Mobile; btwsite/PAIRING.md): id, name, fingerprint (the code both ends showed at pairing), paired, connected (djrust has its stream open now), last_seen, and state (what it last reported: cid, playing, section, bar). Pairing is the grant: a phone paired by an account is driven over MCP with that account's token and no other.
 
 Pass a phone's id as device to eval, load, get or stop to drive that phone alone (eval and load run the same checks as for a tab; a program with errors, samples or "use restricted" is not sent). Needs a bearer token. Read-only.`, s.public)
 }

@@ -735,3 +735,23 @@ func TestAccessLogKeepsThirtyDays(t *testing.T) {
 		}
 	}
 }
+
+func TestInfoAndroidBetaURL(t *testing.T) {
+	const beta = "https://play.google.com/apps/testing/app.beatscript"
+	var info map[string]any
+	e := newEnv(t, func(c *Config) { c.AndroidBetaURL = beta })
+	if st := decode(t, e.get("/api/info"), &info); st != 200 || info["android_beta_url"] != beta {
+		t.Fatalf("info with -android-beta-url: %d %v", st, info["android_beta_url"])
+	}
+	info = nil
+	e = newEnv(t, nil)
+	if st := decode(t, e.get("/api/info"), &info); st != 200 || info["android_beta_url"] != "" {
+		t.Fatalf("info without it: %d %v", st, info["android_beta_url"])
+	}
+}
+
+func TestPairPageSaysMobile(t *testing.T) {
+	if !strings.Contains(pairPageHTML, "under <b>mobile</b>") || strings.Contains(pairPageHTML, "djrust") {
+		t.Fatalf("pair page wording: %s", pairPageHTML)
+	}
+}

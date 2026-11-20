@@ -1260,3 +1260,41 @@ test('qr: the threshold is the same one the server accepts (a code drawn here is
   assert.equal(QR_MAX_CHARS, 1200);
   assert.ok(QR_MAX_CHARS < 2000, 'under the server cap (maxQRLink)');
 });
+
+// ---- the mobile panel: the button says "mobile"; the Android beta link follows /api/info ---------------------------------------------------
+
+test('the toolbar button and the panel title say "mobile" (the id stays #btn-phone)', async () => {
+  const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
+  const btn = html.match(/<button[^>]*id="btn-phone"[^>]*>.*?<\/button>/s)[0];
+  assert.match(btn, /<span class="lbl">mobile<\/span>/);
+  assert.match(btn, /title="[^"]*BeatScript app on your phone[^"]*QR/);
+  assert.doesNotMatch(btn, /djrust|>phone</i);
+  const src = fs.readFileSync(path.join(web, 'js', 'panels.js'), 'utf8');
+  assert.match(src, /phone: 'Mobile'/);
+});
+
+test('mobile panel: the Android beta link shows when the server gives a URL, and is gone when it is empty', async () => {
+  const mk = (tag) => { const e = { tag, attrs: {}, kids: [], className: '', append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener() {}, nodeType: 1 }; return e; };
+  const prev = globalThis.document;
+  globalThis.document = { createElement: mk, createTextNode: (t) => ({ nodeType: 3, text: t }) };
+  try {
+    const { Panels } = await J('panels.js');
+    const walk = (n, f) => { if (!n || n.nodeType === 3) return; f(n); (n.kids || []).forEach((k) => walk(k, f)); };
+    const links = (info) => {
+      const p = Object.create(Panels.prototype);
+      p.app = { user: { id: 'u' }, info, api: { devices: async () => ({ devices: [] }) } };
+      p.phoneList = () => {};
+      const found = [];
+      for (const n of p.phoneBody()) walk(n, (x) => { if (x.tag === 'a') found.push(x); });
+      return found;
+    };
+    const url = 'https://play.google.com/apps/testing/app.beatscript';
+    const [a] = links({ android_beta_url: url });
+    assert.equal(a.attrs.href, url);
+    assert.equal(a.attrs.target, '_blank');
+    assert.equal(a.attrs.rel, 'noopener');
+    assert.match(a.kids.map((k) => k.text).join(''), /Join the Android beta on Google Play/);
+    assert.equal(links({ android_beta_url: '' }).length, 0);
+    assert.equal(links({}).length, 0);
+  } finally { globalThis.document = prev; }
+});
