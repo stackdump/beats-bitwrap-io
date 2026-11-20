@@ -2,6 +2,7 @@ package mcpsrv_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,7 +113,16 @@ func TestCheckSameAsWithTheRealBtwd(t *testing.T) {
 	if one == song {
 		t.Fatal("the edit did nothing")
 	}
-	_, c = call(song, one)
+	whole, c := call(song, one)
+	diff, _ := whole["same_as"].(map[string]any)["diff"].(map[string]any)
+	if diff == nil || len(diff["summary"].([]any)) == 0 || !strings.Contains(fmt.Sprint(diff["summary"]), "breakdown snare: thinned") {
+		t.Fatalf("one note's diff: %v", whole["same_as"])
+	}
+	// a tempo change: one song-level line
+	tb, _ := call(song, strings.Replace(song, "tempo 138", "tempo 140", 1))
+	if s := fmt.Sprint(tb["same_as"].(map[string]any)["diff"].(map[string]any)["summary"]); s != "[tempo 138 -> 140]" {
+		t.Fatalf("tempo diff: %s", s)
+	}
 	if c.Same || len(c.Diffs) != 1 || c.Diffs[0].Section != "breakdown" || c.Diffs[0].Deck != "A" || c.Diffs[0].StartBar != 16 || !strings.Contains(c.Why, "breakdown") {
 		t.Fatalf("one note: %+v", c)
 	}

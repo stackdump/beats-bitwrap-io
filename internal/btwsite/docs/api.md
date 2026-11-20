@@ -198,7 +198,7 @@ Without the header the read tools still work; `compose`, `eval`, `load`, `get` a
 
 | tool | needs a token | arguments | does |
 |---|---|---|---|
-| `check` | | `text`, `same_as`? | check a program: diagnostics with line:col, cid, canonical text. **Run it before anything else and fix the errors**. With `same_as` (a CID or another program's text) it also answers whether the two are the same song by their compiled nets and song-level settings, naming any section and deck that differs |
+| `check` | | `text`, `same_as`? | check a program: diagnostics with line:col, cid, canonical text. **Run it before anything else and fix the errors**. With `same_as` (a CID or another program's text) it also answers whether the two are the same song by their compiled nets and song-level settings, and, when they are not, a `diff` saying what changed in music: song settings, sections inserted/removed/moved/repeated/renamed, and per part a transform (transposed, rotated, reversed, ...) or the notes changed at bar:step, each with a one-line summary |
 | `fmt` | | `text` | the canonical form and its CID |
 | `compose` | yes | `prompt`, `genre`, `bpm`, `key`, `length`, `base_cid` | write a program with the model, as [Compose](#compose) |
 | `share` | for the short links | `text`, `license`, `forked_from`, `credits`, `name` | the self-sealing link, the social link, the CID; with a token also stores the program and gives the CID-only `short_url`, `short_social_url`, `short_beats_url` and `fetch_url` |
