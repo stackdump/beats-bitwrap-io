@@ -21,6 +21,7 @@ import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
 import { Background } from './background.js';
 import { PresenceTracker, UpNext, pauseMessage } from './queue-model.js';
+import { Assist } from './assist.js';
 
 const STARTER = `# a first program: drums on deck A, harmony and an arpeggio on deck B.
 tempo 126
@@ -96,6 +97,8 @@ export class App {
       onEval: () => this.play('eval'),
       onStop: () => this.stop(),
       onCursor: (l, c, d) => this.onCursor(l, c, d),
+      onKey: (e) => !!(this.assist && this.assist.onKey(e)),
+      onHoverInfo: (l, c) => (this.assist ? this.assist.hoverAt(l, c) : null),
     });
     this.painter = new MarkerPainter(this.editor);
     this.wire();
@@ -219,6 +222,11 @@ export class App {
       this.btw = await loadBtw({ mock: this.mock });
       this.driver = new Driver(this.btw);
       this.editor.setHighlighter((t) => this.btw.highlight(t));
+      // completion, hover, fixes, the outline (assist.js): off in record mode, and where the module has no language service
+      if (!this.record) {
+        this.assist = new Assist(this.editor, this.btw, (m, k) => this.toast(m, k));
+        if (!this.assist.on) this.assist = null;
+      }
       this.wasmOk = true;
       this.updateTransport();
     } catch (e) {
@@ -404,6 +412,7 @@ export class App {
     // the address bar named the program that was opened or shared; once the text is edited it names a different one
     if (!(opts && opts.programmatic) && location.hash.length > 1) history.replaceState(null, '', location.pathname + location.search);
     this.checkSoon();
+    if (this.assist) this.assist.onInput(!!(opts && opts.programmatic));
     this.updateName();
     this.updateStale();
     this.emit('edit');
@@ -429,6 +438,7 @@ export class App {
   }
 
   onCursor(line, vcol, diag) {
+    if (this.assist) this.assist.onCursor();
     const rows = this.el['pr-list'].children;
     const diags = (this.report && this.report.diagnostics) || [];
     for (let i = 0; i < rows.length; i++) rows[i].firstChild && rows[i].firstChild.classList.toggle('cur', diags[i] === diag);
