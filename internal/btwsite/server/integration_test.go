@@ -503,9 +503,34 @@ func TestIntegrationCardsAndIndexMeta(t *testing.T) {
 	}
 }
 
+// The HTML docs carry the site's one CSP (script-src 'self', no inline), not a policy of their own.
+func TestIntegrationDocsHTMLSecurityHeaders(t *testing.T) {
+	e := newEnv(t, withDocs)
+	want := e.get("/")
+	want.Body.Close()
+	for _, p := range []string{"/docs/", "/docs/cheatsheet", "/docs/language", "/docs/api"} {
+		r := e.get(p)
+		body := string(readAll(t, r))
+		if r.StatusCode != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
+			t.Fatalf("%s: %d %q", p, r.StatusCode, r.Header.Get("Content-Type"))
+		}
+		for _, h := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy", "Cross-Origin-Opener-Policy"} {
+			if r.Header.Get(h) == "" || r.Header.Get(h) != want.Header.Get(h) {
+				t.Errorf("%s: %s is %q, the site's is %q", p, h, r.Header.Get(h), want.Header.Get(h))
+			}
+		}
+		if strings.Contains(r.Header.Get("Content-Security-Policy"), "unsafe-inline") {
+			t.Errorf("%s: CSP allows inline", p)
+		}
+		if !strings.Contains(body, "BeatScript") {
+			t.Errorf("%s: no product name", p)
+		}
+	}
+}
+
 func TestIntegrationWholeSurfaceSmoke(t *testing.T) {
 	e := newEnv(t, withDocs)
-	for _, p := range []string{"/", "/p", "/healthz", "/api/info", "/api/examples", "/api/instruments", "/examples/first-beat.btw", "/llms.txt", "/docs/api.md", "/card/default.png", "/api/auth/me", "/api/auth/challenge"} {
+	for _, p := range []string{"/", "/p", "/healthz", "/api/info", "/api/examples", "/api/instruments", "/examples/first-beat.btw", "/llms.txt", "/docs/api.md", "/docs/", "/docs/cheatsheet", "/docs/language", "/docs/api", "/docs/assets/docs.css", "/docs/assets/docs.js", "/card/default.png", "/api/auth/me", "/api/auth/challenge"} {
 		r := e.get(p)
 		io.Copy(io.Discard, r.Body)
 		r.Body.Close()
