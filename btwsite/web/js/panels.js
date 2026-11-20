@@ -397,8 +397,7 @@ export class Panels {
       const row = (label, url, extra) => h('div', {}, h('div', { class: 'note' }, label, extra ? ` · ${extra}` : ''), h('div', { class: 'linkrow' }, h('input', { type: 'text', readonly: true, value: url, 'aria-label': label, onfocus: (e) => e.target.select() }), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(url) }, 'Copy')));
       rows.replaceChildren(
         row('Self-sealing link', r.url, `${r.chars} characters`),
-        row('Link for posts (shows a card)', r.social_url || r.url),
-        row('Open in beats.bitwrap.io', r.beats_url || r.url));
+        row('Link for posts (shows a card)', r.social_url || r.url));
       const frag = r.url.split('#')[1];
       if (frag) history.replaceState(null, '', `#${frag}`);
       this.lastShare = r;
