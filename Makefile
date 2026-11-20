@@ -408,5 +408,13 @@ btwsite-test:
 btwsite-run: btwsite-build
 	BTW_MODEL=$${BTW_MODEL:-fake} btwsite/bin/btwsite -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data $${BTW_DATA:-./data/btwsite} -btwd $(BTWD) -public-url $${BTW_PUBLIC_URL:-http://localhost:18097}
 
-.PHONY: btwsite-build btwsite-test btwsite-run
+# parity: does the page's in-browser ENGINE sound like the server's STREAM (btwd render)? btwsite/test/parity/README.md.
+#   needs btwsite/web/wasm (djrust-vevr-se scripts/build-web-wasm.sh), Chrome, and btwd (BTWD). Skips when one is missing.
+#   PARITY_CORPUS=repros,examples (default) or more dirs of .btw / programs-store .json; PARITY_ARGS for run.mjs flags.
+PARITY_CORPUS ?= repros,examples
+parity:
+	BTWD_BIN=$(BTWD) node btwsite/test/parity/run.mjs --corpus $(PARITY_CORPUS) $(PARITY_ARGS)
+	BTWD_BIN=$(BTWD) node btwsite/test/parity/loop.mjs
+
+.PHONY: btwsite-build btwsite-test btwsite-run parity
 

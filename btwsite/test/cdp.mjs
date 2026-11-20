@@ -27,7 +27,8 @@ export async function launch({ width = 1280, height = 800, args = [] } = {}) {
   const kill = () => { try { proc.kill('SIGKILL'); } catch { /* gone */ } try { rmSync(profile, { recursive: true, force: true }); } catch { /* busy */ } };
   process.on('exit', kill);
   let target;
-  for (let i = 0; i < 100; i++) {
+  // up to 30 s: a busy machine (a build, another render) can take more than 10 to bring Chrome up
+  for (let i = 0; i < 300; i++) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' });
       target = await r.json();
