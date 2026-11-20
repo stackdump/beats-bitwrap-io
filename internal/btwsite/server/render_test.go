@@ -440,7 +440,7 @@ func TestRenderHeadAndStatus(t *testing.T) {
 	}
 	// RenderInfo for MCP
 	u, s, secs := e.srv.RenderInfo(cid, "wav")
-	if u != "https://btw.test/api/render/"+cid+"?format=wav" || s != "https://btw.test/api/render/"+cid+"/status" || secs != 4 {
+	if u != "https://btw.test/api/render/"+cid+"?format=wav&v="+api.RenderVersion || s != "https://btw.test/api/render/"+cid+"/status" || secs != 4 {
 		t.Fatalf("RenderInfo: %q %q %v", u, s, secs)
 	}
 }
