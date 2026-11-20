@@ -16,6 +16,7 @@
  *     {type:'param', deck, name, value}     Dj.set_param (volume, gain, filter, eqLow, eqMid, eqHigh, mute, reverbWet ...)
  *     {type:'crossfader', value}            Dj.set_crossfader
  *     {type:'perform', deck, json}          Dj.perform (any DeckAction JSON: masterFx, master, setKit, setRoleVoice ...)
+ *     {type:'batch', msgs:[...]}           any of the above (not install / load_share), acted on in one quantum
  *     {type:'dispose'}
  *   worklet -> page
  *     {type:'ready', version}               the module is up
@@ -97,6 +98,10 @@ class BtwEngine extends AudioWorkletProcessor {
         const dj = this.dj;
         try {
             switch (msg.type) {
+            case 'batch':
+                // what one pass of the page sent (engine.js `send`): acted on together, in this quantum
+                for (const m of msg.msgs) this.onMessage(m);
+                break;
             case 'install':
                 this.installing.delete(msg.deck); // begin_install drops what the deck had pending
                 try {
