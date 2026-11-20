@@ -201,7 +201,7 @@ claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header 'Authori
 ```
 
 Without the header the read tools still work; `eval`, `load`, `get`, `stop`, `devices` and `queue` answer an MCP tool error `auth_required` that says how to get a token
-(sign in on the page and press **MCP token**). Other clients take the same URL and header, for example
+(sign in on the page and press **Create an MCP token**). Other clients take the same URL and header, for example
 `{"mcpServers": {"btw": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
 
 There is **no `compose` tool**: an MCP client is already a model, so it writes the program itself ([Compose](#compose) is the web app's).

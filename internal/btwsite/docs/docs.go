@@ -191,8 +191,8 @@ func (s *server) llmsTxt() string {
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 
-	w("# btw\n\n")
-	w("> BeatScript: AI-assisted algorithmic composition. btw (bitwrap) is its small, total, deterministic language for writing whole music tracks as text. Programs compile to Petri nets, play in the browser and in the djrust desktop app, and are content-addressed: the same canonical text always has the same CID. Programs are CC0 by default and remixable by fork.\n\n")
+	w("# BeatScript\n\n")
+	w("> BeatScript: AI-assisted algorithmic composition. BeatScript is also the name of its small, total, deterministic language for writing whole music tracks as text. Programs compile to Petri nets, play in the browser, in the djrust desktop app and in the BeatScript Android app, and are content-addressed: the same canonical text always has the same CID. Programs are CC0 by default and remixable by fork.\n\n")
 	w("Key facts:\n")
 	w("- Everything generated here is public: programs, share links, cards and rendered audio are stored publicly under CC0-1.0, and a compose prompt goes to a third-party model. Never put anything private in a prompt. Terms: %s/privacy.\n", p)
 	w("- One line per deck (`deck A: kick x ~ x ~ | snare ~ x ~ x`), parts joined with `|`, 16 steps a bar. Mini-notation: `x` hit, `~` rest, `[..]` group, `<..>` per-bar alternation, `c2!` accent, `e2^` slide, `chord(am)`, `e(5,8)` euclid.\n")

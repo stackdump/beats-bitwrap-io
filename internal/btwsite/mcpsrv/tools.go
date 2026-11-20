@@ -180,7 +180,7 @@ func (s *Server) program(a args, key string) (string, *api.Error) {
 		return "", e
 	}
 	if !ok || strings.TrimSpace(v) == "" {
-		return "", api.Errf(400, api.CodeBadRequest, "argument %q is required: the text of a btw program", key)
+		return "", api.Errf(400, api.CodeBadRequest, "argument %q is required: the text of a BeatScript program", key)
 	}
 	return v, nil
 }
@@ -400,14 +400,14 @@ func (s *Server) addTools() {
 
 	s.add(mcp.NewTool("check",
 		mcp.WithDescription(s.checkDesc()), noExtra, hints(true, false, true, false),
-		mcp.WithTitleAnnotation("Check a btw program"),
+		mcp.WithTitleAnnotation("Check a BeatScript program"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description(fmt.Sprintf("The program text (at most %d bytes). Comments and blank lines are fine.", maxProg))),
 		mcp.WithString("same_as", mcp.MaxLength(maxProg), mcp.Description("Optional: another program to compare with, as its CID (stored here, or an example's), a short "+s.public+"/p/<CID> link, or its text. The answer gains same_as: whether the two are the same song by their compiled nets and song-level settings (tempo, key, swing, length, end, loop), not their text: a let/def/repeat refactor or a renamed section is the same song; a changed note is not, and diff says what changed in music (song settings, sections moved or inserted, a part transposed or rotated, notes at bar:step).")),
 	), s.check)
 
 	s.add(mcp.NewTool("fmt",
 		mcp.WithDescription(s.fmtDesc()), noExtra, hints(true, false, true, false),
-		mcp.WithTitleAnnotation("Format a btw program"),
+		mcp.WithTitleAnnotation("Format a BeatScript program"),
 		mcp.WithString("text", mcp.Required(), mcp.MaxLength(maxProg), mcp.Description("The program text.")),
 	), s.fmtTool)
 

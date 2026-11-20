@@ -419,7 +419,7 @@ func TestIntegrationLlmsTxtLinksAnswer200(t *testing.T) {
 	e := newEnv(t, withDocs)
 	r := e.get("/llms.txt")
 	body := string(readAll(t, r))
-	if r.StatusCode != 200 || !strings.HasPrefix(body, "# btw") {
+	if r.StatusCode != 200 || !strings.HasPrefix(body, "# BeatScript") {
 		t.Fatalf("llms.txt: %d %.100s", r.StatusCode, body)
 	}
 	links := reMDLink.FindAllStringSubmatch(body, -1)

@@ -258,6 +258,8 @@ export class App {
     const u = this.user;
     this.el['user-lbl'].textContent = u ? `${(u.address || u.id || '').slice(0, 6)}…${(u.address || '').slice(-4)}` : 'sign in';
     this.el['btn-user'].title = u ? `Signed in as ${u.id}` : 'Sign in';
+    // compose needs a session: say so only to someone who has none
+    this.el['btn-compose'].title = u ? 'Compose with a model' : 'Compose with a model (sign in)';
     this.emit('user');
   }
 

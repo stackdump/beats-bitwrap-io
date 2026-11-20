@@ -465,6 +465,13 @@ func TestComposeIsNotAnMCPTool(t *testing.T) {
 			t.Errorf("instructions do not say %q", w)
 		}
 	}
+	// the button on the page reads "Create an MCP token", and the language is BeatScript, not btw
+	if !strings.Contains(init.Instructions, `press "Create an MCP token"`) {
+		t.Errorf("instructions do not name the page's button as it reads: %s", init.Instructions)
+	}
+	if strings.Contains(init.Instructions, "btw is its") {
+		t.Errorf("instructions call the language btw: %s", init.Instructions)
+	}
 	if strings.Contains(init.Instructions, "compose writes") || strings.Contains(init.Instructions, "(compose,") {
 		t.Errorf("instructions still point at compose: %s", init.Instructions)
 	}

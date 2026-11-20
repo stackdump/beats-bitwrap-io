@@ -273,7 +273,7 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	fmt.Fprintf(&b, `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>btw MCP server</title>
+<title>BeatScript MCP server</title>
 <meta name="author" content="Matt York">
 <link rel="me" href="https://github.com/stackdump">
 <link rel="me" href="https://blog.stackdump.com/">
@@ -292,8 +292,8 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
  .param{font-family:monospace;color:var(--violet)}
  .req{color:var(--red);font-size:.75em;margin-left:4px}
 </style></head><body>
-<h1>btw MCP server</h1>
-<p>BeatScript: AI-assisted algorithmic composition. btw is its small language for writing whole music tracks as text. This endpoint is the
+<h1>BeatScript MCP server</h1>
+<p>BeatScript: AI-assisted algorithmic composition. BeatScript is also the name of its small language for writing whole music tracks as text. This endpoint is the
 <a href="https://modelcontextprotocol.io">Model Context Protocol</a> over Streamable HTTP at <code>%s</code>:
 check, format, share and render programs you write, and drive a browser tab at <a href="%s">%s</a>.
 Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.txt</a>.</p>

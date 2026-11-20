@@ -298,6 +298,7 @@ try {
     await ready();
     await page.click('#btn-compose');
     await page.waitFor('!document.getElementById("drawer").hidden', 3000);
+    check('signed out, the compose button says it needs a sign-in', (await page.eval('document.getElementById("btn-compose").title')) === 'Compose with a model (sign in)');
     check('compose is visible but disabled until signed in, with the reason', (await page.eval('document.querySelector("#drawer-body fieldset").disabled')) === true && /signed-in|sign in/i.test(await q('#drawer-body')));
     await shot(7, 'compose-signed-out');
     await page.click('#btn-user');
@@ -306,6 +307,7 @@ try {
     await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>/browser key/i.test(b.textContent)).click()');
     await page.waitFor('__app.user', 6000);
     check('sign in with a browser-local Ed25519 key', /ed25519:/.test(await page.eval('__app.user.id')));
+    check('the compose button stops asking to sign in once there is a session', (await page.eval('document.getElementById("btn-compose").title')) === 'Compose with a model');
     check('the key is kept in localStorage btw-ed25519-v1', (await page.eval('!!localStorage.getItem("btw-ed25519-v1")')) === true);
     const keyState = JSON.parse(await page.eval(`(async () => {
       const ls = localStorage.getItem('btw-ed25519-v1');

@@ -6,7 +6,7 @@ import "fmt"
 // limits are, and what to do on each error.
 
 func (s *Server) instructions() string {
-	return fmt.Sprintf(`BeatScript: AI-assisted algorithmic composition. btw is its small, total, deterministic language for writing whole music tracks as text. A program has one line per deck, parts joined with |, 16 steps a bar, sections and an arrange; the same canonical text always has the same CID. Programs are CC0 by default.
+	return fmt.Sprintf(`BeatScript: AI-assisted algorithmic composition. BeatScript is also the name of its language: small, total and deterministic, for writing whole music tracks as text. A program has one line per deck, parts joined with |, 16 steps a bar, sections and an arrange; the same canonical text always has the same CID. Programs are CC0 by default.
 
 You write the programs: there is no compose tool. The authoring loop:
 1. Read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples (pass name for the full text).
@@ -17,11 +17,11 @@ You write the programs: there is no compose tool. The authoring loop:
 Gotcha: a voice name that starts with a digit, such as 808-bass, cannot be written: inst=808-bass reads as the sum 808 - bass, and quoting it ("808-bass") is refused too. Pick a voice that starts with a letter instead (for a deep bass, inst=sub-bass).
 The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
 
-Tools that write (eval, load, stop, queue) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop. queue keeps an "up next" list of stored programs on a tab; it never writes music, and it advances only while someone is listening.`, s.public)
+Tools that write (eval, load, stop, queue) need a bearer token: sign in on %[1]s and press "Create an MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop. queue keeps an "up next" list of stored programs on a tab; it never writes music, and it advances only while someone is listening.`, s.public)
 }
 
 func (s *Server) checkDesc() string {
-	return fmt.Sprintf(`Check a btw program without playing it: parse, type-check and compile the text. ALWAYS call check before eval, share or render, and fix every error at its line:col before trying again: a program with an error is refused whole. Warnings do not block.
+	return fmt.Sprintf(`Check a BeatScript program without playing it: parse, type-check and compile the text. ALWAYS call check before eval, share or render, and fix every error at its line:col before trying again: a program with an error is refused whole. Warnings do not block.
 
 Answers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, message, expected, found, help, render}], cid, canonical, tempo, key, sections, song_bars, seconds, evolve, uses_assets, restricted}. line and col are 1-based; help says what would fix it ("did you mean ..."); render is the same error in caret form. ok:false is an answer, not a tool error. cid and canonical are of the canonical text (comments and spacing do not change the CID).
 
@@ -31,7 +31,7 @@ This is the loop for writing a program (there is no compose tool): read %[1]s/do
 }
 
 func (s *Server) fmtDesc() string {
-	return `Rewrite a btw program in its canonical form (one statement a line, one space between tokens, blocks indented two spaces, numbers, notes and chords spelled one way, comments dropped) and return the text with its CID and the comments it dropped. The CID is of the canonical text, so formatting never changes it: use fmt to compare two programs or to show a tidy listing. A program that does not parse answers the same diagnostics as check. Read-only, no sign-in.`
+	return `Rewrite a BeatScript program in its canonical form (one statement a line, one space between tokens, blocks indented two spaces, numbers, notes and chords spelled one way, comments dropped) and return the text with its CID and the comments it dropped. The CID is of the canonical text, so formatting never changes it: use fmt to compare two programs or to show a tidy listing. A program that does not parse answers the same diagnostics as check. Read-only, no sign-in.`
 }
 
 func (s *Server) evalDesc() string {
@@ -57,7 +57,7 @@ func (s *Server) shareDesc() string {
 }
 
 func (s *Server) openDesc() string {
-	return fmt.Sprintf(`Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (%[1]s/#<CID>.<packed>, a /c/<CID>.<packed> link, a beats.bitwrap.io/p# link, a bare #fragment or <CID>.<packed>) or a CID-only link (%[1]s/p/<CID>, /c/<CID>, https://beats.bitwrap.io/p/<CID>, #<CID>, or a bare CID), which is resolved from the programs the site has stored (shared signed in, or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.`, s.public)
+	return fmt.Sprintf(`Decode a BeatScript share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (%[1]s/#<CID>.<packed>, a /c/<CID>.<packed> link, a beats.bitwrap.io/p# link, a bare #fragment or <CID>.<packed>) or a CID-only link (%[1]s/p/<CID>, /c/<CID>, https://beats.bitwrap.io/p/<CID>, #<CID>, or a bare CID), which is resolved from the programs the site has stored (shared signed in, or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.`, s.public)
 }
 
 func (s *Server) renderDesc() string {

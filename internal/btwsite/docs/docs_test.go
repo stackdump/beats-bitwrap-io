@@ -102,8 +102,8 @@ func TestLlmsTxtIsLlmstxtOrgShaped(t *testing.T) {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	lines := strings.Split(body, "\n")
-	if lines[0] != "# btw" {
-		t.Errorf("first line %q, want the H1 `# btw`", lines[0])
+	if lines[0] != "# BeatScript" {
+		t.Errorf("first line %q, want the H1 `# BeatScript`", lines[0])
 	}
 	// the summary blockquote comes right after the H1
 	var summary string
@@ -811,5 +811,22 @@ func TestADownCheckerIsNotAskedOnEveryRequest(t *testing.T) {
 	}
 	if fc.calls != 1 {
 		t.Errorf("the failing checker was asked %d times, want 1", fc.calls)
+	}
+}
+
+// What users read calls the app and the language BeatScript, and names every player of a program.
+func TestLlmsTxtNamesBeatScriptAndItsPlayers(t *testing.T) {
+	dir, _ := docsDir(t)
+	s := newSite(t, dir)
+	_, body := get(t, s.srv.URL+"/llms.txt")
+	for _, w := range []string{"# BeatScript\n", "BeatScript Android app", "djrust desktop app", "There is no compose tool"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("llms.txt does not say %q", w)
+		}
+	}
+	for _, w := range []string{"btw (bitwrap)", "tools compose,"} {
+		if strings.Contains(body, w) {
+			t.Errorf("llms.txt still says %q", w)
+		}
 	}
 }
