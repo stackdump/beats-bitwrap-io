@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>btw parity capture</title>
+</head>
+<body>
+<pre id="out"></pre>
+<script type="module">
+// parity.html: the in-browser engine (js/engine.js + js/engine-calls.js + the djweb wasm), rendered into an
+// OfflineAudioContext instead of the speakers, for btwsite/test/parity/run.mjs.
+//
+// The page's real loop is: every ~25 ms, `engine.apply(run.service(engine.grid()))`. Here the context is suspended
+// every STEP frames (~21 ms) and the same loop body runs while it is suspended, so the runtime sees the clock the
+// worklet reports and its commands reach the worklet at the same audio time they would live. Two things differ from a
+// live page, both on purpose: the composer's compile of a net is waited for before the render goes on (a live page
+// hides it behind the bar of notice the runtime gives; a slow machine would add jitter here that a fast one does not),
+// and there is no output latency. The master is captured exactly (AudioBuffer), then sent as 16-bit PCM to the
+// harness's server (POST /upload/<name>), rounded the way btwd's s16 writer rounds.
+//
+//   window.parityRender({program, name, seconds, sampleRate}) -> {ok, frames, trace, calls, ignored, warns, errors, perf}
+//
+// ?perf=1 (the harness always sets it, as test/audio-perf.mjs does) turns on the worklet's slow-block reports: every
+// block of 3 ms or more by its Date.now(), with where the time went (engine.stats.slow). They are collected as they come
+// (stats.slow keeps only the last 200) and returned in `perf` with the engine's prepare/install times. Offline, a slow
+// block cannot drop out (the render waits for it); what it tells is which bars carry the install and landing work.
+import { createEngine } from './js/engine.js';
+
+const out = document.getElementById('out');
+const say = (s) => { out.textContent += `${s}\n`; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const PERF = new URLSearchParams(location.search).get('perf') === '1';
+
+let gluePromise = null;
+async function glue() {
+  if (!gluePromise) {
+    gluePromise = (async () => {
+      const g = await import('./wasm/btw.js');
+      await g.default({ module_or_path: new URL('./wasm/btw_bg.wasm', location.href) });
+      return g;
+    })();
+  }
+  return gluePromise;
+}
+
+function s16(x) {
+  const c = x < -1 ? -1 : x > 1 ? 1 : x;
+  const v = c < 0 ? Math.round(-c * 32768) * -1 : Math.round(c * 32767); // half away from zero, as btwd
+  return v;
+}
+
+window.parityRender = async ({ program, name, seconds, sampleRate = 48000, step = 1024, evals = [] }) => {
+  const g = await glue();
+  const text = program;
+  const frames = Math.ceil(seconds * sampleRate);
+  const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
+  const engine = await createEngine({ context: ctx, destination: ctx.destination, composer: 'worker', perf: PERF });
+  // every slow block the worklet reports (stats.slow is a ring of the last 200: take each as it arrives)
+  const slow = [], seenSlow = new WeakSet();
+  const takeSlow = () => { for (const b of engine.stats.slow) if (!seenSlow.has(b)) { seenSlow.add(b); slow.push(b); } };
+  const ignored = [], warns = [], errors = [], calls = [], trace = [];
+  engine.on('ignored', (e) => ignored.push(e.what));
+  engine.on('warn', (e) => warns.push(e.message));
+  engine.on('error', (e) => errors.push(e.message));
+  let lastGridT = -1;
+  engine.on('grid', (gr) => { lastGridT = gr.t; });
+  // every command the runtime hands the engine, kept for the inventory (loads are summarised: their envelopes are big)
+  const apply = (cmds) => {
+    for (const c of cmds) {
+      if (c.op === 'call') calls.push({ t: +ctx.currentTime.toFixed(3), noun: c.noun, params: c.params });
+      else if (c.op === 'load_net') calls.push({ t: +ctx.currentTime.toFixed(3), op: 'load_net', deck: c.deck });
+      else calls.push({ t: +ctx.currentTime.toFixed(3), ...c });
+    }
+    engine.apply(cmds);
+  };
+
+  const run = new g.BtwRun();
+  const ev = JSON.parse(run.eval(text));
+  if (!ev.ok) { engine.dispose(); return { ok: false, error: `the program does not check: ${JSON.stringify(ev.diagnostics && ev.diagnostics[0])}` }; }
+
+  let lastStatus = '';
+  const decksTrace = []; // when a deck starts or stops, as the worklet reported it
+  let lastPlaying = '';
+  // later evaluations (`evals: [{at: seconds, program}]`): what Cmd+Enter does on a program that plays (test/parity/loop.mjs)
+  const later = evals.slice().sort((a, b) => a.at - b.at);
+  const tick = async () => {
+    while (later.length && ctx.currentTime >= later[0].at) {
+      const e = later.shift();
+      const r = JSON.parse(run.eval(e.program));
+      if (!r.ok) errors.push(`eval at ${e.at}: ${JSON.stringify(r.diagnostics && r.diagnostics[0])}`);
+    }
+    // let the worklet's reports from before the suspension arrive (one is posted every ~25 ms of audio)
+    await sleep(0);
+    const playing = engine.decks() && ['A', 'B'].some((d) => engine.decks()[d] && engine.decks()[d].playing);
+    for (let i = 0; playing && i < 20 && lastGridT < ctx.currentTime - 0.03; i++) await sleep(1);
+    const dk = engine.decks();
+    if (dk) {
+      const pl = ['A', 'B'].map((d) => (dk[d] && dk[d].playing ? 1 : 0)).join('');
+      if (pl !== lastPlaying) { lastPlaying = pl; decksTrace.push({ t: +ctx.currentTime.toFixed(4), A: dk.A && { playing: dk.A.playing, beat: +(dk.A.beat || 0).toFixed(3) }, B: dk.B && { playing: dk.B.playing, beat: +(dk.B.beat || 0).toFixed(3) } }); }
+    }
+    takeSlow();
+    const gr = engine.grid();
+    apply(JSON.parse(run.service(JSON.stringify(gr))));
+    const st = JSON.parse(run.status());
+    let mh = null;
+    try { const mk = JSON.parse(run.marks()); mh = mk && mk.header ? mk.header : null; } catch { /* none */ }
+    const key = `${st.section}|${st.bar}|${st.ended}`;
+    if (key !== lastStatus) {
+      lastStatus = key;
+      trace.push({ t: +ctx.currentTime.toFixed(4), section: st.section ?? null, bar: st.bar ?? null, ended: !!st.ended, beat: gr ? +gr.beat.toFixed(3) : null, sectionBar: st.section_bar ?? null, sectionBars: st.section_bars ?? null, songBar: st.song_bar ?? null, marksHeader: mh });
+    }
+    // wait for the compile of anything the commands loaded (see the top of this file)
+    for (let i = 0; engine.preparing > 0 && i < 30000; i++) await sleep(1);
+  };
+
+  let next = step;
+  const onSuspend = async () => {
+    try { await tick(); } catch (e) { errors.push(String(e && e.message || e)); }
+    next += step;
+    if (next < frames) ctx.suspend(next / sampleRate).then(onSuspend);
+    ctx.resume();
+  };
+  ctx.suspend(next / sampleRate).then(onSuspend);
+  // the first service: the program starts at once (nothing plays), as when the page evaluates it
+  await tick();
+  const t0 = performance.now();
+  const buf = await ctx.startRendering();
+  const renderMs = performance.now() - t0;
+  await sleep(20); // the last report (posted every second of audio) in flight
+  takeSlow();
+  const st = engine.stats;
+  const perf = PERF ? { slow, loads: st.loads, inline: st.inline, prepareMs: st.prepareMs.slice(), installMs: st.installMs.slice(), installQuanta: st.installQuanta.slice() } : null;
+  engine.dispose();
+  try { run.free(); } catch { /* gone */ }
+
+  const L = buf.getChannelData(0), R = buf.getChannelData(1);
+  const pcm = new Int16Array(frames * 2);
+  for (let i = 0; i < frames; i++) { pcm[2 * i] = s16(L[i]); pcm[2 * i + 1] = s16(R[i]); }
+  const res = await fetch(`/upload/${encodeURIComponent(name)}`, { method: 'POST', body: pcm.buffer });
+  if (!res.ok) errors.push(`upload: HTTP ${res.status}`);
+  say(`${name}: ${frames} frames in ${renderMs.toFixed(0)} ms`);
+  return { ok: true, frames, sampleRate, renderMs, trace, decksTrace, calls, ignored, warns, errors, perf, cid: ev.cid };
+};
+window.parityReady = true;
+</script>
+</body>
+</html>

@@ -28,3 +28,5 @@ test-out/
 /btwsite/web/docs/cheatsheet.md
 /btwsite/bin/
 /btwsite/dist/
+# parity runs (btwsite/test/parity): renders, reports
+/btwsite/test/parity/out*/

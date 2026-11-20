@@ -20,6 +20,7 @@ const { Follow, SCROLL_SECS, PAUSE_SECS, blockEnd } = await J('follow.js');
 const { deriveModel, fade, lampStyle, COLORS } = await J('markers-model.js');
 const errs = await J('errors.js');
 const { headerModel, sectionIndex, programName } = await J('header-model.js');
+const { chooseSource, renderEndedMessage } = await J('source-model.js');
 const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
 const { makeFacade } = await J('wasm.js');
@@ -519,6 +520,22 @@ test('header: section n/m, bar, phrase and generation from status, marks and the
   assert.equal(headerModel({}, null, null).running, false);
   assert.equal(programName('#! name: night bus\ntempo 1\n', 'zQ1234567'), 'night bus');
   assert.equal(programName('tempo 120\n', 'z4EBG9jFNsEJ8p6Gr'), 'BeatScript J8p6Gr');
+});
+
+test('source: a load streams, an edit plays on the engine, a looping program goes to the engine when it is there', () => {
+  const pick = (o) => chooseSource({ engine: true, stream: true, pref: 'auto', trigger: 'load', loops: false, ...o });
+  assert.equal(pick({}), 'stream');
+  assert.equal(pick({ trigger: 'eval' }), 'engine');
+  // the stream is one pass: a loop on it would end (test/parity/loop.mjs)
+  assert.equal(pick({ loops: true }), 'engine');
+  assert.equal(pick({ loops: true, engine: false }), 'stream');
+  assert.equal(pick({ engine: false, trigger: 'eval' }), 'stream');
+  assert.equal(pick({ stream: false }), 'engine');
+  assert.equal(pick({ engine: false, stream: false }), null);
+  assert.equal(pick({ pref: 'stream', loops: true }), 'stream', 'a stated choice wins');
+  assert.equal(pick({ pref: 'engine', engine: false }), null);
+  assert.match(renderEndedMessage(true), /one pass of a looping program/);
+  assert.equal(renderEndedMessage(false), 'The render ended.');
 });
 
 test('util: the caret keeps its place in the code when the text is replaced by its canonical form', () => {

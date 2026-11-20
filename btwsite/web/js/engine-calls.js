@@ -11,10 +11,10 @@
  *   mixer     {deck A|B, volume | gain | filter | low | mid | high | mute}  the deck strip, same 0..1 knobs
  *             {crossfader}  {master}                                        the mixer
  *   deck      {action: play | stop | pause, deck}                             the deck's transport
- *   inserts   target Master, effect filter    sweep knob -> the master FX unit's lp-freq / hp-freq (cutoff mapped
- *                                             across the two scales; the same cutoff, not the same filter)
+ *   inserts   target Master, effect filter    sweep knob -> both decks' master FX units' lp-freq / hp-freq (cutoff
+ *                                             mapped across the two scales; the same cutoff, not the same filter)
  *             target Master, effect reverb    mix -> each deck strip's reverb wet (the master has no reverb here)
- *             target Master, effect crush     mix -> the master FX crusher (crush-bits)
+ *             target Master, effect crush     mix -> both decks' master FX crushers (crush-bits)
  *             target A | B, effect filter     sweep knob -> the deck strip's filter knob (cutoff mapped across the scales)
  *             target A | B, effect reverb     mix -> that strip's reverb wet
  *   (and `sound` commands, which are not calls: kit:NAME -> setKit, anything else -> setRoleVoice)
@@ -65,7 +65,14 @@ export function masterFilterSliders({ lp, hp }) {
     };
 }
 
-const masterFx = (key, value) => ({ type: 'perform', deck: 'A', json: JSON.stringify({ op: 'masterFx', key, value }) });
+/**
+ * The master FX unit's slider `key` at `slider` (its own 0..100 units), as ops. Two things the engine's `masterFx` action
+ * needs that are easy to get wrong (test/parity found both): its `value` is a POSITION, 0..1 of the slider's travel
+ * (djrust `MasterFxKey::slider_value`), so a whole slider value above 1 was the end stop (a low-pass always open, a
+ * high-pass or a crush always at the top); and the unit is the deck's own (beats' per-project master chain), so the
+ * program's master is both decks' units set alike.
+ */
+const masterFx = (key, slider) => DECKS.map((deck) => ({ type: 'perform', deck, json: JSON.stringify({ op: 'masterFx', key, value: Math.round(slider) / 100 }) }));
 const param = (deck, name, value) => ({ type: 'param', deck, name, value });
 const decksOf = (target) => (target === 'Master' ? DECKS : DECKS.includes(target) ? [target] : []);
 
@@ -117,7 +124,7 @@ export function mapCall(noun, params) {
             if (p.action === 'on') {
                 if (on === false) {
                     // switched off: open
-                    if (target === 'Master') ops.push(masterFx('lp-freq', 100), masterFx('hp-freq', 0));
+                    if (target === 'Master') ops.push(...masterFx('lp-freq', 100), ...masterFx('hp-freq', 0));
                     else ops.push(param(target, 'filter', 0.5));
                 }
                 // switched on: the sweep value that follows sets it
@@ -125,7 +132,7 @@ export function mapCall(noun, params) {
                 const corners = sweepCorners(value);
                 if (target === 'Master') {
                     const s = masterFilterSliders(corners);
-                    ops.push(masterFx('lp-freq', s.lp), masterFx('hp-freq', s.hp));
+                    ops.push(...masterFx('lp-freq', s.lp), ...masterFx('hp-freq', s.hp));
                 } else {
                     ops.push(param(target, 'filter', stripFilterKnob(corners)));
                 }
@@ -137,8 +144,8 @@ export function mapCall(noun, params) {
             else if (p.param === 'reverb.mix' && Number.isFinite(value)) for (const d of decks) ops.push(param(d, 'reverbWet', clamp01(value)));
             else if (p.action !== 'on') skipped.push(`inserts ${p.param || 'reverb'}`);
         } else if (effect === 'crush' && target === 'Master') {
-            if (p.action === 'on' && on === false) ops.push(masterFx('crush-bits', 0));
-            else if (p.param === 'crush.mix' && Number.isFinite(value)) ops.push(masterFx('crush-bits', Math.round(clamp01(value) * 100)));
+            if (p.action === 'on' && on === false) ops.push(...masterFx('crush-bits', 0));
+            else if (p.param === 'crush.mix' && Number.isFinite(value)) ops.push(...masterFx('crush-bits', clamp01(value) * 100));
             else if (p.action !== 'on') skipped.push(`inserts ${p.param || 'crush'}`);
         } else if (p.action === 'on' && on === false) {
             // switching an effect we do not have off is a no-op

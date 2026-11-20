@@ -162,7 +162,8 @@ a.tb { text-decoration: none; color: inherit; }
 .pr-row { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid #1b2340; padding: 8px 14px; font: 12.5px/1.45 var(--mono); }
 .pr-row:hover, .pr-row.cur { background: rgba(255,255,255,.05); }
 .pr-row .pos { color: var(--link); margin-right: 8px; }
-.pr-row .sev-error { color: var(--red); } .pr-row .sev-warning { color: var(--warn); }
+.pr-row .sev-error { color: var(--red); } .pr-row .sev-warning { color: var(--warn); } .pr-row .sev-note { color: var(--warn); }
+.pr-note { cursor: default; }
 .pr-row .more { display: block; color: var(--dim); padding-left: 3.4ch; }
 .pr-row .more.help { color: var(--amber); }
 .pr-fixes { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 14px 8px 3.4ch; border-bottom: 1px solid #1b2340; }

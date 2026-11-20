@@ -127,15 +127,19 @@ const calls = await import(pathToFileURL(path.join(jsDir, 'engine-calls.js')).hr
     ok('mixer master is a master action', mapCall('mixer', { master: 0.5 }).ops[0].json === '{"op":"master","value":0.5}');
     ok('deck play / stop', eq(mapCall('deck', { action: 'play', deck: 'A' }).ops, [{ type: 'play', deck: 'A', on: true }]) && eq(mapCall('deck', { action: 'stop', deck: 'A' }).ops, [{ type: 'play', deck: 'A', on: false }]));
     const mf = mapCall('inserts', { action: 'set', target: 'Master', param: 'filter.sweep', value: knob(400, false) });
-    ok('master filter sweep becomes lp-freq and hp-freq', mf.ops.length === 2 && JSON.parse(mf.ops[0].json).key === 'lp-freq' && JSON.parse(mf.ops[1].json).key === 'hp-freq' && JSON.parse(mf.ops[1].json).value === 0, JSON.stringify(mf));
+    const mfj = mf.ops.map((o) => ({ deck: o.deck, ...JSON.parse(o.json) }));
+    ok('master filter sweep becomes lp-freq and hp-freq on both decks', eq(mfj.map((o) => `${o.deck}:${o.key}`), ['A:lp-freq', 'B:lp-freq', 'A:hp-freq', 'B:hp-freq']) && mfj[2].value === 0, JSON.stringify(mfj));
+    // masterFx's value is a position 0..1 of the slider (MasterFxKey::slider_value): lp 400 Hz is slider 26, position 0.26
+    ok('master filter sweep sends a slider position, not slider units', mfj[0].value === Math.round(100 * Math.log(4) / Math.log(200)) / 100 && mfj[0].value < 1, JSON.stringify(mfj[0]));
     const mo = mapCall('inserts', { action: 'on', target: 'Master', effect: 'filter', on: false });
-    ok('master filter off opens both', mo.ops.length === 2 && JSON.parse(mo.ops[0].json).value === 100 && JSON.parse(mo.ops[1].json).value === 0);
+    ok('master filter off opens both units', mo.ops.length === 4 && mo.ops.every((o) => { const j = JSON.parse(o.json); return j.key === 'lp-freq' ? j.value === 1 : j.value === 0; }));
     ok('master filter on alone changes nothing', mapCall('inserts', { action: 'on', target: 'Master', effect: 'filter', on: true }).ops.length === 0);
     const dr = mapCall('inserts', { action: 'set', target: 'A', param: 'filter.sweep', value: knob(8000, false) });
     ok('a deck filter sweep is the strip filter knob', dr.ops.length === 1 && dr.ops[0].type === 'param' && dr.ops[0].name === 'filter' && dr.ops[0].value < 0.45);
     ok('master reverb mix is reverbWet on both decks', eq(mapCall('inserts', { action: 'set', target: 'Master', param: 'reverb.mix', value: 0.3 }).ops.map((o) => `${o.deck}${o.name}${o.value}`), ['AreverbWet0.3', 'BreverbWet0.3']));
     ok('reverb off is wet 0', mapCall('inserts', { action: 'on', target: 'Master', effect: 'reverb', on: false }).ops.every((o) => o.value === 0));
-    ok('master crush mix is crush-bits', JSON.parse(mapCall('inserts', { action: 'set', target: 'Master', param: 'crush.mix', value: 0.5 }).ops[0].json).value === 50);
+    const cr = mapCall('inserts', { action: 'set', target: 'Master', param: 'crush.mix', value: 0.5 }).ops;
+    ok('master crush mix is crush-bits at that position, on both decks', cr.length === 2 && cr.every((o) => JSON.parse(o.json).key === 'crush-bits' && JSON.parse(o.json).value === 0.5) && eq(cr.map((o) => o.deck), ['A', 'B']));
     ok('delay is ignored, and says so', mapCall('inserts', { action: 'set', target: 'Master', param: 'delay.mix', value: 0.3 }).ignored.includes('delay'));
     ok('a move is ignored, and says so', mapCall('moves', { action: 'move', name: 'loop_roll', deck: 'A' }).ignored === 'moves');
     ok('the Wheel target is ignored', !!mapCall('inserts', { action: 'set', target: 'Wheel', param: 'filter.sweep', value: 0.3 }).ignored);

@@ -161,6 +161,23 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
     // ---- the per-deck queues
     const queues = { A: [], B: [] };
 
+    // ---- messages to the worklet. Plays and knobs that one pass of the page sends go in ONE message, so the worklet acts
+    // on them in the same render quantum: two `play`s posted one after the other could otherwise land a quantum or more
+    // apart (deck B a step behind deck A for the whole song; test/parity caught it). An install goes at once (it carries a
+    // transfer), after whatever is waiting, so the order is kept.
+    let outbox = [];
+    const flush = () => {
+        if (!outbox.length || disposed) { outbox = []; return; }
+        const msgs = outbox;
+        outbox = [];
+        node.port.postMessage(msgs.length === 1 ? msgs[0] : { type: 'batch', msgs });
+    };
+    const send = (msg) => {
+        if (!outbox.length) queueMicrotask(flush);
+        outbox.push(msg);
+    };
+    const sendNow = (msg, transfer) => { flush(); node.port.postMessage(msg, transfer); };
+
     function finish(item, state) {
         clearTimeout(item.timer);
         item.state = state;
@@ -190,9 +207,9 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
                 }
             }
             if (item.inlineText !== undefined) {
-                node.port.postMessage({ type: 'load_share', id, deck: item.deck, text: item.inlineText });
+                sendNow({ type: 'load_share', id, deck: item.deck, text: item.inlineText });
             } else {
-                node.port.postMessage({ type: 'install', id, deck: item.deck, bytes: item.bytes }, [item.bytes.buffer]);
+                sendNow({ type: 'install', id, deck: item.deck, bytes: item.bytes }, [item.bytes.buffer]);
             }
             item.bytes = null;
             armTimer(item);
@@ -269,7 +286,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             } else {
                 atBar = others.some((d) => !it.batch.stops.has(d));
             }
-            node.port.postMessage({ type: 'play', deck: it.deck, on: it.on, atBar });
+            send({ type: 'play', deck: it.deck, on: it.on, atBar });
         }
         else if (it.kind === 'sound') post(mapSound(it.deck, it.role, it.option), false);
     }
@@ -286,7 +303,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             if (lastSent.get(key) === val) return;
             lastSent.set(key, val);
         }
-        node.port.postMessage(op);
+        send(op);
     }
 
     function call(noun, params) {
@@ -381,6 +398,12 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
         /** Loads and commands still waiting. */
         get pending() { return DECKS.reduce((n, d) => n + queues[d].length, 0); },
 
+        /** Forget which ignored calls were noted, so a new program's are emitted ('ignored') again. */
+        resetNotes() { noted.clear(); },
+
+        /** Loads the composer is compiling now (an offline render waits on these between steps: test/parity). */
+        get preparing() { return prepares.size; },
+
         setLevel(v) {
             const x = Math.max(0, Math.min(1, Number(v)));
             if (Number.isFinite(x)) gain.gain.setTargetAtTime(x, context.currentTime, 0.015);
@@ -394,6 +417,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
 
         dispose() {
             if (disposed) return;
+            flush();
             disposed = true;
             clearTimeout(readyTimer);
             for (const d of DECKS) for (const it of queues[d]) { clearTimeout(it.timer); it.state = 'dropped'; }
