@@ -160,9 +160,9 @@ type pageData struct {
 }
 
 const genericTitle = "BeatScript: write a whole track as text"
-const genericDesc = "BeatScript is where you write whole music tracks as text, in btw, a small, deterministic music language. A program is its own link: the same text always has the same CID, and it plays in the browser."
+const genericDesc = "AI-assisted algorithmic composition"
 const privateTitle = "a private BeatScript program"
-const privateDesc = "This btw program is private. BeatScript is where you write whole music tracks as text."
+const privateDesc = "This BeatScript program is private. AI-assisted algorithmic composition."
 
 // origin is the site's https origin: Options.PublicURL, else what the request says.
 func (s *Service) origin(r *http.Request) string {

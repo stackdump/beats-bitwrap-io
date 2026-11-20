@@ -6,7 +6,7 @@ import "fmt"
 // limits are, and what to do on each error.
 
 func (s *Server) instructions() string {
-	return fmt.Sprintf(`btw is a small, total, deterministic language for writing whole music tracks as text. A program has one line per deck, parts joined with |, 16 steps a bar, sections and an arrange; the same canonical text always has the same CID. Programs are CC0 by default.
+	return fmt.Sprintf(`BeatScript: AI-assisted algorithmic composition. btw is its small, total, deterministic language for writing whole music tracks as text. A program has one line per deck, parts joined with |, 16 steps a bar, sections and an arrange; the same canonical text always has the same CID. Programs are CC0 by default.
 
 Workflow: read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples, call instruments for the voices you may name, write a program, call check and fix every line:col error, then share (a link), render (audio you can open), or eval / load (play it in a browser tab open at %[1]s). compose writes a program for you from a prompt. The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
 

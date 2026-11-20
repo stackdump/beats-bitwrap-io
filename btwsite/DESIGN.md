@@ -465,7 +465,7 @@ Served by the site: `/llms.txt` (llmstxt.org: H1, `>` summary, short key facts, 
 A test fetches every link in `llms.txt` and demands 200. Matt's draft for `llms.txt` (adjust paths to what is served):
 ```
 # btw
-> btw (bitwrap) is a small, total, deterministic language for writing whole music tracks as text. Programs compile to Petri nets, play in the browser and the djrust desktop app, and are content-addressed: the same canonical text always has the same CID. Programs are CC0 by default and remixable by fork.
+> BeatScript: AI-assisted algorithmic composition. btw (bitwrap) is its small, total, deterministic language for writing whole music tracks as text. Programs compile to Petri nets, play in the browser and the djrust desktop app, and are content-addressed: the same canonical text always has the same CID. Programs are CC0 by default and remixable by fork.
 Key facts: one line per deck with |-separated parts and 16 steps a bar; mini-notation (x hit, ~ rest, [..] group, <..> per-bar alternation, c2! accent, e2^ slide, chord(am)); structure (let, def with no recursion, repeat N, section, arrange, end after); control lines (ramps a -> b over N bars, at bar, every, before <section>, do <noun> <verb>); seeded transforms; evolve with a reported tail and period; only instruments from /api/instruments; always run check and fix line:column errors before playing.
 ## Docs: BTW.md, cheatsheet.md, instruments. ## Examples: the three named above. ## API: /mcp tools, POST /api/compose (signed in, rate-limited), GET /api/render/<cid> (streams), share-link format p#<CID>.<deflate(canonical)>. ## Optional: https://blog.stackdump.com/posts/generator-you-can-read and https://ontology.bitwrap.io.
 ```

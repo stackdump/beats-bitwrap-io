@@ -276,7 +276,7 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
  .req{color:var(--red);font-size:.75em;margin-left:4px}
 </style></head><body>
 <h1>btw MCP server</h1>
-<p>btw is a small language for writing whole music tracks as text. This endpoint is the
+<p>BeatScript: AI-assisted algorithmic composition. btw is its small language for writing whole music tracks as text. This endpoint is the
 <a href="https://modelcontextprotocol.io">Model Context Protocol</a> over Streamable HTTP at <code>%s</code>:
 check, format, compose, share and render programs, and drive a browser tab at <a href="%s">%s</a>.
 Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.txt</a>.</p>
