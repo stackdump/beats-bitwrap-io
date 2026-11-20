@@ -1,6 +1,6 @@
 # BeatScript API
 
-`https://btw.bitwrap.io` is a code-centric web view of **BeatScript**, a small language for writing whole music tracks as text
+`https://btw.bitwrap.io` is a code-centric web view of **BeatScript**, AI-assisted algorithmic composition: a small language for writing whole music tracks as text
 (reference: [BTW.md](https://btw.bitwrap.io/docs/BTW.md), compact grammar: [cheatsheet.md](https://btw.bitwrap.io/docs/cheatsheet.md),
 index for models: [llms.txt](https://btw.bitwrap.io/llms.txt)). This page documents everything the service answers: the HTTP routes,
 sign-in, composing with a model, streaming renders, driving a browser tab, and the MCP server.
