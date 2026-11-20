@@ -1555,3 +1555,66 @@ test('program-ld: the editor\'s program block is read from <beatscript-view data
   assert.equal(readProgramView({ querySelector: () => null }), null);
   assert.equal(readProgramView({ querySelector: () => ({ querySelector: () => null }) }), null);
 });
+
+// ---- assist-model.js: the language service's pure side (positions, snippets, edits, markdown, outline) ---------------
+const am = await J('assist-model.js');
+
+test('assist: LSP positions over UTF-16, round trip, every kind of line break', () => {
+  const t = 'ab\ncd\r\nef\rg 😀x';
+  assert.deepEqual(am.lspPos(t, 4), { line: 1, character: 1 });
+  assert.deepEqual(am.lspPos(t, 7), { line: 2, character: 0 });
+  assert.deepEqual(am.lspPos(t, 10), { line: 3, character: 0 });
+  // the emoji is two UTF-16 units: `x` is at character 4 of its line
+  assert.deepEqual(am.lspPos(t, t.indexOf('x')), { line: 3, character: 4 });
+  for (const at of [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, t.indexOf('x'), t.length]) assert.equal(am.offsetOf(t, am.lspPos(t, at)), at, String(at));
+  assert.equal(am.offsetOf(t, { line: 0, character: 99 }), 2, 'past the line end: the line end');
+  assert.equal(am.offsetOf(t, { line: 9, character: 0 }), t.length);
+});
+
+test('assist: snippets expand to text and the first stop is selected', () => {
+  assert.deepEqual(am.expandSnippet('e(${1:5}, ${2:8})'), { text: 'e(5, 8)', sel: [2, 3] });
+  assert.deepEqual(am.expandSnippet('deck A: ${1|kick,snare|} $0'), { text: 'deck A: kick ', sel: [8, 12] });
+  assert.deepEqual(am.expandSnippet('section ${1:name} ${2:16} bars {\n  $0\n}'), { text: 'section name 16 bars {\n  \n}', sel: [8, 12] });
+  assert.deepEqual(am.expandSnippet('inst=$1'), { text: 'inst=', sel: [5, 5] });
+  assert.deepEqual(am.expandSnippet('kick'), { text: 'kick', sel: [4, 4] });
+});
+
+test('assist: several edits are one replacement (one undo), in order', () => {
+  const t = 'let riff = c2 ~\ndeck B: bass riff riff\n';
+  const r = (l0, c0, l1, c1, newText) => ({ range: { start: { line: l0, character: c0 }, end: { line: l1, character: c1 } }, newText });
+  const m = am.mergeEdits(t, [r(1, 18, 1, 22, '[c2 ~]'), r(0, 0, 0, 0, '# '), r(1, 13, 1, 17, '[c2 ~]')]);
+  assert.equal(m.text, '# let riff = c2 ~\ndeck B: bass [c2 ~] [c2 ~]\n');
+  assert.equal(t.slice(0, m.from) + m.insert + t.slice(m.to), m.text);
+});
+
+test('assist: hover markdown is escaped HTML with code', () => {
+  const html = am.mdToHtml('```btw\nsection drop 16 bars\n```\n\n16 bars <b>, `x` & co');
+  assert.equal(html, '<pre class="as-code">section drop 16 bars</pre><p>16 bars &lt;b&gt;, <code>x</code> &amp; co</p>');
+});
+
+test('assist: the outline flattens and filters', () => {
+  const pos = (l) => ({ start: { line: l, character: 0 }, end: { line: l, character: 1 } });
+  const tree = [{ name: 'intro', kind: 2, range: pos(3), selectionRange: pos(3), children: [{ name: 'kick', kind: 8, range: pos(4), selectionRange: pos(4) }] }, { name: 'riff', kind: 13, range: pos(1), selectionRange: pos(1) }];
+  const rows = am.flattenSymbols(tree);
+  assert.deepEqual(rows.map((r) => [r.name, r.depth, r.line]), [['intro', 0, 3], ['kick', 1, 4], ['riff', 0, 1]]);
+  assert.deepEqual(am.filterRows(rows, 'ri').map((r) => r.name), ['riff']);
+  assert.deepEqual(am.filterRows(rows, 'k').map((r) => r.name), ['kick']);
+  assert.equal(am.offsetOfVcol('\tab', 0, 3), 2, 'a tab is two columns');
+});
+
+test('assist: the real module answers completion, hover and fixes (BtwLs)', { skip: !realWasm || !facade.ls ? 'no built module with BtwLs' : false }, () => {
+  const ls = facade.ls();
+  const text = 'tempo 120\nsection intro 8 bars {\n  deck A: kcik x ~ x ~\n}\narrange \n';
+  const diags = JSON.parse(ls.open('main', text));
+  assert.ok(Array.isArray(diags));
+  const at = (l, c) => JSON.stringify({ textDocument: { uri: 'main' }, position: { line: l, character: c } });
+  const comp = JSON.parse(ls.request('textDocument/completion', at(4, 8)));
+  assert.equal(comp.items[0].label, 'intro', 'arrange offers the sections');
+  const hov = JSON.parse(ls.request('textDocument/hover', at(1, 10)));
+  assert.match(hov.contents.value, /section intro 8 bars/);
+  JSON.parse(ls.check('main'));
+  const acts = JSON.parse(ls.request('codeAction', '{}'));
+  assert.ok(acts.error, 'an unknown method is an error, not a throw');
+  const fix = JSON.parse(ls.request('textDocument/codeAction', JSON.stringify({ textDocument: { uri: 'main' }, range: { start: { line: 2, character: 10 }, end: { line: 2, character: 10 } }, context: { diagnostics: [] } })));
+  assert.equal(fix[0].title, '`kcik` -> `kick`');
+});
