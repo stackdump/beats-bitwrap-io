@@ -8,7 +8,7 @@
         "readOnlyHint": true,
         "title": "Check a btw program"
       },
-      "description": "Check a btw program without playing it: parse, type-check and compile the text. ALWAYS call check before eval, share or render, and fix every error at its line:col before trying again: a program with an error is refused whole. Warnings do not block.\n\nAnswers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, message, expected, found, help, render}], cid, canonical, tempo, key, sections, song_bars, seconds, evolve, uses_assets, restricted}. line and col are 1-based; help says what would fix it (\"did you mean ...\"); render is the same error in caret form. ok:false is an answer, not a tool error. cid and canonical are of the canonical text (comments and spacing do not change the CID).\n\nWith same_as (another program's CID or text) the answer gains same_as {same, text_same, basis, why, diffs[{section, deck, start_bar, a_cid, b_cid}], only_in_a, only_in_b, renamed, song, diff}: whether the two are the same song by their compiled nets and song-level settings, not their text. When they are not, diff says what changed in music: diff.summary is one line per change (\"tempo 124 -\u003e 126\", \"moved outro: bar 13 -\u003e bar 5\", \"drop2 bass = drop bass transposed +1\", \"drop bass: 1 note changed (1:7 c3 -\u003e d3)\"), with song, arrangement (inserted, removed, moved, repeated, renamed, changed) and parts (a transform: transpose, octave, rotate, reverse, thin, fill, fast, slow; else the notes added, removed or changed at bar:step) as JSON. Use it to prove a refactor changed nothing, or to find what an edit did.\n\nVoices come from the instruments tool; the grammar is https://btw.bitwrap.io/docs/cheatsheet.md. Read-only, no sign-in. Limits: the text is at most 16384 bytes; about 60 calls a minute.",
+      "description": "Check a btw program without playing it: parse, type-check and compile the text. ALWAYS call check before eval, share or render, and fix every error at its line:col before trying again: a program with an error is refused whole. Warnings do not block.\n\nAnswers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, message, expected, found, help, render}], cid, canonical, tempo, key, sections, song_bars, seconds, evolve, uses_assets, restricted}. line and col are 1-based; help says what would fix it (\"did you mean ...\"); render is the same error in caret form. ok:false is an answer, not a tool error. cid and canonical are of the canonical text (comments and spacing do not change the CID).\n\nWith same_as (another program's CID or text) the answer gains same_as {same, text_same, basis, why, diffs[{section, deck, start_bar, a_cid, b_cid}], only_in_a, only_in_b, renamed, song, diff}: whether the two are the same song by their compiled nets and song-level settings, not their text. When they are not, diff says what changed in music: diff.summary is one line per change (\"tempo 124 -\u003e 126\", \"moved outro: bar 13 -\u003e bar 5\", \"drop2 bass = drop bass transposed +1\", \"drop bass: 1 note changed (1:7 c3 -\u003e d3)\"), with song, arrangement (inserted, removed, moved, repeated, renamed, changed) and parts (a transform: transpose, octave, rotate, reverse, thin, fill, fast, slow; else the notes added, removed or changed at bar:step) as JSON. Use it to prove a refactor changed nothing, or to find what an edit did.\n\nThis is the loop for writing a program (there is no compose tool): read https://btw.bitwrap.io/docs/cheatsheet.md and one or two list_examples programs, call instruments, write the program, call check and fix every line:col error until ok, then eval / load to play it and share to store it. Voices come from the instruments tool: use only names from it. A voice name with a leading digit (808-bass) cannot be written: inst=808-bass reads as 808 - bass and a quoted \"808-bass\" is refused, so pick a voice that starts with a letter (inst=sub-bass for a deep bass). Read-only, no sign-in. Limits: the text is at most 16384 bytes; about 60 calls a minute.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -29,60 +29,6 @@
         "type": "object"
       },
       "name": "check"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": true,
-        "readOnlyHint": false,
-        "title": "Compose a program from a prompt"
-      },
-      "description": "Write a whole btw music program from a prompt with a language model, and get it back already checked: the canonical program text, its CID, the check report, the attempts the repair loop needed, a render_url (audio) and a share_url (link). Needs a bearer token (sign in on https://btw.bitwrap.io, \"MCP token\").\n\nIt takes 5 to 60 seconds, up to about 90 when the first drafts had errors and the server repaired them (up to 3 rounds); do not call it again while it runs. It is rate limited per user (currently 10 per hour and 50 per day per user) and per address, and the site has a daily spend cap: on rate_limited wait retry_after seconds and tell the user; on spend_cap, disabled or not_configured stop and say so; on unrepairable the details hold the last diagnostics, so adjust the prompt (simpler, or give a base_cid) rather than repeating it.\n\nThe result is stored publicly under CC0-1.0 (public domain): never put anything private in the prompt. Pass base_cid (an example's CID, or a program compose or render stored) to edit that program instead of starting from nothing. To hear it: render (audio at stream_url), or eval / load into a browser tab.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "base_cid": {
-            "description": "Optional CID of a public program (an example or one the site stored) to edit instead of starting fresh; the result records it as forked from.",
-            "maxLength": 100,
-            "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
-            "type": "string"
-          },
-          "bpm": {
-            "description": "Optional tempo, 40 to 300.",
-            "maximum": 300,
-            "minimum": 40,
-            "type": "number"
-          },
-          "genre": {
-            "description": "Optional genre hint, e.g. dubstep, trance, techno, ambient.",
-            "maxLength": 40,
-            "type": "string"
-          },
-          "key": {
-            "description": "Optional key, as the language writes it: am, c, f#m, d:dorian, d:phrygian.",
-            "maxLength": 24,
-            "pattern": "^[A-Za-z0-9#:]{1,24}$",
-            "type": "string"
-          },
-          "length": {
-            "description": "Optional: short, medium, long, or a number of bars (at most 256).",
-            "maxLength": 5,
-            "pattern": "^(short|medium|long|[0-9]{1,3})$",
-            "type": "string"
-          },
-          "prompt": {
-            "description": "What to write, in plain words: mood, genre, instruments, structure, e.g. \"dark techno at 128 with an acid line and a long breakdown\". At most 800 characters.",
-            "maxLength": 800,
-            "type": "string"
-          }
-        },
-        "required": [
-          "prompt"
-        ],
-        "type": "object"
-      },
-      "name": "compose"
     },
     {
       "annotations": {
@@ -246,12 +192,12 @@
         "readOnlyHint": false,
         "title": "Load a stored program into a browser tab"
       },
-      "description": "Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at https://btw.bitwrap.io, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; compose and render store theirs), example (a name from list_examples), url (a share link https://btw.bitwrap.io/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.",
+      "description": "Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at https://btw.bitwrap.io, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; render and a signed-in share store theirs), example (a name from list_examples), url (a share link https://btw.bitwrap.io/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "cid": {
-            "description": "CID of a program the site has stored (compose and render store theirs) or of an example.",
+            "description": "CID of a program the site has stored (render and a signed-in share store theirs) or of an example.",
             "maxLength": 100,
             "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
             "type": "string"
@@ -297,7 +243,7 @@
         "readOnlyHint": true,
         "title": "Open a share link"
       },
-      "description": "Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/\u003cCID\u003e.\u003cpacked\u003e link, a beats.bitwrap.io/p# link, a bare #fragment or \u003cCID\u003e.\u003cpacked\u003e) or a CID-only link (https://btw.bitwrap.io/p/\u003cCID\u003e, /c/\u003cCID\u003e, https://beats.bitwrap.io/p/\u003cCID\u003e, #\u003cCID\u003e, or a bare CID), which is resolved from the programs the site has stored (shared signed in, composed or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.",
+      "description": "Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (https://btw.bitwrap.io/#\u003cCID\u003e.\u003cpacked\u003e, a /c/\u003cCID\u003e.\u003cpacked\u003e link, a beats.bitwrap.io/p# link, a bare #fragment or \u003cCID\u003e.\u003cpacked\u003e) or a CID-only link (https://btw.bitwrap.io/p/\u003cCID\u003e, /c/\u003cCID\u003e, https://beats.bitwrap.io/p/\u003cCID\u003e, #\u003cCID\u003e, or a bare CID), which is resolved from the programs the site has stored (shared signed in, or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -322,7 +268,7 @@
         "readOnlyHint": false,
         "title": "Up next: queue programs on a browser tab"
       },
-      "description": "An \"up next\" queue on one browser tab at https://btw.bitwrap.io (the same tabs and rules as load: session, or device, else your most recently seen signed-in tab). When the playing program ends the page plays the next item, on the bar line where it can; a looping program (one that never ends) plays for the item's bars or minutes, else one full pass of its arrangement, and then advances. Needs a bearer token.\n\naction is one of: list (the queue, now_playing, position, paused_reason, listener), add (items: up to 20 per call, 50 in the queue), remove (item: an item id from list, or a CID), clear, skip (play the next item now).\n\nItems must already be programs: {cid} of a stored program (compose, render and share store theirs) or an example's CID, {example} by name from list_examples, or {url} a share link (verified exactly as load verifies it; a CID-only link must name a stored program). Optional per item: bars (1-1024) or minutes (0.1-120) to play, title. THE QUEUE NEVER COMPOSES OR CALLS A MODEL, and there is no way to make it: to queue generated music, call compose yourself (it is rate limited and spend-capped), then add the CIDs it returns. Do not loop compose to keep a queue full.\n\nThe queue advances only while a listener is plausibly present, as the page reports it: it pauses at the next track boundary when the tab's audio is suspended, when the tab has been hidden with no key, pointer, touch or media key for 30 minutes, or after 8 tracks in a row without any interaction; the page then shows \"Still listening? Press play to continue\". Only a person on the page lifts a pause: skip is refused while paused (paused_reason says why), and load still plays one program as it always has but does not resume the queue. Writes are limited to about 30 a minute. The queue lives with the tab's session and is gone when the tab is.",
+      "description": "An \"up next\" queue on one browser tab at https://btw.bitwrap.io (the same tabs and rules as load: session, or device, else your most recently seen signed-in tab). When the playing program ends the page plays the next item, on the bar line where it can; a looping program (one that never ends) plays for the item's bars or minutes, else one full pass of its arrangement, and then advances. Needs a bearer token.\n\naction is one of: list (the queue, now_playing, position, paused_reason, listener), add (items: up to 20 per call, 50 in the queue), remove (item: an item id from list, or a CID), clear, skip (play the next item now).\n\nItems must already be programs: {cid} of a stored program (render and a signed-in share store theirs) or an example's CID, {example} by name from list_examples, or {url} a share link (verified exactly as load verifies it; a CID-only link must name a stored program). Optional per item: bars (1-1024) or minutes (0.1-120) to play, title. THE QUEUE NEVER COMPOSES OR CALLS A MODEL, and there is no way to make it: to queue new music, write the programs yourself (check them), store each with render or share, then add the CIDs.\n\nThe queue advances only while a listener is plausibly present, as the page reports it: it pauses at the next track boundary when the tab's audio is suspended, when the tab has been hidden with no key, pointer, touch or media key for 30 minutes, or after 8 tracks in a row without any interaction; the page then shows \"Still listening? Press play to continue\". Only a person on the page lifts a pause: skip is refused while paused (paused_reason says why), and load still plays one program as it always has but does not resume the queue. Writes are limited to about 30 a minute. The queue lives with the tab's session and is gone when the tab is.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -420,7 +366,7 @@
         "additionalProperties": false,
         "properties": {
           "cid": {
-            "description": "CID of a program already stored (for instance the cid compose returned).",
+            "description": "CID of a program already stored (for instance the cid render or a signed-in share returned).",
             "maxLength": 100,
             "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
             "type": "string"
@@ -450,12 +396,12 @@
         "readOnlyHint": false,
         "title": "Render a program to streaming audio"
       },
-      "description": "Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what compose returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or \"use restricted\" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.\n\nCall check first. The offline render plays the notes and sounds, not control lines (filters, reverb, do ... lines), so it can sound plainer than the browser; a program with no end (no sections or end line) is cut at the server's bar limit (256 bars). Rendering is limited per address per hour and to a few at once: on busy or rate_limited wait retry_after seconds. No sign-in needed; about 30 programs an hour per client.",
+      "description": "Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what an earlier render or a signed-in share returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or \"use restricted\" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.\n\nCall check first. The offline render plays the notes and sounds, not control lines (filters, reverb, do ... lines), so it can sound plainer than the browser; a program with no end (no sections or end line) is cut at the server's bar limit (256 bars). Rendering is limited per address per hour and to a few at once: on busy or rate_limited wait retry_after seconds. No sign-in needed; about 30 programs an hour per client.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "cid": {
-            "description": "CID of a program already stored (for instance the cid compose returned).",
+            "description": "CID of a program already stored (for instance the cid render or a signed-in share returned).",
             "maxLength": 100,
             "pattern": "^z[1-9A-HJ-NP-Za-km-z]{20,100}$",
             "type": "string"

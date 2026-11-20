@@ -205,9 +205,9 @@ func TestEndToEndWithTheRealServer(t *testing.T) {
 	}
 	next()
 
-	// compose through MCP: the server has no model configured, and says so as a tool error
-	if cr := e.call("btw_alice", "compose", map[string]any{"prompt": "x"}); cr.errBody(t)["code"] != "not_configured" {
-		t.Errorf("compose: %s", cr.Text)
+	// compose is not an MCP tool, against the real server too
+	if m := e.rpc("btw_alice", "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "x"}}, nil); m.Error == nil {
+		t.Errorf("compose over MCP answered: %s", m.Result)
 	}
 	// the tools see the server's examples
 	if le := e.call("", "list_examples", nil).body(t); len(le["examples"].([]any)) != len(srv.Examples()) {

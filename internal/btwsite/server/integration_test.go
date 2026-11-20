@@ -371,14 +371,15 @@ func TestIntegrationMCPThroughTheRealServer(t *testing.T) {
 	if !isErr || !strings.Contains(strings.ToLower(jsonString(res)), "auth_required") {
 		t.Fatalf("eval without a token: %v", res)
 	}
-	// compose through MCP needs the token, and uses the real compose service
-	res, isErr = toolResult(t, mcp(t, e, "", "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "x"}}))
-	if !isErr {
-		t.Fatalf("anonymous compose over MCP: %v", res)
+	// compose is not an MCP tool (an MCP caller writes the program itself), but the web app's door still works
+	if m := mcp(t, e, tok, "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "dark techno"}}); m["error"] == nil {
+		t.Fatalf("compose over MCP answered: %v", m)
 	}
-	res, isErr = toolResult(t, mcp(t, e, tok, "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "dark techno"}}))
-	if isErr || res["cid"] == nil {
-		t.Fatalf("compose over MCP: %v", res)
+	var composed struct {
+		CID string `json:"cid"`
+	}
+	if st := decode(t, e.post("/api/compose", composeBody("dark techno"), bearer(tok), ip("192.0.2.80")), &composed); st != 200 || composed.CID == "" {
+		t.Fatalf("POST /api/compose after MCP lost compose: %d %+v", st, composed)
 	}
 	// eval reaches the browser tab over SSE; get reads what the tab reported
 	sess := e.newSession(bearer(tok))

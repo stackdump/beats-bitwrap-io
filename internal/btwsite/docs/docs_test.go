@@ -351,7 +351,7 @@ func TestApiDocCoversEveryRouteAndTool(t *testing.T) {
 			t.Errorf("api.md does not mention %q", want)
 		}
 	}
-	for _, tool := range []string{"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "list_examples", "instruments", "stop"} {
+	for _, tool := range []string{"check", "fmt", "eval", "load", "get", "share", "open", "render", "list_examples", "instruments", "stop"} {
 		if !strings.Contains(md, "| `"+tool+"` |") {
 			t.Errorf("api.md has no table row for the MCP tool %s", tool)
 		}

@@ -1,5 +1,8 @@
-// Package mcpsrv is the MCP server of btw.bitwrap.io: the btw language, the compose pipeline, the
-// renderer and the browser sessions as fifteen tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
+// Package mcpsrv is the MCP server of btw.bitwrap.io: the btw language, the renderer and the browser
+// sessions as fourteen tools over streamable HTTP at /mcp (btwsite/DESIGN.md "MCP").
+//
+// There is no compose tool: an MCP caller is already a capable model, so it writes programs itself (check is
+// its loop) instead of spending the site's model budget. Compose stays a web-app feature (POST /api/compose).
 //
 //	mux.Handle("/mcp", mcpsrv.Handler(backend, auth, "https://btw.bitwrap.io"))
 //	mux.Handle("/mcp/", ...the same handler...)
@@ -8,8 +11,8 @@
 // github.com/mark3labs/mcp-go, and written against api.Backend only, so it is tested with a fake.
 //
 // Authentication is the bearer token of the HTTP request ("Authorization: Bearer btw_..."), resolved with
-// api.Authenticator.UserFromToken on every call. Read tools work anonymously; the write tools (compose, eval,
-// load, stop) answer an MCP tool error with code auth_required and Backend.AuthHelp() without one.
+// api.Authenticator.UserFromToken on every call. Read tools work anonymously; the write tools (eval, load,
+// get, stop, devices, queue) answer an MCP tool error with code auth_required and Backend.AuthHelp() without one.
 //
 // Every tool failure is a tool result with isError true whose text is the site's usual error body,
 // {"error":{"code","message","retry_after","details"}}, so a model can read the code and the words.
@@ -31,7 +34,7 @@ import (
 
 // ToolNames is the contract: the names tools/list answers, in this order.
 var ToolNames = []string{
-	"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices", "queue",
+	"check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices", "queue",
 }
 
 // Options tunes the handler. The zero value of each field means its default.
@@ -39,13 +42,11 @@ type Options struct {
 	// ClientIP resolves the address a request came from (behind nginx it must read X-Real-IP or the
 	// last X-Forwarded-For). Default api.ClientIP, which does that for a loopback proxy.
 	ClientIP func(r *http.Request) string
-	// MaxProgramBytes caps every program text an argument may carry. Default 16384 (compose's -max-program-bytes).
+	// MaxProgramBytes caps every program text an argument may carry. Default 16384 (the server's -max-program-bytes).
 	MaxProgramBytes int
-	// MaxPromptChars caps compose's prompt. Default 800 (compose's -max-prompt-chars).
-	MaxPromptChars int
 	// CheckPerMin is how many calls a minute one client (a user, else an address) may make to the tools
 	// that run the Rust checker: check, fmt, share, open, and the check inside eval / load / render.
-	// Default 60. The compose limits are the backend's own.
+	// Default 60.
 	CheckPerMin int
 	// RenderPerHour is how many programs one client may have stored for rendering through the render
 	// tool per hour (the stream itself has the server's own limits). Default 30.
@@ -58,8 +59,6 @@ type Options struct {
 	// The queue's limits as the backend enforces them, for the tool's description. Defaults 50 items, 20 per add,
 	// 30 idle minutes, 8 tracks in a row (server.QueueConfig's).
 	QueueMaxItems, QueueMaxPerAdd, QueueIdleMinutes, QueueMaxAuto int
-	// ComposeTimeout bounds one compose call. Default 150 s.
-	ComposeTimeout time.Duration
 	// Now is the clock (tests).
 	Now func() time.Time
 }
@@ -69,7 +68,6 @@ type Option func(*Options)
 
 func WithClientIP(f func(r *http.Request) string) Option { return func(o *Options) { o.ClientIP = f } }
 func WithMaxProgramBytes(n int) Option                   { return func(o *Options) { o.MaxProgramBytes = n } }
-func WithMaxPromptChars(n int) Option                    { return func(o *Options) { o.MaxPromptChars = n } }
 func WithCheckPerMin(n int) Option                       { return func(o *Options) { o.CheckPerMin = n } }
 func WithRenderPerHour(n int) Option                     { return func(o *Options) { o.RenderPerHour = n } }
 func WithSharePerHour(n int) Option                      { return func(o *Options) { o.SharePerHour = n } }
@@ -79,8 +77,7 @@ func WithQueueLimits(maxItems, maxPerAdd, idleMinutes, maxAuto int) Option {
 		o.QueueMaxItems, o.QueueMaxPerAdd, o.QueueIdleMinutes, o.QueueMaxAuto = maxItems, maxPerAdd, idleMinutes, maxAuto
 	}
 }
-func WithComposeTimeout(d time.Duration) Option          { return func(o *Options) { o.ComposeTimeout = d } }
-func WithNow(f func() time.Time) Option                  { return func(o *Options) { o.Now = f } }
+func WithNow(f func() time.Time) Option { return func(o *Options) { o.Now = f } }
 
 func (o *Options) defaults() {
 	if o.ClientIP == nil {
@@ -88,9 +85,6 @@ func (o *Options) defaults() {
 	}
 	if o.MaxProgramBytes <= 0 {
 		o.MaxProgramBytes = 16384
-	}
-	if o.MaxPromptChars <= 0 {
-		o.MaxPromptChars = 800
 	}
 	if o.CheckPerMin <= 0 {
 		o.CheckPerMin = 60
@@ -111,9 +105,6 @@ func (o *Options) defaults() {
 		if *q.p <= 0 {
 			*q.p = q.def
 		}
-	}
-	if o.ComposeTimeout <= 0 {
-		o.ComposeTimeout = 150 * time.Second
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -198,7 +189,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.landing(w, r)
 		return
 	}
-	// Long calls (compose, render info on a busy box) must not be cut by the parent http.Server's deadlines.
+	// Long calls (render info on a busy box) must not be cut by the parent http.Server's deadlines.
 	if rc := http.NewResponseController(w); rc != nil {
 		_ = rc.SetWriteDeadline(time.Time{})
 		_ = rc.SetReadDeadline(time.Time{})
@@ -304,12 +295,13 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 <h1>btw MCP server</h1>
 <p>BeatScript: AI-assisted algorithmic composition. btw is its small language for writing whole music tracks as text. This endpoint is the
 <a href="https://modelcontextprotocol.io">Model Context Protocol</a> over Streamable HTTP at <code>%s</code>:
-check, format, compose, share and render programs, and drive a browser tab at <a href="%s">%s</a>.
+check, format, share and render programs you write, and drive a browser tab at <a href="%s">%s</a>.
 Programs are CC0. The reading list for a model is <a href="%s/llms.txt">%s/llms.txt</a>.</p>
 <h2>Add to Claude Code</h2>
 <pre><code>claude mcp add --transport http btw %s --header 'Authorization: Bearer btw_...'</code></pre>
 <p>Without the header the read tools still work (check, fmt, share, open, render, list_examples, instruments);
-compose, eval, load, get, stop, devices and queue need a token. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
+eval, load, get, stop, devices and queue need a token. There is no compose tool here: you write the program
+(read the cheat-sheet, check it, fix every line:col error); composing from a prompt is a feature of the web app. Sign in on <a href="%s">%s</a> with a wallet or a browser key and press
 <b>MCP token</b>. Other clients take the same URL and header:</p>
 <pre><code>{ "mcpServers": { "beatscript": { "type": "http", "url": "%s",
     "headers": { "Authorization": "Bearer btw_..." } } } }</code></pre>
@@ -362,4 +354,4 @@ compose, eval, load, get, stop, devices and queue need a token. Sign in on <a hr
 // authTools are the tools that need a signed-in caller.
 // get is one of them: the hub only lets an authenticated caller read a session (btwsite/DESIGN.md "Sessions":
 // even an anonymous tab is reached with its id *and* a token).
-var authTools = map[string]bool{"compose": true, "eval": true, "load": true, "get": true, "stop": true, "devices": true, "queue": true}
+var authTools = map[string]bool{"eval": true, "load": true, "get": true, "stop": true, "devices": true, "queue": true}

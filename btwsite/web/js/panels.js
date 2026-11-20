@@ -226,7 +226,7 @@ export class Panels {
     const out = [];
     const sid = app.session && app.session.id;
     const origin = (app.info && app.info.public_url) || location.origin;
-    out.push(h('p', { class: 'note' }, 'An assistant (Claude Code, for one) can use this site over MCP: check and format programs, compose, and drive this very page so you can listen while it works.'));
+    out.push(h('p', { class: 'note' }, 'An assistant (Claude Code, for one) can use this site over MCP: write, check and format programs, and drive this very page so you can listen while it works.'));
     out.push(h('div', {}, h('div', { class: 'note' }, 'This page\'s session id'), h('pre', {}, sid || (app.session && app.session.error) || 'connecting…'),
       h('p', { class: 'note' }, app.session && app.session.connected ? 'Connected: tools that target a session can reach this tab.' : 'Not connected yet.')));
     const result = h('div', { role: 'status' });

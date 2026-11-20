@@ -233,8 +233,8 @@ func (s *server) llmsTxt() string {
 	w("- [All examples as JSON](%s/api/examples): name, title, description, cid, bpm, bars, license\n\n", p)
 
 	w("## API\n")
-	w("- [MCP server](%s/mcp): streamable HTTP; tools compose, check, fmt, eval, load, get, share, open, render, record, list_examples, instruments, stop, devices, queue (an up-next list that never composes); writes need a bearer token\n", p)
-	w("- [Compose](%s/docs/api.md#compose): POST %s/api/compose writes a program from a prompt (signed in, rate limited, capped)\n", p, p)
+	w("- [MCP server](%s/mcp): streamable HTTP; tools check, fmt, eval, load, get, share, open, render, record, list_examples, instruments, stop, devices, queue (an up-next list that never composes); writes need a bearer token. There is no compose tool: write the program yourself (cheat-sheet, list_examples, instruments, then check until ok)\n", p)
+	w("- [Compose](%s/docs/api.md#compose): POST %s/api/compose writes a program from a prompt for the web app (signed in, rate limited, capped; not an MCP tool)\n", p, p)
 	w("- [Render](%s/docs/api.md#render): GET %s/api/render/<CID>?format=opus|wav streams the offline render as it renders\n", p, p)
 	w("- [Linked data](%s/docs/api.md#linked-data-json-ld): the versioned JSON-LD @context (%s/context/v1.jsonld) and a program's JSON-LD document (%s/c/<CID>.jsonld)\n", p, p, p)
 	w("- [Share links](%s/docs/api.md#share-links): the link format, and how to open one safely\n", p)

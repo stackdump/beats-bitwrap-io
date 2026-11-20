@@ -19,7 +19,7 @@ func (s *Server) queueDesc() string {
 
 action is one of: list (the queue, now_playing, position, paused_reason, listener), add (items: up to %[2]d per call, %[3]d in the queue), remove (item: an item id from list, or a CID), clear, skip (play the next item now).
 
-Items must already be programs: {cid} of a stored program (compose, render and share store theirs) or an example's CID, {example} by name from list_examples, or {url} a share link (verified exactly as load verifies it; a CID-only link must name a stored program). Optional per item: bars (1-1024) or minutes (0.1-120) to play, title. THE QUEUE NEVER COMPOSES OR CALLS A MODEL, and there is no way to make it: to queue generated music, call compose yourself (it is rate limited and spend-capped), then add the CIDs it returns. Do not loop compose to keep a queue full.
+Items must already be programs: {cid} of a stored program (render and a signed-in share store theirs) or an example's CID, {example} by name from list_examples, or {url} a share link (verified exactly as load verifies it; a CID-only link must name a stored program). Optional per item: bars (1-1024) or minutes (0.1-120) to play, title. THE QUEUE NEVER COMPOSES OR CALLS A MODEL, and there is no way to make it: to queue new music, write the programs yourself (check them), store each with render or share, then add the CIDs.
 
 The queue advances only while a listener is plausibly present, as the page reports it: it pauses at the next track boundary when the tab's audio is suspended, when the tab has been hidden with no key, pointer, touch or media key for %[4]d minutes, or after %[5]d tracks in a row without any interaction; the page then shows "Still listening? Press play to continue". Only a person on the page lifts a pause: skip is refused while paused (paused_reason says why), and load still plays one program as it always has but does not resume the queue. Writes are limited to about %[6]d a minute. The queue lives with the tab's session and is gone when the tab is.`,
 		s.public, s.queueMaxPerAdd(), s.queueMaxItems(), s.queueIdleMinutes(), s.queueMaxAuto(), s.opt.QueueWritesPerMin)
@@ -235,7 +235,7 @@ func (s *Server) queueItem(ctx context.Context, c caller, a args) (api.QueueItem
 		}
 		_, src, meta, ok := s.storedProgram(cid)
 		if !ok {
-			return it, api.Errf(404, api.CodeNotFound, "no stored program has CID %s. The queue plays only programs that exist: store one first (render, or share signed in; compose stores its result), then queue its CID.", cid)
+			return it, api.Errf(404, api.CodeNotFound, "no stored program has CID %s. The queue plays only programs that exist: store one first (render, or share signed in), then queue its CID.", cid)
 		}
 		it.CID, it.Source = cid, src
 		if title == "" {

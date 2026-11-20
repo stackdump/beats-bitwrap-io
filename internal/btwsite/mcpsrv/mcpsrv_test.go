@@ -21,7 +21,7 @@ import (
 )
 
 // The tool names are the contract (btwsite/DESIGN.md "MCP"): tools/list answers exactly these.
-var contractTools = []string{"compose", "check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices", "queue"}
+var contractTools = []string{"check", "fmt", "eval", "load", "get", "share", "open", "render", "record", "list_examples", "instruments", "stop", "devices", "queue"}
 
 func TestToolNamesAreTheContract(t *testing.T) {
 	got := append([]string(nil), mcpsrv.ToolNames...)
@@ -87,7 +87,8 @@ func TestToolNamesAreTheContract(t *testing.T) {
 	// what the descriptions must tell a model
 	mustContain("check", "ALWAYS", "line:col", "before eval")
 	mustContain("eval", "https://btw.bitwrap.io", "session", "MCP", "check first", "next bar", "bearer token")
-	mustContain("compose", "CC0", "seconds", "rate limited", "retry_after", "10 per hour", "bearer token")
+	// check carries the authoring loop (there is no compose tool) and the leading-digit gotcha
+	mustContain("check", "no compose tool", "cheatsheet.md", "list_examples", "instruments", "eval", "share", "808-bass", "inst=sub-bass")
 	mustContain("render", "CC0", "stream_url", "status_url", "limited")
 	mustContain("get", "section", "marks", "diagnostics", "session", "bearer token")
 	mustContain("share", "CID", "CC0")
@@ -99,16 +100,6 @@ func TestToolNamesAreTheContract(t *testing.T) {
 	fmtProp := rp["format"].(map[string]any)
 	if enum, _ := fmtProp["enum"].([]any); len(enum) != 2 || enum[0] != "opus" || enum[1] != "wav" {
 		t.Errorf("render.format enum = %v", fmtProp["enum"])
-	}
-	_, cp, creq := tool("compose")
-	if v := cp["prompt"].(map[string]any)["maxLength"]; v != float64(800) {
-		t.Errorf("compose.prompt maxLength = %v, want 800", v)
-	}
-	if v := cp["bpm"].(map[string]any); v["minimum"] != float64(40) || v["maximum"] != float64(300) {
-		t.Errorf("compose.bpm bounds = %v", v)
-	}
-	if len(creq) != 1 || creq[0] != "prompt" {
-		t.Errorf("compose required = %v", creq)
 	}
 	_, kp, kreq := tool("check")
 	if v := kp["text"].(map[string]any)["maxLength"]; v != float64(16384) {
@@ -125,7 +116,7 @@ func TestToolNamesAreTheContract(t *testing.T) {
 			t.Errorf("%s should be annotated read-only", n)
 		}
 	}
-	for _, n := range []string{"compose", "eval", "load", "stop", "share"} { // share stores the program when signed in (idempotent, additive)
+	for _, n := range []string{"eval", "load", "stop", "share"} { // share stores the program when signed in (idempotent, additive)
 		if h := res.Tools[byName[n]].Annotations.ReadOnlyHint; h != nil && *h {
 			t.Errorf("%s writes and must not be read-only", n)
 		}
@@ -334,11 +325,10 @@ func TestGetAndSessions(t *testing.T) {
 func TestWriteToolsRefuseAnonymous(t *testing.T) {
 	e := newEnv(t)
 	cases := map[string]map[string]any{
-		"compose": {"prompt": "dark techno"},
-		"eval":    {"text": goodProgram},
-		"load":    {"example": "demo"},
-		"stop":    {},
-		"get":     {},
+		"eval": {"text": goodProgram},
+		"load": {"example": "demo"},
+		"stop": {},
+		"get":  {},
 	}
 	for _, token := range []string{"", "btw_not_a_real_token"} {
 		for tool, args := range cases {
@@ -353,8 +343,8 @@ func TestWriteToolsRefuseAnonymous(t *testing.T) {
 			}
 		}
 	}
-	if len(e.b.pushes) != 0 || len(e.b.composes) != 0 {
-		t.Fatalf("a refused call reached the backend: %d pushes, %d composes", len(e.b.pushes), len(e.b.composes))
+	if len(e.b.pushes) != 0 {
+		t.Fatalf("a refused call reached the backend: %d pushes", len(e.b.pushes))
 	}
 	// AuthHelp empty: the default words still say how to get a token
 	e.b.noHelp = true
@@ -443,56 +433,45 @@ func TestWriteToolsAcceptTokenUser(t *testing.T) {
 			t.Fatalf("push = %+v", p)
 		}
 	})
-	t.Run("compose passes the user, the address and the request", func(t *testing.T) {
-		e.b.composeR = &api.ComposeResult{Program: goodProgram, Text: goodProgram, CID: "zcomposed", Check: &api.CheckReport{OK: true, Canonical: goodProgram, CID: "zcomposed"},
-			Attempts: []api.Attempt{{N: 1, OK: false, Errors: 2}, {N: 2, OK: true}}, Model: "fake", License: "CC0-1.0", ComposedBy: "gemini-fake",
-			Header: []string{"#! license: CC0-1.0"}, RenderURL: "/api/render/zcomposed?format=opus", ShareURL: "https://btw.bitwrap.io/#zcomposed.x", CostUSD: 0.0007}
-		r := e.call("btw_alice", "compose", map[string]any{"prompt": "dark techno, 128 bpm", "genre": "techno", "bpm": 128, "key": "am", "length": "medium", "base_cid": "z" + strings.Repeat("4", 40)})
-		b := r.body(t)
-		if r.IsError || b["cid"] != "zcomposed" || b["program"] != goodProgram || b["render_url"] != siteURL+"/api/render/zcomposed?format=opus" ||
-			len(b["attempts"].([]any)) != 2 || b["composedBy"] != "gemini-fake" || b["license"] != "CC0-1.0" {
-			t.Fatalf("compose = %s", r.Text)
-		}
-		if _, dup := b["check"].(map[string]any)["canonical"]; dup {
-			t.Error("compose repeats the program text inside check")
-		}
-		c := e.b.composes[len(e.b.composes)-1]
-		if c.User == nil || c.User.ID != alice.ID || c.IP == "" ||
-			c.Req.Prompt != "dark techno, 128 bpm" || c.Req.Genre != "techno" || c.Req.BPM != 128 || c.Req.Key != "am" || c.Req.Length != "medium" || c.Req.BaseCID == "" {
-			t.Fatalf("Compose(%+v)", c)
-		}
-	})
 }
 
-func TestComposeErrorsSurfaceAsToolErrors(t *testing.T) {
+// compose is a web-app feature only: an MCP caller writes the program itself, so the site's model budget is not
+// spent on a client that is already a model. The tool must not exist, and nothing an MCP call does reaches Compose.
+func TestComposeIsNotAnMCPTool(t *testing.T) {
 	e := newEnv(t)
-
-	e.b.composeE = &api.Error{Status: 429, Code: api.CodeRateLimited, Message: "10 composes an hour is the limit", RetryAfter: 30}
-	r := e.call("btw_alice", "compose", map[string]any{"prompt": "x"})
-	em := r.errBody(t)
-	if em["code"] != "rate_limited" || em["retry_after"] != float64(30) || !strings.Contains(em["message"].(string), "Retry after 30") {
-		t.Fatalf("rate limit = %s", r.Text)
+	tools := mcpsrv.New(newBackend(), newAuth(), siteURL).Tools()
+	if _, ok := tools["compose"]; ok {
+		t.Fatal("compose is registered as an MCP tool")
 	}
-
-	e.b.composeE = &api.Error{Status: 422, Code: api.CodeUnrepairable, Message: "gave up after 3 repairs",
-		Details: map[string]any{"diagnostics": []any{map[string]any{"line": 3, "col": 14, "message": "expected a pattern"}}}}
-	r = e.call("btw_alice", "compose", map[string]any{"prompt": "x"})
-	em = r.errBody(t)
-	det := em["details"].(map[string]any)
-	if em["code"] != "unrepairable" || det["diagnostics"].([]any)[0].(map[string]any)["line"] != float64(3) {
-		t.Fatalf("unrepairable = %s", r.Text)
-	}
-
-	for _, code := range []string{api.CodeSpendCap, api.CodeDisabled, api.CodeNotConfigured} {
-		e.b.composeE = &api.Error{Status: 503, Code: code, Message: "no"}
-		if got := e.call("btw_alice", "compose", map[string]any{"prompt": "x"}).errBody(t)["code"]; got != code {
-			t.Errorf("code %s came back as %v", code, got)
+	for _, token := range []string{"", "btw_alice"} {
+		m := e.rpc(token, "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "dark techno"}}, nil)
+		if m.Error == nil || !strings.Contains(m.Error.Message, "not found") {
+			t.Errorf("tools/call compose (token %q) = %+v, want tool not found", token, m)
 		}
 	}
-	// a plain error from the backend is an internal tool error, not a protocol failure
-	e.b.composeE = io.ErrUnexpectedEOF
-	if got := e.call("btw_alice", "compose", map[string]any{"prompt": "x"}).errBody(t)["code"]; got != "internal" {
-		t.Errorf("plain error code = %v", got)
+	if len(e.b.composes) != 0 {
+		t.Fatalf("an MCP call reached Backend.Compose %d times", len(e.b.composes))
+	}
+	// the instructions teach the loop instead, and point at nothing that is gone
+	m := e.rpc("", "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}}, nil)
+	var init struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.Unmarshal(m.Result, &init); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"no compose tool", "cheatsheet.md", "list_examples", "instruments", "check", "line:col", "eval", "load", "share", "808-bass", "inst=sub-bass"} {
+		if !strings.Contains(init.Instructions, w) {
+			t.Errorf("instructions do not say %q", w)
+		}
+	}
+	if strings.Contains(init.Instructions, "compose writes") || strings.Contains(init.Instructions, "(compose,") {
+		t.Errorf("instructions still point at compose: %s", init.Instructions)
+	}
+	for name, tl := range tools {
+		if d := tl.Tool.Description; strings.Contains(d, "compose and") || strings.Contains(d, "compose returned") || strings.Contains(d, "call compose") {
+			t.Errorf("%s description still points at compose: %s", name, d)
+		}
 	}
 }
 
@@ -562,33 +541,8 @@ func TestOversizeAndBadInputsAreRefused(t *testing.T) {
 	if c := e.call("btw_alice", "open", map[string]any{"url": strings.Repeat("a", 40000)}).errBody(t)["code"]; c != "too_large" {
 		t.Errorf("open(huge) code = %v", c)
 	}
-	// compose prompt: 800 characters is fine, 801 is not (characters, not bytes)
-	e.b.composeR = &api.ComposeResult{Program: goodProgram, CID: "z1", Check: &api.CheckReport{OK: true}}
-	if r := e.call("btw_alice", "compose", map[string]any{"prompt": strings.Repeat("é", 800)}); r.IsError {
-		t.Errorf("an 800 character prompt was refused: %s", r.Text)
-	}
-	r := e.call("btw_alice", "compose", map[string]any{"prompt": strings.Repeat("a", 801)})
-	if r.errBody(t)["code"] != "prompt_too_long" {
-		t.Errorf("compose(801) = %s", r.Text)
-	}
-	if r := e.call("btw_alice", "compose", map[string]any{"prompt": strings.Repeat("é", 801)}); r.errBody(t)["code"] != "prompt_too_long" {
-		t.Errorf("compose(801 runes) = %s", r.Text)
-	}
-	n := len(e.b.composes)
-	for _, args := range []map[string]any{
-		{"prompt": ""}, {"prompt": 5}, {"prompt": "x", "bpm": 20}, {"prompt": "x", "bpm": 400}, {"prompt": "x", "bpm": "fast"},
-		{"prompt": "x", "key": "a minor please"}, {"prompt": "x", "length": "epic"}, {"prompt": "x", "length": "9999"}, {"prompt": "x", "base_cid": "not-a-cid"},
-		{"prompt": "x", "unknown": 1},
-	} {
-		if r := e.call("btw_alice", "compose", args); r.errBody(t)["code"] != "bad_request" {
-			t.Errorf("compose(%v) = %s", args, r.Text)
-		}
-	}
-	if len(e.b.composes) != n {
-		t.Error("a malformed compose reached the backend")
-	}
 	// an unknown argument names the right ones; a mistyped session must not mean "every tab"
-	r = e.call("btw_alice", "eval", map[string]any{"text": goodProgram, "sesion": "abcdefgh"})
+	r := e.call("btw_alice", "eval", map[string]any{"text": goodProgram, "sesion": "abcdefgh"})
 	em := r.errBody(t)
 	if em["code"] != "bad_request" || !strings.Contains(em["message"].(string), "session") {
 		t.Errorf("typo = %s", r.Text)
@@ -622,25 +576,29 @@ func TestOversizeAndBadInputsAreRefused(t *testing.T) {
 	}
 }
 
-func TestClientIPIsPassedToCompose(t *testing.T) {
-	compose := func(e *env, hdr map[string]string) string {
-		e.b.composeR = &api.ComposeResult{Program: goodProgram, CID: "z1", Check: &api.CheckReport{OK: true}}
-		e.rpc("btw_alice", "tools/call", map[string]any{"name": "compose", "arguments": map[string]any{"prompt": "x"}}, hdr)
-		return e.b.composes[len(e.b.composes)-1].IP
+// The resolved client address is what an anonymous caller's allowance is counted by (it was checked through
+// compose before compose left MCP).
+func TestClientIPKeysAnonymousLimits(t *testing.T) {
+	check := func(e *env, hdr map[string]string) bool {
+		m := e.rpc("", "tools/call", map[string]any{"name": "check", "arguments": map[string]any{"text": goodProgram}}, hdr)
+		var r struct {
+			IsError bool `json:"isError"`
+		}
+		_ = json.Unmarshal(m.Result, &r)
+		return m.Error == nil && !r.IsError
 	}
-	// default: the address of the connection (api.ClientIP); the test client is on loopback, like nginx,
-	// so the proxy's X-Real-IP is what counts, and without it the loopback address itself
-	e := newEnv(t)
-	if ip := compose(e, nil); ip != "127.0.0.1" {
-		t.Errorf("default ip = %q, want 127.0.0.1", ip)
+	// default: api.ClientIP; the test client is on loopback, like nginx, so X-Real-IP counts
+	e := newEnv(t, mcpsrv.WithCheckPerMin(1))
+	if !check(e, map[string]string{"X-Real-IP": "203.0.113.9"}) || check(e, map[string]string{"X-Real-IP": "203.0.113.9"}) {
+		t.Error("one address did not get exactly one check")
 	}
-	if ip := compose(e, map[string]string{"X-Real-IP": "203.0.113.9"}); ip != "203.0.113.9" {
-		t.Errorf("behind a proxy ip = %q, want 203.0.113.9", ip)
+	if !check(e, map[string]string{"X-Real-IP": "198.51.100.1"}) {
+		t.Error("a second address shares the first one's allowance")
 	}
-	// a resolver the server passes in wins
-	e2 := newEnv(t, mcpsrv.WithClientIP(func(r *http.Request) string { return "198.51.100.7" }))
-	if ip := compose(e2, nil); ip != "198.51.100.7" {
-		t.Errorf("custom resolver ip = %q", ip)
+	// a resolver the server passes in wins: every request is one address
+	e2 := newEnv(t, mcpsrv.WithCheckPerMin(1), mcpsrv.WithClientIP(func(r *http.Request) string { return "198.51.100.7" }))
+	if !check(e2, map[string]string{"X-Real-IP": "203.0.113.9"}) || check(e2, map[string]string{"X-Real-IP": "203.0.113.10"}) {
+		t.Error("the custom resolver was not used")
 	}
 }
 
@@ -715,7 +673,7 @@ func TestLandingPage(t *testing.T) {
 		}
 		for _, want := range []string{
 			"claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header &#39;Authorization: Bearer btw_...&#39;",
-			"Tools (15)", "/llms.txt", `<meta name="author" content="Matt York">`,
+			"Tools (14)", "/llms.txt", `<meta name="author" content="Matt York">`,
 		} {
 			if !strings.Contains(body, want) && !strings.Contains(body, strings.ReplaceAll(want, "&#39;", "'")) {
 				t.Errorf("GET %s: the landing page lacks %q", path, want)
@@ -749,7 +707,7 @@ func TestRealMCPClient(t *testing.T) {
 		t.Fatalf("initialize = %+v", init)
 	}
 	tools, err := c.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil || len(tools.Tools) != 15 {
+	if err != nil || len(tools.Tools) != 14 {
 		t.Fatalf("ListTools = %v, %v", len(tools.Tools), err)
 	}
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "eval", Arguments: map[string]any{"text": goodProgram, "play": true}}})

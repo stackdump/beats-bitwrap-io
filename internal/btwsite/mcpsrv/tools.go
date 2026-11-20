@@ -25,8 +25,6 @@ var (
 	reSession = regexp.MustCompile(`^[A-Za-z0-9_-]{6,64}$`)
 	reDevice  = regexp.MustCompile(`^[A-Za-z0-9_-]{6,64}$`)
 	reName    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	reLength  = regexp.MustCompile(`^(short|medium|long|[0-9]{1,3})$`)
-	reKey     = regexp.MustCompile(`^[A-Za-z0-9#:]{1,24}$`)
 )
 
 // toolFn is one tool: it gets the caller and the arguments and answers a value (a string is the text, a
@@ -400,19 +398,6 @@ func (s *Server) addTools() {
 		mcp.Description("Id of one of your paired phones (djrust on Android), from the devices tool. Targets that phone alone; do not combine with session."))
 	playArg := mcp.WithBoolean("play", mcp.Description("Start playing too (default false: load it and leave it stopped, or leave a playing tab as it is)."))
 
-	s.add(mcp.NewTool("compose",
-		mcp.WithDescription(s.composeDesc()), noExtra,
-		mcp.WithTitleAnnotation("Compose a program from a prompt"),
-		hints(false, false, false, true), // calls a model, stores a new program
-		mcp.WithString("prompt", mcp.Required(), mcp.MaxLength(s.opt.MaxPromptChars),
-			mcp.Description(fmt.Sprintf("What to write, in plain words: mood, genre, instruments, structure, e.g. \"dark techno at 128 with an acid line and a long breakdown\". At most %d characters.", s.opt.MaxPromptChars))),
-		mcp.WithString("genre", mcp.MaxLength(40), mcp.Description("Optional genre hint, e.g. dubstep, trance, techno, ambient.")),
-		mcp.WithNumber("bpm", mcp.Min(40), mcp.Max(300), mcp.Description("Optional tempo, 40 to 300.")),
-		mcp.WithString("key", mcp.MaxLength(24), mcp.Pattern(`^[A-Za-z0-9#:]{1,24}$`), mcp.Description("Optional key, as the language writes it: am, c, f#m, d:dorian, d:phrygian.")),
-		mcp.WithString("length", mcp.MaxLength(5), mcp.Pattern(`^(short|medium|long|[0-9]{1,3})$`), mcp.Description("Optional: short, medium, long, or a number of bars (at most 256).")),
-		mcp.WithString("base_cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("Optional CID of a public program (an example or one the site stored) to edit instead of starting fresh; the result records it as forked from.")),
-	), s.compose)
-
 	s.add(mcp.NewTool("check",
 		mcp.WithDescription(s.checkDesc()), noExtra, hints(true, false, true, false),
 		mcp.WithTitleAnnotation("Check a btw program"),
@@ -436,7 +421,7 @@ func (s *Server) addTools() {
 	s.add(mcp.NewTool("load",
 		mcp.WithDescription(s.loadDesc()), noExtra,
 		mcp.WithTitleAnnotation("Load a stored program into a browser tab"), hints(false, true, true, false),
-		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (compose and render store theirs) or of an example.")),
+		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program the site has stored (render and a signed-in share store theirs) or of an example.")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
 		mcp.WithString("url", mcp.MaxLength(32768), mcp.Description("A share link: "+s.public+"/#<CID>.<packed>, a /c/ link, a beats.bitwrap.io/p# link, or a short /p/<CID> link (the program must be stored here).")),
 		playArg, sessionArg, deviceArg,
@@ -468,7 +453,7 @@ func (s *Server) addTools() {
 		mcp.WithDescription(s.renderDesc()), noExtra,
 		mcp.WithTitleAnnotation("Render a program to streaming audio"), hints(false, false, true, false), // stores a CC0 program, content-addressed
 		mcp.WithString("text", mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check; it is stored publicly (CC0-1.0).")),
-		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid compose returned).")),
+		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid render or a signed-in share returned).")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
 		mcp.WithString("format", mcp.Enum("opus", "wav"), mcp.DefaultString("opus"), mcp.Description("opus (Ogg Opus, smaller, for download or <audio>) or wav (16-bit stereo, plays chunk by chunk in a web page).")),
 	), s.renderTool)
@@ -477,7 +462,7 @@ func (s *Server) addTools() {
 		mcp.WithDescription(s.recordDesc()), noExtra,
 		mcp.WithTitleAnnotation("Set up a demo recording"), hints(false, false, true, false), // stores a CC0 program, content-addressed
 		mcp.WithString("text", mcp.MaxLength(maxProg), mcp.Description("The program text. It must pass check; it is stored publicly (CC0-1.0).")),
-		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid compose returned).")),
+		mcp.WithString("cid", mcp.MaxLength(100), mcp.Pattern(`^z[1-9A-HJ-NP-Za-km-z]{20,100}$`), mcp.Description("CID of a program already stored (for instance the cid render or a signed-in share returned).")),
 		mcp.WithString("example", mcp.MaxLength(64), mcp.Pattern(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), mcp.Description("Name of an example, from list_examples.")),
 	), s.recordTool)
 
@@ -504,101 +489,6 @@ func (s *Server) addTools() {
 	), s.devices)
 
 	s.addQueueTool(sessionArg, deviceArg, noExtra)
-}
-
-// ---------- compose ----------
-
-func (s *Server) compose(ctx context.Context, c caller, a args) (any, *api.Error) {
-	if e := a.only("prompt", "genre", "bpm", "key", "length", "base_cid"); e != nil {
-		return nil, e
-	}
-	// A prompt is counted in characters, not bytes; allow four bytes a character on the wire.
-	prompt, ok, e := a.str("prompt", 4*s.opt.MaxPromptChars)
-	if e != nil {
-		if e.Code == api.CodeTooLarge {
-			e = api.Errf(413, api.CodePromptTooLong, "the prompt is too long; the limit is %d characters. Say less: genre, mood, tempo, structure.", s.opt.MaxPromptChars)
-		}
-		return nil, e
-	}
-	prompt = strings.TrimSpace(prompt)
-	if !ok || prompt == "" {
-		return nil, api.Errf(400, api.CodeBadRequest, "argument \"prompt\" is required: what to compose, in plain words")
-	}
-	if n := utf8.RuneCountInString(prompt); n > s.opt.MaxPromptChars {
-		return nil, api.Errf(413, api.CodePromptTooLong, "the prompt is %d characters; the limit is %d. Say less: genre, mood, tempo, structure.", n, s.opt.MaxPromptChars)
-	}
-	req := api.ComposeRequest{Prompt: prompt}
-	if req.Genre, _, e = a.str("genre", 160); e != nil {
-		return nil, e
-	}
-	if utf8.RuneCountInString(req.Genre) > 40 {
-		return nil, api.Errf(400, api.CodeBadRequest, "argument \"genre\" is at most 40 characters")
-	}
-	if v, ok, e := a.num("bpm", 40, 300); e != nil {
-		return nil, e
-	} else if ok {
-		req.BPM = v
-	}
-	if req.Key, _, e = a.str("key", 24); e != nil {
-		return nil, e
-	}
-	if req.Key != "" && !reKey.MatchString(req.Key) {
-		return nil, api.Errf(400, api.CodeBadRequest, "argument \"key\" is a key as the language writes it: am, c, f#m, d:dorian")
-	}
-	if req.Length, _, e = a.str("length", 8); e != nil {
-		return nil, e
-	}
-	if req.Length != "" && !reLength.MatchString(req.Length) {
-		return nil, api.Errf(400, api.CodeBadRequest, "argument \"length\" is short, medium, long or a number of bars")
-	}
-	if req.BaseCID, _, e = a.str("base_cid", 100); e != nil {
-		return nil, e
-	}
-	if req.BaseCID != "" && !reCID.MatchString(req.BaseCID) {
-		return nil, api.Errf(400, api.CodeBadRequest, "argument \"base_cid\" is not a CID (it starts with z)")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, s.opt.ComposeTimeout)
-	defer cancel()
-	res, err := s.b.Compose(ctx, c.user, c.ip, req)
-	if err != nil {
-		return nil, fail(err)
-	}
-	if res == nil {
-		return nil, api.Errf(500, "internal", "compose answered nothing")
-	}
-	type attempt struct {
-		N         int  `json:"n"`
-		OK        bool `json:"ok"`
-		Errors    int  `json:"errors"`
-		TokensIn  int  `json:"tokens_in"`
-		TokensOut int  `json:"tokens_out"`
-	}
-	out := struct {
-		Program    string         `json:"program"`
-		CID        string         `json:"cid"`
-		Check      map[string]any `json:"check"`
-		Attempts   []attempt      `json:"attempts"`
-		Model      string         `json:"model"`
-		ForkedFrom string         `json:"forkedFrom"`
-		License    string         `json:"license"`
-		ComposedBy string         `json:"composedBy"`
-		Header     []string       `json:"header,omitempty"`
-		RenderURL  string         `json:"render_url"`
-		ShareURL   string         `json:"share_url"`
-		CostUSD    float64        `json:"cost_usd"`
-		Usage      api.Usage      `json:"usage"`
-		Next       string         `json:"next"`
-	}{
-		Program: res.Program, CID: res.CID, Check: trimReport(res.Check),
-		Model: res.Model, ForkedFrom: res.ForkedFrom, License: res.License, ComposedBy: res.ComposedBy, Header: res.Header,
-		RenderURL: s.abs(res.RenderURL), ShareURL: s.abs(res.ShareURL), CostUSD: res.CostUSD, Usage: res.Usage,
-		Next: "The program is stored (CC0-1.0). Listen: open render_url, or call render with this cid, or eval / load it into a browser tab. Edit it: call compose again with base_cid.",
-	}
-	for _, at := range res.Attempts {
-		out.Attempts = append(out.Attempts, attempt{at.N, at.OK, at.Errors, at.TokensIn, at.TokensOut})
-	}
-	return out, nil
 }
 
 // trimReport is a CheckReport as a map without the fields that repeat the program text.
@@ -799,7 +689,7 @@ func (s *Server) load(ctx context.Context, c caller, a args) (any, *api.Error) {
 		}
 		t, src, ok := s.storedText(cid)
 		if !ok {
-			return nil, api.Errf(404, api.CodeNotFound, "no stored program has CID %s. Programs are stored by compose and render; for any other program pass its text to eval, or a share link as url.", cid)
+			return nil, api.Errf(404, api.CodeNotFound, "no stored program has CID %s. Programs are stored by render and by share when signed in; for any other program pass its text to eval, or a share link as url.", cid)
 		}
 		text, source = t, src
 	case example != "":

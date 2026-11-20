@@ -200,15 +200,20 @@ A browser `GET` shows a page that lists the tools.
 claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header 'Authorization: Bearer btw_...'
 ```
 
-Without the header the read tools still work; `compose`, `eval`, `load`, `get`, `stop`, `devices` and `queue` answer an MCP tool error `auth_required` that says how to get a token
+Without the header the read tools still work; `eval`, `load`, `get`, `stop`, `devices` and `queue` answer an MCP tool error `auth_required` that says how to get a token
 (sign in on the page and press **MCP token**). Other clients take the same URL and header, for example
 `{"mcpServers": {"btw": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
+
+There is **no `compose` tool**: an MCP client is already a model, so it writes the program itself ([Compose](#compose) is the web app's).
+The loop: read [cheatsheet.md](https://btw.bitwrap.io/docs/cheatsheet.md) and one or two `list_examples` programs, call `instruments`, write the program, call `check`
+and fix every `line:col` error until `ok`, then `eval` / `load` to play it and `share` to store it. A voice whose name starts with a digit
+(`808-bass`) cannot be written: `inst=808-bass` reads as the sum `808 - bass` and a quoted `inst="808-bass"` is refused ("expected a number or a
+name"), so use a voice that starts with a letter (`inst=sub-bass` for a deep bass).
 
 | tool | needs a token | arguments | does |
 |---|---|---|---|
 | `check` | | `text`, `same_as`? | check a program: diagnostics with line:col, cid, canonical text. **Run it before anything else and fix the errors**. With `same_as` (a CID or another program's text) it also answers whether the two are the same song by their compiled nets and song-level settings, and, when they are not, a `diff` saying what changed in music: song settings, sections inserted/removed/moved/repeated/renamed, and per part a transform (transposed, rotated, reversed, ...) or the notes changed at bar:step, each with a one-line summary |
 | `fmt` | | `text` | the canonical form and its CID |
-| `compose` | yes | `prompt`, `genre`, `bpm`, `key`, `length`, `base_cid` | write a program with the model, as [Compose](#compose) |
 | `share` | for the short links | `text`, `license`, `forked_from`, `credits`, `name` | the self-sealing link, the social link, the CID; with a token also stores the program and gives the CID-only `short_url`, `short_social_url`, `short_beats_url` and `fetch_url` |
 | `open` | | `url` | decode a link (self-sealing or CID-only: `/p/<CID>`, `/c/<CID>`, `#<CID>`, a bare CID), verified, with its rights |
 | `render` | | `text` or `cid` or `example`, `format` | store the program and answer `stream_url`, `status_url`, `cid`, `seconds` |
@@ -225,7 +230,7 @@ Without the header the read tools still work; `compose`, `eval`, `load`, `get`, 
 `eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from
 the page's MCP panel; with no tab connected they answer `no_session` and say so. Tool failures are MCP tool results with `isError: true`
 whose text is the error body above (`{"error": {"code", "message", "retry_after", "details"}}`), so a client reads the code and the words.
-Calls to the checker are limited per client (about 60 a minute), programs for `render` per hour; compose has its own limits.
+Calls to the checker are limited per client (about 60 a minute), programs for `render` per hour.
 
 A raw call, to see the wire:
 

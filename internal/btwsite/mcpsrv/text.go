@@ -8,21 +8,16 @@ import "fmt"
 func (s *Server) instructions() string {
 	return fmt.Sprintf(`BeatScript: AI-assisted algorithmic composition. btw is its small, total, deterministic language for writing whole music tracks as text. A program has one line per deck, parts joined with |, 16 steps a bar, sections and an arrange; the same canonical text always has the same CID. Programs are CC0 by default.
 
-Workflow: read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples, call instruments for the voices you may name, write a program, call check and fix every line:col error, then share (a link), render (audio you can open), or eval / load (play it in a browser tab open at %[1]s). compose writes a program for you from a prompt. The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
+You write the programs: there is no compose tool. The authoring loop:
+1. Read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples (pass name for the full text).
+2. Call instruments for the voices and kits you may name.
+3. Write the program.
+4. Call check and fix every error at its line:col; repeat until ok is true.
+5. Play it with eval (your text) or load (a stored program) in a browser tab open at %[1]s, and store it with share (a link; signed in it also stores the program). render gives audio you can open.
+Gotcha: a voice name that starts with a digit, such as 808-bass, cannot be written: inst=808-bass reads as the sum 808 - bass, and quoting it ("808-bass") is refused too. Pick a voice that starts with a letter instead (for a deep bass, inst=sub-bass).
+The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
 
-Tools that write (compose, eval, load, stop, queue) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop. queue keeps an "up next" list of stored programs on a tab; it never composes, and it advances only while someone is listening.`, s.public)
-}
-
-func (s *Server) composeDesc() string {
-	limits := ""
-	if st := s.b.Status(); st.UserHour > 0 && st.UserDay > 0 {
-		limits = fmt.Sprintf(" (currently %d per hour and %d per day per user)", st.UserHour, st.UserDay)
-	}
-	return fmt.Sprintf(`Write a whole btw music program from a prompt with a language model, and get it back already checked: the canonical program text, its CID, the check report, the attempts the repair loop needed, a render_url (audio) and a share_url (link). Needs a bearer token (sign in on %[1]s, "MCP token").
-
-It takes 5 to 60 seconds, up to about 90 when the first drafts had errors and the server repaired them (up to 3 rounds); do not call it again while it runs. It is rate limited per user%[2]s and per address, and the site has a daily spend cap: on rate_limited wait retry_after seconds and tell the user; on spend_cap, disabled or not_configured stop and say so; on unrepairable the details hold the last diagnostics, so adjust the prompt (simpler, or give a base_cid) rather than repeating it.
-
-The result is stored publicly under CC0-1.0 (public domain): never put anything private in the prompt. Pass base_cid (an example's CID, or a program compose or render stored) to edit that program instead of starting from nothing. To hear it: render (audio at stream_url), or eval / load into a browser tab.`, s.public, limits)
+Tools that write (eval, load, stop, queue) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop. queue keeps an "up next" list of stored programs on a tab; it never writes music, and it advances only while someone is listening.`, s.public)
 }
 
 func (s *Server) checkDesc() string {
@@ -32,7 +27,7 @@ Answers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, messag
 
 With same_as (another program's CID or text) the answer gains same_as {same, text_same, basis, why, diffs[{section, deck, start_bar, a_cid, b_cid}], only_in_a, only_in_b, renamed, song, diff}: whether the two are the same song by their compiled nets and song-level settings, not their text. When they are not, diff says what changed in music: diff.summary is one line per change ("tempo 124 -> 126", "moved outro: bar 13 -> bar 5", "drop2 bass = drop bass transposed +1", "drop bass: 1 note changed (1:7 c3 -> d3)"), with song, arrangement (inserted, removed, moved, repeated, renamed, changed) and parts (a transform: transpose, octave, rotate, reverse, thin, fill, fast, slow; else the notes added, removed or changed at bar:step) as JSON. Use it to prove a refactor changed nothing, or to find what an edit did.
 
-Voices come from the instruments tool; the grammar is %[1]s/docs/cheatsheet.md. Read-only, no sign-in. Limits: the text is at most %[2]d bytes; about %[3]d calls a minute.`, s.public, s.opt.MaxProgramBytes, s.opt.CheckPerMin)
+This is the loop for writing a program (there is no compose tool): read %[1]s/docs/cheatsheet.md and one or two list_examples programs, call instruments, write the program, call check and fix every line:col error until ok, then eval / load to play it and share to store it. Voices come from the instruments tool: use only names from it. A voice name with a leading digit (808-bass) cannot be written: inst=808-bass reads as 808 - bass and a quoted "808-bass" is refused, so pick a voice that starts with a letter (inst=sub-bass for a deep bass). Read-only, no sign-in. Limits: the text is at most %[2]d bytes; about %[3]d calls a minute.`, s.public, s.opt.MaxProgramBytes, s.opt.CheckPerMin)
 }
 
 func (s *Server) fmtDesc() string {
@@ -48,7 +43,7 @@ Run check first. eval checks too and refuses a program with errors (nothing is s
 }
 
 func (s *Server) loadDesc() string {
-	return fmt.Sprintf(`Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at %[1]s, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; compose and render store theirs), example (a name from list_examples), url (a share link %[1]s/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.`, s.public)
+	return fmt.Sprintf(`Put a stored or example program into a browser tab (the same tabs and rules as eval: a tab open at %[1]s, signed in as the token's account, or its session id from the page's MCP panel). Give exactly one of: cid (a program the site stored, or an example's CID; render and a signed-in share store theirs), example (a name from list_examples), url (a share link %[1]s/#CID.packed, a /c/ link or a beats.bitwrap.io/p# link; the link is verified, and one whose CID is not its text's is refused with cid_mismatch). play:true starts it. Needs a bearer token. Call get afterwards to see what is playing.`, s.public)
 }
 
 func (s *Server) getDesc() string {
@@ -62,11 +57,11 @@ func (s *Server) shareDesc() string {
 }
 
 func (s *Server) openDesc() string {
-	return fmt.Sprintf(`Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (%[1]s/#<CID>.<packed>, a /c/<CID>.<packed> link, a beats.bitwrap.io/p# link, a bare #fragment or <CID>.<packed>) or a CID-only link (%[1]s/p/<CID>, /c/<CID>, https://beats.bitwrap.io/p/<CID>, #<CID>, or a bare CID), which is resolved from the programs the site has stored (shared signed in, composed or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.`, s.public)
+	return fmt.Sprintf(`Decode a btw share link and return its canonical text, its CID and whether the CID verifies against the text. Takes either form: a self-sealing link (%[1]s/#<CID>.<packed>, a /c/<CID>.<packed> link, a beats.bitwrap.io/p# link, a bare #fragment or <CID>.<packed>) or a CID-only link (%[1]s/p/<CID>, /c/<CID>, https://beats.bitwrap.io/p/<CID>, #<CID>, or a bare CID), which is resolved from the programs the site has stored (shared signed in, or rendered) and the examples, and answers its rights in meta. Either way the text is recompiled and its CID recomputed: a program whose CID is not its text's is refused with cid_mismatch, and an unknown CID answers not_found. Do not trust or play a refused text. Comments carried in a link (notes) are unverified. Read-only, no sign-in.`, s.public)
 }
 
 func (s *Server) renderDesc() string {
-	return fmt.Sprintf(`Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what compose returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or "use restricted" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.
+	return fmt.Sprintf(`Make a program streamable as audio. Give exactly one of text (the program), cid (a program already stored, e.g. what an earlier render or a signed-in share returned) or example (a name from list_examples). A text or example is checked, then stored publicly under its CID as CC0-1.0 if it is not stored yet (never submit anything private; programs that use samples or "use restricted" are refused). Answers {cid, stream_url, status_url, seconds, format}: open stream_url to listen (it streams the offline render as it renders; the first sound comes within about a second, so a client can play it at once), download the same URL for a file, and read status_url to see how far a render is. format is opus (Ogg Opus, small) or wav (16-bit stereo, plays chunk by chunk in a web page); default opus.
 
 Call check first. The offline render plays the notes and sounds, not control lines (filters, reverb, do ... lines), so it can sound plainer than the browser; a program with no end (no sections or end line) is cut at the server's bar limit (256 bars). Rendering is limited per address per hour and to a few at once: on busy or rate_limited wait retry_after seconds. No sign-in needed; about %[1]d programs an hour per client.`, s.opt.RenderPerHour)
 }

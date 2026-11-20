@@ -88,7 +88,7 @@ func (s *Server) wire(mux *http.ServeMux) error {
 
 	// MCP (stateless streamable HTTP)
 	mh := mcpsrv.Handler(s, s.authn, cfg.PublicURL,
-		mcpsrv.WithClientIP(api.ClientIP), mcpsrv.WithMaxProgramBytes(cfg.MaxProgramBytes), mcpsrv.WithMaxPromptChars(cfg.MaxPromptChars), mcpsrv.WithQueueWritesPerMin(cfg.QueueWritesMin),
+		mcpsrv.WithClientIP(api.ClientIP), mcpsrv.WithMaxProgramBytes(cfg.MaxProgramBytes), mcpsrv.WithQueueWritesPerMin(cfg.QueueWritesMin),
 		mcpsrv.WithQueueLimits(s.hub.queueCfg.MaxItems, s.hub.queueCfg.MaxPerAdd, s.hub.queueCfg.IdleMinutes, s.hub.queueCfg.MaxAuto))
 	mux.Handle("/mcp", mh)
 	mux.Handle("/mcp/", mh)
