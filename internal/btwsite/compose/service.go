@@ -279,6 +279,15 @@ func (s *Service) cleanRequest(r api.ComposeRequest) (api.ComposeRequest, error)
 			return r, api.Errf(400, api.CodeBadRequest, `length must be "short", "medium", "long" or a number of bars`)
 		}
 	}
+	if strings.TrimSpace(r.Current) == "" {
+		r.Current = ""
+	}
+	if len(r.Current) > s.opt.MaxProgramBytes {
+		return r, api.Errf(413, api.CodeTooLarge, "the current program is %d bytes; the limit is %d", len(r.Current), s.opt.MaxProgramBytes)
+	}
+	if r.Current != "" && !utf8.ValidString(r.Current) {
+		return r, api.Errf(400, api.CodeBadRequest, "the current program is not valid UTF-8")
+	}
 	r.BaseCID = strings.TrimSpace(r.BaseCID)
 	if r.BaseCID != "" && !regexp.MustCompile(`^z[1-9A-HJ-NP-Za-km-z]{20,80}$`).MatchString(r.BaseCID) {
 		return r, api.Errf(400, api.CodeBadRequest, "base_cid is not a program CID")
@@ -289,6 +298,20 @@ func (s *Service) cleanRequest(r api.ComposeRequest) (api.ComposeRequest, error)
 // baseProgram finds the program an edit starts from: a stored program or an example, public, CC0 and
 // unrestricted. Unknown, private and restricted all answer the same, so the answer says nothing about what
 // exists.
+// currentProgram vets the caller's own editor text the way baseProgram vets a stored one: only a public CC0
+// program with no assets and no errors is put in front of the model. Like a base, it is looked at before the
+// windows and the spend cap, so a refusal costs no quota; the check is bounded by MaxProgramBytes.
+func (s *Service) currentProgram(ctx context.Context, text string) (string, error) {
+	rep, err := s.opt.Checker.Check(ctx, text)
+	if err != nil {
+		return "", passThrough(err, "the program checker failed")
+	}
+	if why := VetPublicProgram(text, rep, false); why != "" {
+		return "", api.Errf(400, api.CodeBadRequest, "the current program cannot be edited here (%s): compose without it, or fix it first", why)
+	}
+	return stripHeader(rep.Canonical), nil
+}
+
 func (s *Service) baseProgram(ctx context.Context, cid string) (string, error) {
 	refuse := func() error {
 		return api.Errf(400, api.CodeBadRequest, "base_cid %s is not a public program this site can edit", cid)
@@ -401,6 +424,10 @@ func (s *Service) run(ctx context.Context, u *api.User, ip string, req api.Compo
 			return nil, err
 		}
 		tr.forkedFrom = req.BaseCID
+	} else if req.Current != "" {
+		if base, err = s.currentProgram(ctx, req.Current); err != nil {
+			return nil, err
+		}
 	}
 	// 2. kill switch, then configuration
 	if k := s.lim.Kill(); k.Disabled {

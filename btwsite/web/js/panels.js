@@ -253,7 +253,7 @@ export class Panels {
     return out;
   }
 
-  // ---- phone: pair djrust on Android by a QR code (btwsite/PAIRING.md) ----------------------------------------------------------
+  // ---- phone: pair the BeatScript Android app by a QR code (btwsite/PAIRING.md) ----------------------------------------------------------
 
   phoneStop() {
     clearTimeout(this.phoneTimer);
@@ -265,7 +265,7 @@ export class Panels {
   phoneBody() {
     const app = this.app;
     const out = [];
-    out.push(h('p', { class: 'note' }, 'Connect djrust on an Android phone: in the app open the menu, then BeatScript › Scan to connect, and point it at the code. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
+    out.push(h('p', { class: 'note' }, 'Connect the BeatScript app on an Android phone: in the app open the menu, then beatscript.app › Scan to connect, and point it at the code (or scan it with the phone\'s camera, which opens the app). It is a pairing code, not an invite. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
     if (!app.user) {
       out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
       return out;
