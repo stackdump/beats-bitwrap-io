@@ -464,13 +464,13 @@ func TestRenderCacheEvictsLeastRecentlyUsed(t *testing.T) {
 	}
 	e.clk.Advance(time.Second)
 	get(c) // evicts b
-	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", b+".44100.wav")); err == nil {
+	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", b+".44100."+renderVersion+".wav")); err == nil {
 		t.Fatal("b should have been evicted")
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", a+".44100.wav")); err != nil {
+	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", a+".44100."+renderVersion+".wav")); err != nil {
 		t.Fatal("a should have been kept")
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", b+".44100.wav.meta")); err == nil {
+	if _, err := os.Stat(filepath.Join(e.cfg.DataDir, "render", b+".44100."+renderVersion+".wav.meta")); err == nil {
 		t.Fatal("b's meta should have gone with it")
 	}
 	e.srv.rs.mu.Lock()
@@ -487,7 +487,7 @@ func TestRenderCacheEvictsLeastRecentlyUsed(t *testing.T) {
 func TestRenderStartupRemovesStaleParts(t *testing.T) {
 	e := newEnv(t, nil)
 	cid := e.put(progA)
-	part := filepath.Join(e.cfg.DataDir, "render", cid+".44100.wav.part")
+	part := filepath.Join(e.cfg.DataDir, "render", cid+".44100."+renderVersion+".wav.part")
 	os.WriteFile(part, []byte("half"), 0o644)
 	e2 := e.restart()
 	if _, err := os.Stat(part); err == nil {
@@ -535,7 +535,7 @@ func TestRenderOpus(t *testing.T) {
 		t.Fatalf("the cached Ogg differs from what was streamed (%d vs %d bytes)", len(full), len(all))
 	}
 	if probe, err := exec.LookPath("ffprobe"); err == nil {
-		out, _ := exec.Command(probe, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", filepath.Join(e.cfg.DataDir, "render", cid+".44100.opus")).Output()
+		out, _ := exec.Command(probe, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", filepath.Join(e.cfg.DataDir, "render", cid+".44100."+renderVersion+".opus")).Output()
 		if d := strings.TrimSpace(string(out)); !strings.HasPrefix(d, "4.") && !strings.HasPrefix(d, "3.9") {
 			t.Fatalf("ffprobe says the duration is %q", d)
 		}
@@ -624,4 +624,29 @@ func TestRenderRefusesTooManySeconds(t *testing.T) {
 	if status["max_seconds"] != float64(10) {
 		t.Fatalf("status should say the cap: %v", status)
 	}
+}
+
+func TestRenderStartupRemovesOtherRendererVersions(t *testing.T) {
+	e := newEnv(t, nil)
+	cid := e.put(progA)
+	dir := filepath.Join(e.cfg.DataDir, "render")
+	stale := []string{cid + ".44100.wav", cid + ".44100.wav.meta", cid + ".44100.opus", cid + ".44100.r1.wav"}
+	for _, n := range stale {
+		os.WriteFile(filepath.Join(dir, n), []byte("old audio"), 0o644)
+	}
+	keep := filepath.Join(dir, cid+".44100."+renderVersion+".wav")
+	os.WriteFile(keep, []byte("current"), 0o644)
+	os.WriteFile(keep+".meta", []byte("{}"), 0o644)
+	e2 := e.restart()
+	for _, n := range stale {
+		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+			t.Fatalf("%s is another renderer version's and should be removed at start", n)
+		}
+	}
+	for _, p := range []string{keep, keep + ".meta"} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("%s is the current version's and should be kept", p)
+		}
+	}
+	_ = e2
 }
