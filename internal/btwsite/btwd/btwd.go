@@ -118,6 +118,26 @@ func New(bin string, opts Options) (*Client, error) {
 	return &Client{bin: path, opts: opts, sem: make(chan struct{}, opts.MaxConcurrent), owners: map[string]*ownerState{}}, nil
 }
 
+var _ api.SameAser = (*Client)(nil)
+
+// SameAs runs `btwd same-as` with both programs as one JSON object on stdin ({"a": text, "b": text}) and
+// returns its answer as is (checked to be a JSON object).
+func (c *Client) SameAs(ctx context.Context, a, b string) (json.RawMessage, error) {
+	in, err := json.Marshal(map[string]string{"a": a, "b": b})
+	if err != nil {
+		return nil, err
+	}
+	out, err := c.run(ctx, string(in), "same-as")
+	if err != nil {
+		return nil, err
+	}
+	var probe map[string]json.RawMessage
+	if err := decode(out, &probe, "same-as"); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(bytes.TrimSpace(out)), nil
+}
+
 // NewFake returns the in-process test double for the checker (no binary needed).
 func NewFake() api.Checker { return fakecheck.Checker{} }
 

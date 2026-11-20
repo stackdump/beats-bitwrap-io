@@ -30,6 +30,8 @@ func (s *Server) checkDesc() string {
 
 Answers {ok, errors, warnings, diagnostics[{severity, line, col, end_col, message, expected, found, help, render}], cid, canonical, tempo, key, sections, song_bars, seconds, evolve, uses_assets, restricted}. line and col are 1-based; help says what would fix it ("did you mean ..."); render is the same error in caret form. ok:false is an answer, not a tool error. cid and canonical are of the canonical text (comments and spacing do not change the CID).
 
+With same_as (another program's CID or text) the answer gains same_as {same, text_same, basis, why, diffs[{section, deck, start_bar, a_cid, b_cid}], only_in_a, only_in_b, renamed, song, diff}: whether the two are the same song by their compiled nets and song-level settings, not their text. When they are not, diff says what changed in music: diff.summary is one line per change ("tempo 124 -> 126", "moved outro: bar 13 -> bar 5", "drop2 bass = drop bass transposed +1", "drop bass: 1 note changed (1:7 c3 -> d3)"), with song, arrangement (inserted, removed, moved, repeated, renamed, changed) and parts (a transform: transpose, octave, rotate, reverse, thin, fill, fast, slow; else the notes added, removed or changed at bar:step) as JSON. Use it to prove a refactor changed nothing, or to find what an edit did.
+
 Voices come from the instruments tool; the grammar is %[1]s/docs/cheatsheet.md. Read-only, no sign-in. Limits: the text is at most %[2]d bytes; about %[3]d calls a minute.`, s.public, s.opt.MaxProgramBytes, s.opt.CheckPerMin)
 }
 

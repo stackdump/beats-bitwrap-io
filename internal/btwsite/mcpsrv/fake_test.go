@@ -286,3 +286,11 @@ func (e *env) call(token, tool string, args map[string]any) result {
 	}
 	return result{res.IsError, sb.String()}
 }
+
+// SameAs is the checker's when it has one (the real btwd), so a test can swap it in as it does for Check.
+func (f *fakeBackend) SameAs(ctx context.Context, a, b string) (json.RawMessage, error) {
+	if sa, ok := f.Checker.(api.SameAser); ok {
+		return sa.SameAs(ctx, a, b)
+	}
+	return nil, api.Errf(503, api.CodeNotConfigured, "the fake checker cannot compare programs")
+}

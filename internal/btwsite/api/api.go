@@ -434,3 +434,14 @@ type Devices interface {
 	// no_session *Error when it is paired but not connected.
 	DeviceSession(u *User, deviceID string) (string, error)
 }
+
+// ---------- same song (btwd same-as) ----------
+
+// SameAser is an optional part of a Checker: are two programs the same song, judged by what they compile to
+// (their nets and song-level settings), not their text. The answer is btwd's `same-as` JSON, passed through:
+// {ok, same, text_same, basis, why, a_cid, b_cid, sections_compared, sections_same, song_nets_same,
+// diffs[{section, b_section, deck, start_bar, a_cid, b_cid}], only_in_a, only_in_b, renamed, song, song_nets,
+// diff} where diff (null when same) is {basis, summary[], song[], arrangement[], unchanged_sections, parts[]}.
+type SameAser interface {
+	SameAs(ctx context.Context, a, b string) (json.RawMessage, error)
+}
