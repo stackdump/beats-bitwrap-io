@@ -42,6 +42,8 @@ export function makeFacade(mod, wasmUrl = null) {
     newRun() {
       return wrapRun(new mod.BtwRun());
     },
+    /** The language service (BtwLs, crates/btwls) when the module has it; null in the mock or an older module. */
+    ls: typeof mod.BtwLs === 'function' ? () => new mod.BtwLs() : null,
   };
 }
 
