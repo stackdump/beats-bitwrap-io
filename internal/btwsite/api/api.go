@@ -390,7 +390,70 @@ type SessionState struct {
 	Phase       int             `json:"phase"`
 	Marks       json.RawMessage `json:"marks,omitempty"`
 	Diagnostics json.RawMessage `json:"diagnostics,omitempty"`
-	TS          string          `json:"ts"`
+	// Presence is the page's evidence that someone is listening (the up-next queue advances only while it holds).
+	Presence *Presence `json:"presence,omitempty"`
+	TS       string    `json:"ts"`
+}
+
+// ---------- the up-next queue (MCP's queue tool; btwsite/DESIGN.md "Up next") ----------
+
+// Presence is what a page reports about its listener. idle_ms is measured on the page's own clock (time since the
+// last key, pointer, touch or media key), so the server needs no agreement between the two clocks.
+type Presence struct {
+	Visible bool   `json:"visible"` // document.visibilityState == "visible"
+	Focused bool   `json:"focused"` // document.hasFocus()
+	Audio   string `json:"audio"`   // the AudioContext state: running | suspended | closed | none
+	IdleMS  int64  `json:"idle_ms"` // milliseconds since the last user interaction
+}
+
+// QueueItem is one program waiting in a session's queue. Items are always programs that already exist (a stored CID,
+// an example, or a verified share link): the queue never composes and never calls a model.
+type QueueItem struct {
+	ID      string  `json:"id"` // short id, unique within the queue (remove takes it)
+	CID     string  `json:"cid"`
+	Title   string  `json:"title,omitempty"`
+	Source  string  `json:"source"`            // store | example | link
+	Example string  `json:"example,omitempty"` // the example's name, for source=example
+	Bars    int     `json:"bars,omitempty"`    // play length in bars (0 = until it ends; a loop: one arrangement pass)
+	Minutes float64 `json:"minutes,omitempty"` // play length in minutes (0 = as bars says)
+	// Text is a link item's verified canonical text (stored and example items are fetched by CID or name). Kept in memory
+	// with the session, never written anywhere, never shown in a listing.
+	Text string `json:"-"`
+}
+
+// QueueView is a session's queue as MCP and the page see it.
+type QueueView struct {
+	Session    string      `json:"session"`
+	UpNext     []QueueItem `json:"up_next"`
+	NowPlaying *QueueItem  `json:"now_playing,omitempty"` // the item the queue last advanced to
+	Position   int         `json:"position"`              // how many items the queue has advanced through
+	// PausedReason is set when the queue stopped at a track boundary for want of a listener: idle_hidden,
+	// audio_suspended, max_auto_advance or no_listener_report. It clears only when the page reports a user interaction
+	// newer than the pause.
+	PausedReason string `json:"paused_reason,omitempty"`
+	// Listener is what the next boundary would decide from the latest report: "present", or the reason it would pause.
+	Listener     string `json:"listener"`
+	AutoAdvanced int    `json:"auto_advanced"` // consecutive advances since the last user interaction
+	MaxAuto      int    `json:"max_auto_advance"`
+	IdleMinutes  int    `json:"idle_minutes"`
+	MaxItems     int    `json:"max_items"`
+}
+
+// QueueOp is one queue call. Action: list | add | remove | clear | skip.
+type QueueOp struct {
+	Action string
+	Items  []QueueItem // add
+	Remove string      // remove: an item id or a CID (the first item with it)
+}
+
+// Queuer is implemented by a backend whose sessions keep an up-next queue (the server package). MCP checks for it with a
+// type assertion, so a backend without one still builds; the queue tool then answers not_found.
+type Queuer interface {
+	// Queue applies op to the queue of one session the caller may drive: sessionID if given, else the caller's most recently
+	// seen session. skip pushes an advance request to the page (the page then asks for the next item under the presence
+	// rules) and reports sent=true; when the queue is paused or no listener is present nothing is pushed (sent=false) and
+	// the view says why.
+	Queue(u *User, sessionID string, op QueueOp) (*QueueView, bool, error)
 }
 
 // Hub is implemented by the server (internal/btwsite/server).

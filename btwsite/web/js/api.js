@@ -75,6 +75,9 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     createSession: () => req('POST', '/api/session', { json: {} }),
     report: rejecting((id, state) => req('POST', `/api/session/${sidSeg(id)}/report`, { json: state })),
     reply: rejecting((id, requestId, state) => req('POST', `/api/session/${sidSeg(id)}/reply`, { json: { request_id: requestId, state } })),
+    // the up-next queue (queue-model.js): the page reads it and asks for the next item; only MCP writes it
+    queueGet: rejecting((id) => req('GET', `/api/session/${sidSeg(id)}/queue`)),
+    queueNext: rejecting((id, body) => req('POST', `/api/session/${sidSeg(id)}/queue/next`, { json: body })),
     eventsUrl: (id) => `${base}/api/session/${sidSeg(id)}/events`,
     // pairing a phone (btwsite/PAIRING.md): a QR offer, its state, the paired devices, and pushing to one
     pairNew: () => req('POST', '/api/pair', { json: {} }),

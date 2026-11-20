@@ -174,14 +174,22 @@ curl -sL 'https://btw.bitwrap.io/api/render/z4EBG9j...?format=opus' -o track.opu
 ## Sessions
 
 The browser and MCP meet in a **session**. The page does `POST /api/session` (answers `{"id": "<22 characters>", "user": ...}`), then opens
-`GET /api/session/<id>/events`, a server-sent event stream with the events `eval`, `load`, `stop`, `get` and `ping` (`data` is JSON:
+`GET /api/session/<id>/events`, a server-sent event stream with the events `eval`, `load`, `stop`, `get`, `queue` and `ping` (`data` is JSON:
 `text`, `cid`, `play`, and for `get` a `request_id`). While it matters the page posts its state to `POST /api/session/<id>/report` about every
-500 ms (`text`, `cid`, `playing`, `source` engine or stream, `section`, `bar`, `bars_in_section`, `phase`, `marks`, `diagnostics`, `ts`), and answers a `get`
+500 ms (`text`, `cid`, `playing`, `source` engine or stream, `section`, `bar`, `bars_in_section`, `phase`, `marks`, `diagnostics`, `presence`, `ts`), and answers a `get`
 with `POST /api/session/<id>/reply` `{"request_id", "state"}`. The server keeps the latest report of each session for 10 minutes.
 
 A session belongs to the user that created it (cookie or token) or is anonymous. An MCP write tool targets the `session` you name, or else every live
 session owned by the caller. An anonymous tab is reached only by its explicit id, which the page shows in its **MCP** panel (top bar), and the caller
 must still hold a token. This is how `eval`, `load`, `stop` and `get` work.
+
+**Up next.** A session can hold a queue of programs that MCP's `queue` tool writes (the page only shows it). When the playing program ends, or a
+looping one has played its length (an item's `bars` or `minutes`, else one pass of its arrangement), the page asks
+`POST /api/session/<id>/queue/next` `{"reason": "ended|length|skip|resume", "presence": {"visible", "focused", "audio", "idle_ms"}}` and plays the
+`item` it is given from bar 1; `GET /api/session/<id>/queue` reads the queue. The server advances it only while a listener is plausibly present:
+it pauses at the boundary (`paused_reason`) when the audio is suspended, when the tab has been hidden with no key, pointer, touch or media key for
+30 minutes, or after 8 tracks in a row with no interaction, and the page shows "Still listening? Press play to continue". Only a person on the page
+lifts a pause. The queue never composes or renders anything, holds at most 50 items, and goes with its session.
 
 ## MCP
 
@@ -192,7 +200,7 @@ A browser `GET` shows a page that lists the tools.
 claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header 'Authorization: Bearer btw_...'
 ```
 
-Without the header the read tools still work; `compose`, `eval`, `load`, `get` and `stop` answer an MCP tool error `auth_required` that says how to get a token
+Without the header the read tools still work; `compose`, `eval`, `load`, `get`, `stop`, `devices` and `queue` answer an MCP tool error `auth_required` that says how to get a token
 (sign in on the page and press **MCP token**). Other clients take the same URL and header, for example
 `{"mcpServers": {"btw": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
 
@@ -211,6 +219,8 @@ Without the header the read tools still work; `compose`, `eval`, `load`, `get` a
 | `load` | yes | `cid` or `example` or `url`, `play`, `session` | put a stored, example or linked program into a tab |
 | `get` | yes | `session` | what a tab is playing: program, cid, section n of m, bar, phase, marks, diagnostics |
 | `stop` | yes | `session` | stop the tab |
+| `devices` | yes | | your paired phones (pass one's id as `device` to `eval`, `load`, `get`, `stop`, `queue`) |
+| `queue` | yes | `action` (list, add, remove, clear, skip), `items`, `item`, `session` | an up-next list on a tab of programs that already exist (`{cid}`, `{example}`, `{url}`, with `bars` or `minutes`); never composes; advances only while a listener is present, else `paused_reason` |
 
 `eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from
 the page's MCP panel; with no tab connected they answer `no_session` and say so. Tool failures are MCP tool results with `isError: true`

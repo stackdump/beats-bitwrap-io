@@ -10,7 +10,7 @@ func (s *Server) instructions() string {
 
 Workflow: read %[1]s/docs/cheatsheet.md (the compact grammar) and one or two programs from list_examples, call instruments for the voices you may name, write a program, call check and fix every line:col error, then share (a link), render (audio you can open), or eval / load (play it in a browser tab open at %[1]s). compose writes a program for you from a prompt. The full language is %[1]s/docs/BTW.md; everything is indexed at %[1]s/llms.txt.
 
-Tools that write (compose, eval, load, stop) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop.`, s.public)
+Tools that write (compose, eval, load, stop, queue) need a bearer token: sign in on %[1]s and press "MCP token". The rest work without one. A phone paired with the account (devices) is driven by passing its id as device to eval, load, get or stop. queue keeps an "up next" list of stored programs on a tab; it never composes, and it advances only while someone is listening.`, s.public)
 }
 
 func (s *Server) composeDesc() string {

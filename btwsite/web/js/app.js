@@ -20,6 +20,7 @@ import { fragmentOf, guardLink } from './link.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
 import { Background } from './background.js';
+import { PresenceTracker, UpNext, pauseMessage } from './queue-model.js';
 
 const STARTER = `# a first program: drums on deck A, harmony and an arpeggio on deck B.
 tempo 126
@@ -70,6 +71,16 @@ export class App {
     this._last = {};
     this.listeners = new Set();
     this.bg = null; // the page in the background (background.js): not made in record mode's manual clock
+    // the up-next queue (queue-model.js): written over MCP only, shown read-only, advanced under the presence rules
+    this.presence = new PresenceTracker({ doc: typeof document !== 'undefined' ? document : null, audio: () => (this.ctx ? this.ctx.state : 'none') });
+    this.upNext = new UpNext({
+      presence: this.presence,
+      request: (body) => (this.session && this.session.id ? this.api.queueNext(this.session.id, body) : Promise.resolve(null)),
+      play: (item) => this.playQueued(item),
+      paused: (why, err) => this.queuePaused(why, err),
+      onChange: () => this.renderUpNext(),
+    });
+    this._queuedItem = null;
   }
 
   // ---- boot --------------------------------------------------------------------------------------------
@@ -88,6 +99,7 @@ export class App {
     });
     this.painter = new MarkerPainter(this.editor);
     this.wire();
+    if (!this.record) this.presence.attach(window);
     if (!this.manual) { this.bg = new Background(this); this.bg.start(); }
     this.setProgram(STARTER, { name: 'starter', quiet: true, keepHash: true });
     this.renderHeader(null, true);
@@ -111,7 +123,12 @@ export class App {
 
   wire() {
     const el = this.el;
-    el['btn-play'].addEventListener('click', () => (this.isPlaying() ? this.stop() : this.play('eval')));
+    el['btn-play'].addEventListener('click', () => {
+      if (this.isPlaying()) return this.stop();
+      // "Still listening? Press play to continue": a paused queue goes on with its next item
+      if (this.upNext.pausedReason && this.upNext.wants()) return this.upNext.resume();
+      return this.play('eval');
+    });
     el['btn-fmt'].addEventListener('click', () => this.fmt());
     el['btn-share'].addEventListener('click', () => this.panel('share'));
     el['btn-open'].addEventListener('click', () => this.panel('open'));
@@ -634,6 +651,8 @@ export class App {
     this.cid = report.cid;
     if (this.driver.run !== this._lastRun) {
       this._lastRun = this.driver.run;
+      this.upNext.startTrack(this._queuedItem, report, 0);
+      this._queuedItem = null;
       this.runId++;
       this.follow.reset();
       this.roles = null;
@@ -738,6 +757,7 @@ export class App {
 
   afterFrame(f, head) {
     this.checkEnded(head.ended);
+    this.queueFrame(f);
     this.emit('frame', f);
   }
 
@@ -746,7 +766,9 @@ export class App {
     const over = ended || (this.player && this.player.state === 'ended');
     if (over && !this._ended && this.driver.src) {
       this._ended = true;
-      setTimeout(() => this.songEnded(), 1500);
+      // with something up next the end is a track boundary: the queue goes on at once (no tail), if a listener is there
+      if (this.upNext.wants() && !this.record) this.upNext.frame({ ended: true });
+      else setTimeout(() => this.songEnded(), 1500);
     } else if (!over) this._ended = false;
   }
 
@@ -755,7 +777,76 @@ export class App {
     const f = this.driver ? this.driver.tick() : null;
     if (!f) return null;
     this.checkEnded(!!(f.marks && f.marks.ended));
+    this.queueFrame(f);
     return f;
+  }
+
+  // ---- the up-next queue ----------------------------------------------------------------------------------------------
+
+  /** Every frame (and every hidden service pass): a play length reached on a bar line advances the queue. */
+  queueFrame(f) {
+    if (this.record || !f || !f.status || !this.upNext.wants()) return;
+    this.upNext.frame({ bar: f.status.bar || 0 });
+  }
+
+  /** Play a queue item from bar 1: a fresh run, never a hot reload into the one that just ended. */
+  async playQueued(item) {
+    if (!item || typeof item !== 'object') return;
+    const title = typeof item.title === 'string' && item.title ? item.title : '';
+    this.stop();
+    this._queuedItem = item;
+    try {
+      if (typeof item.text === 'string' && item.text) {
+        // a share link's text: the server verified it, and the page checks the CID again before it plays
+        this.setProgram(item.text, { name: title || 'up next', cid: item.cid });
+        if (!this.report || !this.report.ok || this.report.cid !== item.cid) {
+          this.banner({ kind: 'error', text: `Refused: the queued program for ${shortCid(String(item.cid || ''))} is not the program its CID names. The queue stopped.` });
+          return;
+        }
+        await this.play('load');
+      } else if (item.source === 'example' && typeof item.example === 'string') {
+        await this.loadExample(item.example, { play: true });
+      } else if (typeof item.cid === 'string') {
+        await this.loadByCid(item.cid, { play: true });
+      }
+      this.toast(`Up next: ${title || shortCid(String(item.cid || ''))}`, 'info');
+    } catch (e) {
+      this._queuedItem = null;
+      this.showError(e);
+    }
+  }
+
+  /** The queue did not advance: a pause (why) shows "Still listening?"; an empty queue or an error ends as a song always has. */
+  queuePaused(why, err) {
+    if (why) {
+      this.stop();
+      this.banner({ kind: 'info', html: [h('span', { class: 'grow' }, pauseMessage(why))], actions: [{ label: 'Play', primary: true, run: () => { this.banner(null); this.upNext.resume(); } }] });
+      return;
+    }
+    if (err) console.warn('btw: up next', err);
+    if (this._ended) this.songEnded();
+  }
+
+  /** The queue, read-only: what is up next. There is no control here that adds to it (only MCP does). */
+  renderUpNext() {
+    if (this.record) return;
+    let el = this.el.upnext;
+    if (!el) {
+      el = h('aside', { class: 'upnext', id: 'upnext', 'aria-label': 'Up next', hidden: '' });
+      this.el.banner.after(el);
+      this.el.upnext = el;
+    }
+    const items = this.upNext.items;
+    if (!items.length && !this.upNext.pausedReason) {
+      el.hidden = true;
+      el.replaceChildren();
+      return;
+    }
+    el.hidden = false;
+    const names = items.slice(0, 5).map((it) => h('li', {}, trunc(it.title || shortCid(String(it.cid || '')), 60)));
+    const more = items.length > 5 ? [h('li', { class: 'more' }, `+${items.length - 5} more`)] : [];
+    const paused = this.upNext.pausedReason ? [h('span', { class: 'upnext-paused' }, 'paused: still listening? press play')] : [];
+    el.replaceChildren(h('span', { class: 'upnext-lbl' }, `Up next (${items.length})`), h('ol', {}, ...names, ...more), ...paused);
   }
 
   /** The page is visible again: the sound is audible again and the paint catches up at once, not at the next frame. */
@@ -1071,6 +1162,7 @@ export class App {
       phase: st.bar_in_phrase ?? 0,
       marks: f && !withheld ? f.marks : null,
       diagnostics: withheld ? [] : (this.report && this.report.diagnostics) || [],
+      presence: this.presence.snapshot(),
       ts: new Date().toISOString(),
     };
   }

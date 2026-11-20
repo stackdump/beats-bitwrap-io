@@ -1260,3 +1260,188 @@ test('qr: the threshold is the same one the server accepts (a code drawn here is
   assert.equal(QR_MAX_CHARS, 1200);
   assert.ok(QR_MAX_CHARS < 2000, 'under the server cap (maxQRLink)');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// the up-next queue (queue-model.js): presence, play length, the advance controller, on a fake clock
+// ---------------------------------------------------------------------------------------------------------------
+
+const Q = await J('queue-model.js');
+
+function fakeWorld() {
+  const w = { t: 1_000_000, doc: { visibilityState: 'visible', hasFocus: () => true }, audio: 'running' };
+  w.presence = new Q.PresenceTracker({ now: () => w.t, doc: w.doc, audio: () => w.audio });
+  w.min = (m) => { w.t += m * 60000; };
+  return w;
+}
+
+test('queue: presence snapshot reports visibility, focus, audio and idle time on the page clock', () => {
+  const w = fakeWorld();
+  w.min(3);
+  assert.deepEqual(w.presence.snapshot(), { visible: true, focused: true, audio: 'running', idle_ms: 180000 });
+  w.presence.touch();
+  w.doc.visibilityState = 'hidden';
+  w.audio = 'suspended';
+  assert.deepEqual(w.presence.snapshot(), { visible: false, focused: true, audio: 'suspended', idle_ms: 0 });
+});
+
+test('queue: presence listens for keys, pointers, touches and media keys', () => {
+  const w = fakeWorld();
+  const handlers = {};
+  const media = {};
+  const win = { addEventListener: (t, f) => { handlers[t] = f; }, removeEventListener: (t) => { delete handlers[t]; }, navigator: { mediaSession: { setActionHandler: (a, f) => { media[a] = f; } } } };
+  const detach = w.presence.attach(win);
+  for (const t of ['keydown', 'pointerdown', 'touchstart']) {
+    w.min(10);
+    handlers[t]();
+    assert.equal(w.presence.snapshot().idle_ms, 0, t);
+  }
+  w.min(10);
+  media.nexttrack();
+  assert.equal(w.presence.snapshot().idle_ms, 0, 'media key');
+  detach();
+  assert.equal(handlers.keydown, undefined);
+});
+
+test('queue: pauseReason is the server rule (audio, hidden + idle, consecutive tracks)', () => {
+  const p = (o) => ({ visible: true, focused: true, audio: 'running', idle_ms: 0, ...o });
+  assert.equal(Q.pauseReason(null), Q.PAUSE.noReport);
+  assert.equal(Q.pauseReason(p({ audio: 'suspended' })), Q.PAUSE.audioSuspended);
+  assert.equal(Q.pauseReason(p({ audio: 'none' })), Q.PAUSE.audioSuspended);
+  assert.equal(Q.pauseReason(p({ visible: false, idle_ms: 30 * 60000 })), Q.PAUSE.idleHidden);
+  assert.equal(Q.pauseReason(p({ visible: false, idle_ms: 29 * 60000 })), '');
+  assert.equal(Q.pauseReason(p({ visible: true, idle_ms: 300 * 60000 })), '', 'a visible tab is covered by the track cap, not the idle rule');
+  assert.equal(Q.pauseReason(p({ visible: false, idle_ms: 5 * 60000 }), {}, { idleMinutes: 5 }), Q.PAUSE.idleHidden, 'configurable');
+  assert.equal(Q.pauseReason(p(), { auto: 8 }), Q.PAUSE.maxAuto);
+  assert.equal(Q.pauseReason(p(), { auto: 7 }), '');
+  assert.equal(Q.pauseReason(p(), { auto: 8, interactedSinceAdvance: true }), '');
+  assert.equal(Q.pauseReason(p(), { auto: 3 }, { maxAuto: 3 }), Q.PAUSE.maxAuto);
+  assert.match(Q.pauseMessage(Q.PAUSE.maxAuto), /^Still listening\? Press play to continue/);
+});
+
+test('queue: play length: bars, minutes on a bar line, one pass of a loop, or the end', () => {
+  const loop = { loops: true, tempo: 120, song_bars: 24 };
+  assert.equal(Q.playBars({ bars: 16 }, loop), 16);
+  assert.equal(Q.playBars({ minutes: 1 }, { tempo: 120 }), 30, '1 minute at 120 = 30 bars of 2 s');
+  assert.equal(Q.playBars({ minutes: 0.1 }, { tempo: 128 }), 4, 'rounded up to a whole bar');
+  assert.equal(Q.playBars({}, loop), 24, 'a loop plays one arrangement pass');
+  assert.equal(Q.playBars({}, { loops: true, sections: [{ bars: 8 }, { bars: 4 }] }), 12);
+  assert.equal(Q.playBars({}, { loops: true }), 32);
+  assert.equal(Q.playBars({}, { loops: false, song_bars: 64 }), null, 'a program that ends plays to its end');
+  assert.equal(Q.playBars(null, null), null);
+});
+
+function controller(w, answers) {
+  const asked = [];
+  const played = [];
+  const pauses = [];
+  const up = new Q.UpNext({
+    presence: w.presence,
+    request: async (body) => { asked.push(body); return answers.shift() || { item: null, queue: { up_next: [] } }; },
+    play: async (item) => { played.push(item); },
+    paused: (why) => { pauses.push(why); },
+  });
+  return { up, asked, played, pauses };
+}
+const view = (n, extra = {}) => ({ up_next: Array.from({ length: n }, (_, i) => ({ id: `q${i + 1}`, cid: `z${i}` })), auto_advanced: 0, ...extra });
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('queue: an ending program advances at its end; nothing queued, nothing asked', async () => {
+  const w = fakeWorld();
+  const c = controller(w, [{ item: { id: 'q1', cid: 'z0' }, queue: view(1) }]);
+  c.up.startTrack(null, { loops: false });
+  assert.equal(c.up.frame({ bar: 3 }), false, 'nothing queued');
+  c.up.setView(view(2));
+  assert.equal(c.up.frame({ bar: 100 }), false, 'no play length: it plays to its end');
+  assert.equal(c.up.frame({ ended: true }), true);
+  c.up.frame({ ended: true }); // the same end again: asked once
+  await tick();
+  assert.equal(c.asked.length, 1);
+  assert.equal(c.asked[0].reason, 'ended');
+  assert.deepEqual(Object.keys(c.asked[0].presence).sort(), ['audio', 'focused', 'idle_ms', 'visible']);
+  assert.equal(c.played[0].id, 'q1');
+});
+
+test('queue: a loop advances on the bar line after its play length (one pass by default)', async () => {
+  const w = fakeWorld();
+  const c = controller(w, [{ item: { id: 'q1', cid: 'z0', bars: 4 }, queue: view(1) }, { item: { id: 'q2', cid: 'z1' }, queue: view(0) }]);
+  c.up.setView(view(2));
+  c.up.startTrack(null, { loops: true, song_bars: 8 }, 2);
+  assert.equal(c.up.frame({ bar: 9 }), false, '7 bars in');
+  assert.equal(c.up.frame({ bar: 10 }), true, '8 bars: the pass is over');
+  await tick();
+  assert.equal(c.asked[0].reason, 'length');
+  c.up.startTrack(c.played[0], { loops: true, song_bars: 32 }, 0);
+  assert.equal(c.up.frame({ bar: 3 }), false);
+  assert.equal(c.up.frame({ bar: 4 }), true, "the item's bars win over the pass");
+  await tick();
+  assert.equal(c.played.length, 2);
+});
+
+test('queue: a pause from the server shows "Still listening?" and only an interaction resumes', async () => {
+  const w = fakeWorld();
+  const c = controller(w, [
+    { item: null, queue: view(3, { paused_reason: Q.PAUSE.idleHidden }) },
+    { item: { id: 'q1', cid: 'z0' }, queue: view(2) },
+  ]);
+  c.up.setView(view(3));
+  w.doc.visibilityState = 'hidden';
+  w.min(45);
+  assert.equal(c.up.verdict(), Q.PAUSE.idleHidden, 'the page sees it coming');
+  c.up.startTrack(null, {});
+  c.up.frame({ ended: true });
+  await tick();
+  assert.deepEqual(c.pauses, [Q.PAUSE.idleHidden]);
+  assert.equal(c.asked[0].presence.idle_ms, 45 * 60000, 'the server is told, so MCP can report paused_reason');
+  assert.equal(c.up.pausedReason, Q.PAUSE.idleHidden);
+  w.min(1);
+  assert.equal(c.up.verdict(), Q.PAUSE.idleHidden, 'still paused without an interaction');
+  // the person comes back and presses play
+  w.doc.visibilityState = 'visible';
+  w.min(1);
+  c.up.resume();
+  await tick();
+  assert.equal(c.asked[1].reason, 'resume');
+  assert.equal(c.asked[1].presence.idle_ms, 0, 'a fresh interaction travels with the resume');
+  assert.equal(c.played[0].id, 'q1');
+});
+
+test('queue: after max_auto_advance tracks in a row the page pauses itself until someone interacts', async () => {
+  const w = fakeWorld();
+  const c = controller(w, []);
+  c.up.setView(view(5, { auto_advanced: 8, max_auto_advance: 8 }));
+  c.up.lastAdvanceAt = w.t;
+  w.min(4);
+  assert.equal(c.up.verdict(), Q.PAUSE.maxAuto);
+  w.presence.touch();
+  assert.equal(c.up.verdict(), '', 'an interaction since the last advance restarts the count');
+  c.up.setView(view(5, { auto_advanced: 3, max_auto_advance: 3 }));
+  c.up.lastAdvanceAt = w.t + 1;
+  assert.equal(c.up.verdict(), Q.PAUSE.maxAuto, 'the server says the cap');
+});
+
+test('queue: an MCP skip is an ordinary advance (the server applies the same rules)', async () => {
+  const w = fakeWorld();
+  const c = controller(w, [{ item: null, queue: view(2, { paused_reason: Q.PAUSE.maxAuto }) }]);
+  c.up.setView(view(2));
+  c.up.advance('skip');
+  await tick();
+  assert.equal(c.asked[0].reason, 'skip');
+  assert.equal(c.played.length, 0);
+  assert.deepEqual(c.pauses, [Q.PAUSE.maxAuto]);
+});
+
+test('queue: a request that fails ends the track as before, and nothing is retried in a loop', async () => {
+  const w = fakeWorld();
+  let n = 0;
+  const pauses = [];
+  const up = new Q.UpNext({ presence: w.presence, request: async () => { n++; throw new Error('offline'); }, play: async () => {}, paused: (why) => pauses.push(why) });
+  up.setView(view(2));
+  up.startTrack(null, {});
+  up.frame({ ended: true });
+  await tick();
+  up.frame({ ended: true });
+  up.frame({ bar: 999 });
+  await tick();
+  assert.equal(n, 1);
+  assert.deepEqual(pauses, ['']);
+});

@@ -61,7 +61,14 @@ type Config struct {
 	ShareHour         int // -share-hour: PUT /api/shares per signed-in account (an address is also held to -put-ip-hour)
 	CheckIPMin        int // -check-ip-min: check/fmt/share/open per IP
 	StoreMaxMB        int // -store-max-mb: size cap of -data/programs
-	Version           string
+
+	// The up-next queue (queue.go, MCP's queue tool).
+	QueueIdleMinutes int // -queue-idle-minutes: a hidden tab with no interaction this long pauses the queue
+	QueueMaxAuto     int // -queue-max-auto: tracks auto-advanced in a row without an interaction before it pauses
+	QueueMaxItems    int // -queue-max-items: queue length per session
+	QueueMaxPerAdd   int // -queue-max-per-add: items one add may carry
+	QueueWritesMin   int // -queue-writes-min: queue writes (add, remove, clear, skip) per caller per minute over MCP
+	Version          string
 
 	// From the environment only, never a flag (a flag shows up in `ps`):
 	GeminiKey     string // GEMINI_API_KEY
@@ -87,6 +94,7 @@ func DefaultConfig() Config {
 		MaxPromptChars: 800, MaxProgramBytes: 16384, MaxRepair: 3, ComposeEnabled: true,
 		RenderIPHour: 30, RenderConcurrency: 2, RenderMaxBars: 256, RenderMaxSeconds: 600, RenderCacheMB: 512,
 		PutIPHour: 60, ShareHour: 60, CheckIPMin: 120, StoreMaxMB: 256,
+		QueueIdleMinutes: 30, QueueMaxAuto: 8, QueueMaxItems: 50, QueueMaxPerAdd: 20, QueueWritesMin: 30,
 	}
 }
 
@@ -141,6 +149,11 @@ func ParseConfig(args []string, getenv func(string) string, out io.Writer) (Conf
 	num(&c.ShareHour, "share-hour", "CID-only share writes (PUT /api/shares) per signed-in account per hour")
 	num(&c.CheckIPMin, "check-ip-min", "check/fmt/share/open requests per IP per minute")
 	num(&c.StoreMaxMB, "store-max-mb", "size cap of the programs store, MB")
+	num(&c.QueueIdleMinutes, "queue-idle-minutes", "up-next queue: a hidden tab with no user interaction for this many minutes pauses at the next track")
+	num(&c.QueueMaxAuto, "queue-max-auto", "up-next queue: tracks auto-advanced in a row without a user interaction before it pauses")
+	num(&c.QueueMaxItems, "queue-max-items", "up-next queue: items per browser session")
+	num(&c.QueueMaxPerAdd, "queue-max-per-add", "up-next queue: items one MCP add may carry")
+	num(&c.QueueWritesMin, "queue-writes-min", "up-next queue: MCP queue writes per caller per minute")
 
 	if err := fs.Parse(args); err != nil {
 		return c, err
