@@ -24,7 +24,7 @@
 
 <main>
 <h1>Privacy policy</h1>
-<p class="meta">Effective 19 November 2026. Covers the BeatScript Android app (<code>app.beatscript</code>), both the Google Play build and the build you can download directly, and the website <a href="https://beatscript.app/">beatscript.app</a> (btw.bitwrap.io, its old address, redirects there).</p>
+<p class="meta">Effective 21 November 2026. Covers the BeatScript Android app (<code>app.beatscript</code>), both the Google Play build and the build you can download directly, and the website <a href="https://beatscript.app/">beatscript.app</a> (btw.bitwrap.io, its old address, redirects there).</p>
 
 <p class="lede">BeatScript lets you write whole music tracks as text, in a small language called btw, and hear them. It is run by Matt York. You can reach us at <a href="mailto:myork@stackdump.com">myork@stackdump.com</a>.</p>
 
@@ -35,6 +35,7 @@
 <li>The Android app contains no ads, no analytics and no crash-reporting SDKs. The website has no ads, analytics or third-party trackers.</li>
 <li>The app does not ask for the microphone. The music is made on your device. The Google Play build uploads nothing you write or play; the direct-download build sends what plays only while you have paired it with your account, and never a private program.</li>
 <li>Your identity key stays on your device. We never receive it.</li>
+<li>Our server stores only Creative Commons programs. Private programs stay on your devices, and private pushes to your phone are end-to-end encrypted and never stored (<a href="#what-we-store">what we store</a>).</li>
 <li>We send data to a third party in only one case: when you use Compose, your prompt goes to Google's Gemini API.</li>
 <li>We don't sell your data or use it for advertising.</li>
 </ul>
@@ -83,6 +84,13 @@
 <ul>
 <li>A program you <strong>share publicly</strong> or have the server <strong>render</strong> is stored on our server under its content ID (CID). Public programs are CC0 (public domain) by default, and anyone with the link or CID can open them.</li>
 <li>A program marked <strong>private</strong> is never stored on our server.</li>
+</ul>
+<h3 id="what-we-store">What we store</h3>
+<ul>
+<li><strong>Only Creative Commons programs.</strong> Our server stores a program only if it is public, uses no samples and no <code>use restricted</code>, and carries a Creative Commons licence (CC0 1.0 by default, or a CC BY licence such as CC BY 4.0). Every way of storing a program (sharing, rendering, the MCP tools, playlists) is checked the same way, and anything else is refused: "beatscript.app only stores Creative Commons programs; keep this one local". We do not delete programs stored before this rule; they stay as they are.</li>
+<li><strong>Private programs stay on your devices.</strong> A cover, a program with your own samples, or anything under another licence is yours to keep and play locally. It is never stored on our server, and the app never uploads it, shares it, reports it or sends it to Compose. In the app it shows a <em>Private</em> badge and lives in the app's own storage, with the sample files you add yourself.</li>
+<li><strong>Private pushes are end-to-end encrypted and never stored.</strong> You (or an assistant using your MCP token) can send a private program to one of your own paired phones. It is encrypted for that phone's pairing key and passes through our server in memory only, to the phone's open connection: it is not written to disk, a database or a log (we log only its size and the device id), and if the phone is not connected it is dropped, not queued. When an assistant sends the program text itself, our server encrypts it for the phone and holds it in memory only for that request; a client that encrypts on its own side sends us only ciphertext.</li>
+<li><strong>You are responsible for what you keep privately</strong>, and for having the right to play it.</li>
 </ul>
 
 <h3>Signing in</h3>

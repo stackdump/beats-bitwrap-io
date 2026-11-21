@@ -102,9 +102,30 @@ curl -s https://btw.bitwrap.io/api/check -H 'content-type: application/json' \
 ## Programs
 
 - `PUT /api/programs/<cid>`: the body is the program text. Accepted iff its canonical CID is `<cid>`, it checks ok, it is not restricted
-  or asset-using and it is at most 16384 bytes; stored content-addressed (idempotent), limited per IP. Answers the stored program.
+  or asset-using and it is at most 16384 bytes (stored as CC0-1.0: [What we store](#what-we-store)); stored content-addressed (idempotent), limited per IP. Answers the stored program.
 - `GET /api/programs/<cid>`: `{"cid", "text", "meta": {"license": "CC0-1.0", "visibility", "name", "composed_by", "forked_from", ...}}`.
 - `GET /api/programs/<cid>.btw`: the program as a `.btw` file with its `#!` header (name, license, composed-by, forked-from).
+
+## What we store
+
+btw.bitwrap.io only stores Creative Commons programs. Users can do whatever they want on their own devices.
+
+- **Stored:** a program that checks, is public, names no `sample` or `loop` and does not `use restricted`, under a Creative Commons
+  licence: `CC0-1.0` (the default) or a CC BY family id such as `CC-BY-4.0`, `CC-BY-SA-4.0`, `CC-BY-NC-4.0`. Every write path (`PUT
+  /api/programs`, `PUT /api/shares` from the page or a phone, a render from a `<cid>.<packed>` link, MCP `share`, `render` and `record`,
+  playlist items and queue items) goes through the same check, and anything else is refused with `422 not_creative_commons`
+  ("btw.bitwrap.io only stores Creative Commons programs; keep this one local") or `422 restricted`.
+- **Never stored:** private programs (`#! visibility:` anything but public), programs with samples or `use restricted`, and anything
+  under another licence (all rights reserved, MIT, a cover's rights). They stay on your devices. The self-sealing link still works:
+  the program is in the link, not on the server.
+- **Private pushes** (MCP `push_private`): a private program goes to one of your own paired phones, end-to-end encrypted for that
+  phone's pairing key (X25519, HKDF-SHA256, ChaCha20-Poly1305). The server relays the sealed bytes in memory to the phone's open
+  connection and keeps nothing: no file, database row, log line (only the size and the device id), metric or CID. A phone that is
+  not connected gets nothing; push again when it is. The phone opens it, checks it and plays it, and resolves samples against its
+  own sample library; missing ones are reported back, never fetched. Give `text` (the server seals it, so the text is in its memory
+  for that one call) or `sealed` (an envelope you sealed yourself for the `seal_key` the `devices` tool lists: then the server only
+  ever sees ciphertext).
+- **You are responsible** for what you keep and play privately, and for having the rights to it.
 
 ## Examples and instruments
 
@@ -225,6 +246,7 @@ name"), so use a voice that starts with a letter (`inst=sub-bass` for a deep bas
 | `get` | yes | `session` | what a tab is playing: program, cid, section n of m, bar, phase, marks, diagnostics |
 | `stop` | yes | `session` | stop the tab |
 | `devices` | yes | | your paired phones (pass one's id as `device` to `eval`, `load`, `get`, `stop`, `queue`) |
+| `push_private` | yes | `device`, `text` or `sealed`, `load`, `play` | send a private program (a cover, local samples, `use restricted`) to one of your paired phones, end-to-end encrypted and never stored: see [What we store](#what-we-store) |
 | `queue` | yes | `action` (list, add, remove, clear, skip), `items`, `item`, `session` | an up-next list on a tab of programs that already exist (`{cid}`, `{example}`, `{url}`, with `bars` or `minutes`); never composes; advances only while a listener is present, else `paused_reason` |
 
 `eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from
