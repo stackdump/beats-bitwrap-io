@@ -141,6 +141,14 @@ The answer is the web route's JSON in one body (the web route does not stream): 
 text) and `cid` to play on the phone, plus `check`, `attempts`, `share_url` and `render_url`. The
 result is stored publicly (CC0) like any compose. No credential beyond the device key is involved.
 
+### Capabilities (2026-11-20)
+
+The claim answer and `GET /api/device/me` also carry `caps` (e.g. `["compose"]`) and `grant`, a signed
+`btw-cap+jws` statement of the **account's** capabilities (its `sub` is the hello's `user`). The phone uses it only
+to decide what to show, and refreshes it with `GET /api/auth/grant` (BtwDevice-signed). The server checks the
+allowlist on `/api/device/compose` whatever the phone holds: a refusal is `403 capability_required`. Format, keys
+and verification: [CAPABILITIES.md](CAPABILITIES.md).
+
 ## Share and fetch from the phone (CID-only links)
 
 `PUT /api/shares/<cid>` is the short link's write side (DESIGN.md "Short links"). A paired phone signs it like every device

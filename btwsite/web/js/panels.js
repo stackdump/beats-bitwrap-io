@@ -249,10 +249,38 @@ export class Panels {
     } }, 'Create an MCP token');
     out.push(make);
     if (!app.user) out.push(h('p', { class: 'note warn' }, 'Sign in to make a token (the write tools, eval, load and compose, need one).'), h('button', { type: 'button', class: 'tb', onclick: () => app.panel('user') }, 'Sign in'));
-    else out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.revokeTokens(); this.wipeToken(); app.toast('All your MCP tokens are revoked.', 'ok'); } catch (e) { app.showError(e); } } }, 'Revoke all my tokens'));
+    else out.push(h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.revokeTokens(); this.wipeToken(); app.toast('All your MCP tokens and app connections are revoked.', 'ok'); if (this.reloadConnections) this.reloadConnections(); } catch (e) { app.showError(e); } } }, 'Revoke all my tokens'));
     out.push(result);
+    out.push(h('p', { class: 'note' }, 'Or connect without a token: claude.ai and Claude Code sign in by OAuth. Add ', h('code', {}, `${origin.replace(/\/$/, '')}/mcp`), ' as a connector (or ', h('code', {}, `claude mcp add --transport http beatscript ${origin.replace(/\/$/, '')}/mcp`), ') and approve it here when asked.'));
+    if (app.user) out.push(this.connectionsView());
     out.push(h('p', { class: 'note' }, 'Read-only tools (check, fmt, share, open, instruments, list_examples) need no token. Docs for assistants: ', h('a', { href: '/llms.txt', class: 'link' }, '/llms.txt'), '.'));
     return out;
+  }
+
+  /** The signed-in account's OAuth connections (each with Disconnect) and pasted tokens (when each was made). */
+  connectionsView() {
+    const app = this.app;
+    const box = h('div', { class: 'connections' }, h('div', { class: 'note' }, 'Loading connections…'));
+    const when = (t) => { try { return new Date(typeof t === 'number' ? t * 1000 : t).toLocaleString(); } catch { return String(t); } };
+    const load = async () => {
+      try {
+        const r = await app.api.connections();
+        const rows = [];
+        rows.push(h('div', { class: 'note' }, (r.clients || []).length ? 'Connected apps:' : 'No apps connected by OAuth.'));
+        for (const c of r.clients || []) {
+          rows.push(h('div', { class: 'conn' }, h('b', {}, c.client_name), ' ', h('span', { class: 'note' }, `→ ${c.redirect_uri} · since ${when(c.created)} · last used ${when(c.last_used)}`), ' ',
+            h('button', { type: 'button', class: 'tb tb-sm', onclick: async () => { try { await app.api.disconnect(c.id); app.toast(`${c.client_name} is disconnected.`, 'ok'); load(); } catch (e) { app.showError(e); } } }, 'Disconnect')));
+        }
+        const toks = r.tokens || [];
+        rows.push(h('div', { class: 'note' }, toks.length ? `Pasted tokens: ${toks.length} (made ${toks.map((t) => when(t.created)).join(', ')}).` : 'No pasted tokens.'));
+        box.replaceChildren(...rows);
+      } catch (e) {
+        box.replaceChildren(h('div', { class: 'note' }, 'Connections are not available on this server.'));
+      }
+    };
+    load();
+    this.reloadConnections = load;
+    return box;
   }
 
   // ---- phone: pair the BeatScript Android app by a QR code (btwsite/PAIRING.md) ----------------------------------------------------------

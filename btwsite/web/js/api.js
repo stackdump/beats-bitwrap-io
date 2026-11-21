@@ -72,6 +72,9 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     me: () => req('GET', '/api/auth/me'),
     createToken: () => req('POST', '/api/auth/token', { json: {} }),
     revokeTokens: () => req('DELETE', '/api/auth/token'),
+    // the MCP panel: OAuth connections (btwserve oauth.rs) and the pasted tokens' dates
+    connections: () => req('GET', '/api/auth/clients'),
+    disconnect: (id) => req('DELETE', `/api/auth/clients/${encodeURIComponent(String(id))}`),
     createSession: () => req('POST', '/api/session', { json: {} }),
     report: rejecting((id, state) => req('POST', `/api/session/${sidSeg(id)}/report`, { json: state })),
     reply: rejecting((id, requestId, state) => req('POST', `/api/session/${sidSeg(id)}/reply`, { json: { request_id: requestId, state } })),
