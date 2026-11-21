@@ -132,7 +132,7 @@
   {
     "name": "vocals",
     "title": "vocals",
-    "description": "Lyrics that read like code: plain words through the BeatScript lexicon, phonemes between slashes (a held and an accented syllable), two phrases from the phrasebook, and the vocoder fading in as an insert on deck A, then handing off.",
+    "description": "Lyrics that read like code: words through the lexicon, phonemes between slashes, two phrases from the phrasebook, the vocoder fading in on deck A. A held and an accented syllable, then the vocoder hands off.",
     "bpm": 124,
     "bars": 32,
     "license": "CC0-1.0",

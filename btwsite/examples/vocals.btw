@@ -1,3 +1,7 @@
+#! btw 1
+#! name: vocals
+#! license: CC0-1.0
+#! visibility: public
 # vocals: lyrics that read like code (CC0-1.0, an original track). docs/btw/phonemes.md
 # Plain words go through the BeatScript lexicon; text between slashes is phonemes, sung exactly as written
 # (`aa:` holds a syllable over the next note, `ay!` accents it); `@id` is a phrase of the phrasebook.

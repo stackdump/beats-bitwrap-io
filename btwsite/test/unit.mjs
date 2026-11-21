@@ -1604,6 +1604,8 @@ test('program-ld: the editor\'s program block is read from <beatscript-view data
   assert.equal(readProgramView({ querySelector: (q) => (q === 'beatscript-view[data-editor]' ? view : null) }).cid, doc['@id']);
   assert.equal(readProgramView({ querySelector: () => null }), null);
   assert.equal(readProgramView({ querySelector: () => ({ querySelector: () => null }) }), null);
+});
+
 test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, null otherwise', () => {
   const json = '{"crossfader":0,"master":1,"decks":{"A":{"volume":0.8,"mute":false},"B":{"volume":0.8,"crossfade_gain":0}}}';
   const m = parseMixer(json);
