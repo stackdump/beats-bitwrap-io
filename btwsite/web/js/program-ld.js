@@ -3,7 +3,7 @@
 // <petri-view> reads its net. The server renders it into /?cid=<CID> and the program pages; the editor loads it from
 // here instead of fetching. Its text must hash to its @id: the app checks that before it plays (app.js loadEmbedded).
 
-/** The block's document, parsed and its shape checked: {cid, text, name, license, signature, doc}. Throws when it is not a program. */
+/** The block's document, parsed and its shape checked: {cid, text, name, license (the id), licenseUri, signature, doc}. Throws when it is not a program. */
 export function parseProgramLd(json) {
   let d;
   try {
@@ -20,7 +20,9 @@ export function parseProgramLd(json) {
     cid: d['@id'],
     text: d.text,
     name: typeof d.name === 'string' ? d.name : '',
-    license: typeof d.license === 'string' ? d.license : 'CC0-1.0',
+    // licenseId is the id (CC0-1.0); license the URI. A block with only an id in license is read the same way.
+    license: typeof d.licenseId === 'string' ? d.licenseId : typeof d.license === 'string' && !/^https?:/.test(d.license) ? d.license : 'CC0-1.0',
+    licenseUri: typeof d.license === 'string' && /^https?:/.test(d.license) ? d.license : null,
     signature: typeof d.signature === 'string' ? d.signature : null,
     doc: d,
   };

@@ -1537,9 +1537,13 @@ test('arrange mutations: the play under the playhead and its generations', () =>
 });
 
 test('program-ld: the editor\'s program block is read from <beatscript-view data-editor>', () => {
-  const doc = { '@context': ['https://beatscript.app/schema', 'https://schema.org'], '@type': ['Program', 'MusicComposition'], '@version': '1', '@id': 'z4EBG9jCtKY4ioQ3TEJCQQmTTJZjugJRihCNbBxNJrBaWr1adMi', name: 'night bus', license: 'CC0-1.0', tempo: 128, key: 'am', text: 'tempo 128\nkey am\n', signature: '0xabc' };
+  const doc = { '@context': ['https://beatscript.app/schema', 'https://schema.org'], '@type': ['Program', 'MusicComposition'], '@version': '1', '@id': 'z4EBG9jCtKY4ioQ3TEJCQQmTTJZjugJRihCNbBxNJrBaWr1adMi', name: 'night bus', license: 'https://creativecommons.org/publicdomain/zero/1.0/', licenseId: 'CC0-1.0', tempo: 128, key: 'am', text: 'tempo 128\nkey am\n', signature: '0xabc' };
   const p = parseProgramLd(JSON.stringify(doc));
   assert.deepEqual([p.cid, p.text, p.name, p.license, p.signature], [doc['@id'], doc.text, 'night bus', 'CC0-1.0', '0xabc']);
+  assert.equal(p.licenseUri, 'https://creativecommons.org/publicdomain/zero/1.0/');
+  // an older block with the id in license reads the same
+  const old = parseProgramLd(JSON.stringify({ ...doc, license: 'CC-BY-4.0', licenseId: undefined }));
+  assert.deepEqual([old.license, old.licenseUri], ['CC-BY-4.0', null]);
   // the server writes < > & as \u escapes inside the script: still the same JSON
   assert.equal(parseProgramLd(JSON.stringify({ ...doc, name: 'a</script>b' }).replace(/</g, '\\u003c')).name, 'a</script>b');
   for (const bad of ['nope', '[]', JSON.stringify({ ...doc, '@type': 'Thing' }), JSON.stringify({ ...doc, '@id': 'not a cid' }), JSON.stringify({ ...doc, text: '' })]) {
