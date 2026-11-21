@@ -1,4 +1,4 @@
-// The panels: a drawer for compose, the MCP panel and sign-in, and two small popovers for share and open.
+// The panels: a drawer for compose, the MCP panel and sign-in, and small popovers for share, open and export.
 // Built with DOM calls (no inline handlers, no innerHTML of anything from the server). Loaded when first asked for.
 
 import { h, shortCid, accountKind } from './util.js';
@@ -25,7 +25,7 @@ export class Panels {
   }
 
   show(which) {
-    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', beta: 'btn-beta', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
+    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', beta: 'btn-beta', user: 'btn-user', share: 'btn-share', open: 'btn-open', export: 'btn-export' }[which];
     if (this.current === which) return this.close();
     this.close();
     this.current = which;
@@ -43,7 +43,7 @@ export class Panels {
     const inPanel = !ae || ae === document.body || this.el.drawer.contains(ae) || !!(this.app.pop && this.app.pop.contains(ae));
     this.el.drawer.hidden = true;
     this.popClose();
-    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-beta', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
+    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-beta', 'btn-user', 'btn-share', 'btn-open', 'btn-export']) this.el[b].setAttribute('aria-expanded', 'false');
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
@@ -65,6 +65,7 @@ export class Panels {
     const w = this.current;
     if (!w) return;
     if (w === 'share') return this.share();
+    if (w === 'export') return this.exportPanel();
     if (w === 'open') return this.open();
     const body = this.el['drawer-body'];
     const title = { compose: 'Compose', mcp: 'MCP', phone: 'Mobile', beta: 'Android beta', user: this.app.user ? 'Account' : 'Sign in' }[w];
@@ -443,6 +444,86 @@ export class Panels {
       this.app.toast('Could not copy automatically; select the text and copy it.', 'warn');
       return false;
     }
+  }
+
+  /** Export for a DAW: the MIDI file at once, the stems when the server has made them (it answers 202 till then). */
+  exportPanel() {
+    const app = this.app;
+    const text = app.editor.text;
+    const report = app.runCheckNow();
+    const refuse = (msg) => {
+      app.toast(msg, 'warn');
+      this.current = null;
+      this.trigger && this.trigger.setAttribute('aria-expanded', 'false');
+    };
+    if (app.isPrivate(text, report)) return refuse('This program is private (restricted sounds, assets or #! visibility: private): the server does not render it, so there is nothing to export.');
+    if (!report || !report.ok) return refuse('Fix the errors before exporting: the export is the render of a program that checks.');
+    const status = h('div', { class: 'note', role: 'status' }, '');
+    const ac = new AbortController();
+    this.abort = ac;
+    const save = (url) => {
+      // the server answers with Content-Disposition: attachment, so the page stays where it is
+      const a = h('a', { href: url, download: '' });
+      document.body.append(a);
+      a.click();
+      a.remove();
+    };
+    const go = async (format, btn) => {
+      btns.forEach((b) => { b.disabled = true; });
+      try {
+        await app.ensureStored(report);
+        const url = app.api.exportUrl(report.cid, format);
+        if (format === 'midi') {
+          status.textContent = 'Downloading the MIDI file…';
+          save(url);
+          status.textContent = 'The MIDI file: a track per part, drums on channel 10, the tempo map, the key and a marker per section.';
+          return;
+        }
+        for (;;) {
+          if (ac.signal.aborted) return;
+          const one = new AbortController();
+          ac.signal.addEventListener('abort', () => one.abort(), { once: true });
+          const res = await fetch(url, { signal: one.signal });
+          if (res.status === 202) {
+            const j = await res.json().catch(() => ({}));
+            status.textContent = `Making the stems on the server: ${j.file || 'master.wav'}${j.done ? ` (${j.done} done)` : ''}…`;
+            const wait = Math.max(1, Math.min(10, Number(res.headers.get('Retry-After')) || 3));
+            await new Promise((r) => setTimeout(r, wait * 1000));
+            continue;
+          }
+          if (!res.ok) {
+            const j = await res.json().catch(() => null);
+            throw new ApiError({ code: (j && j.code) || 'render_failed', message: (j && (j.message || j.error)) || `the server answered ${res.status}` });
+          }
+          one.abort(); // the zip is ready: the browser downloads it itself instead of this page reading it
+          status.textContent = 'Stems ready: a file per part and per deck, the master, the .mid and manifest.json.';
+          save(url);
+          return;
+        }
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        status.textContent = '';
+        app.showError(e);
+      } finally {
+        btns.forEach((b) => { b.disabled = false; });
+        btn.focus({ preventScroll: true });
+      }
+    };
+    const btn = (label, format, title) => {
+      const b = h('button', { type: 'button', class: 'tb', title, onclick: () => go(format, b) }, label);
+      return b;
+    };
+    const btns = [
+      btn('MIDI', 'midi', 'A Standard MIDI File of the notes the render plays'),
+      btn('Stems (WAV)', 'stems', 'A zip: a 32-bit float WAV per part and per deck that add up to the master'),
+      btn('Stems (Opus)', 'stems-opus', 'The same zip with smaller Ogg Opus stems'),
+    ];
+    const box = this.pop('Export for a DAW',
+      h('p', { class: 'note' }, 'The server renders this program and keeps it publicly under its CID (CC0-1.0 unless you shared it with other rights). The notes are the ones the render plays; each stem is its part as it sits in the mix, and the stems add up to the master. Stems take a minute or two for a long song.'),
+      h('div', { class: 'btnrow' }, ...btns),
+      status,
+      h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
+    box.querySelector('button').focus({ preventScroll: true });
   }
 
   share() {

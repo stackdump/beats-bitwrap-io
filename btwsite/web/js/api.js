@@ -14,6 +14,8 @@ const cidSeg = seg(CID_RE, 'a CID');
 const nameSeg = seg(EXAMPLE_RE, 'an example name');
 // what the server's renderer is (internal/btwsite/api RenderVersion): part of every render URL, so a renderer change is a new URL
 export const RENDER_VERSION = 'r2';
+export const EXPORT_VERSION = 'x1';
+export const EXPORT_FORMATS = ['midi', 'stems', 'stems-opus'];
 const sidSeg = seg(SESSION_RE, 'a session id');
 /** A call that returns a promise answers a bad argument with a rejection, not a throw. */
 const rejecting = (fn) => (...a) => {
@@ -67,6 +69,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     // v= is the server's api.RenderVersion: renders are cached immutable, so a renderer change must change the URL (bump both)
     renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}&v=${RENDER_VERSION}`,
     renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
+    // for a DAW (docs/EXPORT.md in djrust-vevr-se): midi, stems (a zip of WAVs), stems-opus; a stems URL answers 202 while it is made
+    exportUrl: (cid, format = 'midi') => `${base}/api/render/${cidSeg(cid)}?format=${EXPORT_FORMATS.includes(format) ? format : 'midi'}&v=${RENDER_VERSION}.${EXPORT_VERSION}`,
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
     challenge: () => req('GET', '/api/auth/challenge'),
     login: (body) => req('POST', '/api/auth/login', { json: body }),
