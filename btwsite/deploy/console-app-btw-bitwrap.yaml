@@ -13,7 +13,7 @@ dir: btw-bitwrap-io
 host: pflow.dev
 port: 18097
 service: btw-bitwrap
-cmd: ./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io -android-beta-url https://play.google.com/apps/testing/app.beatscript
+cmd: ./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io
 vhost: btw.bitwrap.io
 # beatscript.app (+ www) is a second vhost+cert for the same process (nginx/beatscript.app.conf, deploy.sh *-beatscript steps).
 # The console manifest models one vhost per app, so it is recorded here and in notes, not as a second vhost: keep it out of

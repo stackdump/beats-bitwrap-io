@@ -1292,7 +1292,7 @@ test('mobile panel: the Android beta link shows when the server gives a URL, and
       p.app = { user: { id: 'u' }, info, api: { devices: async () => ({ devices: [] }) } };
       p.phoneList = () => {};
       const found = [];
-      for (const n of p.phoneBody()) walk(n, (x) => { if (x.tag === 'a') found.push(x); });
+      for (const n of p.phoneBody()) walk(n, (x) => { if (x.tag === 'a') found.push(x); if (x.className === 'note pair-beta' || x.attrs.class === 'note pair-beta') found.sentence = x.kids[0].text; });
       return found;
     };
     const url = 'https://play.google.com/apps/testing/app.beatscript';
@@ -1300,7 +1300,10 @@ test('mobile panel: the Android beta link shows when the server gives a URL, and
     assert.equal(a.attrs.href, url);
     assert.equal(a.attrs.target, '_blank');
     assert.equal(a.attrs.rel, 'noopener');
-    assert.match(a.kids.map((k) => k.text).join(''), /Join the Android beta on Google Play/);
+    assert.match(a.kids.map((k) => k.text).join(''), /^Join the Android beta/);
+    const [b] = links({ android_beta_url: url, user: null });
+    assert.equal(b.attrs.href, url);
+    assert.equal(links({ android_beta_url: url }).sentence, 'BeatScript for Android is in open beta. ');
     assert.equal(links({ android_beta_url: '' }).length, 0);
     assert.equal(links({}).length, 0);
   } finally { globalThis.document = prev; }
@@ -1801,4 +1804,26 @@ test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, n
   assert.equal(reportedMixer('engine', m), m);
   assert.equal(reportedMixer('stream', m), null, 'a stream has no mixer');
   assert.equal(reportedMixer('engine', null), null, 'an older wasm: null');
+});
+
+test('toolbar: the Android beta link is in the markup hidden, and showBetaLink follows /api/info', async () => {
+  const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
+  const a = html.match(/<a[^>]*id="lnk-beta"[^>]*>/)[0];
+  assert.match(a, /\shidden[\s>]/);
+  assert.match(a, /rel="noopener"/);
+  assert.doesNotMatch(a, /href="https?:/);
+  assert.ok(html.indexOf('id="btn-phone"') < html.indexOf('id="lnk-beta"'));
+  const { App } = await J('app.js');
+  const el = { hidden: true, href: '', setAttribute(k, v) { this[k] = v; } };
+  const prev = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === 'lnk-beta' ? el : null) };
+  try {
+    const url = 'https://play.google.com/apps/testing/app.beatscript';
+    App.prototype.showBetaLink.call({ info: { android_beta_url: url } });
+    assert.equal(el.hidden, false); assert.equal(el.href, url);
+    App.prototype.showBetaLink.call({ info: { android_beta_url: '' } });
+    assert.equal(el.hidden, true);
+    App.prototype.showBetaLink.call({ info: null });
+    assert.equal(el.hidden, true);
+  } finally { globalThis.document = prev; }
 });

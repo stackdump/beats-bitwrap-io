@@ -339,6 +339,8 @@ export class Panels {
     const app = this.app;
     const out = [];
     out.push(h('p', { class: 'note' }, 'Connect the BeatScript app on an Android phone: in the app open the menu, then beatscript.app › Scan to connect, and point it at the code (or scan it with the phone\'s camera, which opens the app). It is a pairing code, not an invite. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
+    const beta = app.info && app.info.android_beta_url;
+    if (beta) out.push(h('p', { class: 'note pair-beta' }, 'BeatScript for Android is in open beta. ', h('a', { href: beta, class: 'link', target: '_blank', rel: 'noopener' }, 'Join the Android beta →')));
     if (!app.user) {
       out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
       return out;
@@ -347,8 +349,6 @@ export class Panels {
     const list = h('div', { class: 'pair-devices' });
     const show = h('button', { type: 'button', class: 'tb primary', onclick: () => this.phoneOfferNew(qrBox, list) }, 'Show a pairing code');
     out.push(show, qrBox);
-    const beta = app.info && app.info.android_beta_url;
-    if (beta) out.push(h('p', { class: 'note pair-beta' }, 'Don\'t have the app? ', h('a', { href: beta, class: 'link', target: '_blank', rel: 'noopener' }, 'Join the Android beta on Google Play →')));
     out.push(h('h3', {}, 'Paired phones'), list);
     out.push(h('p', { class: 'note' }, 'The code works once and for two minutes. It carries no lasting secret: the phone makes its own key, and only its public half is kept here. Unpair here or on the phone at any time.'));
     this.phoneList(list);
