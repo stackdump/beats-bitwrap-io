@@ -13,6 +13,11 @@
         "wide": "4fd7432a8bad2a2eea97178820406ada406f8b7f0a1cb797ae9174e5c1d5967f",
         "square": "95e473a3d6f72c20f87fe64c5988e5b14d2157594bbee3c3591a1219189883c9"
       },
+      "arrange-mutations": {
+        "cid": "z4EBG9jCjXRmqJDBcF2aw6cmFNxKdU1XS2LmNk6Eoa2kCb2hpJc",
+        "wide": "3c634d250bd21320611a5dff2c1cfd389c98437d35e606bd594cdbb1ac9e7b1a",
+        "square": "7a574e272a121178c53874f50cf417749177bbdeae8c1542f9b972ff1feaf4ec"
+      },
       "evolve-demo": {
         "cid": "z4EBG9j96Y9B8jJdrFaxHyDJpF3N7rbGMPogFE7qvjduCc8DejV",
         "wide": "6ca5dfd5ea1c3d47516a5f311a0cb3362ccbb4df110976036c7f9bb5129985dd",
@@ -47,6 +52,16 @@
         "cid": "z4EBG9j5QoaUaJPHNQYuyhhFD4BSU1NSWFdar5Kj5Q3tGi8eHr2",
         "wide": "36d86ab23d9ededdb1f88dbf2cc122b8f3a0a45a40937642072fd4583080e801",
         "square": "ed4d9d22cf02505867fe5e74cd6e72d455e44dca39af586e8924d086972e8606"
+      },
+      "trap-expression": {
+        "cid": "z4EBG9jCMQkMoMLWeui3FnZrxRBhbnptsDtdUnTH6ytdoXzUAP7",
+        "wide": "0f16ca826ee27682ff4244cdf8f8b4f055d94fb76a421cecfe0f14971bbc44d5",
+        "square": "2ce1d1a36d7ea7315730152a64d4dbb63cf583cb6ea0fa35768d48e32a36200d"
+      },
+      "vocals": {
+        "cid": "z4EBG9j23CnEjyBqxsRCaWQyWgSWhWrxNm7tb627KwCkjVe9HTJ",
+        "wide": "b2425fedd8ab809f06478f545d4c67fb03cbbc216e124a57cace00a6d9f6d5e2",
+        "square": "e561e8ad0537ce923b7e355cf390a3dd03fc730fe906f77810ddfd98ff6dd1c6"
       }
     },
     "real/arm64": {
