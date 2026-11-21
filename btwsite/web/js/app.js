@@ -247,10 +247,20 @@ export class App {
     this.banner({ kind: 'info', html: [h('span', { class: 'grow' }, `This site has moved to ${to}. Your programs are links, so they open there unchanged. Signed-in browser keys do not move: export first if you use one.`)], actions: [{ label: 'Go to the new address', primary: true, run: go }] });
   }
 
+  // The Android beta link in the toolbar follows /api/info.android_beta_url (the server's -android-beta-url flag); empty = hidden.
+  showBetaLink() {
+    const a = document.getElementById('lnk-beta');
+    const url = (this.info && this.info.android_beta_url) || '';
+    if (!a) return;
+    if (url) a.setAttribute('href', url);
+    a.hidden = !url;
+  }
+
   async loadInfo() {
     try {
       this.info = await this.api.info();
       this.serverOk = true;
+      this.showBetaLink();
       this.movedBanner();
     } catch {
       this.serverOk = false;

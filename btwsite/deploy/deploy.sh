@@ -100,7 +100,7 @@ assert s.count(b)==1, "SERVICE_ORDER anchor"
 s=s.replace(b,'"windwheel" "windwheel-bitwrap" "btw-bitwrap")')
 c='        windwheel-bitwrap)CMD="./windwheel-web -port 18096" ;;\n'
 assert s.count(c)==1, "case anchor"
-s=s.replace(c, c+'        btw-bitwrap)    CMD="./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io -android-beta-url https://play.google.com/apps/testing/app.beatscript" ;;\n')
+s=s.replace(c, c+'        btw-bitwrap)    CMD="./btw-bitwrap-io -addr 127.0.0.1:18097 -btwd ./btwsite/bin/btwd -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data ./data -public-url https://beatscript.app -legacy-hosts btw.bitwrap.io" ;;\n')
 open(p,'w').write(s); print("patched")
 PY
 bash -n "$f" && echo "services syntax ok"
