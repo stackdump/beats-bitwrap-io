@@ -600,6 +600,22 @@ test('stream: chunks are scheduled gaplessly, each starting where the one before
   assert.ok(Math.abs(p.mediaTime() - 3) < 1e-9, 'the media clock stops at the end of what arrived');
 });
 
+test('stream: the first buffer starts on a sample of the context, so the seams between buffers are not interpolated', async () => {
+  const ctx = new FakeCtx();
+  ctx.sampleRate = 48000;
+  ctx.currentTime = 1.2345678;
+  const pieces = [wavHeader({ sampleRate: 48000 }), ...Array.from({ length: 6 }, (_, i) => pcm16(12000, 2, i + 1))];
+  const p = new StreamPlayer({ context: ctx, url: '/x', bpm: 120, fetchFn: fakeFetch(pieces) });
+  await p.start();
+  await settle();
+  assert.ok(ctx.starts.length >= 2);
+  for (const s of ctx.starts) {
+    const frame = s.t * 48000;
+    assert.ok(Math.abs(frame - Math.round(frame)) < 1e-6, `start ${s.t} is on the 48 kHz grid (frame ${frame})`);
+  }
+  assert.ok(ctx.starts[0].t >= 1.2345678 + 0.06 - 1e-9, 'not before the start delay');
+});
+
 test('driver: a program on a virtual clock counts its bars from 0 (the first grid the runtime sees comes after its play)', async () => {
   const { Driver, VirtualSource, ManualClock } = await J('driver.js');
   const text = program(0).replace(/(# tail \d+\n)+/, '');
