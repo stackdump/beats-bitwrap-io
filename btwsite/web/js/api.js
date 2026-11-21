@@ -82,6 +82,10 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     // pairing a phone (btwsite/PAIRING.md): a QR offer, its state, the paired devices, and pushing to one
     pairNew: () => req('POST', '/api/pair', { json: {} }),
     pairState: rejecting((id) => req('GET', `/api/pair/${sidSeg(id)}`)),
+    // the Android beta sign-up (no sign-in): a request, whether an address has been added (then the Play link), and taking it off
+    betaSignup: (body) => req('POST', '/api/beta/signup', { json: body }),
+    betaStatus: (email) => req('POST', '/api/beta/status', { json: { email } }),
+    betaRemove: (email) => req('POST', '/api/beta/remove', { json: { email } }),
     devices: () => req('GET', '/api/devices'),
     unpairDevice: rejecting((id) => req('DELETE', `/api/devices/${sidSeg(id)}`)),
     pushDevice: rejecting((id, body) => req('POST', `/api/devices/${sidSeg(id)}/push`, { json: body })),

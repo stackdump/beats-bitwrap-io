@@ -25,7 +25,7 @@ export class Panels {
   }
 
   show(which) {
-    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
+    const tb = { compose: 'btn-compose', mcp: 'btn-mcp', phone: 'btn-phone', beta: 'btn-beta', user: 'btn-user', share: 'btn-share', open: 'btn-open' }[which];
     if (this.current === which) return this.close();
     this.close();
     this.current = which;
@@ -43,7 +43,7 @@ export class Panels {
     const inPanel = !ae || ae === document.body || this.el.drawer.contains(ae) || !!(this.app.pop && this.app.pop.contains(ae));
     this.el.drawer.hidden = true;
     this.popClose();
-    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
+    for (const b of ['btn-compose', 'btn-mcp', 'btn-phone', 'btn-beta', 'btn-user', 'btn-share', 'btn-open']) this.el[b].setAttribute('aria-expanded', 'false');
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
@@ -67,9 +67,9 @@ export class Panels {
     if (w === 'share') return this.share();
     if (w === 'open') return this.open();
     const body = this.el['drawer-body'];
-    const title = { compose: 'Compose', mcp: 'MCP', phone: 'Mobile', user: this.app.user ? 'Account' : 'Sign in' }[w];
+    const title = { compose: 'Compose', mcp: 'MCP', phone: 'Mobile', beta: 'Android beta', user: this.app.user ? 'Account' : 'Sign in' }[w];
     this.el['drawer-title'].textContent = title;
-    body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : w === 'phone' ? this.phoneBody() : this.userBody()));
+    body.replaceChildren(...(w === 'compose' ? this.composeBody() : w === 'mcp' ? this.mcpBody() : w === 'phone' ? this.phoneBody() : w === 'beta' ? this.betaBody() : this.userBody()));
     this.el.drawer.hidden = false;
     this.popClose();
     const first = body.querySelector('textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'); // a disabled control cannot take the focus
@@ -264,12 +264,58 @@ export class Panels {
     this.phoneOffer = null;
   }
 
+  /** The Android beta sign-up: an email (the Google account on the phone), an optional name and a consent tick; once the owner
+   *  has added the address the same form shows the Google Play link. Nothing here needs a sign-in. */
+  betaBody() {
+    const app = this.app;
+    const KEY = 'btw_beta_email';
+    const remembered = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
+    const remember = (v) => { try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch { /* private mode */ } };
+    const out = [h('p', { class: 'note' }, 'BeatScript for Android is in beta. Give the Google account email you use on your Android phone and you will be added to the beta; this page then shows the link to join on Google Play.')];
+    const status = h('div', { role: 'status', class: 'note' });
+    const email = h('input', { type: 'email', autocomplete: 'email', placeholder: 'you@gmail.com', 'aria-label': 'Google account email', maxlength: '254', value: remembered() });
+    const name = h('input', { type: 'text', autocomplete: 'name', placeholder: 'name (optional)', 'aria-label': 'Name (optional)', maxlength: '80' });
+    const consent = h('input', { type: 'checkbox', id: 'beta-consent' });
+    const say = (t) => status.replaceChildren(t);
+    const fail = (e) => say(e && e.message ? e.message : 'That did not work; try again.');
+    const link = (url) => status.replaceChildren('You are in. ', h('a', { href: url, class: 'link', target: '_blank', rel: 'noopener' }, 'Join the Android beta on Google Play →'));
+    const check = async (quiet) => {
+      const v = email.value.trim();
+      if (!v) return;
+      try {
+        const r = await app.api.betaStatus(v);
+        if (r && r.added && r.url) link(r.url);
+        else if (!quiet) say('Not added yet. You will see the link here once you are; come back to this page.');
+      } catch (e) { if (!quiet) fail(e); }
+    };
+    const join = h('button', { type: 'button', class: 'tb primary', onclick: async () => {
+      if (!email.value.trim()) return say('Give your email address.');
+      if (!consent.checked) return say('Tick the box to join.');
+      try {
+        const r = await app.api.betaSignup({ email: email.value.trim(), name: name.value.trim(), consent: true });
+        remember(email.value.trim().toLowerCase());
+        say((r && r.message) || 'Thanks, you are on the list.');
+        check(true);
+      } catch (e) { fail(e); }
+    } }, 'Join the beta');
+    const status_ = h('button', { type: 'button', class: 'tb', onclick: () => check(false) }, 'Check my status');
+    const remove = h('button', { type: 'button', class: 'tb', onclick: async () => {
+      if (!email.value.trim()) return say('Give the email address to remove.');
+      try { const r = await app.api.betaRemove(email.value.trim()); remember(''); say((r && r.message) || 'Removed.'); } catch (e) { fail(e); }
+    } }, 'Remove me');
+    out.push(h('label', {}, 'Email ', email), h('label', {}, 'Name ', name),
+      h('label', { class: 'note' }, consent, ' Add me to the BeatScript Android beta. My email is used only for this and can be removed any time.'),
+      join, status_, remove, status,
+      h('p', { class: 'note' }, h('a', { href: '/privacy#android-beta', class: 'link', target: '_blank', rel: 'noopener' }, 'Privacy: what is kept')));
+    if (email.value) check(true);
+    return out;
+  }
+
   phoneBody() {
     const app = this.app;
     const out = [];
     out.push(h('p', { class: 'note' }, 'Connect the BeatScript app on an Android phone: in the app open the menu, then beatscript.app › Scan to connect, and point it at the code (or scan it with the phone\'s camera, which opens the app). It is a pairing code, not an invite. Then this page (and an assistant over MCP) can send programs to the phone and play them there.'));
-    const beta = app.info && app.info.android_beta_url;
-    if (beta) out.push(h('p', { class: 'note pair-beta' }, 'BeatScript for Android is in open beta. ', h('a', { href: beta, class: 'link', target: '_blank', rel: 'noopener' }, 'Join the Android beta →')));
+    if (app.info && app.info.android_beta) out.push(h('p', { class: 'note pair-beta' }, 'BeatScript for Android is in beta. ', h('button', { type: 'button', class: 'link', onclick: () => app.panel('beta') }, 'Join the Android beta →')));
     if (!app.user) {
       out.push(h('p', { class: 'note warn' }, 'Sign in first: a phone is paired to your identity (a wallet or this browser\'s key).'), h('button', { type: 'button', class: 'tb primary', onclick: () => app.panel('user') }, 'Sign in'));
       return out;
