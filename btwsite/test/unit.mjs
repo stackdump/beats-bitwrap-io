@@ -24,6 +24,7 @@ const { chooseSource, renderEndedMessage } = await J('source-model.js');
 const { parseProgramLd, readProgramView } = await J('program-ld.js');
 const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
+const { parseMixer, reportedMixer } = await J('mixer-model.js');
 const { makeFacade } = await J('wasm.js');
 const mockMod = (await J('wasm-mock.js')).mockModule();
 
@@ -1785,4 +1786,18 @@ test('scrub: the real module says what each literal is (btw/numberAt), and a scr
     }
   }
   assert.ok(n >= 30, String(n));
+});
+
+test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, null otherwise', () => {
+  const json = '{"crossfader":0,"master":1,"decks":{"A":{"volume":0.8,"mute":false},"B":{"volume":0.8,"crossfade_gain":0}}}';
+  const m = parseMixer(json);
+  assert.equal(m.crossfader, 0);
+  assert.equal(m.decks.B.crossfade_gain, 0);
+  assert.equal(parseMixer(''), null);
+  assert.equal(parseMixer('not json'), null);
+  assert.equal(parseMixer('[1,2]'), null);
+  assert.equal(parseMixer('{"crossfader":0}'), null, 'no decks: not a mixer');
+  assert.equal(reportedMixer('engine', m), m);
+  assert.equal(reportedMixer('stream', m), null, 'a stream has no mixer');
+  assert.equal(reportedMixer('engine', null), null, 'an older wasm: null');
 });

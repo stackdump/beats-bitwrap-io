@@ -13,6 +13,7 @@ import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
 import { headerModel, programName, arrangePlay, arrangeLabel } from './header-model.js';
 import { readProgramView, defineProgramView } from './program-ld.js';
+import { reportedMixer } from './mixer-model.js';
 import { chooseSource, renderEndedMessage } from './source-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
@@ -1260,6 +1261,8 @@ export class App {
       diagnostics: withheld ? [] : (this.report && this.report.diagnostics) || [],
       presence: this.presence.snapshot(),
       ts: new Date().toISOString(),
+      // what the listener hears (crossfader, levels, mutes, EQ kills, filters, vocoder): null from a stream or an older engine
+      mixer: reportedMixer(d && d.kind, this.engine && typeof this.engine.mixer === 'function' ? this.engine.mixer() : null),
     };
   }
 
