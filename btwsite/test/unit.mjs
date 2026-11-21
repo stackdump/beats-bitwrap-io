@@ -913,6 +913,10 @@ test('security: what becomes part of a URL path is checked first (CID, example n
   assert.equal(api.renderUrl(cid), `/api/render/${cid}?format=wav&sr=44100&v=r2`);
   assert.equal(api.renderUrl(cid, 'opus'), `/api/render/${cid}?format=opus&v=r2`);
   assert.equal(api.renderUrl(cid, 'x&y=1', 7), `/api/render/${cid}?format=wav&sr=44100&v=r2`, 'format and rate are from a short list');
+  assert.equal(api.exportUrl(cid), `/api/render/${cid}?format=midi&v=r2.x1`);
+  assert.equal(api.exportUrl(cid, 'stems'), `/api/render/${cid}?format=stems&v=r2.x1`);
+  assert.equal(api.exportUrl(cid, 'stems-opus'), `/api/render/${cid}?format=stems-opus&v=r2.x1`);
+  assert.equal(api.exportUrl(cid, 'wav&x=1'), `/api/render/${cid}?format=midi&v=r2.x1`, 'an export format is from a short list');
   assert.equal(api.eventsUrl('PqjBDf8367OflXp4zG-TKQ'), '/api/session/PqjBDf8367OflXp4zG-TKQ/events');
   seen.length = 0;
   const badCids = ['', '../../api/info', `${cid}/../..`, `${cid}?x=1`, `${cid}#`, `${cid}%2f..`, 'zshort', `z${'1'.repeat(200)}`, 'a'.repeat(50), `${cid}\n`, '/etc/passwd', null, undefined, 5, { toString: () => cid }];
