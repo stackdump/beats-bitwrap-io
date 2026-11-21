@@ -462,8 +462,20 @@ export class Panels {
         if (seq === qrSeq) qrBox.replaceChildren(h('div', { class: 'note' }, `No QR code: ${describeError(e).title}. The links above still work.`));
       }
     };
+    // The family tree of a program the server keeps: how many forks it has, where it came from, a link to /p/<CID>/tree.
+    const treeBox = h('div', { class: 'stack' });
+    const paintTree = async (cid) => {
+      if (!cid) { treeBox.replaceChildren(); return; }
+      let t;
+      try { t = await app.api.lineage(cid); } catch { treeBox.replaceChildren(); return; } // not stored, or not public: nothing to show
+      if (!t || t.program !== cid) return;
+      const n = t.forkCount | 0;
+      const forks = n === 0 ? 'no forks yet' : n === 1 ? '1 fork' : `${n} forks`;
+      const from = Array.isArray(t.ancestors) && t.ancestors.length ? ` · forked from ${shortCid(t.ancestors[0])}` : '';
+      treeBox.replaceChildren(h('div', { class: 'note' }, h('a', { href: `/p/${cid}/tree`, target: '_blank', rel: 'noopener' }, 'Family tree'), ` · ${forks}${from}`));
+    };
     const paintShort = (links) => {
-      if (links) { shortStored = true; paintQR(); }
+      if (links) { shortStored = true; paintQR(); paintTree(this.lastShare && this.lastShare.cid); }
       const row = (label, url) => h('div', {}, h('div', { class: 'note' }, label), h('div', { class: 'linkrow' }, h('input', { type: 'text', readonly: true, value: url, 'aria-label': label, onfocus: (e) => e.target.select() }), h('button', { type: 'button', class: 'tb tb-sm', onclick: () => this.copy(url) }, 'Copy')));
       if (links) {
         shortBox.replaceChildren(row('Short link (CID only; the page fetches and checks it)', links.short_url), row('Short link for posts (shows a card)', links.short_social_url), row('Short link in beats.bitwrap.io', links.short_beats_url));
@@ -488,8 +500,9 @@ export class Panels {
     };
     paintShort();
     paintQR();
+    if (this.lastShare && (app.stored.has(this.lastShare.cid) || app.examples.some((e) => e.cid === this.lastShare.cid))) paintTree(this.lastShare.cid);
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
-      rows, qrBox, shortBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      rows, qrBox, shortBox, treeBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
       h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);

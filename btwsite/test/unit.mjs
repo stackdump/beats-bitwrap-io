@@ -907,9 +907,10 @@ test('security: what becomes part of a URL path is checked first (CID, example n
   await api.getProgram(cid);
   await api.putProgram(cid, 'tempo 120\n');
   await api.renderStatus(cid);
+  await api.lineage(cid);
   await api.exampleText('hand-dubstep-140-v4');
   await api.report('PqjBDf8367OflXp4zG-TKQ', {});
-  assert.deepEqual(seen, [`GET /api/programs/${cid}`, `PUT /api/programs/${cid}`, `GET /api/render/${cid}/status`, 'GET /examples/hand-dubstep-140-v4.btw', 'POST /api/session/PqjBDf8367OflXp4zG-TKQ/report']);
+  assert.deepEqual(seen, [`GET /api/programs/${cid}`, `PUT /api/programs/${cid}`, `GET /api/render/${cid}/status`, `GET /api/lineage/${cid}`, 'GET /examples/hand-dubstep-140-v4.btw', 'POST /api/session/PqjBDf8367OflXp4zG-TKQ/report']);
   assert.equal(api.renderUrl(cid), `/api/render/${cid}?format=wav&sr=44100&v=r2`);
   assert.equal(api.renderUrl(cid, 'opus'), `/api/render/${cid}?format=opus&v=r2`);
   assert.equal(api.renderUrl(cid, 'x&y=1', 7), `/api/render/${cid}?format=wav&sr=44100&v=r2`, 'format and rate are from a short list');
@@ -917,7 +918,7 @@ test('security: what becomes part of a URL path is checked first (CID, example n
   seen.length = 0;
   const badCids = ['', '../../api/info', `${cid}/../..`, `${cid}?x=1`, `${cid}#`, `${cid}%2f..`, 'zshort', `z${'1'.repeat(200)}`, 'a'.repeat(50), `${cid}\n`, '/etc/passwd', null, undefined, 5, { toString: () => cid }];
   for (const c of badCids) {
-    for (const f of [() => api.getProgram(c), () => api.putProgram(c, 'x'), () => api.renderStatus(c), () => api.renderUrl(c)]) {
+    for (const f of [() => api.getProgram(c), () => api.putProgram(c, 'x'), () => api.renderStatus(c), () => api.renderUrl(c), () => api.lineage(c)]) {
       await assert.rejects(async () => f(), (e) => e.code === 'bad_request', String(c));
     }
   }
