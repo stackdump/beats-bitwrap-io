@@ -26,6 +26,7 @@ test-out/
 /btwsite/web/wasm/
 /btwsite/web/docs/BTW.md
 /btwsite/web/docs/cheatsheet.md
+/btwsite/web/docs/arrange.md
 /btwsite/bin/
 /btwsite/dist/
 # parity runs (btwsite/test/parity): renders, reports

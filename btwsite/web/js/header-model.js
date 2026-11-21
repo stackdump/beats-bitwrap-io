@@ -36,6 +36,30 @@ export function headerModel(status, marks, sections) {
   };
 }
 
+/**
+ * `arrange { }` with mutations: the play under the playhead, from check's `arrange` table (song bars are 1-based, a
+ * play's start_bar 0-based). Null without a table, or before / after every play.
+ */
+export function arrangePlay(arrange, songBar) {
+  if (!arrange || !Array.isArray(arrange.plays) || songBar == null) return null;
+  const b = songBar - 1;
+  return arrange.plays.find((p) => p.start_bar != null && b >= p.start_bar && b < p.start_bar + p.bars) || null;
+}
+
+/**
+ * The header's generation chip for a play: `pass 2/4 · acid_a@3 hoov_b@0+once` (only the patterns a mutation touched),
+ * and the title: each pattern's current text, one a line, so the editor shows the generation that is playing.
+ */
+export function arrangeLabel(play, arrange) {
+  if (!play) return null;
+  const passes = arrange && arrange.passes > 1 ? `pass ${play.pass + 1}/${arrange.passes}` : arrange && arrange.unbounded ? 'loop' : '';
+  const head = play.coda ? 'coda' : passes;
+  const reads = (play.reads || []).map((r) => `${r.pattern}@${r.gen}${r.once ? '+once' : ''}`);
+  const text = [head, ...reads].filter(Boolean).join(' · ');
+  const title = (play.reads || []).map((r) => `${r.pattern}@${r.gen}${r.once ? ' (this section only)' : ''} = ${r.text}`).join('\n');
+  return text ? { text, title, section: play.section } : null;
+}
+
 /** A name to show for a program: `#! name:` in its text, else a short first comment, else "BeatScript <short cid>". */
 export function programName(text, cid) {
   const m = /^#!\s*name:\s*(.+)$/m.exec(text || '');

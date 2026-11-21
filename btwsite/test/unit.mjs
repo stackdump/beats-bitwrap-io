@@ -19,7 +19,7 @@ const geo = await J('geometry.js');
 const { Follow, SCROLL_SECS, PAUSE_SECS, blockEnd } = await J('follow.js');
 const { deriveModel, fade, lampStyle, COLORS } = await J('markers-model.js');
 const errs = await J('errors.js');
-const { headerModel, sectionIndex, programName } = await J('header-model.js');
+const { headerModel, sectionIndex, programName, arrangePlay, arrangeLabel } = await J('header-model.js');
 const { chooseSource, renderEndedMessage } = await J('source-model.js');
 const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
@@ -1511,4 +1511,26 @@ test('wrap-model: rows, cells, pieces and the hit test of a soft-wrapped line', 
   assert.equal(hit(L3, 50, 5), null);
   assert.equal(hit(L3, 50, 200), null);
   assert.deepEqual(hit(L3, 0, 55), { line: 1, vcol: 30 }, 'left of the hanging indent is the row start');
+});
+
+test('arrange mutations: the play under the playhead and its generations', () => {
+  const arrange = {
+    passes: 2,
+    unbounded: false,
+    plays: [
+      { section: 'drop', name: 'drop', pass: 0, coda: false, start_bar: 0, bars: 4, reads: [{ pattern: 'acid_a', gen: 0, once: false, text: 'a2 ~ c3 e3' }] },
+      { section: 'drop', name: 'drop@2', pass: 0, coda: false, start_bar: 4, bars: 4, reads: [{ pattern: 'acid_a', gen: 1, once: false, text: '~ a2 ~ c3' }, { pattern: 'hoov_b', gen: 0, once: true, text: '~ g4 ~ e4' }] },
+      { section: 'outro', name: 'outro', pass: 1, coda: true, start_bar: 8, bars: 4, reads: [] },
+    ],
+  };
+  assert.equal(arrangePlay(arrange, 1).name, 'drop');
+  assert.equal(arrangePlay(arrange, 5).name, 'drop@2');
+  assert.equal(arrangePlay(arrange, 13), null);
+  assert.equal(arrangePlay(null, 1), null);
+  const l = arrangeLabel(arrangePlay(arrange, 5), arrange);
+  assert.equal(l.text, 'pass 1/2 · acid_a@1 · hoov_b@0+once');
+  assert.equal(l.section, 'drop');
+  assert.equal(l.title, 'acid_a@1 = ~ a2 ~ c3\nhoov_b@0 (this section only) = ~ g4 ~ e4');
+  assert.equal(arrangeLabel(arrangePlay(arrange, 9), arrange).text, 'coda');
+  assert.equal(arrangeLabel(null, arrange), null);
 });

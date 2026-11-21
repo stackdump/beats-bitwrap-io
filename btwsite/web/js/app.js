@@ -11,7 +11,7 @@ import { deriveModel } from './markers-model.js';
 import { Follow } from './follow.js';
 import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
-import { headerModel, programName } from './header-model.js';
+import { headerModel, programName, arrangePlay, arrangeLabel } from './header-model.js';
 import { chooseSource, renderEndedMessage } from './source-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
@@ -898,6 +898,9 @@ export class App {
       this.setText(el['h-state'], '');
       return;
     }
+    // an `arrange { }` with mutations: the section as written (not its lowered `drop@2`), and the generations it reads
+    const ag = rep && rep.arrange ? arrangeLabel(arrangePlay(rep.arrange, hm.songBar), rep.arrange) : null;
+    if (ag) hm = { ...hm, section: ag.section };
     const pre = hm.section ? `section${hm.secN != null ? ` ${hm.secN}/${hm.secM}` : ''}` : rep && rep.loops ? 'loop' : 'playing';
     const secTxt = hm.section ? `${pre} · ${hm.section}` : pre;
     if (this._last.sec !== secTxt) {
@@ -912,8 +915,10 @@ export class App {
       const cls = i + 1 === bip ? 'now' : i + 1 < bip ? 'on' : '';
       if (l.className !== cls) l.className = cls;
     });
-    el['h-gen'].hidden = hm.gen == null;
-    if (hm.gen != null) this.setText(el['h-gen'], `gen ${hm.gen}`);
+    el['h-gen'].hidden = hm.gen == null && !ag;
+    if (ag) this.setText(el['h-gen'], hm.gen != null ? `gen ${hm.gen} · ${ag.text}` : ag.text);
+    else if (hm.gen != null) this.setText(el['h-gen'], `gen ${hm.gen}`);
+    if ((el['h-gen'].title || '') !== (ag ? ag.title : '')) el['h-gen'].title = ag ? ag.title : '';
     el['h-prog-fill'].style.width = `${clamp((hm.progress || 0) * 100, 0, 100).toFixed(2)}%`;
     const state = hm.ended ? 'ended' : !fresh ? 'edited since eval: ⌘↵ to apply' : '';
     this.setText(el['h-state'], state);

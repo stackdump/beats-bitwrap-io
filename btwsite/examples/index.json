@@ -1,5 +1,20 @@
 [
   {
+    "name": "arrange-mutations",
+    "title": "arrange mutations",
+    "description": "An arrangement that rewrites its own patterns as it goes: `~` changes a pattern from there on, `@` for the next section only, a glob drifts every acid line. Four evolving passes, then an outro read with the last generation.",
+    "bpm": 132,
+    "bars": 132,
+    "license": "CC0-1.0",
+    "tags": [
+      "acid",
+      "song",
+      "sections",
+      "arrange",
+      "mutations"
+    ]
+  },
+  {
     "name": "hand-dubstep-140-v4",
     "title": "hand-dubstep 140, v4",
     "description": "A whole dubstep track in one program: nine sections from intro to outro. The v2, v3, v4 line adds accents, slides, seeded humanize, every(), a half-time and a slam section; a riser leads into each drop and a wobble bass sits under a once-a-bar filter.",

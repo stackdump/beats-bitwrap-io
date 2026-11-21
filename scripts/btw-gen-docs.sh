@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate btwsite/web/docs/BTW.md and btwsite/web/docs/cheatsheet.md for btw.bitwrap.io.
+# Generate btwsite/web/docs/BTW.md, arrange.md and cheatsheet.md for btw.bitwrap.io.
 #
 # Both come from the PRIVATE, UNLICENSED stackdump/djrust-vevr-se, and this repo is public, so they are in
 # .gitignore (btwsite/DESIGN.md "Public repo"): run this before a deploy (the deploy script copies the result
@@ -42,6 +42,17 @@ if [ "$check" = 1 ]; then
 else
   redact "$md" > "$out/BTW.md.tmp" && mv "$out/BTW.md.tmp" "$out/BTW.md"
   echo "btw-gen-docs: BTW.md copied (paths redacted) from $md ($(wc -c < "$out/BTW.md" | tr -d ' ') bytes)"
+fi
+
+# arrange.md: the arrange-mutations page (/docs/arrange), redacted as BTW.md is
+amd="$src/docs/ARRANGE.md"
+if [ -f "$amd" ]; then
+  if [ "$check" = 1 ]; then
+    redact "$amd" | cmp -s - "$out/arrange.md" || { echo "btw-gen-docs: $out/arrange.md differs from $amd" >&2; stale=1; }
+  else
+    redact "$amd" > "$out/arrange.md.tmp" && mv "$out/arrange.md.tmp" "$out/arrange.md"
+    echo "btw-gen-docs: arrange.md copied (paths redacted) from $amd"
+  fi
 fi
 
 # cheatsheet.md: the output of `btwd cheatsheet`, the same text the compose system prompt uses

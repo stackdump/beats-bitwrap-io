@@ -1,0 +1,36 @@
+#! btw 1
+#! name: arrange-mutations
+#! license: CC0-1.0
+#! visibility: public
+# arrange-mutations: an arrangement that rewrites its own patterns as it goes.
+# `~` changes a pattern from there on, `@` for the next section only; four passes, each a new generation, then an outro.
+tempo 132
+key am
+let acid_a = a1! ~ a1 ~ c2^ ~ a1 e2 ~ a1 ~ ~ g1 ~ a1 ~
+let acid_b = a2 ~ ~ c3 ~ ~ e3 ~
+let hoov = a3 ~ c4 ~ e4 ~ ~ ~
+let hats = ~ x ~ x ~ x ~ x
+section intro 4 bars {
+  deck A: kick x ~ x ~ | hihat hats
+}
+section build 4 bars {
+  deck A: kick x ~ x ~ | hihat hats
+  deck B: bass acid_a inst=fm-bass
+}
+section drop 8 bars {
+  deck A: kick x ~ x ~ | snare ~ x ~ x | hihat hats
+  deck B: bass acid_a inst=fm-bass | melody hoov | arp acid_b
+}
+section outro 4 bars {
+  deck A: kick x ~ ~ ~
+  deck B: melody hoov
+}
+arrange {
+  intro build drop
+  ~ acid_a rot 2 | accent 0.2, hoov up 2
+  drop
+  ~ acid_* drift 0.15
+  @ hoov rev
+  drop
+  ~ hats thin 0.25 | fill 0.3
+} loop 4 then outro end
