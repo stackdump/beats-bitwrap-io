@@ -60,6 +60,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     open: (url) => req('POST', '/api/open', { json: { url } }),
     putProgram: rejecting((cid, text) => req('PUT', `/api/programs/${cidSeg(cid)}`, { text })),
     getProgram: rejecting((cid) => req('GET', `/api/programs/${cidSeg(cid)}`)),
+    // a stored public program's family tree (ancestors, siblings, forks, each edge's musical change); 404 when it is not stored or not public
+    lineage: rejecting((cid) => req('GET', `/api/lineage/${cidSeg(cid)}`)),
     // the CID-only share link's write side: signed in, public programs only (DESIGN.md "Short links")
     putShare: rejecting((cid, body) => req('PUT', `/api/shares/${cidSeg(cid)}`, { json: body })),
     // a QR code (SVG data URL) for one of this site's own share links; no sign-in
