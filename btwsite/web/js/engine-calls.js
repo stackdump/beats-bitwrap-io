@@ -17,10 +17,19 @@
  *             target Master, effect crush     mix -> both decks' master FX crushers (crush-bits)
  *             target A | B, effect filter     sweep knob -> the deck strip's filter knob (cutoff mapped across the scales)
  *             target A | B, effect reverb     mix -> that strip's reverb wet
+ *   vocoder   {action: set (or none) | swap | add | remove, instance?, carrier?, modulator?, mix, on, insert, ...}
+ *             the engine's own vocoder (djrust `live_op("vocoder", ..)`): `carrier=A modulator=B` are decks (also
+ *             `deck:A`, `synth`, `voice:robot-choir`), `insert=true` puts the result on the carrier's strip (its fader
+ *             and the crossfader), else it plays on its own strip; a ramp (`mix=0 -> 1 over 8 bars`) is one `set` a pass
+ *   moves     {action: arm, kind: vocoder_handoff, deck}  the vocoder's carrier and modulator swapped on the next
+ *             phrase line (8 bars) of `deck`, as the desktop's move does
  *   (and `sound` commands, which are not calls: kit:NAME -> setKit, anything else -> setRoleVoice)
- * IGNORED, with one console note per kind
+ *   A `sing` line is not a call here: on this host it is a part of its deck's net (djlive sing.rs, "In the nets"),
+ *   so it is sung through the deck like any part and stops with the net.
+ * IGNORED, with one console note per kind (and `check` warns about each where the program is written)
  *   inserts delay, filter resonance, crush on a deck, delay time; the Wheel target
- *   moves (filter_exit, echo_out, loop_roll, bass_swap, phrase_sync, vocoder_handoff), loopsets, queue, autodj, td3,
+ *   vocal (a `sing` line that is timed or performed, `do vocal ...`), vocoder status / list / select / cycle_* / preset_*,
+ *   moves (filter_exit, echo_out, loop_roll, bass_swap, phrase_sync), loopsets, queue, autodj, td3,
  *   wheel, `deck load|sync`, mixer pfl / aux / headphone_*, and any other noun
  * The desktop's offline render ignores control lines altogether; the stream the server renders does the same.
  */
@@ -74,12 +83,15 @@ export function masterFilterSliders({ lp, hp }) {
  */
 const masterFx = (key, slider) => DECKS.map((deck) => ({ type: 'perform', deck, json: JSON.stringify({ op: 'masterFx', key, value: Math.round(slider) / 100 }) }));
 const param = (deck, name, value) => ({ type: 'param', deck, name, value });
+/** A djrust live op (`Dj.live_op(method, params)`): the params as canonical-ish JSON (keys sorted, so a ramp's unchanged pass dedupes). */
+const live = (method, params) => ({ type: 'live', method, params: JSON.stringify(Object.fromEntries(Object.entries(params).sort(([a], [b]) => (a < b ? -1 : 1)))) });
 const decksOf = (target) => (target === 'Master' ? DECKS : DECKS.includes(target) ? [target] : []);
 
 /**
  * One registry call as worklet ops. Returns `{ops: [...]}` or `{ops: [], ignored: 'why'}`.
  * Ops: {type:'param', deck, name, value} | {type:'crossfader', value} | {type:'perform', deck, json} |
- *      {type:'play', deck, on}.
+ *      {type:'play', deck, on} | {type:'live', method, params, phrase?: {deck, bars}} (a djrust live op, at once or on
+ *      the next phrase line of `deck`).
  */
 export function mapCall(noun, params) {
     const p = params && typeof params === 'object' ? params : {};
@@ -152,6 +164,25 @@ export function mapCall(noun, params) {
         } else {
             skipped.push(`inserts ${effect || p.param || '?'}${target && target !== 'Master' ? ` on ${target}` : ''}`);
         }
+        break;
+    }
+    case 'vocoder': {
+        const action = p.action || 'set';
+        const rest = {};
+        for (const [k, v] of Object.entries(p)) if (k !== 'action') rest[k] = v;
+        if (action === 'set' || action === 'on') {
+            if (action === 'on' && rest.on === undefined) rest.on = true;
+            if (Object.keys(rest).length) ops.push(live('vocoder', rest));
+        } else if (action === 'swap') ops.push(live('vocoder', { ...rest, swap: true }));
+        else if (action === 'add') ops.push(live('vocoder', { instance: rest.instance ?? 1, on: rest.on ?? true }));
+        else if (action === 'remove') ops.push(live('vocoder', { instance: rest.instance ?? 1, remove: true }));
+        else skipped.push(`vocoder ${action}`);
+        break;
+    }
+    case 'moves': {
+        if (p.action === 'arm' && p.kind === 'vocoder_handoff') {
+            ops.push({ ...live('vocoder', { swap: true }), phrase: { deck: DECKS.includes(p.deck) ? p.deck : 'A', bars: 8 } });
+        } else skipped.push('moves');
         break;
     }
     default:

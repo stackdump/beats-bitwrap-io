@@ -17,7 +17,10 @@ export class EngineSource {
   handle(cmds) {
     if (cmds && cmds.length) this.engine.apply(cmds);
   }
-  stop() {}
+  stop() {
+    // what the program set on the engine's own live units (the vocoder) is put back
+    if (this.engine.resetLive) this.engine.resetLive();
+  }
 }
 
 export class VirtualSource {

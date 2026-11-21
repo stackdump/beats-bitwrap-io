@@ -293,6 +293,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
 
     const noted = new Set();
     const lastSent = new Map();
+    let touched = false; // a live op (the vocoder) was sent: resetLive() puts it back
     function post(op, dedupe) {
         if (disposed) return;
         // a knob that has not moved is not sent again (a ramp calls on every pass)
@@ -300,6 +301,15 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             let key = `${op.type}:${op.deck || ''}:${op.name || ''}`;
             let val = String(op.value);
             if (op.type === 'perform') { const j = JSON.parse(op.json); key += `:${j.op}:${j.key || ''}`; val = op.json; }
+            // a live op: one key per method and set of params, so a ramp's same value is not sent again, and a swap
+            // (no value of its own) is never deduped
+            if (op.type === 'live') {
+                const j = JSON.parse(op.params);
+                if (j.swap || j.remove || op.phrase) { send(op); touched = true; return; }
+                key += `:${op.method}:${j.instance ?? 0}:${Object.keys(j).sort().join(',')}`;
+                val = op.params;
+                touched = true;
+            }
             if (lastSent.get(key) === val) return;
             lastSent.set(key, val);
         }
@@ -400,6 +410,14 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
 
         /** Forget which ignored calls were noted, so a new program's are emitted ('ignored') again. */
         resetNotes() { noted.clear(); },
+
+        /** The program stopped: the vocoders it used go off and the extra instances away (the next program starts clean). */
+        resetLive() {
+            if (!touched || disposed) return;
+            touched = false;
+            for (const [k] of lastSent) if (k.startsWith('live:')) lastSent.delete(k);
+            send({ type: 'live', method: 'vocoder', params: JSON.stringify({ on: false, swap: false }), reset: true });
+        },
 
         /** Loads the composer is compiling now (an offline render waits on these between steps: test/parity). */
         get preparing() { return prepares.size; },
