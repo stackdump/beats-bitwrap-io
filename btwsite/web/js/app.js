@@ -712,7 +712,7 @@ export class App {
 
   async playStream(text, report) {
     await this.ensureStored(report);
-    const player = new StreamPlayer({ context: this.ctx, destination: this.master, url: this.api.renderUrl(report.cid), bpm: report.tempo || 120, onChange: () => this.updateTransport() });
+    const player = new StreamPlayer({ context: this.ctx, destination: this.master, url: this.api.renderUrl(report.cid, 'wav', this.ctx && this.ctx.sampleRate), bpm: report.tempo || 120, onChange: () => this.updateTransport() });
     this.pendingPlayer = player;
     try {
       await player.start();
