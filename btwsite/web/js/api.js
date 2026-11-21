@@ -70,6 +70,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     // for a DAW (docs/EXPORT.md in djrust-vevr-se): midi, stems (a zip of WAVs), stems-opus; a stems URL answers 202 while it is made
     exportUrl: (cid, format = 'midi') => `${base}/api/render/${cidSeg(cid)}?format=${EXPORT_FORMATS.includes(format) ? format : 'midi'}&v=${RENDER_VERSION}.${EXPORT_VERSION}`,
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
+    // the seeded generator on the server (no sign-in, no model): the fallback when the wasm has no btw_generate
+    generate: (body) => req('POST', '/api/generate', { json: body }),
     challenge: () => req('GET', '/api/auth/challenge'),
     login: (body) => req('POST', '/api/auth/login', { json: body }),
     logout: () => req('POST', '/api/auth/logout', { json: {} }),

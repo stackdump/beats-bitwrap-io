@@ -32,6 +32,8 @@ export function makeFacade(mod, wasmUrl = null) {
     instruments: () => j(mod.btw_instruments()),
     generation: (text, scope, n) => j(mod.btw_generation(text, scope || null, n)),
     cheatsheet: () => mod.btw_cheatsheet(),
+    /** The seeded generator ({genre,bpm,key,length,seed} -> {ok,text,cid,check,...}); null when the module predates it. */
+    generate: mod.btw_generate ? (req) => j(mod.btw_generate(JSON.stringify(req || {}))) : null,
     /** [[start16, end16, class], ...] */
     highlight(text) {
       if (text === lastText) return lastSpans;
