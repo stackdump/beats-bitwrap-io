@@ -390,3 +390,18 @@ html.record .t-status::before { display: none !important; }
 .as-bulb { position: absolute; z-index: 15; border: 0; background: none; padding: 0 2px; font-size: 12px; line-height: var(--lh, 21px); cursor: pointer; opacity: .85; }
 .as-bulb:hover { opacity: 1; }
 html.record .as-pop, html.record .as-bulb { display: none !important; }
+
+/* number and range scrubbing (scrub.js) */
+.sc-handle { position: absolute; z-index: 16; border: 0; background: #2a3358; color: var(--amber, #e5c07b); border-radius: 3px; padding: 0 3px; font: 10px/12px var(--mono); height: 12px; cursor: ew-resize; opacity: .85; touch-action: none; user-select: none; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.sc-handle:hover { opacity: 1; }
+.ed.scrubbing, .ed.scrubbing .ed-ta { cursor: ew-resize !important; user-select: none; }
+.sc-flash { position: absolute; z-index: 22; max-width: min(460px, 90%); background: #3a1d24; border: 1px solid var(--red, #e06c75); color: #f3d7da; border-radius: 4px; padding: 3px 8px; font-size: 12px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.sc-pop { position: absolute; z-index: 26; width: 260px; background: #1c2340; border: 1px solid var(--line-2); border-radius: 4px; box-shadow: 0 6px 22px rgba(0,0,0,.45); padding: 8px 12px 10px; font: 12px/1.4 var(--mono); }
+.sc-title { color: var(--muted, #9aa3c0); margin-bottom: 8px; }
+.sc-track { position: relative; height: 6px; margin: 10px 6px; background: #2a3358; border-radius: 3px; }
+.sc-span { position: absolute; top: 0; height: 6px; background: var(--amber, #e5c07b); border-radius: 3px; cursor: grab; touch-action: none; }
+.sc-thumb { position: absolute; top: -5px; width: 14px; height: 14px; margin-left: -7px; background: #fff; border-radius: 50%; cursor: ew-resize; touch-action: none; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.sc-thumb:focus-visible { outline: 2px solid var(--amber, #e5c07b); outline-offset: 2px; }
+.sc-read { text-align: center; color: var(--amber, #e5c07b); }
+html.record .sc-handle, html.record .sc-flash, html.record .sc-pop { display: none !important; }

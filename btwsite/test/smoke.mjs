@@ -678,6 +678,83 @@ try {
     }
   }
 
+  // ---- 12. number and range scrubbing (scrub.js over the module's btw/numberAt) -----------------------------------------------------------------------
+  step = 12;
+  if (want() && !MOCKWASM) {
+    await fresh(url());
+    await ready();
+    await page.waitFor('!!__app.scrub', 8000).catch(() => null);
+    if (!(await page.eval('!!__app.scrub'))) {
+      check('the scrubber is on (a module with the language service)', false, 'no __app.scrub: build the module from djrust feat/btwls');
+    } else {
+      const PROG = 'tempo 124\nkey am\ndeck A: kick x ~ x ~ vel=90..110 | hihat x*8\ndeck B: melody c4 ~ e4 ~\nmaster: level 0.8\n';
+      await setText(PROG);
+      await sleep(400);
+      const checks = () => page.eval('__app.btw.check(__app.editor.text).ok');
+      const caretAt = (needle, k = 0) => page.eval(`(()=>{const ta=document.querySelector(".ed-ta"); const i=__app.editor.text.indexOf(${JSON.stringify(needle)})+${k}; ta.focus(); ta.setSelectionRange(i,i); return i})()`);
+      const altKey = async (key, shift = false) => {
+        const vk = { ArrowUp: 38, ArrowDown: 40, PageUp: 33, PageDown: 34 }[key];
+        const modifiers = 1 | (shift ? 8 : 0);
+        await page.cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code: key, windowsVirtualKeyCode: vk, modifiers });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: vk, modifiers });
+      };
+      // keys: Alt+Up on the tempo is one step; Shift ten; only that literal changes, and it stays checkable
+      await caretAt('124', 1);
+      await altKey('ArrowUp');
+      check('Alt+Up on a number moves it one step, and nothing else changes', (await text()) === PROG.replace('124', '125'), JSON.stringify(await text()));
+      await altKey('ArrowUp', true);
+      check('Shift+Alt+Up moves it ten', (await text()).startsWith('tempo 135\n'), (await text()).slice(0, 12));
+      check('and the program still checks', (await checks()) === true);
+      check('the new value is read out', /tempo \(BPM\) 135 bpm/.test(await q('.sc-live')), await q('.sc-live'));
+      // a limit is a limit: the level cannot go past 1
+      await caretAt('0.8', 1);
+      for (let i = 0; i < 3; i++) await altKey('ArrowUp', true);
+      check('a level stops at its maximum (1)', /master: level 1\n/.test(await text()), (await text()).split('\n')[4]);
+      // a range end does not cross the other: vel=90..110 low end up by 30 stops at 110
+      await caretAt('90..', 0);
+      for (let i = 0; i < 3; i++) await altKey('ArrowUp', true);
+      check('the low end of a range stops at the high end', /vel=110\.\.110/.test(await text()), (await text()).split('\n')[2]);
+      // Alt+PageDown moves both ends
+      await altKey('PageDown');
+      check('Alt+PageDown moves both ends of the range', /vel=109\.\.109/.test(await text()), (await text()).split('\n')[2]);
+      // a note moves through the key: c4 up one in A minor is d4
+      await caretAt('c4', 1);
+      await altKey('ArrowUp');
+      check('a note moves by the key (c4 -> d4 in A minor)', /melody d4 ~ e4/.test(await text()), (await text()).split('\n')[3]);
+      // Alt+drag on the tempo: one undo step, only that literal changed
+      const before = await text();
+      const pos = await page.eval(`(()=>{const ed=__app.editor; const t=ed.text; const i=t.indexOf("135")+1; const r=ed.code.getBoundingClientRect(); const s=t.lastIndexOf("\\n", i-1)+1; const p=ed.wrap.lines[0]; return {x: r.left + ed.metrics.padLeft + (i - s) * ed.metrics.charW + 2, y: r.top + p.top + ed.metrics.lineH / 2}})()`);
+      await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x, y: pos.y, modifiers: 1 });
+      await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', clickCount: 1, modifiers: 1 });
+      for (let dx = 6; dx <= 30; dx += 6) await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x + dx, y: pos.y, button: 'left', buttons: 1, modifiers: 1 });
+      const mid = await page.eval('[__app.editor.previewing, __app.editor.text.slice(0, 9), document.querySelector(".ed-ta").value.slice(0, 9)]');
+      check('while dragging the editor previews the value and the textarea is untouched', mid[0] === true && mid[1] === 'tempo 140' && mid[2] === 'tempo 135', JSON.stringify(mid));
+      await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x + 30, y: pos.y, button: 'left', clickCount: 1, modifiers: 1 });
+      await sleep(100);
+      const after = await text();
+      check('Alt+drag right five steps: tempo 135 -> 140, only that literal changed', after === before.replace('tempo 135', 'tempo 140'), JSON.stringify(after.slice(0, 20)));
+      check('and the program still checks', (await checks()) === true);
+      await page.eval('document.querySelector(".ed-ta").focus(); document.execCommand("undo")');
+      await sleep(50);
+      check('one Undo puts the whole drag back', (await text()) === before, JSON.stringify((await text()).slice(0, 20)));
+      // the handle shows on hover over a number
+      await page.hover(pos.x, pos.y);
+      await sleep(80);
+      check('a handle shows beside a number under the pointer', (await page.eval('!document.querySelector(".sc-handle").hidden')) === true);
+      await page.shot(path.join(SHOTS, '12-scrub-handle.png'));
+      // the range popover: a click on the handle of a range
+      await caretAt('vel=', 4);
+      const hpos = await page.eval(`(()=>{const ed=__app.editor; const t=ed.text; const i=t.indexOf("vel=")+4; const r=ed.code.getBoundingClientRect(); const s=t.lastIndexOf("\\n", i-1)+1; const l=t.slice(0,i).split("\\n").length-1; const p=ed.wrap.lines[l]; return {x: r.left + ed.metrics.padLeft + (i - s) * ed.metrics.charW + 2, y: r.top + p.top + ed.metrics.lineH / 2}})()`);
+      await page.hover(hpos.x, hpos.y);
+      await sleep(80);
+      await page.click('.sc-handle');
+      await sleep(120);
+      check('a click on the handle of a range opens a two-handle slider', (await page.eval('document.querySelectorAll(".sc-pop .sc-thumb[role=slider]").length')) === 2);
+      await page.shot(path.join(SHOTS, '12-scrub-range.png'));
+      await page.key('Escape');
+    }
+  }
+
   // ---- 10. no console errors anywhere ----------------------------------------------------------------------------------------------------------------
   step = 10;
   const errors = page.errors().filter((e) => !/wasm=off|switched off by/.test(e.text) && !/Failed to load resource.*\/api\/compose/.test(e.text)); // the compose error cases above answer 422/429/503 on purpose

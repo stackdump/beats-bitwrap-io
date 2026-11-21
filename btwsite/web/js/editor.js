@@ -197,6 +197,25 @@ export class Editor {
     this.on.onInput && this.on.onInput(this._text, { programmatic: true });
   }
 
+  /**
+   * Show `text` without touching the textarea: a scrub in progress (scrub.js). The textarea keeps the text the scrub started
+   * from, so the one edit the scrub makes when it ends is one undo step; until endPreview(), `text` is the preview (what a
+   * check or an evaluation reads) and the highlighted layer draws it.
+   */
+  preview(text) {
+    this.previewing = true;
+    this._text = text;
+    this.render();
+  }
+
+  /** Back to the textarea's own text (the scrub ended, or was abandoned). */
+  endPreview() {
+    if (!this.previewing) return;
+    this.previewing = false;
+    this._text = this.ta.value;
+    this.render();
+  }
+
   /** Replace [from, to) with `text` as ONE undoable edit (the browser's undo stack keeps the old text), caret just after it. */
   applyEdit(from, to, text) {
     const ta = this.ta;
@@ -209,6 +228,7 @@ export class Editor {
     }
     const at = from + text.length;
     ta.setSelectionRange(at, at);
+    this.previewing = false;
     this._text = ta.value;
     this.render();
     this._revealCaret();
