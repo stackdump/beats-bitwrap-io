@@ -1,0 +1,15 @@
+#! btw 1
+#! name: trap-expression
+#! license: CC0-1.0
+#! visibility: public
+# trap-expression.btw: a short trap beat that uses the expression marks (CC0). Original.
+# The hats roll with ratchets (`x:3` is three hits inside one sixteenth, `x:4` four) and ghosts (`x.`, 40% of the
+# velocity) sit between the hits; the snare flams (`x&`, a soft grace hit just before it) at the end of every other
+# bar. The 808 sub has a long tail (`decay=900`, ms), a punch on every note (`pitch-drop=7`: it starts seven
+# semitones high and falls onto the note) and glides (`^` with `glide=70`: the slide bends into the next note over
+# 70 ms) up into the octave and back down.
+tempo 140
+key fm
+
+deck A: kick x ~ ~ ~ ~ ~ ~ x ~ ~ x ~ ~ ~ ~ ~ | snare ~ ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ <~ x&> | hihat x x. x x. x x:3 x. x x x. x x:4 x x. x:3 x vel=60..80
+deck B: bass f1 ~ ~ ~ ~ ~ ~ f1^ f2^ ~ db1 ~ ~ ~ eb1 ~ decay=900 glide=70 inst=sub-bass pitch-drop=7

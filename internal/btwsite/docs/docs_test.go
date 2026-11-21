@@ -585,7 +585,7 @@ func TestGenDocsScript(t *testing.T) {
 
 // ---------- the examples ----------
 
-var wantExamples = []string{"hand-dubstep-140-v4", "matrix-130", "trance-138", "hand-dubstep-140-v2", "markers-demo", "first-beat", "acid-line", "evolve-demo", "arrange-mutations"}
+var wantExamples = []string{"hand-dubstep-140-v4", "matrix-130", "trance-138", "hand-dubstep-140-v2", "markers-demo", "first-beat", "acid-line", "evolve-demo", "arrange-mutations", "trap-expression"}
 
 func TestExamplesAreThePublicCC0Programs(t *testing.T) {
 	dir := examplesDir(t)

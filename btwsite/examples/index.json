@@ -143,5 +143,20 @@
       "vocoder",
       "sections"
     ]
+  },
+  {
+    "name": "trap-expression",
+    "title": "trap expression",
+    "description": "A short trap beat written with the expression marks: ratchet rolls (x:3, x:4) and ghosts (x.) on the hats, a snare flam (x&) every other bar. The 808 sub has a long decay, a pitch-drop punch on every note and glides (^, glide=70).",
+    "bpm": 140,
+    "bars": 2,
+    "license": "CC0-1.0",
+    "tags": [
+      "trap",
+      "beat",
+      "expression",
+      "ratchet",
+      "glide"
+    ]
   }
 ]
