@@ -22,6 +22,7 @@ import { early, install } from './record.js';
 import { Background } from './background.js';
 import { PresenceTracker, UpNext, pauseMessage } from './queue-model.js';
 import { Assist } from './assist.js';
+import { Scrubber } from './scrub.js';
 
 const STARTER = `# a first program: drums on deck A, harmony and an arpeggio on deck B.
 tempo 126
@@ -97,7 +98,8 @@ export class App {
       onEval: () => this.play('eval'),
       onStop: () => this.stop(),
       onCursor: (l, c, d) => this.onCursor(l, c, d),
-      onKey: (e) => !!(this.assist && this.assist.onKey(e)),
+      // an open list of the assistant's keeps its keys; then the scrubber (Alt+↑/↓ on a number), then the assistant
+      onKey: (e) => !!(this.assist && this.assist.list ? this.assist.onKey(e) : (this.scrub && this.scrub.onKey(e)) || (this.assist && this.assist.onKey(e))),
       onHoverInfo: (l, c) => (this.assist ? this.assist.hoverAt(l, c) : null),
     });
     this.painter = new MarkerPainter(this.editor);
@@ -226,6 +228,14 @@ export class App {
       if (!this.record) {
         this.assist = new Assist(this.editor, this.btw, (m, k) => this.toast(m, k));
         if (!this.assist.on) this.assist = null;
+        // number and range scrubbing (scrub.js): it asks the same language service what a literal is
+        if (this.assist) {
+          this.scrub = new Scrubber(this.editor, this.assist, {
+            check: (t) => this.btw.check(t),
+            baseline: () => (this.report ? { text: this.reportText, report: this.report } : null),
+            evaluate: (t, r) => this.scrubEvaluate(t, r),
+          });
+        }
       }
       this.wasmOk = true;
       this.updateTransport();
@@ -621,6 +631,28 @@ export class App {
     } finally {
       this.busy = false;
     }
+  }
+
+  /**
+   * A scrub's value, live (scrub.js): evaluated the way Cmd+Enter does (it lands on the next bar), and only while the engine
+   * plays: a stream would be rendered afresh for every value. One at a time; the newest waiting value goes next.
+   */
+  scrubEvaluate(text, report) {
+    if (!this.isPlaying() || this.player || !this.engineSrc || !report || !report.ok) return;
+    if (this.busy) {
+      this._scrubNext = [text, report];
+      return;
+    }
+    this.busy = true;
+    Promise.resolve()
+      .then(() => this.playEngine(text, report))
+      .catch((e) => this.showError(e))
+      .finally(() => {
+        this.busy = false;
+        const n = this._scrubNext;
+        this._scrubNext = null;
+        if (n && n[0] !== text) this.scrubEvaluate(n[0], n[1]);
+      });
   }
 
   /** The browser keeps an AudioContext silent until a click or key. When it is still suspended after a play, say so. */
