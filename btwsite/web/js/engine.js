@@ -39,6 +39,7 @@
  */
 
 import { mapCall, mapSound } from './engine-calls.js';
+import { parseMixer } from './mixer-model.js';
 
 const DECKS = ['A', 'B'];
 const READY_TIMEOUT_MS = 20000;
@@ -90,6 +91,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
     const stats = { loads: 0, prepareMs: [], installMs: [], installQuanta: [], inline: 0, slow: [] }; // slow: the worklet's ?perf=1 reports
     const keep = (a, v) => { a.push(v); if (a.length > 200) a.shift(); }; // the last 200 of each
     let grid = null; // the worklet's last report: {t, frame, decks, at: performance.now()}
+    let mixer = null; // the worklet's last Dj.mixer() (mixer-model.js), null from a wasm without it
     let disposed = false;
     let readyInfo = null;
     const installs = new Map(); // id -> item
@@ -130,6 +132,7 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             break;
         }
         case 'perf': for (const b of m.slow) keep(stats.slow, b); break;
+        case 'mixer': mixer = parseMixer(m.json) || mixer; break;
         case 'warn': emit('warn', { message: m.message }); break;
         case 'error':
             clearTimeout(readyTimer);
@@ -360,6 +363,11 @@ export async function createEngine({ context, destination, wasmUrl, module: comp
             // a batch that lost a load may now be waiting only for the ones left
             for (const b of dropped) advance(b);
             pump();
+        },
+
+        /** What the listener hears, as the engine last said (mixer-model.js), or null. */
+        mixer() {
+            return mixer;
         },
 
         /** Where the clock is: {deck, beat, bpm, playing:{A,B}} for the first deck that plays, else null. */

@@ -26,6 +26,7 @@
  *     {type:'warn', message}   a call the engine refused
  *     {type:'error', message}  the engine is gone (a trap): the output is silent from here
  *     {type:'perf', blocks, slow:[{t, ms, install, bars, render, tick, grid, did}]}   with processorOptions.perf only (test), every second
+ *     {type:'mixer', t, json}               Dj.mixer() (what the listener hears), every MIXER_SECONDS; nothing from a wasm without it
  */
 
 import './engine-polyfill.js';
@@ -35,6 +36,7 @@ const QUANTUM = 128;
 const CROSSFADER_CENTRE = 0.5; // both decks at full level, as on the desktop
 const TICK_EVERY = 4; // quanta between Dj.tick() (the beat clock, landed composes, song ends): ~10.7 ms at 48 kHz; the cadence of render_offline
 const GRID_SECONDS = 0.025; // how often the page hears where the decks are
+const MIXER_SECONDS = 0.5; // how often it hears the mixer (mixer-model.js; MCP get reports it)
 const DEFAULT_BUDGET = 12 * 1024; // bytes of an install taken in per render quantum (a frame is never split: the biggest take 5-15 ms)
 
 /** `BeatState::of_net`: ticks from the top of the net for a deck's `state()` (tick, and position = tick + phase while it plays). */
@@ -54,6 +56,7 @@ class BtwEngine extends AudioWorkletProcessor {
         this.frames = 0;
         this.quanta = 0;
         this.sinceGrid = 0;
+        this.sinceMixer = 0;
         this.installing = new Map(); // deck -> {id, quanta}
         this.pending = []; // plays waiting for a bar line: {deck, on, leader, last, bar}
         this.perf = o.perf ? { slow: [], n: 0 } : null; // ?perf=1 (test only): blocks of 3 ms or more on Date.now(), with what they did
@@ -205,12 +208,17 @@ class BtwEngine extends AudioWorkletProcessor {
             this.frames += n;
             this.quanta++;
             this.sinceGrid += n;
+            this.sinceMixer += n;
             if (this.quanta % TICK_EVERY === 0) { dj.tick(); if (pf) did += 'T'; }
             if (pf) tT = Date.now();
             if (this.sinceGrid >= GRID_SECONDS * sampleRate) {
                 this.sinceGrid = 0;
                 this.port.postMessage({ type: 'grid', t: currentTime, frame: this.frames, decks: { A: this.deckGrid(dj, 'A'), B: this.deckGrid(dj, 'B') } });
                 if (pf) did += 'G';
+            }
+            if (this.sinceMixer >= MIXER_SECONDS * sampleRate) {
+                this.sinceMixer = 0;
+                if (typeof dj.mixer === 'function') this.port.postMessage({ type: 'mixer', t: currentTime, json: dj.mixer() });
             }
             if (pf) this.perfBlock(t0, tI, tB, tR, tT, did);
         } catch (err) {
