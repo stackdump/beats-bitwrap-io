@@ -1,6 +1,6 @@
 // Package docs serves what a model (or a person) reads to learn btw.bitwrap.io: /llms.txt, /llms-full.txt,
 // /docs/BTW.md, /docs/cheatsheet.md and /docs/api.md (btwsite/DESIGN.md "docs and llms.txt"), and loads the
-// public example programs.
+// public example programs. The same documents also have HTML pages (html.go).
 //
 // Where each text comes from:
 //
@@ -16,7 +16,8 @@
 //     (at the minimum llms.txt and the example): it never fails because a generated file is missing.
 //
 // Mount registers exact paths only (no "/docs/" subtree, no "/examples/"), so it cannot collide with the
-// static file server's "/" or with the routes the server package owns. MountExamples is the optional
+// static file server's "/" or with the routes the server package owns. The HTML form of the docs
+// (/docs/, /docs/cheatsheet, /docs/language, /docs/api and their two assets) is in html.go. MountExamples is the optional
 // handler pair for /api/examples and /examples/<name>.btw for a server that wants them from here.
 package docs
 
@@ -73,6 +74,7 @@ type server struct {
 	csAt     time.Time // when csCache was fetched
 	csFailAt time.Time // when the checker last failed: not asked again for a while
 	apiBytes []byte
+	cache    htmlCache // rendered HTML pages (html.go), by source hash
 }
 
 // Mount registers the docs routes on mux.
@@ -93,6 +95,7 @@ func Mount(mux *http.ServeMux, o Options) error {
 	mux.Handle("/docs/BTW.md", s.serve(md, func() ([]byte, bool) { return s.readDoc("BTW.md") }))
 	mux.Handle("/docs/cheatsheet.md", s.serve(md, func() ([]byte, bool) { return s.cheatsheet() }))
 	mux.Handle("/docs/api.md", s.serve(md, func() ([]byte, bool) { return s.apiBytes, true }))
+	s.mountHTML(mux)
 	return nil
 }
 
