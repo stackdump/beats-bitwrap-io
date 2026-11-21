@@ -2,7 +2,7 @@
   {
     "name": "arrange-mutations",
     "title": "arrange mutations",
-    "description": "An arrangement that rewrites its own patterns as it goes: `~` changes a pattern from there on, `@` for the next section only, a glob drifts every acid line. Four evolving passes, then an outro read with the last generation.",
+    "description": "An arrangement that rewrites its own patterns as it goes. `~` changes a pattern from there on, `@` for the next section only, a glob drifts every acid line. Four evolving passes, then an outro read with the last generation.",
     "bpm": 132,
     "bars": 132,
     "license": "CC0-1.0",
