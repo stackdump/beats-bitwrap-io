@@ -56,6 +56,7 @@ class BtwEngine extends AudioWorkletProcessor {
         this.sinceGrid = 0;
         this.installing = new Map(); // deck -> {id, quanta}
         this.pending = []; // plays waiting for a bar line: {deck, on, leader, last, bar}
+        this.phrased = []; // live ops waiting for a phrase line: {method, params, deck, ticks, last, block}
         this.perf = o.perf ? { slow: [], n: 0 } : null; // ?perf=1 (test only): blocks of 3 ms or more on Date.now(), with what they did
         this.port.onmessage = (e) => this.onMessage(e.data);
         if (o.module) {
@@ -129,6 +130,24 @@ class BtwEngine extends AudioWorkletProcessor {
                 this.pending.push({ deck: msg.deck, on: !!msg.on, leader, last: pos, bar: Math.floor(pos / 16) });
                 break;
             }
+            case 'live': {
+                if (msg.reset) {
+                    // the program stopped: every vocoder instance in use goes off, the extra ones away
+                    this.phrased = [];
+                    let inst = [];
+                    try { inst = (JSON.parse(dj.vocoders()).instances || []).map((v) => v.instance); } catch { /* none */ }
+                    for (const k of inst) dj.live_op('vocoder', JSON.stringify(k === 0 ? { instance: 0, on: false } : { instance: k, remove: true }));
+                    break;
+                }
+                if (msg.phrase) {
+                    // on the next phrase line of the deck (a move armed a phrase ahead), else at once
+                    const ticks = 16 * (msg.phrase.bars || 8);
+                    const pos = this.position(dj, msg.phrase.deck);
+                    if (pos !== null) { this.phrased.push({ method: msg.method, params: msg.params, deck: msg.phrase.deck, ticks, last: pos, block: Math.floor(pos / ticks) }); break; }
+                }
+                dj.live_op(msg.method, msg.params);
+                break;
+            }
             case 'param': dj.set_param(msg.deck, msg.name, Number(msg.value)); break;
             case 'crossfader': dj.set_crossfader(Number(msg.value)); break;
             case 'perform': {
@@ -165,6 +184,19 @@ class BtwEngine extends AudioWorkletProcessor {
         this.pending = keep;
     }
 
+    /** Apply the live ops that were waiting for a phrase line of their deck. */
+    phrases(dj) {
+        const keep = [];
+        for (const p of this.phrased) {
+            const pos = this.position(dj, p.deck);
+            const crossed = pos === null || pos < p.last || Math.floor(pos / p.ticks) !== p.block;
+            if (crossed) {
+                try { dj.live_op(p.method, p.params); } catch (err) { this.port.postMessage({ type: 'warn', message: `${p.method}: ${String((err && err.message) || err)}` }); }
+            } else { p.last = pos; keep.push(p); }
+        }
+        this.phrased = keep;
+    }
+
     /** One state of a deck as the grid wants it. */
     deckGrid(dj, deck) {
         let s;
@@ -199,6 +231,7 @@ class BtwEngine extends AudioWorkletProcessor {
             }
             if (pf) tI = Date.now();
             if (this.pending.length) { this.bars(dj); if (pf) did += 'B'; }
+            if (this.phrased.length) this.phrases(dj);
             if (pf) tB = Date.now();
             dj.render(out[0], out[1] || out[0]);
             if (pf) tR = Date.now();
