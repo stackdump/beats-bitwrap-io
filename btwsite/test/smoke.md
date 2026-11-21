@@ -13,6 +13,9 @@ node btwsite/test/smoke.mjs --server http://127.0.0.1:18197   against the real G
                                                        the compose error cases (FAIL, LIMIT, NOKEY prompts) and the
                                                        pushed-event checks are the mock's, the real server gets the
                                                        MCP JSON-RPC variant of step 7
+CHROME=/usr/bin/google-chrome node btwsite/test/docs-smoke.mjs
+                                                       the HTML docs (/docs/*): real Go renderer under the strict CSP; highlight, Copy, and "Try it" opening the
+                                                       editor at /#<CID>.<packed> with the block's text (go run ./btwsite/test/docssite)
 node --test btwsite/test/unit.mjs                      the pure-JS unit tests (no browser)
 node btwsite/test/mobile.mjs [--shots DIR]             the phone layout (412 x 915, touch) and that the desktop one is unchanged
 node btwsite/test/mobile-shots.mjs --prefix before     screenshots of the page as a phone shows it, for before/after
