@@ -48,6 +48,8 @@ kbd { font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2
 .spacer { flex: 1 1 auto; }
 :focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
 [hidden] { display: none !important; }
+/* a program the server embedded for the editor (program-ld.js): its source, not something to draw */
+beatscript-view[data-editor] { display: none; }
 
 .app { height: 100vh; height: 100dvh; display: flex; flex-direction: column; position: relative; }
 

@@ -21,6 +21,7 @@ const { deriveModel, fade, lampStyle, COLORS } = await J('markers-model.js');
 const errs = await J('errors.js');
 const { headerModel, sectionIndex, programName, arrangePlay, arrangeLabel } = await J('header-model.js');
 const { chooseSource, renderEndedMessage } = await J('source-model.js');
+const { parseProgramLd, readProgramView } = await J('program-ld.js');
 const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
 const { makeFacade } = await J('wasm.js');
@@ -1533,4 +1534,20 @@ test('arrange mutations: the play under the playhead and its generations', () =>
   assert.equal(l.title, 'acid_a@1 = ~ a2 ~ c3\nhoov_b@0 (this section only) = ~ g4 ~ e4');
   assert.equal(arrangeLabel(arrangePlay(arrange, 9), arrange).text, 'coda');
   assert.equal(arrangeLabel(null, arrange), null);
+});
+
+test('program-ld: the editor\'s program block is read from <beatscript-view data-editor>', () => {
+  const doc = { '@context': ['https://beatscript.app/schema', 'https://schema.org'], '@type': ['Program', 'MusicComposition'], '@version': '1', '@id': 'z4EBG9jCtKY4ioQ3TEJCQQmTTJZjugJRihCNbBxNJrBaWr1adMi', name: 'night bus', license: 'CC0-1.0', tempo: 128, key: 'am', text: 'tempo 128\nkey am\n', signature: '0xabc' };
+  const p = parseProgramLd(JSON.stringify(doc));
+  assert.deepEqual([p.cid, p.text, p.name, p.license, p.signature], [doc['@id'], doc.text, 'night bus', 'CC0-1.0', '0xabc']);
+  // the server writes < > & as \u escapes inside the script: still the same JSON
+  assert.equal(parseProgramLd(JSON.stringify({ ...doc, name: 'a</script>b' }).replace(/</g, '\\u003c')).name, 'a</script>b');
+  for (const bad of ['nope', '[]', JSON.stringify({ ...doc, '@type': 'Thing' }), JSON.stringify({ ...doc, '@id': 'not a cid' }), JSON.stringify({ ...doc, text: '' })]) {
+    assert.throws(() => parseProgramLd(bad), /program block/, bad);
+  }
+  const script = { textContent: JSON.stringify(doc) };
+  const view = { querySelector: (q) => (q === 'script[type="application/ld+json"]' ? script : null) };
+  assert.equal(readProgramView({ querySelector: (q) => (q === 'beatscript-view[data-editor]' ? view : null) }).cid, doc['@id']);
+  assert.equal(readProgramView({ querySelector: () => null }), null);
+  assert.equal(readProgramView({ querySelector: () => ({ querySelector: () => null }) }), null);
 });

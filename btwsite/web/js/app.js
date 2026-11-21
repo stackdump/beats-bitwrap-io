@@ -12,6 +12,7 @@ import { Follow } from './follow.js';
 import { Driver, EngineSource, VirtualSource, ManualClock } from './driver.js';
 import { StreamPlayer } from './stream-player.js';
 import { headerModel, programName, arrangePlay, arrangeLabel } from './header-model.js';
+import { readProgramView, defineProgramView } from './program-ld.js';
 import { chooseSource, renderEndedMessage } from './source-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
@@ -87,6 +88,7 @@ export class App {
 
   async start() {
     document.documentElement.classList.toggle('record', this.record);
+    defineProgramView();
     early(this);
     this.dom();
     const mod = $('k-mod');
@@ -286,6 +288,9 @@ export class App {
   async loadInitial() {
     const q = this.q;
     try {
+      // the server put the program in the page (<beatscript-view data-editor>, /?cid=<CID>): load it from there
+      const embedded = readProgramView(document);
+      if (embedded && !q.get('example')) return await this.loadEmbedded(embedded);
       if (q.get('example')) return await this.loadExample(q.get('example'), { quiet: true });
       if (q.get('cid')) return await this.loadByCid(q.get('cid'));
     } catch (e) {
@@ -345,6 +350,23 @@ export class App {
       throw new Error('cid mismatch');
     }
     this.stored.add(cid);
+    if (play) await this.play('load');
+  }
+
+  /** A program from the page's own <beatscript-view> block: loaded only when its text checks to its @id (program-ld.js). */
+  async loadEmbedded(p, { play } = {}) {
+    this.setProgram(p.text, { name: p.name || '', cid: p.cid });
+    if (!this.btw) {
+      // nothing to check it with: say so, rather than call a program we could not read a different one
+      this.banner({ kind: 'error', text: `The page's program ${shortCid(p.cid)} is in the editor, but it could not be checked (the language module did not load), so it does not play.` });
+      throw new Error('no module to check with');
+    }
+    if (!this.report || !this.report.ok || this.report.cid !== p.cid) {
+      const got = this.report && this.report.cid;
+      this.banner({ kind: 'error', text: `Refused: the page's program block for ${shortCid(p.cid)} is a different program${got ? ` (${shortCid(got)})` : ''}. It was not loaded to play.` });
+      throw new Error('cid mismatch');
+    }
+    this.stored.add(p.cid);
     if (play) await this.play('load');
   }
 
