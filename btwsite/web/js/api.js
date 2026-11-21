@@ -66,6 +66,8 @@ export function makeApi({ base = '', fetchFn = (...a) => fetch(...a) } = {}) {
     renderUrl: (cid, format = 'wav', sr = 44100) => `${base}/api/render/${cidSeg(cid)}?format=${format === 'opus' ? 'opus' : 'wav'}${format === 'opus' ? '' : `&sr=${Number(sr) === 48000 ? 48000 : 44100}`}&v=${RENDER_VERSION}`,
     renderStatus: rejecting((cid) => req('GET', `/api/render/${cidSeg(cid)}/status`)),
     compose: (body, signal) => req('POST', '/api/compose', { json: body, signal }),
+    // the seeded generator on the server (no sign-in, no model): the fallback when the wasm has no btw_generate
+    generate: (body) => req('POST', '/api/generate', { json: body }),
     challenge: () => req('GET', '/api/auth/challenge'),
     login: (body) => req('POST', '/api/auth/login', { json: body }),
     logout: () => req('POST', '/api/auth/logout', { json: {} }),

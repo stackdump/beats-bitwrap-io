@@ -6,6 +6,8 @@ import { describeError, ApiError } from './errors.js';
 import { qrChoice } from './qr-model.js';
 import { signIn, hasWallet, localKeyInfo, resetLocalKey } from './auth.js';
 
+// the seeded generator's genres (btwapi::generate::genres, beats' catalogue)
+const SEEDED_GENRES = ['techno', 'house', 'jazz', 'ambient', 'dnb', 'edm', 'speedcore', 'dubstep', 'country', 'blues', 'synthwave', 'trance', 'lofi', 'reggae', 'funk', 'bossa', 'trap', 'garage', 'metal'];
 const GENRES = ['ambient', 'dnb', 'dubstep', 'house', 'techno', 'trance', 'lofi', 'jazz', 'bossa', 'funk', 'hardcore', 'breakbeat', 'synthwave', 'garage'];
 
 export class Panels {
@@ -136,6 +138,74 @@ export class Panels {
   // ---- compose ----------------------------------------------------------------------------------------------------------
 
   composeBody() {
+    const mode = this.composeMode();
+    const sw = h('div', { class: 'row', role: 'radiogroup', 'aria-label': 'Generator' },
+      ...[['model', 'model (LLM)'], ['seeded', 'seeded (no model)']].map(([v, label]) => {
+        const r = h('input', { type: 'radio', name: 'c-mode', value: v });
+        r.checked = mode === v;
+        r.addEventListener('change', () => { try { localStorage.setItem('btw.composeMode', v); } catch { /* private mode */ } this.render(); });
+        return h('label', { class: 'check' }, r, h('span', {}, label));
+      }));
+    return [sw, ...(mode === 'seeded' ? this.seededBody() : this.modelBody())];
+  }
+
+  composeMode() {
+    try { return localStorage.getItem('btw.composeMode') === 'seeded' ? 'seeded' : 'model'; } catch { return 'model'; }
+  }
+
+  /** The seeded generator: genre, BPM, key, length and a seed -> a whole program, the same every time. Runs in the
+   *  wasm (no sign-in, no cost); falls back to POST /api/generate on a module that predates it. */
+  seededBody() {
+    const app = this.app;
+    const out = [h('p', { class: 'note' }, 'A deterministic generator writes the track from a seed, using the genre\'s rhythms, chords and song structure. No model and no sign-in; the same inputs always give the same program and CID. The seed is in the header, so the track can be re-derived. It is stored as CC0 and plays at once.')];
+    const genre = h('select', { id: 'g-genre' }, ...SEEDED_GENRES.map((g) => h('option', { value: g }, g)));
+    genre.value = 'techno';
+    const bpm = h('input', { type: 'number', id: 'g-bpm', min: '40', max: '300', step: '1', placeholder: "genre's" });
+    const key = h('input', { type: 'text', id: 'g-key', placeholder: "genre's, e.g. am" });
+    const len = h('select', { id: 'g-len' }, ...['standard', 'short', 'long'].map((v) => h('option', { value: v }, v)));
+    const seed = h('input', { type: 'text', id: 'g-seed', placeholder: 'a number or a word', 'aria-label': 'Seed' });
+    seed.value = String(Math.floor(Math.random() * 100000));
+    const dice = h('button', { type: 'button', class: 'tb', title: 'A new random seed', 'aria-label': 'Roll a new seed' }, '🎲');
+    dice.addEventListener('click', () => { seed.value = String(Math.floor(Math.random() * 100000)); });
+    const status = h('div', { role: 'status' });
+    const go = h('button', { type: 'button', class: 'tb primary' }, 'Generate');
+    out.push(h('fieldset', { class: 'plain' },
+      h('div', { class: 'row' }, h('label', {}, 'Genre', genre), h('label', {}, 'BPM', bpm)),
+      h('div', { class: 'row' }, h('label', {}, 'Key', key), h('label', {}, 'Length', len)),
+      h('div', { class: 'row' }, h('label', {}, 'Seed', seed), dice),
+      go), status);
+    go.addEventListener('click', async () => {
+      const req = { genre: genre.value, length: len.value, seed: seed.value.trim() || '1' };
+      if (bpm.value) req.bpm = Number(bpm.value);
+      if (key.value.trim()) req.key = key.value.trim();
+      app.ensureAudio();
+      go.disabled = true;
+      try {
+        let r = app.btw && app.btw.generate ? app.btw.generate(req) : null;
+        let storedBy = null;
+        if (!r) { r = await app.api.generate(req); storedBy = 'server'; }
+        if (!r.ok && !r.text) throw new Error(r.error || 'the generator refused the request');
+        app.setProgram(r.text, { name: r.name || `${req.genre} ${req.seed}`, cid: r.cid });
+        if (r.ok && !storedBy) {
+          // stored like compose's: public, CC0. A failure to store is said, not fatal: the program is in the editor.
+          try { await app.api.putProgram(r.cid, r.text); storedBy = 'put'; } catch (e) { console.warn('btw: generate: not stored', e); }
+        }
+        if (storedBy) app.stored.add(r.cid);
+        status.replaceChildren(h('div', { class: r.ok ? 'okbox' : 'err' },
+          h('div', {}, h('b', {}, r.ok ? 'Generated. ' : 'Generated, but it does not check. '), `${r.generator || 'seeded'} · seed ${r.seed}`),
+          h('div', { class: 'note' }, 'CID ', h('code', {}, shortCid(r.cid || '', 8, 8)), storedBy ? ' · CC0-1.0, stored' : ' · not stored')));
+        if (r.ok) await app.play('load');
+      } catch (e) {
+        const d = describeError(e);
+        status.replaceChildren(h('div', { class: 'err' }, d.title, ...(d.lines.length ? [h('pre', {}, d.lines.join('\n'))] : [])));
+      } finally {
+        go.disabled = false;
+      }
+    });
+    return out;
+  }
+
+  modelBody() {
     const app = this.app;
     const info = app.info && app.info.compose;
     const signedIn = !!app.user;
