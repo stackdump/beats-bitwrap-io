@@ -245,6 +245,11 @@ async function route(req, res) {
     sessions.set(id, { owner: u ? u.id : '', res: new Set(), state: null, last: Date.now(), replies: [] });
     return send(res, 200, { id, user: u });
   }
+  // the up-next queue (DESIGN.md; only MCP writes it): the mock's is always empty, as a fresh session's is
+  if ((mm = /^\/api\/session\/([^/]+)\/queue(\/next)?$/.exec(p))) {
+    if (!sessions.has(mm[1])) return err(res, 404, 'no_session', 'no such session');
+    return send(res, 200, { queue: { session: mm[1], up_next: [], position: 0, listener: 'present', auto_advanced: 0, max_auto_advance: 8 }, ...(mm[2] ? { item: null } : {}) });
+  }
   if ((mm = /^\/api\/session\/([^/]+)\/(events|report|reply)$/.exec(p))) {
     const s = sessions.get(mm[1]);
     if (!s) return err(res, 404, 'no_session', 'no such session');

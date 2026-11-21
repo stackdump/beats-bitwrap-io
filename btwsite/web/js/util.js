@@ -86,6 +86,9 @@ export function h(tag, attrs, ...kids) {
   return e;
 }
 
+/** How a user signed in, in words: "a wallet" or "a browser key". */
+export const accountKind = (u) => (u && u.kind === 'eth' ? 'a wallet' : u && u.kind === 'ed25519' ? 'a browser key' : 'a key');
+
 /** 83.2 -> "1:23" */
 export function fmtTime(sec) {
   if (!Number.isFinite(sec) || sec < 0) return '–:––';

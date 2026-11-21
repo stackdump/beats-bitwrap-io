@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -384,8 +385,66 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = f.Seek(0, io.SeekStart)
 	}
+	if enc, sf, sinfo := precompressed(full, info, r.Header.Get("Accept-Encoding")); sf != nil {
+		defer sf.Close()
+		h.Add("Vary", "Accept-Encoding")
+		stag, err := fileETag(full+encExt[enc], sinfo)
+		if err == nil {
+			// the whole encoded file, always: a byte range of compressed bytes is no use to a browser, and
+			// ServeContent sends no Content-Length once Content-Encoding is set, so it is set here
+			r.Header.Del("Range")
+			h.Set("Content-Encoding", enc)
+			h.Set("ETag", stag)
+			h.Set("Content-Length", strconv.FormatInt(sinfo.Size(), 10))
+			http.ServeContent(w, r, info.Name(), time.Time{}, sf)
+			return
+		}
+	} else if enc != "" {
+		h.Add("Vary", "Accept-Encoding") // a sidecar exists, this client takes neither
+	}
 	h.Set("ETag", tag)
 	http.ServeContent(w, r, info.Name(), time.Time{}, f) // honours If-None-Match and Range; no Last-Modified
+}
+
+var encExt = map[string]string{"br": ".br", "gzip": ".gz"}
+
+// precompressed picks a sidecar of full (<file>.br, then <file>.gz) that the request's Accept-Encoding allows,
+// made from the current file (it must be no older, or a stale sidecar would serve old bytes after a deploy).
+// It returns the open sidecar, or nil and the encoding of a sidecar that exists but was not accepted ("" if none).
+// Only .wasm is precompressed today (deploy.sh artifacts writes btw_bg.wasm.br/.gz); nginx gzips the rest.
+func precompressed(full string, info os.FileInfo, acceptEncoding string) (string, *os.File, os.FileInfo) {
+	if filepath.Ext(full) != ".wasm" {
+		return "", nil, nil
+	}
+	accepts := func(enc string) bool {
+		for _, part := range strings.Split(acceptEncoding, ",") {
+			name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+			if strings.EqualFold(strings.TrimSpace(name), enc) {
+				q := strings.ReplaceAll(strings.TrimSpace(params), " ", "")
+				return q != "q=0" && q != "q=0.0" && q != "q=0.00" && q != "q=0.000"
+			}
+		}
+		return false
+	}
+	seen := ""
+	for _, enc := range []string{"br", "gzip"} {
+		si, err := os.Stat(full + encExt[enc])
+		if err != nil || si.IsDir() || si.ModTime().Before(info.ModTime()) {
+			continue
+		}
+		if seen == "" {
+			seen = enc
+		}
+		if !accepts(enc) {
+			continue
+		}
+		f, err := os.Open(full + encExt[enc])
+		if err != nil {
+			continue
+		}
+		return enc, f, si
+	}
+	return seen, nil, nil
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {

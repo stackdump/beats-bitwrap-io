@@ -1,7 +1,7 @@
 // The panels: a drawer for compose, the MCP panel and sign-in, and two small popovers for share and open.
 // Built with DOM calls (no inline handlers, no innerHTML of anything from the server). Loaded when first asked for.
 
-import { h, shortCid } from './util.js';
+import { h, shortCid, accountKind } from './util.js';
 import { describeError, ApiError } from './errors.js';
 import { qrChoice } from './qr-model.js';
 import { signIn, hasWallet, localKeyInfo, resetLocalKey } from './auth.js';
@@ -47,7 +47,8 @@ export class Panels {
     const was = this.trigger;
     this.current = null;
     this.trigger = null;
-    if (was && inPanel) was.focus();
+    // a button inside the closed narrow-screen menu cannot take the focus: the menu's button does
+    if (was && inPanel) (was.getClientRects().length ? was : this.el['btn-menu'] || was).focus();
   }
 
   popClose() {
@@ -90,7 +91,8 @@ export class Panels {
     const out = [];
     const status = h('div', { role: 'status' });
     if (u) {
-      out.push(h('p', { class: 'note' }, 'Signed in as ', h('code', {}, u.id)));
+      out.push(h('p', { class: 'note' }, `Signed in with ${accountKind(u)}. Your account's key:`));
+      out.push(h('pre', { class: 'acct-key', title: u.id }, u.id));
       out.push(h('p', { class: 'note' }, 'You can compose, create MCP tokens and let an assistant drive this page.'));
       out.push(h('button', { type: 'button', class: 'tb', onclick: async () => { try { await app.api.logout(); } catch (e) { app.showError(e); } this.wipeToken(); app.user = null; app.updateUser(); this.render(); } }, 'Sign out'));
       if (u.kind === 'ed25519') {
@@ -128,7 +130,7 @@ export class Panels {
 
   /** The privacy policy and the delete-account page: plain links, reachable without signing in. */
   legalLinks() {
-    return h('p', { class: 'note' }, h('a', { href: '/privacy', class: 'link' }, 'Privacy policy'), ' · ', h('a', { href: '/delete-account', class: 'link' }, 'Delete your account and data'));
+    return h('p', { class: 'note legal' }, h('a', { href: '/privacy', class: 'link' }, 'Privacy policy'), h('a', { href: '/delete-account', class: 'link' }, 'Delete your account and data'));
   }
 
   // ---- compose ----------------------------------------------------------------------------------------------------------

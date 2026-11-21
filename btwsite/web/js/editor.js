@@ -1,12 +1,75 @@
 // The editor: a <textarea> with transparent text over a <pre> that holds the highlighted copy, both with
-// identical metrics, inside ONE scroll container (the textarea is as tall and wide as its text, so it
-// never scrolls itself and nothing needs syncing). Native typing, IME, selection and undo all stay the
-// browser's. Layers under and over the text (lamps, bars, squiggles) are absolutely positioned in
-// character cells, so the markers module can paint them from (line, column) alone.
+// identical metrics, inside ONE scroll container (the textarea is as tall as its text, so it never scrolls
+// itself and nothing needs syncing). Native typing, IME, selection and undo all stay the browser's. The
+// text soft-wraps: both layers wrap at the same width with the same hanging indent (`text-indent: <hang>
+// hanging each-line`), so they break alike; the editor reads where each long line's rows start off the
+// <pre> (`wrap`, a wrap-model.js layout), and the layers under and over the text (lamps, bars, squiggles)
+// and the gutter are placed from (line, column) through it.
 
-import { lineStarts, offsetOfLineCol, visualCol, maxCols, lineOf, TAB } from './geometry.js';
+import { lineStarts, lineEnd, offsetOfLineCol, visualCol, lineOf, TAB } from './geometry.js';
+import { buildLayout, cellXY, pieces, hit, lineTop, rowsOf } from './wrap-model.js';
 import { spansToHtml, plainSpans } from './highlight.js';
 import { h } from './util.js';
+
+/** The hanging indent of a wrapped line's later rows, in columns (the CSS's --hang must say the same). */
+export const HANG = 4;
+
+/** The <pre>'s text nodes with the text offset each starts at (its text is the program's, plus maybe a trailing space). */
+function textNodes(pre) {
+  const out = [];
+  const w = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+  let at = 0;
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    out.push({ n, at });
+    at += n.data.length;
+  }
+  return out;
+}
+
+const range = typeof document !== 'undefined' ? document.createRange() : null;
+
+/** The top of the character at text offset `i` (its first client rect), or null. */
+function charTop(nodes, i) {
+  let lo = 0;
+  let hi = nodes.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (nodes[mid].at <= i) lo = mid;
+    else hi = mid - 1;
+  }
+  const { n, at } = nodes[lo] || {};
+  if (!n || i - at >= n.data.length) return null;
+  range.setStart(n, i - at);
+  range.setEnd(n, i - at + 1);
+  const rs = range.getClientRects();
+  return rs.length ? rs[rs.length - 1].top : null;
+}
+
+/** The visual columns at which the line [a, b) starts a new row: [0, c1, ...], found by bisecting on the characters' tops. */
+function measureRows(nodes, text, a, b) {
+  const rows = [0];
+  let from = a;
+  let top = charTop(nodes, a);
+  if (top == null) return rows;
+  for (let guard = 0; guard < 400; guard++) {
+    const lastTop = charTop(nodes, b - 1);
+    if (lastTop == null || lastTop <= top + 1) break;
+    // the first offset in (from, b) whose top is below `top`
+    let lo = from + 1;
+    let hi = b - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const t = charTop(nodes, mid);
+      if (t != null && t > top + 1) hi = mid;
+      else lo = mid + 1;
+    }
+    rows.push(visualCol(text, a, lo, TAB));
+    from = lo;
+    top = charTop(nodes, lo);
+    if (top == null) break;
+  }
+  return rows;
+}
 
 export class Editor {
   /**
@@ -25,17 +88,19 @@ export class Editor {
     this.bars = h('div', { class: 'ly ly-bars', 'aria-hidden': 'true' });
     this.diagLayer = h('div', { class: 'ly ly-diag', 'aria-hidden': 'true' });
     this.ta = h('textarea', {
-      class: 'ed-ta', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off',
+      class: 'ed-ta', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'soft',
       'aria-label': 'BeatScript program', 'aria-describedby': 'ed-help', rows: '1',
     });
     this.measure = h('span', { class: 'ed-measure', 'aria-hidden': 'true' }, 'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM');
     this.tip = h('div', { class: 'ed-tip', role: 'tooltip', hidden: true });
     this.edges = h('div', { class: 'ed-edges' });
-    this.code.append(this.under, this.pre, this.over, this.bars, this.diagLayer, this.ta, this.measure);
+    this.code.append(this.under, this.pre, this.over, this.bars, this.diagLayer, this.ta);
     this.body.append(this.gutter, this.code);
     this.scroller.append(this.body);
-    root.append(this.scroller, this.edges, this.tip);
-    this.metrics = { charW: 8, lineH: 21, padTop: 10, padLeft: 12 };
+    // the measuring span is 64 cells wide: outside the scroller (in .ed, which clips), so it never widens what scrolls
+    root.append(this.scroller, this.edges, this.tip, this.measure);
+    this.metrics = { charW: 8, lineH: 21, padTop: 10, padLeft: 12, hang: HANG };
+    this.wrap = buildLayout([], this.metrics);
     this.lines = 0;
     this.rows = []; // gutter rows
     this.diags = [];
@@ -62,7 +127,7 @@ export class Editor {
     const cs = getComputedStyle(this.pre);
     const w = this.measure.getBoundingClientRect().width / this.measure.textContent.length;
     const lh = parseFloat(cs.lineHeight) || 21;
-    this.metrics = { charW: w || 8, lineH: lh, padTop: parseFloat(cs.paddingTop) || 0, padLeft: parseFloat(cs.paddingLeft) || 0 };
+    this.metrics = { charW: w || 8, lineH: lh, padTop: parseFloat(cs.paddingTop) || 0, padLeft: parseFloat(cs.paddingLeft) || 0, hang: HANG };
     this.code.style.setProperty('--cw', `${this.metrics.charW}px`);
     this.code.style.setProperty('--lh', `${this.metrics.lineH}px`);
     this._size();
@@ -70,19 +135,39 @@ export class Editor {
 
   /** {lineTops, lineH, viewH, contentH} for the follow-scroll, in scroller content coordinates. */
   layout() {
-    const { lineH, padTop } = this.metrics;
-    if (!this._tops || this._tops.length !== this.lines) {
-      this._tops = Array.from({ length: this.lines }, (_, i) => padTop + i * lineH);
-    }
+    const { lineH } = this.metrics;
+    if (!this._tops || this._tops.length !== this.lines) this._tops = this.wrap.lines.map((l) => l.top);
     return { lineTops: this._tops, lineH, viewH: this.scroller.clientHeight, contentH: this.scroller.scrollHeight };
   }
 
+  /** Where each line's rows start, read off the highlighted <pre> (the browser wrapped it), then the code layer's
+   *  height and the gutter rows from that. A line that fits the width is one row and is not measured. */
   _size() {
     const { lineH, padTop, charW, padLeft } = this.metrics;
-    const cols = maxCols(this._text);
-    this.code.style.height = `${padTop * 2 + this.lines * lineH + lineH * 4}px`;
-    this.code.style.minWidth = `${padLeft * 2 + (cols + 3) * charW}px`;
+    const text = this._text;
+    const starts = lineStarts(text);
+    const avail = this.pre.clientWidth - padLeft * 2;
+    const rowStarts = new Array(starts.length);
+    let nodes = null;
+    for (let l = 0; l < starts.length; l++) {
+      const a = starts[l];
+      const b = lineEnd(text, starts, l);
+      if (avail <= 0 || visualCol(text, a, b) * charW <= avail + 0.5) continue;
+      nodes = nodes || textNodes(this.pre);
+      rowStarts[l] = measureRows(nodes, text, a, b);
+    }
+    this.wrap = buildLayout(rowStarts, this.metrics);
+    this.code.style.height = `${padTop * 2 + this.wrap.height + lineH * 4}px`;
+    this.code.style.removeProperty('min-width');
     this._tops = null;
+    for (let i = 0; i < this.rows.length; i++) {
+      const r = this.rows[i];
+      const n = rowsOf(this.wrap, i);
+      if (r.n !== n) {
+        r.n = n;
+        r.row.style.height = n > 1 ? `${n * lineH}px` : '';
+      }
+    }
   }
 
   // ---- text -----------------------------------------------------------------------------------
@@ -152,7 +237,7 @@ export class Editor {
       const i = this.rows.length;
       const row = h('div', { class: 'gl' }, h('i', { class: 'gi' }), h('b', {}, String(i + 1)), h('u', { class: 'gd' }));
       this.gutter.append(row);
-      this.rows.push({ row, gi: row.firstChild, gd: row.lastChild, kind: '', k: -1, sev: '', hdr: false });
+      this.rows.push({ row, gi: row.firstChild, gd: row.lastChild, kind: '', k: -1, sev: '', hdr: false, n: 1 });
     }
     while (this.rows.length > n) this.rows.pop().row.remove();
   }
@@ -194,7 +279,7 @@ export class Editor {
   _paintDiagnostics() {
     const text = this._text;
     const starts = lineStarts(text);
-    const { lineH, charW, padTop, padLeft } = this.metrics;
+    const { lineH } = this.metrics;
     this.diagLayer.textContent = '';
     for (const r of this.rows) r.sev = '';
     const sevRank = (s) => (s === 'error' ? 2 : 1);
@@ -208,11 +293,13 @@ export class Editor {
       const c0 = visualCol(text, starts[l], a);
       let c1 = visualCol(text, starts[l], b);
       if (c1 <= c0) c1 = c0 + 1;
-      const sq = h('div', { class: `sq sq-${d.severity === 'warning' ? 'warn' : 'error'}` });
-      sq.style.left = `${padLeft + c0 * charW}px`;
-      sq.style.top = `${padTop + (l + 1) * lineH - 3}px`;
-      sq.style.width = `${(c1 - c0) * charW}px`;
-      this.diagLayer.append(sq);
+      for (const p of pieces(this.wrap, l, c0, c1)) {
+        const sq = h('div', { class: `sq sq-${d.severity === 'warning' ? 'warn' : 'error'}` });
+        sq.style.left = `${p.x}px`;
+        sq.style.top = `${p.y + lineH - 3}px`;
+        sq.style.width = `${p.w}px`;
+        this.diagLayer.append(sq);
+      }
       const row = this.rows[l];
       if (row && sevRank(d.severity) > sevRank(row.sev)) row.sev = d.severity;
     }
@@ -256,9 +343,9 @@ export class Editor {
 
   /** Scroll so line0 is inside the view (or near the top third when `center`). */
   revealLine(line0, center = false) {
-    const { lineH, padTop } = this.metrics;
+    const { lineH } = this.metrics;
     const sc = this.scroller;
-    const y = padTop + line0 * lineH;
+    const y = lineTop(this.wrap, line0);
     if (center || y < sc.scrollTop + lineH || y + lineH * 2 > sc.scrollTop + sc.clientHeight) {
       sc.scrollTop = Math.max(0, y - sc.clientHeight / 3);
     }
@@ -273,16 +360,12 @@ export class Editor {
   }
 
   _revealCaret() {
-    const { charW, lineH, padTop, padLeft } = this.metrics;
+    const { lineH } = this.metrics;
     const { line, vcol } = this.caretLineCol();
     const sc = this.scroller;
-    const gw = this.gutter.offsetWidth;
-    const y = padTop + line * lineH;
+    const y = cellXY(this.wrap, line, vcol).y; // the caret's row (the text wraps: there is no sideways scroll)
     if (y < sc.scrollTop) sc.scrollTop = y - lineH;
     else if (y + lineH * 2 > sc.scrollTop + sc.clientHeight) sc.scrollTop = y + lineH * 2 - sc.clientHeight;
-    const x = padLeft + vcol * charW;
-    if (x < sc.scrollLeft + 8) sc.scrollLeft = Math.max(0, x - gw - 24);
-    else if (x + gw + charW * 2 > sc.scrollLeft + sc.clientWidth) sc.scrollLeft = x + gw + charW * 2 - sc.clientWidth + 24;
   }
 
   focus() {
@@ -320,10 +403,19 @@ export class Editor {
     this.code.addEventListener('pointermove', (e) => this._hover(e));
     this.code.addEventListener('pointerleave', () => (this.tip.hidden = true));
     if (typeof ResizeObserver !== 'undefined') {
-      new ResizeObserver(() => {
+      // a font change (the measure span) or a new width (the code layer: the text wraps again)
+      let lastW = -1;
+      const ro = new ResizeObserver(() => {
+        const w = this.code.clientWidth;
+        const fontChanged = this.measure.getBoundingClientRect().width / this.measure.textContent.length !== this.metrics.charW;
+        if (w === lastW && !fontChanged) return;
+        lastW = w;
         this.measureNow();
         this._paintDiagnostics();
-      }).observe(this.measure);
+        this.on.onLayout && this.on.onLayout();
+      });
+      ro.observe(this.measure);
+      ro.observe(this.code);
     }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { this.measureNow(); this._paintDiagnostics(); });
   }
@@ -334,10 +426,8 @@ export class Editor {
       return;
     }
     const r = this.code.getBoundingClientRect();
-    const { charW, lineH, padTop, padLeft } = this.metrics;
-    const line = Math.floor((e.clientY - r.top - padTop) / lineH);
-    const vcol = Math.floor((e.clientX - r.left - padLeft) / charW);
-    const d = line >= 0 ? this.diagAt(line, vcol) : null;
+    const at = hit(this.wrap, e.clientX - r.left, e.clientY - r.top);
+    const d = at ? this.diagAt(at.line, at.vcol) : null;
     if (!d) {
       this.tip.hidden = true;
       return;

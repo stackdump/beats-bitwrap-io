@@ -347,7 +347,7 @@ try {
     await page.eval('[...document.querySelectorAll("#drawer-body button")].find(b=>/Create an MCP token/.test(b.textContent)).click()');
     await page.waitFor('document.querySelector("#drawer-body .okbox")', 4000);
     const tok = await q('#drawer-body .okbox pre');
-    check('create MCP token shows the token once with the claude mcp add command', /^btw_/.test(tok || '') && /claude mcp add --transport http btw .*\/mcp --header "Authorization: Bearer btw_/.test(await q('#drawer-body .okbox')), String(tok));
+    check('create MCP token shows the token once with the claude mcp add command', /^btw_/.test(tok || '') && /claude mcp add --transport http beatscript .*\/mcp --header "Authorization: Bearer btw_/.test(await q('#drawer-body .okbox')), String(tok));
     await shot(11, 'mcp-token');
     await page.eval('__app.emit("session"); __app.emit("user"); 0'); // a reconnect or a sign-in event re-renders the open panel
     await sleep(150);
@@ -555,7 +555,7 @@ try {
       hl: document.querySelector('.ly-hl').textContent, pwn: window.__pwn, handlers: document.querySelectorAll('[onerror],[onload],[onclick],[onmouseover]').length,
       imgs: document.querySelectorAll('img, iframe, object, embed').length, title: document.title, name: document.getElementById('h-name').textContent })`));
     check('hostile program text is shown as text: the highlighted layer holds only the page\'s own spans, and its text is the program\'s', dom.kids.length === 0 && dom.hl.replace(/ $/, '') === evil && dom.pwn === undefined && dom.handlers === 0 && dom.imgs === 0 && (await count('script')) === scripts0, JSON.stringify(dom).slice(0, 300));
-    check('a hostile name is cleaned (no marks that reverse text, no control characters) and shown as text in the title and the header', dom.title === '<b>bold</b> x · btw' && dom.name === '<b>bold</b> x', `${dom.title} | ${dom.name}`);
+    check('a hostile name is cleaned (no marks that reverse text, no control characters) and shown as text in the title and the header', dom.title === '<b>bold</b> x · BeatScript' && dom.name === '<b>bold</b> x', `${dom.title} | ${dom.name}`);
 
     // pushed events: only strings of the right shape do anything, and nothing makes the page fetch a URL of the pusher's choosing
     const before = await text();

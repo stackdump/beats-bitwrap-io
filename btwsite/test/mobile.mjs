@@ -75,9 +75,21 @@ try {
   for (const [k, v] of Object.entries(inBar)) check(`${k}: a touch target of at least 44 x 44 (${Math.round(v.w)} x ${Math.round(v.h)})`, v.w >= 44 && v.h >= 44);
   for (const sel of ['#t-source', '.t-level', '#pr-sum', '.t-hint', '.t-bpm']) check(`${sel} is not in the bar`, !(await one(sel)).shown);
   check('the strip above the bar is gone', !(await one('#problems')).shown);
-  const top = (await boxes('.top .tb, .top select')).filter((b) => b.shown); // the docs link is not shown on a phone
-  check(`the top bar's controls are at least 44 px (${top.map((b) => `${Math.round(b.w)}x${Math.round(b.h)}`).join(' ')})`, top.length >= 6 && top.every((b) => b.w >= 44 && b.h >= 44), JSON.stringify(top.map((b) => [b.id, b.w, b.h])));
+  // the top bar: the logo, the example picker and the menu button; the tools are in the menu, each with its label
+  const top = (await boxes('.top .tb, .top select')).filter((b) => b.shown);
+  check(`the top bar's controls are at least 44 px (${top.map((b) => `${Math.round(b.w)}x${Math.round(b.h)}`).join(' ')})`, top.length >= 2 && top.every((b) => b.w >= 44 && b.h >= 44), JSON.stringify(top.map((b) => [b.id, b.w, b.h])));
   check('and they fit the screen', top.every((b) => b.x >= 0 && b.right <= W + 0.5));
+  check('the logo and the example picker are shown', (await one('.brand-mark')).shown && (await one('#examples')).shown && (await one('#btn-menu')).shown);
+  await tap('#btn-menu');
+  await sleep(150);
+  const items = (await boxes('#tools .tb')).filter((b) => b.shown);
+  check(`the menu lists the eight tools, each with its label, 44 px high, on screen (${items.map((b) => b.text.replace(/\s+/g, ' ')).join(', ')})`,
+    items.length === 8 && items.every((b) => b.h >= 44 && b.x >= 0 && b.right <= W + 0.5 && /[a-z]{2,}/.test(b.text)), JSON.stringify(items.map((b) => [b.id, b.text, b.h])));
+  await shot('menu');
+  await tap('#btn-menu');
+  await sleep(100);
+  check('the menu closes again', !(await one('#btn-fmt')).shown);
+  check('the code wraps: no sideways scroll in the editor', await page.eval('(() => { const s = document.querySelector(".ed-scroll"); return s.scrollWidth <= s.clientWidth; })()'));
   const follow = await one('#btn-follow');
   check(`the header's Follow button is on screen and 44 px (${Math.round(follow.w)} x ${Math.round(follow.h)})`, follow.shown && follow.right <= W + 0.5 && follow.w >= 44 && follow.h >= 44, JSON.stringify(follow));
   check('the problems dot says there are none', (await page.eval('document.getElementById("t-prob-dot").className')) === 'pr-dot ' && (await one('#t-prob-n')).text === '0');

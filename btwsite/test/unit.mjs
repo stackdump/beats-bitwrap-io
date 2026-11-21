@@ -1483,3 +1483,32 @@ test('queue: a request that fails ends the track as before, and nothing is retri
   assert.equal(n, 1);
   assert.deepEqual(pauses, ['']);
 });
+
+test('wrap-model: rows, cells, pieces and the hit test of a soft-wrapped line', async () => {
+  const { buildLayout, cellXY, pieces, hit, lineTop, lineBottom, rowOf, rowsOf } = await J('wrap-model.js');
+  const m = { lineH: 20, padTop: 10, padLeft: 10, charW: 10, hang: 4 };
+  // line 0 fits; line 1 wraps at columns 30 and 55; line 2 fits
+  const L = buildLayout([undefined, [0, 30, 55]], { ...m });
+  const L3 = buildLayout([undefined, [0, 30, 55], undefined], { ...m });
+  assert.equal(L.lines.length, 2);
+  assert.equal(L3.height, 5 * 20);
+  assert.deepEqual([lineTop(L3, 0), lineTop(L3, 1), lineTop(L3, 2)], [10, 30, 90]);
+  assert.equal(lineBottom(L3, 1), 90);
+  assert.deepEqual([rowsOf(L3, 0), rowsOf(L3, 1)], [1, 3]);
+  assert.deepEqual([rowOf(L3, 1, 0), rowOf(L3, 1, 29), rowOf(L3, 1, 30), rowOf(L3, 1, 70)], [0, 0, 1, 2]);
+  // a later row starts at the hanging indent
+  assert.deepEqual(cellXY(L3, 1, 30), { x: 10 + 4 * 10, y: 50, row: 1 });
+  assert.deepEqual(cellXY(L3, 1, 5), { x: 60, y: 30, row: 0 });
+  // a span across a wrap is one piece per row
+  assert.deepEqual(pieces(L3, 1, 25, 60).map((p) => [p.row, p.c0, p.c1, p.x, p.y, p.w]), [[0, 25, 30, 260, 30, 50], [1, 30, 55, 50, 50, 250], [2, 55, 60, 50, 70, 50]]);
+  assert.deepEqual(pieces(L3, 0, 2, 4).map((p) => [p.row, p.x, p.y, p.w]), [[0, 30, 10, 20]]);
+  assert.deepEqual(pieces(L3, 0, 4, 4), []);
+  // the hit test inverts cellXY
+  for (const [line, vcol] of [[0, 3], [1, 0], [1, 29], [1, 30], [1, 41], [1, 57], [2, 0]]) {
+    const p = cellXY(L3, line, vcol);
+    assert.deepEqual(hit(L3, p.x + 1, p.y + 1), { line, vcol }, `${line}:${vcol}`);
+  }
+  assert.equal(hit(L3, 50, 5), null);
+  assert.equal(hit(L3, 50, 200), null);
+  assert.deepEqual(hit(L3, 0, 55), { line: 1, vcol: 30 }, 'left of the hanging indent is the row start');
+});

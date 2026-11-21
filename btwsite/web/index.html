@@ -20,6 +20,8 @@
       <select id="examples" aria-label="Examples"><option value="">examples</option></select>
     </label>
     <span class="spacer"></span>
+    <button type="button" class="tb tb-menu" id="btn-menu" aria-expanded="false" aria-controls="tools" aria-haspopup="true" title="Menu: fmt, share, open, compose, mcp, mobile, docs, account"><span class="gl-ic" aria-hidden="true">☰</span><span class="lbl-m">menu</span></button>
+    <div class="tools" id="tools">
     <button type="button" class="tb" id="btn-fmt" title="Format: the canonical text"><span class="gl-ic" aria-hidden="true">{ }</span><span class="lbl">fmt</span></button>
     <button type="button" class="tb" id="btn-share" title="Share: a link that seals its own text"><span class="gl-ic" aria-hidden="true">↗</span><span class="lbl">share</span></button>
     <button type="button" class="tb" id="btn-open" title="Open a link or a CID"><span class="gl-ic" aria-hidden="true">⤓</span><span class="lbl">open</span></button>
@@ -28,6 +30,7 @@
     <button type="button" class="tb" id="btn-phone" title="Mobile: connect the BeatScript app on your phone: scan this QR code" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">▯</span><span class="lbl">mobile</span></button>
     <a class="tb" id="lnk-docs" href="/docs/cheatsheet.md" target="_blank" rel="noopener" title="The language on one page (opens in a new tab)"><span class="gl-ic" aria-hidden="true">?</span><span class="lbl">docs</span></a>
     <button type="button" class="tb" id="btn-user" title="Sign in" aria-expanded="false" aria-controls="drawer"><span class="gl-ic" aria-hidden="true">◉</span><span class="lbl" id="user-lbl">sign in</span></button>
+    </div>
   </header>
 
   <div class="hdr" id="hdr">
@@ -72,12 +75,12 @@
     <button type="button" class="t-prob" id="t-prob" aria-expanded="false" aria-controls="pr-list" aria-label="Problems" title="Problems"><span class="pr-dot" id="t-prob-dot"></span><span class="t-prob-n" id="t-prob-n"></span></button>
     <span class="spacer"></span>
     <span class="t-bpm" id="t-bpm" title="tempo"></span>
-    <label class="t-level" title="Level"><span class="sr lv-sr">Level</span><span class="lv-lbl" aria-hidden="true">Level</span>
-      <input type="range" id="level" min="0" max="1" step="0.01" value="0.8">
+    <label class="t-level" title="Volume"><span class="lv-lbl" aria-hidden="true">Volume</span>
+      <input type="range" id="level" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
       <span class="meter" aria-hidden="true"><i id="meter"></i></span>
     </label>
     <span class="t-time" id="t-time"></span>
-    <nav class="t-legal" aria-label="About BeatScript"><a href="/privacy">privacy</a><a href="/delete-account">delete account</a></nav>
+    <nav class="t-legal" aria-label="About BeatScript"><a href="/privacy">privacy</a></nav>
     <button type="button" class="tb tb-sm" id="btn-decks" aria-expanded="false" aria-controls="decks" title="Show the decks"><span aria-hidden="true">⌃</span><span class="sr">Decks</span></button>
   </footer>
 

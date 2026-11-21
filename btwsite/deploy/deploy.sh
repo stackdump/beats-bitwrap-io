@@ -71,6 +71,12 @@ EOS
 artifacts)
   [ -x "$BTWD_LINUX" ] || { echo "no Linux btwd at $BTWD_LINUX (scripts/build-btwd-linux.sh in the Rust worktree)"; exit 1; }
   [ -f "$GO/btwsite/web/wasm/btw_bg.wasm" ] || { echo "no wasm in $GO/btwsite/web/wasm (scripts/build-web-wasm.sh in the Rust worktree)"; exit 1; }
+  # precompressed sidecars (6.75 MB -> ~2 MB): the server sends btw_bg.wasm.br / .gz with Content-Encoding to a
+  # browser that accepts it, and ignores a sidecar older than the wasm. pflow.dev has no brotli, so they are made here.
+  W="$GO/btwsite/web/wasm/btw_bg.wasm"
+  gzip -9 -n -k -f "$W"
+  if command -v brotli >/dev/null; then brotli -q 11 -k -f "$W"; else rm -f "$W.br"; echo "no brotli here: gzip sidecar only"; fi
+  ls -l "$W" "$W".*
   rsync -az "$BTWD_LINUX" "$HOST:Workspace/btw-bitwrap-io/btwsite/bin/btwd"
   rsync -az --delete "$GO/btwsite/web/wasm/" "$HOST:Workspace/btw-bitwrap-io/btwsite/web/wasm/"
   rsync -az "$GO/btwsite/web/docs/" "$HOST:Workspace/btw-bitwrap-io/btwsite/web/docs/"

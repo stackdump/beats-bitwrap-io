@@ -15,7 +15,7 @@ import { headerModel, programName } from './header-model.js';
 import { chooseSource, renderEndedMessage } from './source-model.js';
 import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
-import { h, debounce, fmtTime, shortCid, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
+import { h, debounce, fmtTime, shortCid, accountKind, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
 import { fragmentOf, guardLink } from './link.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
@@ -115,7 +115,7 @@ export class App {
   }
 
   dom() {
-    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'transport', 'btn-play', 'btn-decks', 't-source', 'st-long', 'st-short', 't-prob', 't-prob-dot', 't-prob-n', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint'];
+    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'transport', 'btn-play', 'btn-decks', 't-source', 'st-long', 'st-short', 't-prob', 't-prob-dot', 't-prob-n', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint', 'btn-menu', 'tools'];
     this.el = {};
     for (const id of ids) this.el[id] = $(id);
     this.lights = [...this.el['h-phrase'].children];
@@ -137,6 +137,12 @@ export class App {
     el['btn-phone'].addEventListener('click', () => this.panel('phone'));
     el['btn-user'].addEventListener('click', () => this.panel('user'));
     el['drawer-close'].addEventListener('click', () => this.closePanel());
+    // narrow screens: the tools are in a menu (css shows the button); picking one closes it, as do Esc and a click elsewhere
+    el['btn-menu'].addEventListener('click', () => this.setMenu(el['btn-menu'].getAttribute('aria-expanded') !== 'true'));
+    el.tools.addEventListener('click', (e) => { if (e.target.closest('.tb')) this.setMenu(false, false); });
+    document.addEventListener('pointerdown', (e) => {
+      if (el['btn-menu'].getAttribute('aria-expanded') === 'true' && !el.tools.contains(e.target) && !el['btn-menu'].contains(e.target)) this.setMenu(false, false);
+    }, { capture: true });
     el['btn-follow'].addEventListener('click', () => this.setFollow(!this.follow.on));
     el['btn-decks'].addEventListener('click', () => {
       const open = el.decks.hidden;
@@ -174,6 +180,17 @@ export class App {
     return true;
   }
 
+  /** Open or close the narrow-screen tools menu; on open the focus goes to its first item, on close (by key) back to the button. */
+  setMenu(open, refocus = true) {
+    const b = this.el['btn-menu'];
+    b.setAttribute('aria-expanded', String(open));
+    this.el.top.classList.toggle('menu-open', open);
+    if (open) {
+      const first = this.el.tools.querySelector('.tb');
+      if (first) first.focus({ preventScroll: true });
+    } else if (refocus && this.el.tools.contains(document.activeElement)) b.focus({ preventScroll: true });
+  }
+
   globalKey(e) {
     const typing = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.isContentEditable);
     const mod = e.metaKey || e.ctrlKey;
@@ -183,7 +200,8 @@ export class App {
       e.preventDefault();
       this.play('eval');
     } else if (e.key === 'Escape') {
-      if (!this.el.drawer.hidden || this.pop) this.closePanel();
+      if (this.el['btn-menu'].getAttribute('aria-expanded') === 'true') this.setMenu(false);
+      else if (!this.el.drawer.hidden || this.pop) this.closePanel();
       else this.stop();
     } else if (mod && e.key === '.') {
       e.preventDefault();
@@ -256,8 +274,8 @@ export class App {
 
   updateUser() {
     const u = this.user;
-    this.el['user-lbl'].textContent = u ? `${(u.address || u.id || '').slice(0, 6)}…${(u.address || '').slice(-4)}` : 'sign in';
-    this.el['btn-user'].title = u ? `Signed in as ${u.id}` : 'Sign in';
+    this.el['user-lbl'].textContent = u ? 'account' : 'sign in';
+    this.el['btn-user'].title = u ? `Account: signed in with ${accountKind(u)} as ${u.id}` : 'Sign in';
     // compose needs a session: say so only to someone who has none
     this.el['btn-compose'].title = u ? 'Compose with a model' : 'Compose with a model (sign in)';
     this.emit('user');
@@ -449,7 +467,8 @@ export class App {
     this.el['t-prob'].setAttribute('aria-label', ds.length || notes.length ? `${said}: open the list of problems` : 'No problems');
     this.el['t-prob'].title = ds.length || notes.length ? said : 'No problems';
     const first = errs[0] || ds[0];
-    this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : notes.length ? `not played here: ${notes[0]}` : '';
+    // the summary already counts the skipped lines ("1 not played here"); the slot beside it names them, once
+    this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : notes.length ? notes.join(', ') : '';
     const list = this.el['pr-list'];
     list.replaceChildren(...ds.map((d) => {
       const b = h('button', { type: 'button', class: 'pr-row', title: 'Jump to this' }, h('span', { class: 'pos' }, `${d.line}:${d.col}`), h('span', { class: `sev-${d.severity || 'error'}` }, `${d.severity || 'error'}: `), d.message,
@@ -1022,12 +1041,17 @@ export class App {
 
   updateTime(f) {
     const el = this.el['t-time'];
-    if (!f) { this.setText(el, ''); return; }
-    const secs = (this.evalReport && this.evalReport.seconds) || null;
+    const playing = this.isPlaying();
+    // the song's length: the evaluated program's while it plays, else the checked text's (a looping program has none)
+    const secs = (playing && this.evalReport && this.evalReport.seconds) || (this.report && this.report.seconds) || (this.evalReport && this.evalReport.seconds) || null;
     let cur = null;
-    if (this.player) cur = this.player.mediaTime();
-    else if (f.status && f.status.bar != null && f.grid && f.grid.bpm) cur = (f.status.bar * 4 * 60) / f.grid.bpm;
-    this.setText(el, cur == null ? '' : secs ? `${fmtTime(cur)} / ${fmtTime(secs)}` : fmtTime(cur));
+    if (playing && f) {
+      if (this.player) cur = this.player.mediaTime();
+      else if (f.status && f.status.bar != null && f.grid && f.grid.bpm) cur = (f.status.bar * 4 * 60) / f.grid.bpm;
+    }
+    if (cur == null) cur = 0; // stopped (or not yet sounding): 0:00 / <length>
+    this.setText(el, secs ? `${fmtTime(cur)} / ${fmtTime(secs)}` : fmtTime(cur));
+    if (!f) return;
     if (this.player && this.player.state !== this._lastPlayerState) {
       this._lastPlayerState = this.player.state;
       this.updateTransport();

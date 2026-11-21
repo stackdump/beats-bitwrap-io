@@ -755,3 +755,56 @@ func TestPairPageSaysMobile(t *testing.T) {
 		t.Fatalf("pair page wording: %s", pairPageHTML)
 	}
 }
+
+// TestStaticPrecompressedWasm: btw_bg.wasm.br / .gz beside the wasm (deploy.sh artifacts writes them) are served
+// with Content-Encoding to a client that accepts them, application/wasm kept, Vary set, an ETag of their own;
+// a client that takes neither, or a sidecar older than the wasm (a stale one after a deploy), gets the plain file.
+func TestStaticPrecompressedWasm(t *testing.T) {
+	e := newEnv(t, nil)
+	plain := filepath.Join(e.web, "wasm", "btw_bg.wasm")
+	raw, _ := os.ReadFile(plain)
+	os.WriteFile(plain+".br", []byte("BR-BYTES"), 0o644)
+	os.WriteFile(plain+".gz", []byte("GZ-BYTES"), 0o644)
+	get := func(ae string) (*http.Response, string) {
+		r := e.get("/wasm/btw_bg.wasm", hdr("Accept-Encoding", ae))
+		return r, string(readAll(t, r))
+	}
+	for _, c := range []struct{ ae, enc, body string }{
+		{"br, gzip", "br", "BR-BYTES"},
+		{"gzip, deflate, br;q=0", "gzip", "GZ-BYTES"},
+		{"gzip;q=0.5", "gzip", "GZ-BYTES"},
+		{"identity", "", string(raw)},
+	} {
+		r, body := get(c.ae)
+		if r.StatusCode != 200 || r.Header.Get("Content-Encoding") != c.enc || body != c.body ||
+			r.Header.Get("Content-Type") != "application/wasm" || r.Header.Get("Vary") != "Accept-Encoding" {
+			t.Fatalf("%q: %d enc=%q body=%q %v", c.ae, r.StatusCode, r.Header.Get("Content-Encoding"), body, r.Header)
+		}
+	}
+	rb, _ := get("br")
+	rp, _ := get("identity")
+	if rb.Header.Get("ETag") == rp.Header.Get("ETag") || rb.Header.Get("ETag") == "" {
+		t.Fatalf("encoded and plain share an ETag: %q", rb.Header.Get("ETag"))
+	}
+	if rb.Header.Get("Content-Length") != "8" {
+		t.Fatalf("encoded Content-Length %q", rb.Header.Get("Content-Length"))
+	}
+	if r := e.get("/wasm/btw_bg.wasm", hdr("Accept-Encoding", "br"), hdr("Range", "bytes=0-1")); r.StatusCode != 200 || string(readAll(t, r)) != "BR-BYTES" {
+		t.Fatalf("a range of the encoded file: %d", r.StatusCode)
+	}
+	if r := e.get("/wasm/btw_bg.wasm", hdr("Accept-Encoding", "br"), hdr("If-None-Match", rb.Header.Get("ETag"))); r.StatusCode != 304 {
+		t.Fatalf("conditional br: %d", r.StatusCode)
+	}
+	// a stale sidecar (older than the wasm) is ignored
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(plain+".br", old, old)
+	os.Chtimes(plain+".gz", old, old)
+	if r, body := get("br, gzip"); r.Header.Get("Content-Encoding") != "" || body != string(raw) {
+		t.Fatalf("stale sidecar served: %q", r.Header.Get("Content-Encoding"))
+	}
+	// js is never looked up for sidecars
+	os.WriteFile(filepath.Join(e.web, "js", "app.js.gz"), []byte("GZ"), 0o644)
+	if r := e.get("/js/app.js", hdr("Accept-Encoding", "gzip")); r.Header.Get("Content-Encoding") != "" {
+		t.Fatalf("js got %q", r.Header.Get("Content-Encoding"))
+	}
+}
