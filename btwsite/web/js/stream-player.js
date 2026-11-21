@@ -111,7 +111,10 @@ export class StreamPlayer {
     src.connect(this.dest);
     const now = this.ctx.currentTime;
     if (this.t0 == null) {
-      this.t0 = now + START_DELAY;
+      // on a sample of the context's own grid: a start between two samples makes every buffer an interpolated one, and their
+      // seams (one AudioBufferSourceNode a chunk, every 0.1 to 0.4 s) small clicks
+      const csr = this.ctx.sampleRate || h.sampleRate;
+      this.t0 = Math.ceil((now + START_DELAY) * csr) / csr;
       this.next = this.t0;
     } else if (this.next < now + 0.005) {
       // an underrun: the audio ran out before this chunk came. Start it now and take the gap off the media clock.
