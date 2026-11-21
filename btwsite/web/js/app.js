@@ -117,7 +117,7 @@ export class App {
   }
 
   dom() {
-    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'transport', 'btn-play', 'btn-decks', 't-source', 'st-long', 'st-short', 't-prob', 't-prob-dot', 't-prob-n', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-phone', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint', 'btn-menu', 'tools'];
+    const ids = ['top', 'hdr', 'h-sec', 'h-sec-txt', 'h-bar', 'h-phrase', 'h-gen', 'h-state', 'h-prog-fill', 'btn-follow', 'banner', 'problems', 'pr-sum', 'pr-sum-txt', 'pr-first', 'pr-dot', 'pr-list', 'decks', 'transport', 'btn-play', 'btn-decks', 't-source', 'st-long', 'st-short', 't-prob', 't-prob-dot', 't-prob-n', 'src-engine', 'src-stream', 't-status', 't-bpm', 't-time', 'level', 'meter', 'examples', 'h-name', 'toasts', 'btn-fmt', 'btn-share', 'btn-open', 'btn-compose', 'btn-mcp', 'btn-phone', 'btn-beta', 'btn-user', 'user-lbl', 'drawer', 'drawer-title', 'drawer-body', 'drawer-close', 't-hint', 'btn-menu', 'tools'];
     this.el = {};
     for (const id of ids) this.el[id] = $(id);
     this.lights = [...this.el['h-phrase'].children];
@@ -137,6 +137,7 @@ export class App {
     el['btn-compose'].addEventListener('click', () => this.panel('compose'));
     el['btn-mcp'].addEventListener('click', () => this.panel('mcp'));
     el['btn-phone'].addEventListener('click', () => this.panel('phone'));
+    el['btn-beta'].addEventListener('click', () => this.panel('beta'));
     el['btn-user'].addEventListener('click', () => this.panel('user'));
     el['drawer-close'].addEventListener('click', () => this.closePanel());
     // narrow screens: the tools are in a menu (css shows the button); picking one closes it, as do Esc and a click elsewhere
@@ -249,10 +250,17 @@ export class App {
     this.banner({ kind: 'info', html: [h('span', { class: 'grow' }, `This site has moved to ${to}. Your programs are links, so they open there unchanged. Signed-in browser keys do not move: export first if you use one.`)], actions: [{ label: 'Go to the new address', primary: true, run: go }] });
   }
 
+  // The Android beta button in the toolbar follows /api/info.android_beta (the server's -android-beta-url flag); off = hidden.
+  showBetaLink() {
+    const b = this.el && this.el['btn-beta'];
+    if (b) b.hidden = !(this.info && this.info.android_beta);
+  }
+
   async loadInfo() {
     try {
       this.info = await this.api.info();
       this.serverOk = true;
+      this.showBetaLink();
       this.movedBanner();
     } catch {
       this.serverOk = false;

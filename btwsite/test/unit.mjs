@@ -1291,30 +1291,58 @@ test('the toolbar button and the panel title say "mobile" (the id stays #btn-pho
   assert.match(src, /phone: 'Mobile'/);
 });
 
-test('mobile panel: the Android beta link shows when the server gives a URL, and is gone when it is empty', async () => {
+test('mobile panel: a beta line and button show only when /api/info says the sign-up is open', async () => {
   const mk = (tag) => { const e = { tag, attrs: {}, kids: [], className: '', append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener() {}, nodeType: 1 }; return e; };
   const prev = globalThis.document;
   globalThis.document = { createElement: mk, createTextNode: (t) => ({ nodeType: 3, text: t }) };
   try {
     const { Panels } = await J('panels.js');
     const walk = (n, f) => { if (!n || n.nodeType === 3) return; f(n); (n.kids || []).forEach((k) => walk(k, f)); };
-    const links = (info) => {
+    const beta = (info) => {
       const p = Object.create(Panels.prototype);
       p.app = { user: { id: 'u' }, info, api: { devices: async () => ({ devices: [] }) } };
       p.phoneList = () => {};
-      const found = [];
-      for (const n of p.phoneBody()) walk(n, (x) => { if (x.tag === 'a') found.push(x); });
-      return found;
+      let sentence = null; let btn = null;
+      for (const n of p.phoneBody()) walk(n, (x) => { if (x.className === 'note pair-beta') { sentence = x.kids[0].text; btn = x.kids[1]; } });
+      return { sentence, btn };
     };
-    const url = 'https://play.google.com/apps/testing/app.beatscript';
-    const [a] = links({ android_beta_url: url });
-    assert.equal(a.attrs.href, url);
-    assert.equal(a.attrs.target, '_blank');
-    assert.equal(a.attrs.rel, 'noopener');
-    assert.match(a.kids.map((k) => k.text).join(''), /Join the Android beta on Google Play/);
-    assert.equal(links({ android_beta_url: '' }).length, 0);
-    assert.equal(links({}).length, 0);
+    const on = beta({ android_beta: true });
+    assert.equal(on.sentence, 'BeatScript for Android is in beta. ');
+    assert.match(on.btn.kids.map((k) => k.text).join(''), /Join the Android beta/);
+    assert.equal(beta({ android_beta: false }).sentence, null);
+    assert.equal(beta({}).sentence, null);
+    assert.equal(beta({ android_beta_url: 'https://play.google.com/apps/testing/app.beatscript' }).sentence, null); // the URL itself never turns it on
   } finally { globalThis.document = prev; }
+});
+
+test('beta panel: the form says what the email is for, and the api calls the three beta routes', async () => {
+  const src = fs.readFileSync(path.join(web, 'js', 'panels.js'), 'utf8');
+  assert.match(src, /Add me to the BeatScript Android beta\. My email is used only for this and can be removed any time\./);
+  assert.doesNotMatch(src, /play\.google\.com/); // the link comes from the server, only for an added address
+  const calls = [];
+  const { makeApi } = await J('api.js');
+  const api = makeApi({ fetchFn: async (u, init) => { calls.push([init.method, u, init.body]); return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); } });
+  await api.betaSignup({ email: 'a@b.co', consent: true });
+  await api.betaStatus('a@b.co');
+  await api.betaRemove('a@b.co');
+  assert.deepEqual(calls.map((c) => [c[0], c[1]]), [['POST', '/api/beta/signup'], ['POST', '/api/beta/status'], ['POST', '/api/beta/remove']]);
+  assert.equal(JSON.parse(calls[0][2]).consent, true);
+});
+
+test('toolbar: the Android beta button is in the markup hidden, after mobile, and showBetaLink follows /api/info', async () => {
+  const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
+  const a = html.match(/<button[^>]*id="btn-beta"[^>]*>/)[0];
+  assert.match(a, /\shidden[\s>]/);
+  assert.ok(html.indexOf('id="btn-phone"') < html.indexOf('id="btn-beta"'));
+  assert.doesNotMatch(html, /play\.google\.com/);
+  const { App } = await J('app.js');
+  const el = { 'btn-beta': { hidden: true } };
+  App.prototype.showBetaLink.call({ el, info: { android_beta: true } });
+  assert.equal(el['btn-beta'].hidden, false);
+  App.prototype.showBetaLink.call({ el, info: { android_beta: false } });
+  assert.equal(el['btn-beta'].hidden, true);
+  App.prototype.showBetaLink.call({ el, info: null });
+  assert.equal(el['btn-beta'].hidden, true);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
