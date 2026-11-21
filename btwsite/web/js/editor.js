@@ -197,6 +197,25 @@ export class Editor {
     this.on.onInput && this.on.onInput(this._text, { programmatic: true });
   }
 
+  /**
+   * Show `text` without touching the textarea: a scrub in progress (scrub.js). The textarea keeps the text the scrub started
+   * from, so the one edit the scrub makes when it ends is one undo step; until endPreview(), `text` is the preview (what a
+   * check or an evaluation reads) and the highlighted layer draws it.
+   */
+  preview(text) {
+    this.previewing = true;
+    this._text = text;
+    this.render();
+  }
+
+  /** Back to the textarea's own text (the scrub ended, or was abandoned). */
+  endPreview() {
+    if (!this.previewing) return;
+    this.previewing = false;
+    this._text = this.ta.value;
+    this.render();
+  }
+
   /** Replace [from, to) with `text` as ONE undoable edit (the browser's undo stack keeps the old text), caret just after it. */
   applyEdit(from, to, text) {
     const ta = this.ta;
@@ -209,6 +228,7 @@ export class Editor {
     }
     const at = from + text.length;
     ta.setSelectionRange(at, at);
+    this.previewing = false;
     this._text = ta.value;
     this.render();
     this._revealCaret();
@@ -377,6 +397,7 @@ export class Editor {
   _wire() {
     const ta = this.ta;
     ta.addEventListener('input', () => {
+      this._hoverKey = null;
       this._text = ta.value;
       this.render();
       ta.scrollTop = 0;
@@ -421,19 +442,29 @@ export class Editor {
   }
 
   _hover(e) {
-    if (!this.diags.length) {
-      this.tip.hidden = true;
-      return;
-    }
     const r = this.code.getBoundingClientRect();
     const at = hit(this.wrap, e.clientX - r.left, e.clientY - r.top);
-    const d = at ? this.diagAt(at.line, at.vcol) : null;
-    if (!d) {
-      this.tip.hidden = true;
-      return;
-    }
+    const line = at ? at.line : -1;
+    const vcol = at ? at.vcol : -1;
+    const d = at && this.diags.length ? this.diagAt(line, vcol) : null;
     const er = this.root.getBoundingClientRect();
-    this.tip.replaceChildren(h('strong', {}, `${d.line}:${d.col} ${d.severity || 'error'}`), h('span', {}, ` ${d.message}`), ...(d.help ? [h('em', {}, /^did you mean/i.test(d.help) ? d.help : `did you mean: ${d.help}`)] : []));
+    if (!d) {
+      // what the word under the pointer is (assist.js), asked once per cell
+      const key = `${line}:${vcol}`;
+      if (this._hoverKey !== key) {
+        this._hoverKey = key;
+        this._hoverInfo = line >= 0 && vcol >= 0 && this.on.onHoverInfo ? this.on.onHoverInfo(line, vcol) : null;
+      }
+      if (!this._hoverInfo) {
+        this.tip.hidden = true;
+        return;
+      }
+      this.tip.innerHTML = this._hoverInfo.html; // built from escaped text by assist-model.mdToHtml
+      this.tip.classList.add('as-hover');
+    } else {
+      this.tip.classList.remove('as-hover');
+      this.tip.replaceChildren(h('strong', {}, `${d.line}:${d.col} ${d.severity || 'error'}`), h('span', {}, ` ${d.message}`), ...(d.help ? [h('em', {}, /^did you mean/i.test(d.help) ? d.help : `did you mean: ${d.help}`)] : []));
+    }
     this.tip.hidden = false;
     const x = Math.min(Math.max(8, e.clientX - er.left + 12), Math.max(8, er.width - this.tip.offsetWidth - 8));
     this.tip.style.left = `${x}px`;
@@ -441,6 +472,8 @@ export class Editor {
   }
 
   _key(e) {
+    // the assistant's keys first (assist.js: completion, Alt+Enter, Mod+Shift+O, F12, and Esc while one of its lists is open)
+    if (this.on.onKey && this.on.onKey(e)) return;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key === 'Enter') {
       e.preventDefault();

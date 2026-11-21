@@ -1619,3 +1619,230 @@ test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, n
   assert.equal(reportedMixer('stream', m), null, 'a stream has no mixer');
   assert.equal(reportedMixer('engine', null), null, 'an older wasm: null');
 });
+
+// ---- assist-model.js: the language service's pure side (positions, snippets, edits, markdown, outline) ---------------
+const am = await J('assist-model.js');
+
+test('assist: LSP positions over UTF-16, round trip, every kind of line break', () => {
+  const t = 'ab\ncd\r\nef\rg 😀x';
+  assert.deepEqual(am.lspPos(t, 4), { line: 1, character: 1 });
+  assert.deepEqual(am.lspPos(t, 7), { line: 2, character: 0 });
+  assert.deepEqual(am.lspPos(t, 10), { line: 3, character: 0 });
+  // the emoji is two UTF-16 units: `x` is at character 4 of its line
+  assert.deepEqual(am.lspPos(t, t.indexOf('x')), { line: 3, character: 4 });
+  for (const at of [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, t.indexOf('x'), t.length]) assert.equal(am.offsetOf(t, am.lspPos(t, at)), at, String(at));
+  assert.equal(am.offsetOf(t, { line: 0, character: 99 }), 2, 'past the line end: the line end');
+  assert.equal(am.offsetOf(t, { line: 9, character: 0 }), t.length);
+});
+
+test('assist: snippets expand to text and the first stop is selected', () => {
+  assert.deepEqual(am.expandSnippet('e(${1:5}, ${2:8})'), { text: 'e(5, 8)', sel: [2, 3] });
+  assert.deepEqual(am.expandSnippet('deck A: ${1|kick,snare|} $0'), { text: 'deck A: kick ', sel: [8, 12] });
+  assert.deepEqual(am.expandSnippet('section ${1:name} ${2:16} bars {\n  $0\n}'), { text: 'section name 16 bars {\n  \n}', sel: [8, 12] });
+  assert.deepEqual(am.expandSnippet('inst=$1'), { text: 'inst=', sel: [5, 5] });
+  assert.deepEqual(am.expandSnippet('kick'), { text: 'kick', sel: [4, 4] });
+});
+
+test('assist: several edits are one replacement (one undo), in order', () => {
+  const t = 'let riff = c2 ~\ndeck B: bass riff riff\n';
+  const r = (l0, c0, l1, c1, newText) => ({ range: { start: { line: l0, character: c0 }, end: { line: l1, character: c1 } }, newText });
+  const m = am.mergeEdits(t, [r(1, 18, 1, 22, '[c2 ~]'), r(0, 0, 0, 0, '# '), r(1, 13, 1, 17, '[c2 ~]')]);
+  assert.equal(m.text, '# let riff = c2 ~\ndeck B: bass [c2 ~] [c2 ~]\n');
+  assert.equal(t.slice(0, m.from) + m.insert + t.slice(m.to), m.text);
+});
+
+test('assist: hover markdown is escaped HTML with code', () => {
+  const html = am.mdToHtml('```btw\nsection drop 16 bars\n```\n\n16 bars <b>, `x` & co');
+  assert.equal(html, '<pre class="as-code">section drop 16 bars</pre><p>16 bars &lt;b&gt;, <code>x</code> &amp; co</p>');
+});
+
+test('assist: the outline flattens and filters', () => {
+  const pos = (l) => ({ start: { line: l, character: 0 }, end: { line: l, character: 1 } });
+  const tree = [{ name: 'intro', kind: 2, range: pos(3), selectionRange: pos(3), children: [{ name: 'kick', kind: 8, range: pos(4), selectionRange: pos(4) }] }, { name: 'riff', kind: 13, range: pos(1), selectionRange: pos(1) }];
+  const rows = am.flattenSymbols(tree);
+  assert.deepEqual(rows.map((r) => [r.name, r.depth, r.line]), [['intro', 0, 3], ['kick', 1, 4], ['riff', 0, 1]]);
+  assert.deepEqual(am.filterRows(rows, 'ri').map((r) => r.name), ['riff']);
+  assert.deepEqual(am.filterRows(rows, 'k').map((r) => r.name), ['kick']);
+  assert.equal(am.offsetOfVcol('\tab', 0, 3), 2, 'a tab is two columns');
+});
+
+test('assist: the real module answers completion, hover and fixes (BtwLs)', { skip: !realWasm || !facade.ls ? 'no built module with BtwLs' : false }, () => {
+  const ls = facade.ls();
+  const text = 'tempo 120\nsection intro 8 bars {\n  deck A: kcik x ~ x ~\n}\narrange \n';
+  const diags = JSON.parse(ls.open('main', text));
+  assert.ok(Array.isArray(diags));
+  const at = (l, c) => JSON.stringify({ textDocument: { uri: 'main' }, position: { line: l, character: c } });
+  const comp = JSON.parse(ls.request('textDocument/completion', at(4, 8)));
+  assert.equal(comp.items[0].label, 'intro', 'arrange offers the sections');
+  const hov = JSON.parse(ls.request('textDocument/hover', at(1, 10)));
+  assert.match(hov.contents.value, /section intro 8 bars/);
+  JSON.parse(ls.check('main'));
+  const acts = JSON.parse(ls.request('codeAction', '{}'));
+  assert.ok(acts.error, 'an unknown method is an error, not a throw');
+  const fix = JSON.parse(ls.request('textDocument/codeAction', JSON.stringify({ textDocument: { uri: 'main' }, range: { start: { line: 2, character: 10 }, end: { line: 2, character: 10 } }, context: { diagnostics: [] } })));
+  assert.equal(fix[0].title, '`kcik` -> `kick`');
+});
+
+// ---- scrub-model.js: number and range scrubbing (the pure side of scrub.js) ------------------------------------------
+const sc = await J('scrub-model.js');
+
+const info = (o) => ({ kind: 'number', label: 'n', value: 0, min: null, max: null, step: 1, decimals: 0, unit: '', integer: false, scale: 'linear', exact: true, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, ...o });
+
+test('scrub: spell is the canonical number (no exponent, no -0, no trailing zeros)', () => {
+  assert.equal(sc.spell(126, 0), '126');
+  assert.equal(sc.spell(0.30000000000000004, 2), '0.3');
+  assert.equal(sc.spell(-0.001, 2), '0');
+  assert.equal(sc.spell(0.25, 2), '0.25');
+  assert.equal(sc.spell(4294967295, 0), '4294967295');
+  assert.equal(sc.spell(-1, 0), '-1');
+});
+
+test('scrub: values are held to the limits, whole for an integer, a cutoff moves by a ratio', () => {
+  const tempo = info({ kind: 'tempo', value: 299, min: 40, max: 300, step: 1 });
+  assert.equal(sc.stepValue(tempo, 299, 5), 300);
+  assert.equal(sc.stepValue(tempo, 41, -10), 40);
+  const vel = info({ kind: 'vel', min: 1, max: 127, integer: true });
+  assert.equal(sc.clampValue(vel, 12.6), 13);
+  const lvl = info({ kind: 'level', min: 0, max: 1, step: 0.01, decimals: 2 });
+  assert.equal(sc.stepValue(lvl, 0.8, 3), 0.83);
+  assert.equal(sc.stepValue(lvl, 0.99, 5), 1);
+  const lp = info({ kind: 'cutoff-lp', min: 60, max: 20000, step: 1, integer: true, scale: 'log' });
+  assert.equal(sc.stepValue(lp, 2000, 12), 4000, 'twelve steps an octave');
+  assert.equal(sc.stepValue(lp, 2000, -12), 1000);
+  assert.equal(sc.stepValue(lp, 19000, 12), 20000);
+  assert.equal(sc.stepValue(lp, 60, -1), 60);
+  assert.equal(sc.dragSteps(19), 3);
+  assert.equal(sc.dragSteps(-13), -2);
+  assert.equal(sc.dragSteps(13, { coarse: true }), 20);
+  assert.equal(sc.wheelSteps(-100), 1);
+  assert.equal(sc.wheelSteps(3, { coarse: true }), -10);
+});
+
+test('scrub: a drag changes only its literal, counted from where it started', () => {
+  const text = 'tempo 124\ndeck A: kick x\n';
+  const s = new sc.Scrub(text, info({ kind: 'tempo', value: 124, min: 40, max: 300, range: { start: { line: 0, character: 6 }, end: { line: 0, character: 9 } } }));
+  s.move(2);
+  s.move(5); // from the start, not from 126
+  const r = s.result();
+  assert.equal(r.text, 'tempo 129\ndeck A: kick x\n');
+  assert.deepEqual(r.edit, { from: 6, to: 9, text: '129' });
+  assert.deepEqual(r.caret, [6, 9]);
+  assert.match(s.say(), /^n 129/);
+  s.move(0);
+  assert.equal(s.changed, false);
+  s.move(-200);
+  assert.equal(s.result().text, 'tempo 40\ndeck A: kick x\n', 'held at the minimum');
+  // relative moves (keys, wheel) go on from the current value
+  const k = new sc.Scrub(text, info({ value: 124, min: 40, max: 300, range: { start: { line: 0, character: 6 }, end: { line: 0, character: 9 } } }));
+  k.move(1, { relative: true });
+  k.move(1, { relative: true });
+  assert.equal(k.result().text.slice(0, 9), 'tempo 126');
+});
+
+test('scrub: the ends of a range never cross; a ramp keeps its direction; the span keeps its width', () => {
+  const text = 'deck A: kick x vel=90..110\n';
+  const span = { op: '..', role: 'start', ordered: true, start: { start: { line: 0, character: 19 }, end: { line: 0, character: 21 } }, end: { start: { line: 0, character: 23 }, end: { line: 0, character: 26 } }, startValue: 90, endValue: 110 };
+  const vel = info({ kind: 'vel', value: 90, min: 1, max: 127, integer: true, range: span.start, span });
+  const s = new sc.Scrub(text, vel);
+  s.move(50);
+  assert.equal(s.result().text, 'deck A: kick x vel=110..110\n', 'the low end stops at the high end');
+  s.move(-100);
+  assert.equal(s.result().text, 'deck A: kick x vel=1..110\n');
+  // the high end of the same range
+  const hi = new sc.Scrub(text, { ...vel, value: 110, range: span.end, span: { ...span, role: 'end' } });
+  hi.move(-40);
+  assert.equal(hi.result().text, 'deck A: kick x vel=90..90\n');
+  assert.deepEqual(hi.result().caret, [23, 25]);
+  // the span moves both, and stops at the limit with its width kept
+  const both = new sc.Scrub(text, vel);
+  both.setEnds(120, 140, 'span');
+  assert.equal(both.result().text, 'deck A: kick x vel=107..127\n');
+  assert.match(both.say(), /107 to 127/);
+  // a ramp written downward stays downward
+  const rt = 'master: filter lp 8000 -> 2000 over 8 bars\n';
+  const rs = { op: '->', role: 'start', ordered: false, start: { start: { line: 0, character: 18 }, end: { line: 0, character: 22 } }, end: { start: { line: 0, character: 26 }, end: { line: 0, character: 30 } }, startValue: 8000, endValue: 2000 };
+  const ramp = new sc.Scrub(rt, info({ kind: 'cutoff-lp', value: 8000, min: 60, max: 20000, integer: true, scale: 'log', range: rs.start, span: rs }));
+  ramp.move(-48);
+  assert.equal(ramp.result().text, 'master: filter lp 2000 -> 2000 over 8 bars\n');
+});
+
+test('scrub: a note or a numeral moves through its choices', () => {
+  const text = 'deck B: melody c4 ~\n';
+  const n = info({ kind: 'note', value: 2, choices: ['a3', 'b3', 'c4', 'd4'], index: 2, range: { start: { line: 0, character: 15 }, end: { line: 0, character: 17 } } });
+  const s = new sc.Scrub(text, n);
+  s.move(1);
+  assert.equal(s.result().text, 'deck B: melody d4 ~\n');
+  s.move(9);
+  assert.equal(s.result().text, 'deck B: melody d4 ~\n', 'held to the list');
+  s.move(-2);
+  assert.equal(s.say(), 'n a3');
+});
+
+test('scrub: a refused value is not kept, unless the program was refused before for no more reasons', () => {
+  assert.equal(sc.acceptable({ ok: true }, null), true);
+  assert.equal(sc.acceptable({ ok: false, errors: 1 }, { ok: true }), false);
+  assert.equal(sc.acceptable({ ok: false, errors: 1 }, { ok: false, errors: 1 }), true);
+  assert.equal(sc.acceptable({ ok: false, errors: 2 }, { ok: false, errors: 1 }), false);
+  assert.equal(sc.acceptable(null, null), false);
+  assert.equal(sc.firstHint({ diagnostics: [{ severity: 'warning', message: 'w' }, { severity: 'error', message: 'tempo is 40 to 300', help: 'tempo 126' }] }), 'tempo is 40 to 300 (tempo 126)');
+});
+
+test('scrub: the throttle calls at once, then at most once an interval with the newest value, and stretches for a slow call', () => {
+  let t = 0;
+  const timers = [];
+  const got = [];
+  const th = new sc.Throttle((v) => { got.push(v); t += v === 'slow' ? 400 : 0; }, 250, { now: () => t, setTimer: (f, ms) => { timers.push({ f, at: t + ms }); return timers.length; }, clearTimer: () => {} });
+  th.call('a');
+  th.call('b');
+  th.call('c');
+  assert.deepEqual(got, ['a'], 'the first at once');
+  t = 250;
+  timers.shift().f();
+  assert.deepEqual(got, ['a', 'c'], 'the newest after the interval');
+  t = 600;
+  th.call('slow');
+  assert.equal(th.ms, 800, 'twice what the slow call took');
+  th.call('d');
+  th.flush();
+  assert.deepEqual(got, ['a', 'c', 'slow', 'd'], 'flush delivers the last');
+  th.call('e');
+  th.cancel();
+  assert.deepEqual(got.at(-1), 'd');
+});
+
+test('scrub: the real module says what each literal is (btw/numberAt), and a scrub of each keeps the program checkable', { skip: !realWasm || !facade.ls ? 'no built module with BtwLs' : false }, () => {
+  const ls = facade.ls();
+  const text = 'tempo 124\nswing 0.1\nkey am\ndeck A: kick e(5, 8, 2) vel=90..110 | hihat x*8?0.7 len=2\ndeck B: bass 1 ~ 3 5 oct=2 | melody c4 e4 g4 ~ | harmony i VI III VII\nat bar 16: master: filter lp 2000 -> 8000 over 8 bars\nmaster: delay 0.3\n';
+  assert.ok(facade.check(text).ok);
+  ls.open('main', text);
+  const q = (at) => JSON.parse(ls.request('btw/numberAt', JSON.stringify({ textDocument: { uri: 'main' }, position: am.lspPos(text, at) })));
+  const tempo = q(text.indexOf('124'));
+  assert.equal(tempo.kind, 'tempo');
+  assert.deepEqual([tempo.min, tempo.max, tempo.unit, tempo.integer], [40, 300, 'bpm', false]);
+  const vel = q(text.indexOf('90..'));
+  assert.equal(vel.span.op, '..');
+  assert.equal(vel.span.endValue, 110);
+  const note = q(text.indexOf('c4'));
+  assert.equal(note.choices[note.index], 'c4');
+  assert.equal(q(text.indexOf('deck A')), null);
+  // every literal one step each way: only it changes, and the program still checks
+  let n = 0;
+  for (let at = 0; at < text.length; at++) {
+    const i = q(at);
+    if (!i) continue;
+    const [from] = sc.rangeOffsets(text, i.range);
+    if (from !== at) continue;
+    for (const d of [-1, 1]) {
+      const s = new sc.Scrub(text, i);
+      s.move(d);
+      const r = s.result();
+      if (r.text === text) continue;
+      assert.equal(r.text.slice(0, r.edit.from), text.slice(0, r.edit.from));
+      assert.equal(r.text.slice(r.edit.from + r.edit.text.length), text.slice(r.edit.to));
+      const rep = facade.check(r.text);
+      assert.ok(rep.ok, `${i.kind} ${i.text} -> ${r.edit.text}: ${JSON.stringify(rep.diagnostics)}`);
+      n++;
+    }
+  }
+  assert.ok(n >= 30, String(n));
+});
