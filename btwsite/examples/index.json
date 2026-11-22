@@ -1,5 +1,19 @@
 [
   {
+    "name": "arrange-in-eight-lines",
+    "title": "arrange in eight lines",
+    "description": "One 4-bar section played eight times while the arrange rewrites its patterns: `~` changes a part from here on, `@` for the next section only. The smallest arrange that moves, with three comments that teach it.",
+    "bpm": 124,
+    "bars": 32,
+    "license": "CC0-1.0",
+    "tags": [
+      "beginner",
+      "sections",
+      "arrange",
+      "mutations"
+    ]
+  },
+  {
     "name": "arrange-mutations",
     "title": "arrange mutations",
     "description": "An arrangement that rewrites its own patterns as it goes. `~` changes a pattern from there on, `@` for the next section only, a glob drifts every acid line. Four evolving passes, then an outro read with the last generation.",

@@ -1,0 +1,35 @@
+#! btw 1
+#! name: arrange-in-eight-lines
+#! license: CC0-1.0
+# One section, played eight times. The arrange does the rest.
+# ~ changes a part from here on (changes stack, pass after pass).
+# @ changes it for the next section only, then it snaps back.
+tempo 124
+key am
+
+let drm_kick = x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~
+let drm_hat = ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~
+let syn_arp = a3 c4 e4 a4 g4 e4 c4 e4 f3 a3 c4 f4 e4 c4 a3 c4
+
+section groove 4 bars {
+  deck A: kick drm_kick kit=drums-v8 | hihat drm_hat kit=drums-v8 vel=70..105
+  deck B: arp syn_arp inst=bright-pluck vel=70..100
+}
+
+arrange {
+  groove
+  ~ drm_hat euclid 7
+  groove
+  ~ syn_arp rot 3
+  groove
+  @ drm_kick double
+  groove
+  ~ syn_* invert
+  groove
+  ~ drm_* grow
+  groove
+  @ syn_arp half
+  groove
+  ~ drm_* decay
+  groove
+}
