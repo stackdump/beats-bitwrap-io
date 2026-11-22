@@ -285,6 +285,20 @@ The context's vocabulary is the bitwrap ontology (`https://ontology.bitwrap.io/n
 The engine's own JSON-LD export (on the command line, `djctl btw jsonld FILE`) names the same context URL. Genre, tags and Euclidean
 rhythms need the engine's ontology, so only that export adds them.
 
+The public-domain phrasebook is open data too: lines of verse, scripture, speech and work song first published before 1929, CC0, each with its
+source and its meter as a step pattern, to sing by id (`sing @tempest_such_stuff on melody`). One corpus, in several views:
+
+```text
+https://btw.bitwrap.io/phrasebook                  the page: every line with its year, meter, stress as a step pattern and a sing example
+https://btw.bitwrap.io/phrasebook.txt              the corpus as shipped (text/plain, CC0)
+https://btw.bitwrap.io/phrasebook.jsonld           the same as linked data (application/ld+json), one node a line, in the BeatScript ontology's terms
+https://btw.bitwrap.io/phrasebook/<CID>.txt        the file, by CID (immutable)
+https://btw.bitwrap.io/phrasebook/<CID>.jsonld     the linked data, by CID
+```
+
+The corpus's CID is a program's CID function over the file's text. The two CID routes answer only for the CID the server ships and are `404`
+for any other: a new version of the corpus is a new CID. All are public reads, cross-origin, with no sign-in.
+
 ## Share links
 
 ```text
