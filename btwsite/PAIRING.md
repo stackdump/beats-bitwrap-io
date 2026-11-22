@@ -125,7 +125,8 @@ as the official host, so it asks "Connect?" before pairing with a beatscript.app
   `get` / `stop`. No new credential is made at pairing and nothing about MCP is in the QR: the grant
   is the device record's owner. Another account's token gets `not_found`.
   `/api/devices/<id>/push` runs the same checks as MCP's `eval`: no program with errors, and no
-  restricted or asset-using program, is sent.
+  restricted or asset-using program, is sent. What is sent is the program formatted (`#!` header
+  lines and comments kept, the CID the same), as MCP's `eval`, `load` and `push_private` send it.
 - Limits: `POST /api/pair` and `POST /api/pair/claim` allow 20 per minute per address. Device
   streams count toward the 40 SSE streams per address, and reports share the hub's token bucket
   (10/s, burst 20).

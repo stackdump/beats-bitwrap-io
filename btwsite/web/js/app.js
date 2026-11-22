@@ -1155,15 +1155,18 @@ export class App {
       return;
     }
     const caret = this.editor.ta.selectionStart;
-    // `#!` lines at the top (name, license, forked-from) say what the program is; they are comments to the language,
-    // so they are not in the CID and canonical form drops them, but a format should not strip them from the page
-    const head = (/^(?:#![^\n]*\n)+/.exec(text) || [''])[0];
-    const out = head + r.canonical;
+    // The formatter keeps the `#!` header lines, the comments and the blank lines between blocks (`text`): the same text that
+    // eval, load, queue, share and push_private put in front of the user on the server, so this button and an assistant's
+    // program agree. A module that predates `text` answers the canonical form only (no header, no comments): the `#!` lines
+    // at the top (name, license, forked-from) are put back, and the dropped comments are said.
+    const kept = typeof r.text === 'string';
+    const head = kept ? '' : (/^(?:#![^\n]*\n)+/.exec(text) || [''])[0];
+    const out = kept ? r.text : head + r.canonical;
     if (out === text) { this.toast('Already in canonical form.', 'ok'); return; }
     this.editor.replaceUndoable(out);
-    const at = head.length + mapCaret(head ? text.slice(head.length) : text, Math.max(0, caret - head.length), r.canonical);
+    const at = mapCaret(text, caret, out);
     this.editor.ta.setSelectionRange(at, at);
-    const n = (r.comments || []).filter((c) => !/^#!/.test(String(c).trim())).length;
+    const n = kept ? 0 : (r.comments || []).filter((c) => !/^#!/.test(String(c).trim())).length;
     this.toast(`Formatted · ${shortCid(r.cid)}${n ? ` · ${n} comment${n === 1 ? '' : 's'} dropped (the canonical form has none; Cmd/Ctrl+Z restores them)` : ''}`, 'ok');
     this.runCheckNow();
   }

@@ -226,11 +226,34 @@ function canonicalOf(text) {
   return `${out.join('\n')}\n`;
 }
 
+/**
+ * The program formatted: the canonical lines with the `#!` header lines, the comments and the blank lines between blocks kept
+ * (a run of blank lines is one; none at the start, after a `{` or before a `}`), as djlive::format does. A comment after code
+ * is two spaces from it; a comment on a line of its own is indented as the code around it.
+ */
+function formattedOf(text) {
+  const out = [];
+  let depth = 0;
+  let blank = false;
+  for (const l of splitLines(text)) {
+    const t = l.trimmed.replace(/\s+/g, ' ');
+    const comment = l.raw.slice(l.code.length).trim();
+    if (!t && !comment) { blank = true; continue; }
+    if (t.startsWith('}')) depth = Math.max(0, depth - 1);
+    if (blank && out.length && !/\{$/.test(out[out.length - 1]) && !t.startsWith('}')) out.push('');
+    blank = false;
+    const pad = '  '.repeat(depth);
+    out.push(t ? `${pad}${t}${comment ? `  ${comment}` : ''}` : `${pad}${comment}`);
+    if (/\{\s*$/.test(t)) depth++;
+  }
+  return out.length ? `${out.join('\n')}\n` : '';
+}
+
 export function mockFmt(text) {
   const c = mockCheck(text);
   const comments = [];
   for (const l of splitLines(text)) if (l.code.length < l.raw.length) comments.push(l.raw.slice(l.code.length).trim());
-  return c.ok ? { ok: true, canonical: c.canonical, cid: c.cid, comments, diagnostics: [] } : { ok: false, canonical: null, cid: null, comments, diagnostics: c.diagnostics };
+  return c.ok ? { ok: true, canonical: c.canonical, cid: c.cid, comments, text: formattedOf(text), diagnostics: [] } : { ok: false, canonical: null, cid: null, comments, diagnostics: c.diagnostics };
 }
 
 export function mockHighlight(text) {

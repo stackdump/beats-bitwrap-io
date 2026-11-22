@@ -108,7 +108,7 @@ crate does not depend on `djhost`). CIDs must equal what `djctl btw check` / the
 Byte offsets `start`/`end` are UTF-8 offsets into the text given; `line`/`col` are 1-based, `col` in chars.
 (The wasm layer additionally gives `start16`/`end16` UTF-16 offsets so a JS string can be sliced.)
 
-`fmt(text) -> {"ok":true,"canonical":"…","cid":"z…","comments":["…"],"diagnostics":[…]}`
+`fmt(text) -> {"ok":true,"text":"…","canonical":"…","cid":"z…","comments":["…"],"diagnostics":[…]}` (`text`: the program formatted, its `#!` header lines, comments and blank lines between blocks kept: the editor's fmt button, and what `eval`, `load`, `queue`, `share` and `push_private` send on; `canonical`: none of them, what the CID is of. A module that predates `text` answers `canonical` only)
 `instruments() -> {"voices":[…],"families":[…],"kits":[…],"palettes":[…]}` (`djhost::btw_env::instruments_json()`)
 `open(urlOrCidOrFragment) -> {"ok":true,"cid":"…","canonical":"…","verified":true,"warnings":[…],"notes_unverified":[…],"error":null}`
 `share(text, sig?, notes?) -> {"ok":true,"url":"https://btw.bitwrap.io/#<CID>.<b64url(deflate)>","beats_url":"https://beats.bitwrap.io/p#…","cid":"…","chars":405,"canonical":"…","warnings":[…]}`

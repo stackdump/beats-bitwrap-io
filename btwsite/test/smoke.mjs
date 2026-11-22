@@ -244,16 +244,22 @@ try {
   if (want()) {
     await page.goto(url());
     await ready();
-    await setText('tempo   126  # speed\nkey  am\ndeck A:   kick x ~ x ~   |   snare ~ x ~ x\n');
+    await setText('#! btw 1\n#! name: tidy\ntempo   126  # speed\nkey  am\n\n\ndeck A:   kick x ~ x ~   |   snare ~ x ~ x\n');
     await sleep(400);
     await page.click('#btn-fmt');
     await sleep(300);
-    check('fmt puts the canonical text in the editor', (await text()).includes('deck A: kick x ~ x ~ | snare ~ x ~ x') && !(await text()).includes('  # speed'), JSON.stringify(await text()));
+    const formatted = '#! btw 1\n#! name: tidy\ntempo 126  # speed\nkey am\n\ndeck A: kick x ~ x ~ | snare ~ x ~ x\n';
+    check('fmt puts the formatted text in the editor: canonical lines, the header, the comment and one blank line kept', (await text()) === formatted, JSON.stringify(await text()));
     await page.eval('document.querySelector(".ed-ta").focus(); document.execCommand("undo")');
     await sleep(200);
-    check('and Cmd+Z brings the old text back (the browser keeps its undo stack)', (await text()).includes('# speed'), JSON.stringify(await text()));
+    check('and Cmd+Z brings the old text back (the browser keeps its undo stack)', (await text()).includes('tempo   126  # speed'), JSON.stringify(await text()));
     await page.click('#btn-fmt');
     await sleep(200);
+    check('fmt again gives the same text', (await text()) === formatted, JSON.stringify(await text()));
+    await page.eval('document.getElementById("toasts").replaceChildren(); 0');
+    await page.click('#btn-fmt');
+    await sleep(200);
+    check('and then says it is already in canonical form: what the server sends is what this button makes', (await text()) === formatted && /Already in canonical form/.test(await q('#toasts')), await q('#toasts'));
     await page.click('#btn-share');
     await page.waitFor('document.querySelector(".pop input")', 4000);
     const link = await page.eval('document.querySelector(".pop input").value');
@@ -386,14 +392,16 @@ try {
       const j = JSON.parse((await r.text()).replace(/^event:.*\ndata: /s, ''));
       return { isError: !!j.result.isError, body: (() => { try { return JSON.parse(j.result.content[0].text); } catch { return j.result.content[0].text; } })() };
     };
-    const pushed = 'tempo 120\ndeck A: kick x ~ x ~\n# pushed over MCP\n';
+    // loose text, as an assistant might write it: the server formats it on the way in (the canonical lines, the comment kept)
+    const pushed = 'tempo   120   # pushed over MCP\ndeck A:  kick x ~ x ~\n';
+    const shown = 'tempo 120  # pushed over MCP\ndeck A: kick x ~ x ~\n';
     const ev = await mcp('eval', { text: pushed, play: true });
     check('MCP eval reaches this tab: text set, evaluated, playing', !ev.isError, JSON.stringify(ev.body).slice(0, 200));
     await page.waitFor('document.getElementById("btn-play").classList.contains("on")', 10000);
-    check('the page took the program the assistant sent', (await text()) === pushed);
+    check('the page took the program the assistant sent, formatted on the way in', (await text()) === shown, JSON.stringify(await text()));
     await sleep(900);
     const g = await mcp('get', {}, 2);
-    check('MCP get reports the page state (text, cid, playing, source)', !g.isError && g.body && g.body.text === pushed && g.body.playing === true && !!g.body.cid, JSON.stringify(g.body).slice(0, 200));
+    check('MCP get reports the page state (text, cid, playing, source)', !g.isError && g.body && g.body.text === shown && g.body.playing === true && !!g.body.cid, JSON.stringify(g.body).slice(0, 200));
     const st = await mcp('stop', {}, 3);
     await sleep(500);
     check('MCP stop stops it', !st.isError && !(await playing()));
@@ -405,10 +413,14 @@ try {
     const sid = await page.eval('__app.session && __app.session.id');
     check('the page opens a session and an event stream', !!sid && (await page.eval('__app.session.connected')) === true, String(sid));
     await page.click('.ed-ta');
-    const pushed = 'tempo 120\ndeck A: kick x ~ x ~\n# pushed by an assistant\n';
+    // (the server formats a program before it sends it: its canonical lines with the header and comments kept)
+    const pushed = '#! btw 1\n#! name: pushed\ntempo 120\n# pushed by an assistant\ndeck A: kick x ~ x ~  # four\n';
     await fetch(T(`__push/${sid}`), { method: 'POST', body: JSON.stringify({ type: 'eval', text: pushed, play: true }) });
     await page.waitFor('document.getElementById("btn-play").classList.contains("on")', 8000);
     check('an eval event sets the text, evaluates and plays', (await text()) === pushed);
+    await page.eval('document.getElementById("toasts").replaceChildren(); document.getElementById("btn-fmt").click(); 0');
+    await sleep(300);
+    check('the text that arrived is not reformatted by the page, and fmt finds nothing to change in it', (await text()) === pushed && /Already in canonical form/.test(await q('#toasts')), `${JSON.stringify(await text())} ${await q('#toasts')}`);
     await sleep(900);
     const st1 = await (await fetch(T(`__state/${sid}`))).json();
     check('the page reports its state (text, cid, playing, source, marks)', st1.state && st1.state.text === pushed && st1.state.playing === true && /^(engine|stream)$/.test(st1.state.source) && !!st1.state.cid && 'marks' in st1.state, JSON.stringify(st1.state).slice(0, 200));

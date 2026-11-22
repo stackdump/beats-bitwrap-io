@@ -44,7 +44,7 @@ browser. Exit code 1 if any check fails or the page logs a console error.
 4. **Sections advance and the editor follows.** A 4-section program at 240 bpm with the second section far below
    the fold: the header goes to the second section, the editor scrolls down to it; `L` toggles follow off and on.
    Shot `04-follow.png`.
-5. **fmt, share, open.** fmt puts the canonical text in the editor and Cmd+Z restores the old text; share shows
+5. **fmt, share, open.** fmt puts the formatted text in the editor (canonical lines, the `#!` header, the comments and one blank line kept), Cmd+Z restores the old text and a second fmt says there is nothing to change; share shows
    the self-sealing link (`https://.../#<CID>.<packed>`, its character count, the social `/c/` form) and puts it in the
    address bar; a fresh load of that link shows the program, a verified banner and a Play button and does **not**
    play; the banner's Play starts the stream; a link with a wrong CID is refused loudly and its text not loaded;
@@ -56,7 +56,7 @@ browser. Exit code 1 if any check fails or the page logs a console error.
    is not configured"; the MCP panel shows the session id and a created token once, with the `claude mcp add` line.
    Shots `07` to `11`.
 7. **The MCP bridge.** Mock server: the page opens a session and an event stream; a pushed `eval` (with `play`) sets
-   the text and plays; the page's report carries text, cid, playing, source and marks; a pushed `get` is answered with
+   the text (as the server sends it, formatted: the page does not change it, and fmt finds nothing to change) and plays; the page's report carries text, cid, playing, source and marks; a pushed `get` is answered with
    a reply; a pushed `stop` stops. Real server: the page signs in, makes a token in its MCP panel, and JSON-RPC to
    `/mcp` (`eval` with `play`, `get`, `stop`) drives the tab.
 8. **A phone and a failed module.** At 390 x 844 nothing overflows horizontally and the editor keeps most of the
