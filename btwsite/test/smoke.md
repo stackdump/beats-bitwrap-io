@@ -81,6 +81,10 @@ browser. Exit code 1 if any check fails or the page logs a console error.
    closes and is nowhere else; `?mock=1` does nothing off this machine; on the real server (and under `--strict-csp`) the
    headers say no framing, no plugins, no `unsafe-inline`/`unsafe-eval` scripts; every control has an accessible name and each
    panel takes the focus, closes on Esc and gives the focus back.
+13. **The caret is where the text is drawn.** A program with a line long enough to soft-wrap: a click on a glyph as the
+   highlighted `<pre>` draws it puts the textarea's caret just before that glyph, on a short line and on the first and a later
+   row of the wrapped one. (A hanging `text-indent` on both layers drew Chrome's textarea caret 4ch right of the text: the
+   textarea indents every row, the `<pre>` only a wrapped line's later rows.)
 
 ## What it does not cover
 

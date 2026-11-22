@@ -755,6 +755,44 @@ try {
     }
   }
 
+  // ---- 13. the caret is where the text is drawn: the textarea and the highlight layer overlap on every row --------------
+  // A click on a glyph as the highlight <pre> draws it must put the textarea's caret just before that glyph: on a short
+  // line, and on the first and a later row of a line that soft-wraps. (btw.css once gave both layers `text-indent:
+  // <hang> hanging each-line`; Chrome's <textarea> indented every row, the <pre> only the later ones, so the caret drew
+  // 4ch right of the text.)
+  step = 13;
+  if (want()) {
+    await fresh(url());
+    await ready();
+    const long = `deck A: kick x ~ x ~ | hihat x*8 ${Array.from({ length: 30 }, (_, i) => `# wrapped word ${i + 1}`).join(' ')}`;
+    const prog = `tempo 120\n${long}\ndeck B: snare ~ x ~ x\n`;
+    await page.eval(`(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=${JSON.stringify(prog)}; ta.dispatchEvent(new Event("input",{bubbles:true})); ta.blur(); document.querySelector(".ed-code").scrollIntoView({block:"start"});})()`);
+    await sleep(500);
+    // where the <pre> draws the glyph at each text offset, relative to the textarea's box
+    const glyphs = await page.eval(`(()=>{
+      const pre=document.querySelector(".ly-hl"), ta=document.querySelector(".ed-ta"), t=ta.value;
+      const nodes=[]; const w=document.createTreeWalker(pre, NodeFilter.SHOW_TEXT); let n, at=0;
+      while((n=w.nextNode())){ nodes.push([n, at]); at+=n.data.length; }
+      const rect=(k)=>{ for (const [nd, a] of nodes) if (k>=a && k<a+nd.data.length){ const r=document.createRange(); r.setStart(nd,k-a); r.setEnd(nd,k-a+1); const q=r.getClientRects()[0]; return q && {x:q.left, y:q.top, h:q.height}; } return null; };
+      const tr=ta.getBoundingClientRect(); const L=t.indexOf("deck A"); const first=rect(L);
+      const out={rows:0, picks:[]};
+      const add=(name,k)=>{ const q=rect(k); if(q) out.picks.push({name, k, dx:q.x-tr.left+1.5, dy:q.y-tr.top+q.h/2}); };
+      add("a short line", t.indexOf("deck B")+5);
+      add("a wrapped line, first row", L+8);
+      // the first glyph of the long line's second row, and one further along it
+      for (let k=L+1;k<L+${long.length};k++){ const q=rect(k); if (q && q.y>first.y+first.h/2 && t[k]!==" "){ add("a wrapped line, a later row (its first glyph)", k); add("a wrapped line, a later row", k+6); break; } }
+      const tops=new Set(); for (let k=L;k<L+${long.length};k++){ const q=rect(k); if(q) tops.add(Math.round(q.y)); } out.rows=tops.size;
+      return out; })()`);
+    check('the long line soft-wraps (the check has a later row to look at)', glyphs.rows >= 2 && glyphs.picks.length === 4, JSON.stringify(glyphs));
+    for (const g of glyphs.picks) {
+      await page.click('.ed-ta', { dx: g.dx, dy: g.dy });
+      await sleep(60);
+      const got = await page.eval('document.querySelector(".ed-ta").selectionStart');
+      check(`a click on a glyph the highlight draws puts the caret there: ${g.name}`, got === g.k, `caret at ${got}, the glyph is at ${g.k} (${got - g.k} columns off)`);
+    }
+    await shot(13, 'caret-aligned');
+  }
+
   // ---- 10. no console errors anywhere ----------------------------------------------------------------------------------------------------------------
   step = 10;
   const errors = page.errors().filter((e) => !/wasm=off|switched off by/.test(e.text) && !/Failed to load resource.*\/api\/compose/.test(e.text)); // the compose error cases above answer 422/429/503 on purpose

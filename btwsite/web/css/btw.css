@@ -129,10 +129,12 @@ a.tb { text-decoration: none; color: inherit; }
 .gd[data-kind="held"]::after { background: var(--red); }
 .gd[data-kind="flash"]::after { background: var(--amber-2); }
 
-.ed-code { position: relative; flex: 1 1 auto; min-width: 0; font: var(--fs) / var(--lh) var(--mono); --hang: 4ch; /* = HANG in editor.js */ }
+.ed-code { position: relative; flex: 1 1 auto; min-width: 0; font: var(--fs) / var(--lh) var(--mono); --hang: 0ch; /* = HANG in editor.js: no hanging indent (see below) */ }
 .ly { position: absolute; inset: 0; margin: 0; pointer-events: none; }
-/* both layers wrap the same way: the same width, font and rules, and a hanging indent on every row after a line's first */
-.ly-hl, .ed-ta { font: var(--fs) / var(--lh) var(--mono); padding: var(--pady) var(--padx); white-space: pre-wrap; tab-size: 2; -moz-tab-size: 2; letter-spacing: 0; word-spacing: 0; font-variant-ligatures: none; font-kerning: none; text-indent: var(--hang) hanging each-line; border: 0; margin: 0; overflow-wrap: anywhere; word-break: normal; line-break: auto; hyphens: none; box-sizing: border-box; }
+/* both layers wrap the same way: the same width, font and rules. No text-indent: Chrome's <textarea> applies
+   `text-indent: <n> hanging each-line` to every row while the <pre> indents only a wrapped line's later rows, so
+   with it the caret drew 4ch right of the text it edits (test/smoke.mjs checks the two layers' x agree). */
+.ly-hl, .ed-ta { font: var(--fs) / var(--lh) var(--mono); padding: var(--pady) var(--padx); white-space: pre-wrap; tab-size: 2; -moz-tab-size: 2; letter-spacing: 0; word-spacing: 0; font-variant-ligatures: none; font-kerning: none; text-indent: 0; border: 0; margin: 0; overflow-wrap: anywhere; word-break: normal; line-break: auto; hyphens: none; box-sizing: border-box; }
 .ly-hl { color: var(--code); overflow: hidden; }
 .ed-ta { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: #fff; outline: none; z-index: 6; }
 .ed-ta::selection { background: rgba(97,175,239,.38); -webkit-text-fill-color: transparent; }

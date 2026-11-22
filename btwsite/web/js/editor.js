@@ -1,8 +1,8 @@
 // The editor: a <textarea> with transparent text over a <pre> that holds the highlighted copy, both with
 // identical metrics, inside ONE scroll container (the textarea is as tall as its text, so it never scrolls
 // itself and nothing needs syncing). Native typing, IME, selection and undo all stay the browser's. The
-// text soft-wraps: both layers wrap at the same width with the same hanging indent (`text-indent: <hang>
-// hanging each-line`), so they break alike; the editor reads where each long line's rows start off the
+// text soft-wraps: both layers wrap at the same width with no indent, so they break alike (no hanging indent:
+// Chrome's <textarea> indents every row under `text-indent: <n> hanging each-line`, the <pre> only the later rows); the editor reads where each long line's rows start off the
 // <pre> (`wrap`, a wrap-model.js layout), and the layers under and over the text (lamps, bars, squiggles)
 // and the gutter are placed from (line, column) through it.
 
@@ -11,8 +11,9 @@ import { buildLayout, cellXY, pieces, hit, lineTop, rowsOf } from './wrap-model.
 import { spansToHtml, plainSpans } from './highlight.js';
 import { h } from './util.js';
 
-/** The hanging indent of a wrapped line's later rows, in columns (the CSS's --hang must say the same). */
-export const HANG = 4;
+/** The hanging indent of a wrapped line's later rows, in columns (the CSS's --hang must say the same). 0: a
+ *  <textarea> cannot render one the way the <pre> does (btw.css). */
+export const HANG = 0;
 
 /** The <pre>'s text nodes with the text offset each starts at (its text is the program's, plus maybe a trailing space). */
 function textNodes(pre) {
