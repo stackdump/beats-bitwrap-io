@@ -141,6 +141,10 @@ const calls = await import(pathToFileURL(path.join(jsDir, 'engine-calls.js')).hr
     const cr = mapCall('inserts', { action: 'set', target: 'Master', param: 'crush.mix', value: 0.5 }).ops;
     ok('master crush mix is crush-bits at that position, on both decks', cr.length === 2 && cr.every((o) => JSON.parse(o.json).key === 'crush-bits' && JSON.parse(o.json).value === 0.5) && eq(cr.map((o) => o.deck), ['A', 'B']));
     ok('delay is ignored, and says so', mapCall('inserts', { action: 'set', target: 'Master', param: 'delay.mix', value: 0.3 }).ignored.includes('delay'));
+    const fxd = mapCall('fx', { action: 'set', param: 'drive', value: 0.6 }).ops;
+    ok('master drive is the FX unit\'s drive on both decks', fxd.length === 2 && fxd.every((o) => o.type === 'perform' && JSON.parse(o.json).op === 'fx' && JSON.parse(o.json).param === 'drive' && JSON.parse(o.json).value === 0.6) && eq(fxd.map((o) => o.deck), ['A', 'B']));
+    ok('a deck\'s drive is that deck\'s', eq(mapCall('fx', { action: 'set', deck: 'B', param: 'drive', value: 0.3 }).ops.map((o) => o.deck), ['B']));
+    ok('the FX unit\'s other knobs are ignored, and say so', mapCall('fx', { action: 'set', deck: 'A', param: 'crush', value: 0.3 }).ignored.includes('crush'));
     ok('a move is ignored, and says so', mapCall('moves', { action: 'move', name: 'loop_roll', deck: 'A' }).ignored === 'moves');
     ok('the Wheel target is ignored', !!mapCall('inserts', { action: 'set', target: 'Wheel', param: 'filter.sweep', value: 0.3 }).ignored);
     ok('a sound with a kit is setKit', JSON.parse(mapSound('A', 'kick', 'kit:drums-808').json).op === 'setKit');

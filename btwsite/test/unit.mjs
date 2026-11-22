@@ -27,6 +27,7 @@ const { mapCaret } = await J('util.js');
 const { parseMixer, reportedMixer } = await J('mixer-model.js');
 const { makeFacade } = await J('wasm.js');
 const { SHARE_RIGHTS, AUTHORSHIP_PATH } = await J('rights.js');
+const { mapCall } = await J('engine-calls.js');
 const mockMod = (await J('wasm-mock.js')).mockModule();
 
 // the real wasm when it is built, else the mock
@@ -1931,4 +1932,16 @@ test('no page a person reads says "btw": the name is BeatScript', () => {
   // and the check itself sees what it should, and leaves code alone
   assert.equal([...visibleText('<title>btw</title><p>a <code>#! btw 1</code> line, <a href="css/btw.css">btw.css</a>, BTW.</p>').matchAll(STANDALONE_BTW)].length, 2);
   assert.equal([...visibleMarkdown('the `btw` CLI, `#! btw 1`, [link](https://btw.bitwrap.io/x)\n```\nbtw jsonld\n```').matchAll(STANDALONE_BTW)].length, 0);
+});
+
+test('engine-calls: the FX unit\'s drive is the engine\'s own `fx` action on a deck, on both for the master, and nothing else of the unit is played', () => {
+  const op = (deck, value) => ({ type: 'perform', deck, json: JSON.stringify({ op: 'fx', param: 'drive', value }) });
+  assert.deepEqual(mapCall('fx', { action: 'set', deck: 'A', param: 'drive', value: 0.6 }), { ops: [op('A', 0.6)] });
+  assert.deepEqual(mapCall('fx', { action: 'set', param: 'drive', value: 0.25 }), { ops: [op('A', 0.25), op('B', 0.25)] }, 'no deck: both, as `master: drive` is');
+  assert.deepEqual(mapCall('fx', { action: 'set', deck: 'B', param: 'drive', value: 0 }).ops, [op('B', 0)], '0 is sent as 0: the unit at neutral');
+  assert.equal(mapCall('fx', { action: 'set', deck: 'A', param: 'drive', value: 2 }).ops[0].json, op('A', 1).json, 'held to 0..1');
+  assert.match(mapCall('fx', { action: 'set', deck: 'A', param: 'crush', value: 0.5 }).ignored, /fx crush/);
+  assert.match(mapCall('fx', { action: 'set', deck: 'L', param: 'drive', value: 0.5 }).ignored, /on L/);
+  assert.match(mapCall('fx', { action: 'kill', deck: 'A' }).ignored, /fx kill/);
+  for (const p of [null, undefined, 3, 'a', {}, { deck: 3 }, { action: 'set', param: 'drive' }]) mapCall('fx', p);
 });

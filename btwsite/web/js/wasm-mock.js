@@ -7,7 +7,7 @@
 const WORDS = ['tempo', 'swing', 'key', 'let', 'def', 'repeat', 'section', 'arrange', 'import', 'end', 'loop', 'evolve', 'deck', 'master', 'every', 'on', 'at', 'after', 'before', 'for', 'do', 'crossfader', 'swap', 'move', 'load', 'queue', 'play', 'stop', 'sync', 'mute', 'unmute', 'filter', 'delay', 'reverb', 'crush', 'level', 'low', 'mid', 'high', 'resonance'];
 const ROLES = ['kick', 'snare', 'hihat', 'clap', 'bass', 'melody', 'harmony', 'arp'];
 const KEYWORDS = ['deck', 'master', 'every', 'on', 'at', 'bar', 'bars', 'phrase', 'over', 'tempo', 'key', 'swing', 'with', 'pairs', 'pair', 'group', 'section', 'arrange', 'let', 'def', 'repeat', 'end', 'loop', 'evolve', 'before', 'after', 'for', 'from', 'when', 'gen', 'stop', 'import', 'next'];
-const ACTIONS = ['swap', 'move', 'load', 'queue', 'play', 'sync', 'mute', 'unmute', 'filter', 'delay', 'reverb', 'crush', 'level', 'low', 'mid', 'high', 'resonance', 'crossfader'];
+const ACTIONS = ['swap', 'move', 'load', 'queue', 'play', 'sync', 'mute', 'unmute', 'filter', 'delay', 'reverb', 'crush', 'drive', 'level', 'low', 'mid', 'high', 'resonance', 'crossfader'];
 const PARAMS = ['vel', 'oct', 'len', 'inst', 'seed', 'kit', 'sound', 'route'];
 
 // ---- fake CIDs --------------------------------------------------------------------------------

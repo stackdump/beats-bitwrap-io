@@ -17,6 +17,8 @@
  *             target Master, effect crush     mix -> both decks' master FX crushers (crush-bits)
  *             target A | B, effect filter     sweep knob -> the deck strip's filter knob (cutoff mapped across the scales)
  *             target A | B, effect reverb     mix -> that strip's reverb wet
+ *   fx        {action: set, param: drive, deck?, value}                       the deck's FX unit drive (the master chain's
+ *             distortion: 0 is off, bit for bit); no deck is both decks (`master: drive 0.6`), A or B is that deck's
  *   vocoder   {action: set (or none) | swap | add | remove, instance?, carrier?, modulator?, mix, on, insert, ...}
  *             the engine's own vocoder (djrust `live_op("vocoder", ..)`): `carrier=A modulator=B` are decks (also
  *             `deck:A`, `synth`, `voice:robot-choir`), `insert=true` puts the result on the carrier's strip (its fader
@@ -163,6 +165,17 @@ export function mapCall(noun, params) {
             // switching an effect we do not have off is a no-op
         } else {
             skipped.push(`inserts ${effect || p.param || '?'}${target && target !== 'Master' ? ` on ${target}` : ''}`);
+        }
+        break;
+    }
+    case 'fx': {
+        // the FX unit's drive: `deck A: drive 0.6`, and `master: drive 0.6` (the call with no deck: both decks', as the desktop's `fx` noun does)
+        const value = num(p.value);
+        const decks = p.deck === undefined ? DECKS : DECKS.includes(p.deck) ? [p.deck] : [];
+        if (p.action === 'set' && p.param === 'drive' && decks.length) {
+            if (Number.isFinite(value)) for (const deck of decks) ops.push({ type: 'perform', deck, json: JSON.stringify({ op: 'fx', param: 'drive', value: clamp01(value) }) });
+        } else {
+            skipped.push(p.action === 'set' && p.param ? `fx ${p.param}${p.deck && !decks.length ? ` on ${p.deck}` : ''}` : `fx ${p.action || '?'}`);
         }
         break;
     }
