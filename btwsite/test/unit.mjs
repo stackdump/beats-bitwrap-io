@@ -2148,3 +2148,85 @@ test('embed: the position line names the section n/m and the bar in it, and says
   assert.deepEqual(embedModel.positionModel({ song_bar: 6 }, secs, false), { sec: 'not playing', bar: '' });
   assert.deepEqual(embedModel.positionModel(null, null, true), { sec: 'playing', bar: '' });
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// <beatscript-player> (embed.js): a classic script, run here in a vm with just enough of a DOM
+// ---------------------------------------------------------------------------------------------------------------
+
+{
+  const vm = await import('node:vm');
+  const src = fs.readFileSync(path.join(web, 'embed.js'), 'utf8');
+  const el = (tag) => {
+    const a = new Map();
+    return {
+      tag, style: {}, children: [], textContent: '',
+      setAttribute(k, v) { a.set(k, String(v)); },
+      getAttribute(k) { return a.has(k) ? a.get(k) : null; },
+      hasAttribute(k) { return a.has(k); },
+    };
+  };
+  const defined = new Map();
+  class FakeHTMLElement {
+    constructor() {
+      Object.assign(this, el('beatscript-player'));
+      this.isConnected = true;
+      this.shadowRoot = null;
+    }
+    attachShadow({ mode }) {
+      const root = { mode, children: [], replaceChildren(...c) { this.children = c; }, querySelector(s) { return this.children.find((c) => c.tag === s) || null; } };
+      this.shadowRoot = root;
+      return root;
+    }
+  }
+  const ctx = {
+    URL, HTMLElement: FakeHTMLElement,
+    document: { currentScript: { src: 'https://beatscript.app/embed.js' }, createElement: el },
+    customElements: { define: (n, c) => defined.set(n, c), get: (n) => defined.get(n) },
+  };
+  ctx.globalThis = ctx;
+  vm.runInNewContext(src, ctx);
+  const api = ctx.BeatscriptPlayer;
+  const CIDX = 'z4EBG9j9Y9qUpRxjvhRAxx9vWtN8X6xNp6Ci1wAXsQabD7BVmNM';
+
+  test('embed.js: <beatscript-player> is defined and renders a sandboxed iframe of /embed/<CID>, no autoplay', () => {
+    const P = defined.get('beatscript-player');
+    assert.ok(P, 'defined');
+    const p = new P();
+    p.setAttribute('cid', CIDX);
+    p.connectedCallback();
+    const f = p.shadowRoot.children[0];
+    assert.equal(f.tag, 'iframe');
+    assert.equal(f.getAttribute('src'), `https://beatscript.app/embed/${CIDX}`);
+    assert.equal(f.getAttribute('sandbox'), 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+    assert.equal(f.getAttribute('height'), '152');
+    assert.equal(f.getAttribute('allow'), null, 'no autoplay (or anything else) is delegated');
+    assert.equal(f.getAttribute('loading'), 'lazy');
+    assert.equal(f.style.border, '0', 'styled through the CSSOM, never a style attribute');
+    assert.equal(f.getAttribute('style'), null);
+    // compact and light: the query, and an 80 px frame
+    p.setAttribute('compact', '');
+    p.setAttribute('theme', 'light');
+    p.attributeChangedCallback();
+    const g = p.shadowRoot.children[0];
+    assert.equal(g.getAttribute('src'), `https://beatscript.app/embed/${CIDX}?compact=1&theme=light`);
+    assert.equal(g.getAttribute('height'), '80');
+    // nothing to play: a line of text, no frame
+    const q = new P();
+    q.setAttribute('cid', 'nope');
+    q.connectedCallback();
+    assert.equal(q.shadowRoot.children[0].tag, 'p');
+  });
+
+  test('embed.js: a link names its program: /p/, /c/ (with its packed text), the editor\'s ?cid= and #fragment', () => {
+    const s = (link) => api.embedSrc({ link }, 'https://beatscript.app');
+    assert.equal(s(`https://beatscript.app/p/${CIDX}`), `https://beatscript.app/embed/${CIDX}`);
+    assert.equal(s(`https://beatscript.app/p/${CIDX}.jsonld`), `https://beatscript.app/embed/${CIDX}`);
+    assert.equal(s(`https://beatscript.app/c/${CIDX}.eJwrSS0u`), `https://beatscript.app/embed/${CIDX}.eJwrSS0u`);
+    assert.equal(s(`https://beatscript.app/?cid=${CIDX}`), `https://beatscript.app/embed/${CIDX}`);
+    assert.equal(s(`https://beatscript.app/#${CIDX}.eJwrSS0u~notes`), `https://beatscript.app/embed/${CIDX}.eJwrSS0u`);
+    assert.equal(s('https://beatscript.app/docs/'), null);
+    assert.equal(s('not a url at all %%%'), null);
+    assert.equal(api.embedSrc({ cid: CIDX, link: 'https://x.example/' }, 'https://beatscript.app'), `https://beatscript.app/embed/${CIDX}`, 'cid wins');
+    assert.equal(api.origin, 'https://beatscript.app', 'the frame comes from where the script came from');
+  });
+}
