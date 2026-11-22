@@ -125,12 +125,19 @@ export class Editor {
   // ---- metrics --------------------------------------------------------------------------------
 
   measureNow() {
+    // The measured --lh / --cw go on .ed-body, the common ancestor of the gutter and the code, so the gutter's rows
+    // and the text's lines use the same line height. (On .ed-code alone, the gutter kept the stylesheet's :root --lh:
+    // after a load under the 760 px breakpoint (--lh 20px) and a widen (:root 21px), every gutter row and marker drifted
+    // 1 px per line.) Clear them first, so this reads the stylesheet's value for the viewport now, not the one it set
+    // last time: the measurement is then the stylesheet's own --lh and first paint does not jump.
+    this.body.style.removeProperty('--lh');
+    this.body.style.removeProperty('--cw');
     const cs = getComputedStyle(this.pre);
     const w = this.measure.getBoundingClientRect().width / this.measure.textContent.length;
     const lh = parseFloat(cs.lineHeight) || 21;
     this.metrics = { charW: w || 8, lineH: lh, padTop: parseFloat(cs.paddingTop) || 0, padLeft: parseFloat(cs.paddingLeft) || 0, hang: HANG };
-    this.code.style.setProperty('--cw', `${this.metrics.charW}px`);
-    this.code.style.setProperty('--lh', `${this.metrics.lineH}px`);
+    this.body.style.setProperty('--cw', `${this.metrics.charW}px`);
+    this.body.style.setProperty('--lh', `${this.metrics.lineH}px`);
     this._size();
   }
 

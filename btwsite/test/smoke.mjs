@@ -793,6 +793,41 @@ try {
     await shot(13, 'caret-aligned');
   }
 
+  // ---- 14. the gutter rows sit on the text lines --------------------------------------------------------------------------------------------------
+  step = 14;
+  if (want()) {
+    const prog = `tempo 120\n${Array.from({ length: 59 }, (_, i) => `# line ${i + 2}`).join('\n')}\n`;
+    // gutter row N's top and text line N's top (the glyph box of the line's first character, centred in its line box)
+    const rowsVsText = () => page.eval(`(()=>{
+      const pre=document.querySelector(".ly-hl"), t=document.querySelector(".ed-ta").value, rows=[...document.querySelectorAll(".ed-gutter .gl")];
+      const lh=parseFloat(getComputedStyle(pre).lineHeight);
+      const nodes=[]; const w=document.createTreeWalker(pre, NodeFilter.SHOW_TEXT); let n, at=0; while((n=w.nextNode())){ nodes.push([n, at]); at+=n.data.length; }
+      const top=(k)=>{ for (const [nd, a] of nodes) if (k>=a && k<a+nd.data.length){ const r=document.createRange(); r.setStart(nd,k-a); r.setEnd(nd,k-a+1); const q=r.getClientRects()[0]; return q ? q.top + q.height/2 - lh/2 : null; } return null; };
+      const starts=[0]; for (let i=0;i<t.length;i++) if (t[i]==="\\n") starts.push(i+1);
+      return [1, 20, 50].map((L)=>({ L, gutter: rows[L-1] ? rows[L-1].getBoundingClientRect().top : null, text: top(starts[L-1]) })); })()`);
+    const load = async () => {
+      await page.eval(`(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=${JSON.stringify(prog)}; ta.dispatchEvent(new Event("input",{bubbles:true})); ta.blur();})()`);
+      await sleep(400);
+    };
+    const judge = (how, got) => {
+      for (const g of got) check(`${how}: gutter row ${g.L} is on text line ${g.L} (within 1 px)`, g.gutter != null && g.text != null && Math.abs(g.gutter - g.text) <= 1, JSON.stringify(g));
+    };
+    await fresh(url());
+    await ready();
+    await load();
+    judge('at 1280 px', await rowsVsText());
+    // the case Matt saw: a page that loads under the 760 px breakpoint (--lh 20px) and is then widened (--lh 21px)
+    await page.resize(700, 800);
+    await fresh(url());
+    await ready();
+    await load();
+    await page.resize(1280, 800);
+    await page.eval('window.dispatchEvent(new Event("resize"))');
+    await sleep(400);
+    judge('loaded at 700 px, widened to 1280 px', await rowsVsText());
+    await shot(14, 'gutter-aligned');
+  }
+
   // ---- 10. no console errors anywhere ----------------------------------------------------------------------------------------------------------------
   step = 10;
   const errors = page.errors().filter((e) => !/wasm=off|switched off by/.test(e.text) && !/Failed to load resource.*\/api\/compose/.test(e.text)); // the compose error cases above answer 422/429/503 on purpose

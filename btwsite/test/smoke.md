@@ -85,6 +85,10 @@ browser. Exit code 1 if any check fails or the page logs a console error.
    highlighted `<pre>` draws it puts the textarea's caret just before that glyph, on a short line and on the first and a later
    row of the wrapped one. (A hanging `text-indent` on both layers drew Chrome's textarea caret 4ch right of the text: the
    textarea indents every row, the `<pre>` only a wrapped line's later rows.)
+14. **The gutter rows sit on the text lines.** A 60-line program: gutter row N's top equals text line N's top within 1 px at
+   lines 1, 20 and 50, at 1280 px and again after a load at 700 px and a widen to 1280 px. (editor.js set the measured `--lh`
+   on `.ed-code` only, so the gutter kept the stylesheet's; across the 760 px breakpoint the two were 20 and 21 px and the
+   gutter, with its run and playing markers, drifted a row low by line ~20.)
 
 ## What it does not cover
 
