@@ -12,7 +12,7 @@ const seg = (re, what) => (v) => {
 };
 const cidSeg = seg(CID_RE, 'a CID');
 const nameSeg = seg(EXAMPLE_RE, 'an example name');
-// what the server's renderer is (internal/btwsite/api RenderVersion): part of every render URL, so a renderer change is a new URL
+// what the server's renderer is (btwserve service::RENDER_VERSION, djrust-vevr-se crates/btwserve; it was Go internal/btwsite/api RenderVersion): part of every render URL, so a renderer change is a new URL
 export const RENDER_VERSION = 'r2';
 export const EXPORT_VERSION = 'x1';
 export const EXPORT_FORMATS = ['midi', 'stems', 'stems-opus'];

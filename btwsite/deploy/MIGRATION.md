@@ -45,5 +45,6 @@ A phone that never got the new build re-pairs by QR code (one scan; its key is k
 
 ## Checks that fail loudly
 
-- `go test ./internal/btwsite/server -run 'Portable|Moved|PairV|SiteDoc|AltOrigins'` pins the move behaviour.
+- btwserve's tests pin the move behaviour (djrust-vevr-se crates/btwserve; they were the retired Go server's
+  `internal/btwsite/server` Portable/Moved/PairV/SiteDoc/AltOrigins tests).
 - No host literal may be added outside tests, docs and the `-public-url` default: `scripts/btw-host-literals.sh`.

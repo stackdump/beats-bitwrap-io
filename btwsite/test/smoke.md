@@ -9,13 +9,10 @@ service that speaks the routes of DESIGN.md "HTTP API" (and runs the **real wasm
 node btwsite/test/smoke.mjs                            everything, against the mock server
 node btwsite/test/smoke.mjs --only 2,3                 only those steps
 node btwsite/test/smoke.mjs --mock-wasm                page and server on the JS mock of the wasm (?mock=1)
-node btwsite/test/smoke.mjs --server http://127.0.0.1:18197   against the real Go server (btwsite -btwd ... -model fake);
+node btwsite/test/smoke.mjs --server http://127.0.0.1:18199   against a real btwserve (djrust-vevr-se crates/btwserve);
                                                        the compose error cases (FAIL, LIMIT, NOKEY prompts) and the
                                                        pushed-event checks are the mock's, the real server gets the
                                                        MCP JSON-RPC variant of step 7
-CHROME=/usr/bin/google-chrome node btwsite/test/docs-smoke.mjs
-                                                       the HTML docs (/docs/*): real Go renderer under the strict CSP; highlight, Copy, and "Try it" opening the
-                                                       editor at /#<CID>.<packed> with the block's text (go run ./btwsite/test/docssite)
 node --test btwsite/test/unit.mjs                      the pure-JS unit tests (no browser)
 node btwsite/test/mobile.mjs [--shots DIR]             the phone layout (412 x 915, touch) and that the desktop one is unchanged
 node btwsite/test/mobile-shots.mjs --prefix before     screenshots of the page as a phone shows it, for before/after

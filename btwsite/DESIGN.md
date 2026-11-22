@@ -1,6 +1,17 @@
 # btw.bitwrap.io — design and contracts
 
-One page, one Go service, one Rust renderer, one wasm module. This file is the contract the parts are
+> **Status (2026-11-22): beatscript.app runs only btwserve (Rust).** The server is btwserve (djrust-vevr-se
+> `crates/btwserve`, the `btw-rust` service on pflow.dev, `127.0.0.1:18099`, behind nginx upstream `btw_front`). The Go
+> btwsite server described below (`cmd/btwsite`, `internal/btwsite/**`, the `btw-bitwrap` service on `:18097`) is
+> **retired and its code removed** from this repo (djrust-vevr-se `docs/RUST-SERVER.md` §7, P8). What stays here is
+> what btwserve reads from its checkout (`~/Workspace/btw-bitwrap-io` on pflow.dev): `btwsite/web` (+ the built wasm),
+> `btwsite/examples`, `btwsite/web/docs`, and `internal/btwsite/docs/{api.md,assets/}` (its `-docs-src`), plus the
+> public test fixtures in `btwsite/testdata` that btwserve's tests pin. Deploy: `btwsite/deploy/deploy.sh` (host,
+> artifacts, nginx) and djrust-vevr-se `crates/btwserve/deploy/cutover.sh install` (the binary and its `~/services`
+> entry). The Go sections below are kept as the history of the contracts btwserve was ported against; where they
+> name a Go file, the code is in btwserve now.
+
+One page, one Go service, one Rust renderer, one wasm module (as first built; the Go service is now btwserve). This file is the contract the parts are
 built against in parallel; if you must deviate, change this file in the same commit and say so.
 
 Readers: Matt in the morning, and the agents building the parts. Keep it true.
@@ -61,7 +72,8 @@ btwsite/examples/              G3   *.btw + index.json
 btwsite/testdata/              each owner makes subdirs: testdata/{compose,render,mcp,corpus}
 ```
 No new Go module dependencies (stdlib + what `go.mod` has). Port for tests: pick a random free port; the
-deployed service listens on `:18097`.
+deployed service listened on `:18097` (Go, retired); btwserve listens on `:18099`. Of the Go rows above only
+`internal/btwsite/docs/` survives, as data: `api.md` and `assets/` are btwserve's `-docs-src`.
 
 ## Rust side (R1, R2) — in the djrust-vevr-se worktree
 
@@ -244,7 +256,10 @@ func server.New(cfg server.Config) (*server.Server, error)            // builds 
 ```
 G1 wires G2/G3/G4 last, once their commits exist (`git log --oneline -- internal/btwsite/compose` etc.); until then stub with the interface.
 
-## Go server (G1, G2, G3, G4) — `internal/btwsite/…`
+## Go server (G1, G2, G3, G4) — `internal/btwsite/…` (retired, removed; history)
+
+The Go code this section describes was removed when btwserve took every route (2026-11-22). The contracts held:
+btwserve ported them one for one.
 
 Shared types, interfaces and the typed `*api.Error` are in `internal/btwsite/api/api.go`. All JSON errors are
 `{"error":{"code":"…","message":"…","retry_after":30}}` with the HTTP status in `api.Error.Status`.
@@ -522,5 +537,10 @@ Measured against the real release `btwd`: a 12 KB `evolve` program takes 4 s to 
 - Real model: if a key is present, three composes ("dark techno 128 with an acid line", "happy hardcore 174", "ambient piano with evolving arp"): programs, CIDs, attempts, cost recorded in `btwsite/testdata/compose/real-<date>.json`.
 
 ## Deploy (lead)
-pflow.dev, nginx vhost + Let's Encrypt like `windwheel.bitwrap.io`; service `btw-bitwrap` on `:18097` via `~/services` with env in `~/.env-services/btw-bitwrap` (0600; the Gemini key is copied there
+**Now:** btwserve only. `btwsite/deploy/deploy.sh host` and `artifacts` (wasm + sidecars, docs), then djrust-vevr-se
+`crates/btwserve/deploy/cutover.sh install` (copies `btwsite/bin/btwserve`, rewrites the `btw-rust` CMD in `~/services`,
+env through `~/.env-services/btw-rust` → `btw-bitwrap`), then `deploy.sh verify-beatscript`. Both vhosts proxy to
+upstream `btw_front` (`btwsite/deploy/nginx/btw-front.conf`, `127.0.0.1:18099`). Nothing on the host is built from Go.
+
+**As first deployed (Go, retired):** pflow.dev, nginx vhost + Let's Encrypt like `windwheel.bitwrap.io`; service `btw-bitwrap` on `:18097` via `~/services` with env in `~/.env-services/btw-bitwrap` (0600; the Gemini key is copied there
 on the host, never printed, never committed); `btwd` binary scp'd to `~/Workspace/btw-bitwrap-io/bin/btwd`; checkout of `feat/btw-site` (no merge to `main`).

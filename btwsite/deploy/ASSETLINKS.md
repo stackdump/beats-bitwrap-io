@@ -33,7 +33,7 @@ Only `beatscript.app` needs the file: the app autoVerifies that host alone.
 `/.well-known/` falls into `location /` and is 301'd to beatscript.app. Android verifies the host it claims and does not
 need the file on btw.bitwrap.io, so leaving the redirect is correct and keeps "served on beatscript.app only". If the app
 ever claims `btw.bitwrap.io/p` or `beats.bitwrap.io/p` with autoVerify, each of those hosts must itself serve the file
-(on btw.bitwrap.io that means adding `location /.well-known/assetlinks.json` proxying to 127.0.0.1:18097 above `location /`).
+(on btw.bitwrap.io that means adding `location /.well-known/assetlinks.json` proxying to upstream btw_front (btwserve, 127.0.0.1:18099) above `location /`).
 
 ## Check
 

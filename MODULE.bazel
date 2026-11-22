@@ -38,4 +38,4 @@ go_deps = use_extension("@bazel_gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 
 # `bazel mod tidy` populates this use_repo list from the go.mod graph.
-use_repo(go_deps, "com_github_chromedp_cdproto", "com_github_chromedp_chromedp", "com_github_decred_dcrd_dcrec_secp256k1_v4", "com_github_fogleman_gg", "com_github_gorilla_websocket", "com_github_mark3labs_mcp_go", "com_github_pflow_xyz_go_pflow", "com_github_santhosh_tekuri_jsonschema_v5", "com_github_santhosh_tekuri_jsonschema_v6", "com_github_skip2_go_qrcode", "com_github_yuin_goldmark", "com_gitlab_gomidi_midi_v2", "org_golang_x_crypto", "org_golang_x_image", "org_modernc_sqlite")
+use_repo(go_deps, "com_github_chromedp_cdproto", "com_github_chromedp_chromedp", "com_github_decred_dcrd_dcrec_secp256k1_v4", "com_github_fogleman_gg", "com_github_gorilla_websocket", "com_github_mark3labs_mcp_go", "com_github_pflow_xyz_go_pflow", "com_github_santhosh_tekuri_jsonschema_v5", "com_github_santhosh_tekuri_jsonschema_v6", "com_github_skip2_go_qrcode", "com_gitlab_gomidi_midi_v2", "org_golang_x_crypto", "org_golang_x_image", "org_modernc_sqlite")

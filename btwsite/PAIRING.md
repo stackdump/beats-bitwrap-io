@@ -2,7 +2,7 @@
 
 The BeatScript Android app (beatscript-app, formerly djandroid; `app.beatscript`) connects to the btw site by scanning a QR
 code. Once paired, the site (and an assistant over its MCP) can send btw programs to the phone and
-play them there, and the site sees what the phone plays. Server: `internal/btwsite/server/pair.go`.
+play them there, and the site sees what the phone plays. Server: btwserve `crates/btwserve/src/hub/pair.rs` in djrust-vevr-se (ported from the retired Go `internal/btwsite/server/pair.go`).
 Phone: djandroid `rust/src/btwpair.rs` (the protocol core, `network` feature only) and
 `app/src/network/java/.../btw/BtwPairingImpl.kt` (the transport). The phone's side is in djandroid
 `docs/BTW-PAIR.md`.

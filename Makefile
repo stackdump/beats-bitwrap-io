@@ -13,7 +13,6 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
-	@mkdir -p btwsite/bin && go build -o btwsite/bin/btwsite ./cmd/btwsite
 
 run: build
 	./$(BINARY) -addr $(ADDR)
@@ -391,22 +390,14 @@ test-djwasm-030-browser:
 test-djrust-newglue:
 	@DJRUST_GLUE=$(DJRUST_WASM) node --import ./scripts/djrust-glue-hook.mjs scripts/test-djrust-wasm.mjs
 
-# --- btw.bitwrap.io (btwsite/DESIGN.md) ---
-#   btwsite-build   the server binary -> btwsite/bin/btwsite (gitignored)
-#   btwsite-test    go vet + the btwsite packages under -race (BTWD_BIN=<btwd> adds the real-binary tests)
-#   btwsite-run     serve on :18097 (fake model unless BTW_MODEL / GEMINI_API_KEY say otherwise); BTWD = the btwd executable
+# --- beatscript.app (btwsite/DESIGN.md) ---
+# The server is btwserve (Rust, djrust-vevr-se crates/btwserve); the Go btwsite server is retired. This repo keeps
+# the page (btwsite/web), the examples, the test fixtures and the docs data btwserve reads (-docs-src
+# internal/btwsite/docs). btwsite-test is the checks that are still here: host literals in the page.
 BTWD ?= $(CURDIR)/btwsite/bin/btwd
-btwsite-build:
-	@mkdir -p btwsite/bin
-	go build -o btwsite/bin/btwsite ./cmd/btwsite
-
 btwsite-test:
 	scripts/btw-host-literals.sh
-	go vet ./cmd/btwsite/ ./internal/btwsite/...
-	go test -race -count=1 ./cmd/btwsite/ ./internal/btwsite/...
-
-btwsite-run: btwsite-build
-	BTW_MODEL=$${BTW_MODEL:-fake} btwsite/bin/btwsite -web btwsite/web -examples btwsite/examples -docs btwsite/web/docs -data $${BTW_DATA:-./data/btwsite} -btwd $(BTWD) -public-url $${BTW_PUBLIC_URL:-http://localhost:18097}
+	node --test btwsite/test/unit.mjs
 
 # parity: does the page's in-browser ENGINE sound like the server's STREAM (btwd render)? btwsite/test/parity/README.md.
 #   needs btwsite/web/wasm (djrust-vevr-se scripts/build-web-wasm.sh), Chrome, and btwd (BTWD). Skips when one is missing.
@@ -416,5 +407,5 @@ parity:
 	BTWD_BIN=$(BTWD) node btwsite/test/parity/run.mjs --corpus $(PARITY_CORPUS) $(PARITY_ARGS)
 	BTWD_BIN=$(BTWD) node btwsite/test/parity/loop.mjs
 
-.PHONY: btwsite-build btwsite-test btwsite-run parity
+.PHONY: btwsite-test parity
 

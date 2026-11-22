@@ -18,6 +18,6 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     # the site document stays readable here so a phone that was away can still learn where the site went
-    location = /.well-known/btw-site { proxy_pass http://127.0.0.1:18097; proxy_set_header Host $host; }
+    location = /.well-known/btw-site { proxy_pass http://btw_front; proxy_set_header Host $host; }
     location / { return 308 https://@NEW@$request_uri; }
 }

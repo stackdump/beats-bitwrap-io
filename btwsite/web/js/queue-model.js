@@ -64,7 +64,7 @@ export class PresenceTracker {
 }
 
 /**
- * The server's rule (internal/btwsite/server/queue.go verdict), page side: why a track boundary now would pause, or ''.
+ * The server's rule (btwserve crates/btwserve/src/hub, ported from the retired Go server/queue.go verdict), page side: why a track boundary now would pause, or ''.
  * `auto` is the advances made since the last interaction, as the queue's view says (auto_advanced).
  */
 export function pauseReason(presence, { auto = 0, interactedSinceAdvance = false } = {}, cfg = DEFAULTS) {

@@ -132,6 +132,14 @@ The share-v1 format is an IR — any producer that emits valid JSON against the 
 
 > *A prompt is a wish. A Petri net is a score.*
 
+## BeatScript site (`btwsite/`)
+
+`btwsite/` holds the public half of [beatscript.app](https://beatscript.app): the page (`btwsite/web`), the CC0
+example programs, test fixtures, and the nginx/deploy files. **beatscript.app runs only btwserve**, the Rust server
+in the private engine repo; the Go `btwsite` server that used to live here (`cmd/btwsite`, `internal/btwsite`) is
+retired. `internal/btwsite/docs/` keeps `api.md` and its assets because btwserve reads them (`-docs-src`). Design and
+deploy: `btwsite/DESIGN.md`, `btwsite/deploy/deploy.sh`.
+
 ## Acknowledgments
 
 The entire sequencer is a **[Petri net](https://en.wikipedia.org/wiki/Petri_net)** executor — every note that plays is a transition firing, every rhythm is tokens circulating through places. Carl Adam Petri's 1962 formalism is the runtime, not just an inspiration.
