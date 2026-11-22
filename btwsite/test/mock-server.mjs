@@ -59,6 +59,7 @@ const nonces = new Map();
 const users = new Map(); // cookie -> user
 const tokens = new Map(); // token -> user
 const renderLog = [];
+const programGets = []; // the CIDs fetched with GET /api/programs/<cid>, in order (the page fetches what a program imports once)
 
 function loadExamples() {
   let list = [];
@@ -209,6 +210,7 @@ async function route(req, res) {
       programs.set(cid, programs.get(cid) || { text: c.canonical, meta: { license: 'CC0-1.0', source: 'put' } });
       return send(res, 200, { cid, ok: true });
     }
+    programGets.push(cid);
     const pr = programs.get(cid);
     if (!pr) return err(res, 404, 'not_found', `no program ${cid}`);
     if (mm[2]) return send(res, 200, `#! license: CC0-1.0\n${pr.text}`);
@@ -276,6 +278,7 @@ async function route(req, res) {
   if ((mm = /^\/__state\/([^/]+)$/.exec(p))) { const s = sessions.get(mm[1]); return s ? send(res, 200, { state: s.state, replies: s.replies, last: s.last }) : err(res, 404, 'no_session', 'no such session'); }
   if (p === '/__sessions') return send(res, 200, [...sessions.keys()]);
   if (p === '/__renders') return send(res, 200, renderLog);
+  if (p === '/__gets') return send(res, 200, programGets);
 
   // static
   let file = path.join(WEB, p === '/' ? 'index.html' : p);

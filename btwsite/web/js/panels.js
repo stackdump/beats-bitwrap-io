@@ -687,6 +687,8 @@ export class Panels {
         mk.disabled = true;
         try {
           const cur = this.lastShare;
+          // what the program imports is kept first: the server checks it against what it keeps
+          await app.storeClosure(app.report);
           paintShort(await app.api.putShare(cur.cid, { text: cur.canonical }));
         } catch (e) {
           mk.disabled = false;

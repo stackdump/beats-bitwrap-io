@@ -29,6 +29,8 @@ export function makeFacade(mod, wasmUrl = null) {
     fmt: (text) => j(mod.btw_fmt(text)),
     open: (s) => j(mod.btw_open(s)),
     share: (text, sig = null, notes = null) => j(mod.btw_share(text, sig, notes)),
+    /** Tell the module a program by CID and canonical text (what the server answers for the CID, or a link carried): an `import` of it then checks. null when the module predates it. */
+    know: typeof mod.btw_know === 'function' ? (cid, text) => j(mod.btw_know(cid, text)) : null,
     instruments: () => j(mod.btw_instruments()),
     generation: (text, scope, n) => j(mod.btw_generation(text, scope || null, n)),
     cheatsheet: () => mod.btw_cheatsheet(),

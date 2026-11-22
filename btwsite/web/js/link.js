@@ -1,11 +1,13 @@
 // Opening a link: what to do with the bytes of a stranger's link before the module sees them. Pure (no DOM), so Node tests it.
 //
-// A btw link is `#<CID>.<base64url(deflate(canonical text))>[.<sig>][~<base64url(deflate(notes))>]`. The module inflates
+// A btw link is `#<CID>.<base64url(deflate(canonical text))>[.<sig>][~<base64url(deflate(notes))>][*<base64url(deflate(programs))>]`:
+// after the `*`, the programs the text draws on (an `import`), each by its CID, which the module hashes before it uses one, and which
+// the page keeps (`open` answers them as `bundle`). The module inflates
 // it (to at most 1 MiB) and then parses, compiles and checks what came out, all in the page's one thread. A link of a few
 // KB can inflate to 1 MiB, and checking that much text takes minutes (a 6 KB program of evolve blocks takes ~2.7 s), so
 // the page looks at what a link would inflate to first, and refuses the link when it is more than a program is allowed.
 
-import { MAX_LOAD_TEXT, MAX_LINK_CHARS } from './util.js';
+import { MAX_LOAD_TEXT, MAX_LINK_CHARS, MAX_LINK_BUNDLE } from './util.js';
 
 /**
  * The fragment of a `location.hash`, percent-decoded when it can be. A malformed escape (`#%`, `#%E0%A4%A`) is a link
@@ -73,14 +75,24 @@ export async function inflatedLength(bytes, cap) {
  * Whether a link may go to the module: {ok: true}, or {ok: false, error} in words for the banner. `cap` is the most
  * text a link's program (or its notes) may inflate to.
  */
-export async function guardLink(input, cap = MAX_LOAD_TEXT) {
+export async function guardLink(input, cap = MAX_LOAD_TEXT, bundleCap = MAX_LINK_BUNDLE) {
   const s = String(input || '');
   if (s.length > MAX_LINK_CHARS) return { ok: false, error: `this link is ${s.length.toLocaleString('en-US')} characters long, and the page opens links of at most ${MAX_LINK_CHARS.toLocaleString('en-US')}` };
-  for (const tok of packedCandidates(s)) {
+  // the program and its notes are one bound, the programs it draws on (after the `*`) another
+  const star = s.indexOf('*');
+  const head = star < 0 ? s : s.slice(0, star);
+  const bundle = star < 0 ? '' : s.slice(star + 1);
+  for (const tok of packedCandidates(head)) {
     const bytes = b64uBytes(tok);
     if (!bytes) continue;
     const n = await inflatedLength(bytes, cap);
     if (n != null && n > cap) return { ok: false, error: `the text in this link is larger than ${cap.toLocaleString('en-US')} bytes, and the page opens programs of at most that (the server keeps 16,384). It was not opened` };
+  }
+  for (const tok of packedCandidates(bundle)) {
+    const bytes = b64uBytes(tok);
+    if (!bytes) continue;
+    const n = await inflatedLength(bytes, bundleCap);
+    if (n != null && n > bundleCap) return { ok: false, error: `the programs this link carries are larger than ${bundleCap.toLocaleString('en-US')} bytes together, and the page opens links that carry at most that. It was not opened` };
   }
   return { ok: true };
 }

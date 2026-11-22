@@ -19,6 +19,7 @@ import { describeError, diagLine, diagDetails, summary, ApiError } from './error
 import { suggestionsFor } from './suggest.js';
 import { h, debounce, fmtTime, shortCid, accountKind, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
 import { fragmentOf, guardLink } from './link.js';
+import { Resolver } from './closure.js';
 import { lineStarts, lineOf, makeByteMapper, spanRange } from './geometry.js';
 import { early, install } from './record.js';
 import { Background } from './background.js';
@@ -227,6 +228,12 @@ export class App {
     try {
       if (this.q.get('wasm') === 'off') throw new Error('the module is switched off by ?wasm=off');
       this.btw = await loadBtw({ mock: this.mock });
+      // the programs a text draws on (an `import`): fetched once by CID and told to the module, which never fetches (closure.js)
+      this.resolver = new Resolver({
+        fetchProgram: async (cid) => { const p = await this.api.getProgram(cid); this.stored.add(cid); return p; },
+        know: this.btw.know,
+        onChange: () => this.checkSoon(),
+      });
       this.driver = new Driver(this.btw);
       this.editor.setHighlighter((t) => this.btw.highlight(t));
       // completion, hover, fixes, the outline (assist.js): off in record mode, and where the module has no language service
@@ -372,6 +379,7 @@ export class App {
     const p = await this.api.getProgram(cid);
     const text = p.text;
     this.setProgram(text, { name: (p.meta && p.meta.name) || '', cid });
+    await this.settleClosure();
     if (!this.report || !this.report.ok || this.report.cid !== cid) {
       const got = this.report && this.report.cid;
       this.banner({ kind: 'error', text: `Refused: the server's text for ${shortCid(cid)} is a different program${got ? ` (${shortCid(got)})` : ''}. It was not loaded to play.` });
@@ -412,6 +420,7 @@ export class App {
       if (CID_RE.test(s)) {
         const p = await this.api.getProgram(s);
         this.setProgram(p.text, { name: (p.meta && p.meta.name) || '', cid: s, keepHash: true });
+        await this.settleClosure();
         if (!this.report.ok || this.report.cid !== s) {
           this.banner({ kind: 'error', text: `Refused: the server's program for ${shortCid(s)} hashes to ${shortCid(this.report.cid || 'nothing')}. Not loaded.` });
           return;
@@ -431,6 +440,8 @@ export class App {
         this.banner({ kind: 'error', text: `Refused: ${String(r.error || 'the link does not match its own CID').replace(/^refused:\s*/i, '')}.` });
         return;
       }
+      // the programs the link carried are kept (each hashed by the module), so the text checks, and edits check, with nothing fetched
+      if (this.resolver) this.resolver.keepBundle(r.bundle);
       this.setProgram(r.canonical, { cid: r.cid, keepHash: true });
       this.openedBanner(r.cid, 'link verified: its text hashes to its CID', r.warnings);
     } catch (e) {
@@ -470,7 +481,14 @@ export class App {
     if (!this.btw) return null;
     const text = this.editor.text;
     let r;
-    try { r = this.btw.check(text); } catch (e) { console.warn('btw: check failed', e); return null; }
+    try {
+      r = this.btw.check(text);
+      // a program the text draws on is fetched if it is not had; a "not here" at one on its way is not shown yet
+      if (this.resolver && this.resolver.on) {
+        this.resolver.want(text);
+        r = this.resolver.settle(r, text);
+      }
+    } catch (e) { console.warn('btw: check failed', e); return null; }
     this.report = r;
     this.reportText = text;
     this.editor.setDiagnostics(r.diagnostics || []);
@@ -644,6 +662,11 @@ export class App {
     try {
       this.ensureAudio();
       this.watchAudio();
+      // what the text draws on is on its way at most a moment: wait for it rather than refuse a program that is about to check
+      if (this.resolver && this.resolver.on) {
+        this.resolver.want(this.editor.text);
+        await this.resolver.settled();
+      }
       const text = this.editor.text;
       const report = this.runCheckNow();
       if (!report || !report.ok) {
@@ -730,8 +753,31 @@ export class App {
     this.afterEval(text, report, res);
   }
 
+  /** Wait for what the text in the editor draws on, then check it again: a program fetched by CID that imports is not checked until what it imports is here. */
+  async settleClosure() {
+    if (!this.resolver || !this.resolver.on) return;
+    this.resolver.want(this.editor.text);
+    if (!this.resolver.pending.size) return;
+    await this.resolver.settled();
+    this.runCheckNow();
+  }
+
+  /**
+   * Store the programs a report says it drew on, leaves first (what a program needs comes before it): the server checks what it is
+   * asked to keep or render against what it keeps, so a program that imports is stored after what it imports.
+   */
+  async storeClosure(report) {
+    if (!this.resolver) return;
+    for (const [cid, text] of this.resolver.closureOf(report)) {
+      if (this.stored.has(cid) || this.examples.some((e) => e.cid === cid)) continue;
+      await this.api.putProgram(cid, text);
+      this.stored.add(cid);
+    }
+  }
+
   async ensureStored(report) {
     if (this.stored.has(report.cid)) return;
+    await this.storeClosure(report);
     await this.api.putProgram(report.cid, report.canonical);
     this.stored.add(report.cid);
     // streaming is the server rendering the program, so the server keeps it: say so once (an example is the server's own)

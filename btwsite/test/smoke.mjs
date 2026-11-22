@@ -841,9 +841,41 @@ try {
     await shot(14, 'gutter-aligned');
   }
 
+  // ---- 15. an import of a CID: fetched once, kept, told to the module; one that is not there says so ------------------------------------------------
+  step = 15;
+  if (want()) {
+    await fresh(url());
+    await ready();
+    const post = (u, body, ct = 'application/json') => fetch(T(u), { method: u.startsWith('api/programs/') ? 'PUT' : 'POST', headers: { 'Content-Type': ct }, body });
+    const lib = 'let riff = c2 e2 g2 b2\n';
+    const f = await (await post('api/fmt', JSON.stringify({ text: lib }))).json();
+    await post(`api/programs/${f.cid}`, f.canonical, 'text/plain');
+    const type = async (text) => {
+      await page.eval(`(()=>{const ta=document.querySelector(".ed-ta"); ta.focus(); ta.value=${JSON.stringify(text)}; ta.dispatchEvent(new Event("input",{bubbles:true})); ta.blur();})()`);
+      await sleep(500);
+      // what the text draws on is on its way at most a moment: wait for it (no fixed sleep to be too short on a busy machine), then look
+      await page.eval('(async()=>{ await __app.resolver.settled(); __app.runCheckNow(); return true })()', true);
+    };
+    const gets = async (cid) => (await (await fetch(T('__gets'))).json()).filter((c) => c === cid).length;
+    const prog = `tempo 120\nimport ${f.cid}\ndeck A: bass riff\n`;
+    await type(prog);
+    check('a program that imports a CID checks once the page has fetched it (no "not here" left)', (await page.eval('__app.report && __app.report.ok')) === true, JSON.stringify(await page.eval('__app.report && __app.report.diagnostics')));
+    check('it was fetched once', (await gets(f.cid)) === 1, `${await gets(f.cid)} fetches`);
+    await type(`${prog}deck B: kick x ~ x ~\n`);
+    check('an edit of it checks again with nothing fetched: the program is kept by CID', (await page.eval('__app.report && __app.report.ok')) === true && (await gets(f.cid)) === 1, `${await gets(f.cid)} fetches`);
+    // a CID the server does not have: not here, in the module's words, on the import's line; asked for once, not on every keystroke
+    const ghost = `z${'2'.repeat(44)}`;
+    await type(`tempo 120\nimport ${ghost}\ndeck A: bass riff\n`);
+    const d = await page.eval('(__app.report && __app.report.diagnostics || []).map((x) => x.message)');
+    check('a CID that is not here says so, in words', d.some((m) => /is not here/.test(m)), JSON.stringify(d));
+    await type(`tempo 121\nimport ${ghost}\ndeck A: bass riff\n`);
+    check('and is asked for once, however often the text is checked', (await gets(ghost)) === 1, `${await gets(ghost)} fetches`);
+    await shot(15, 'import-by-cid');
+  }
+
   // ---- 10. no console errors anywhere ----------------------------------------------------------------------------------------------------------------
   step = 10;
-  const errors = page.errors().filter((e) => !/wasm=off|switched off by/.test(e.text) && !/Failed to load resource.*\/api\/compose/.test(e.text)); // the compose error cases above answer 422/429/503 on purpose
+  const errors = page.errors().filter((e) => !/wasm=off|switched off by/.test(e.text) && !/Failed to load resource.*\/api\/compose/.test(e.text) && !/Failed to load resource.*\/api\/programs\/z2222/.test(e.text)); // the compose error cases above answer 422/429/503 on purpose, and step 15 asks for a program that is not there
   check('no console errors or exceptions', errors.length === 0, errors.map((e) => `${e.type}: ${e.text}`).join('\n         '));
 } catch (e) {
   console.error('SMOKE CRASHED at step', step, e);

@@ -33,6 +33,22 @@ export function mockCid(text) {
   return `zMock${out}`;
 }
 
+// ---- the programs the module was told (btw_know) -----------------------------------------------
+
+const KNOWN = new Map();
+
+/** The real module's `btw_know`: keeps a program by CID. The mock cannot re-hash (its CIDs are fake), so it keeps what it is given. */
+export function mockKnow(cid, text) {
+  if (!/^z[1-9A-HJ-NP-Za-km-z]{20,80}$/.test(String(cid))) return { ok: false, error: `${JSON.stringify(cid)} is not a CID` };
+  KNOWN.set(cid, text);
+  return { ok: true };
+}
+
+/** For tests: forget what the module was told. */
+export function mockForget() {
+  KNOWN.clear();
+}
+
 // ---- parsing ----------------------------------------------------------------------------------
 
 /** Lines with their offsets: [{n, start, end, raw, code, indent}] (code: the text before a comment). */
@@ -117,7 +133,14 @@ export function parseProgram(text) {
       sections.push(sec);
       if (opens) stack.push({ kind: 'section', sec });
     } else if (w0 === 'arrange') arrange = ws.slice(1).map((x) => x.w);
-    else if (w0 === 'end' || w0 === 'loop' || w0 === 'import') { /* nothing to light */ }
+    else if (w0 === 'import') {
+      // an import of a CID the module was not told: the real module's words (djlive env::not_here)
+      const arg = ws[1];
+      if (arg && /^z[1-9A-HJ-NP-Za-km-z]{20,80}$/.test(arg.w) && !KNOWN.has(arg.w)) {
+        const short = `${arg.w.slice(0, 1)}…${arg.w.slice(-8)}`;
+        problem(line, arg.start - line.start, arg.end - line.start, `\`${short}\` is not here: this program draws on it, and \`check\` needs its text`, [], arg.w, 'check it with the link that carries it, or where that program is saved: the language never fetches');
+      }
+    } else if (w0 === 'end' || w0 === 'loop') { /* nothing to light */ }
     else if (w0 === 'evolve') {
       const ev = { line: line.n, endLine: line.n, every: Number((t.match(/every\s+(\d+)/) || [])[1]) || 8, sectionIdx: secIdx, startOff: line.start + col0 };
       stmts.push({ kind: 'evolve', ev });
@@ -313,7 +336,7 @@ export function mockOpen(s) {
   const c = mockCheck(text);
   if (!c.ok) return { ok: false, cid: m[1], error: 'the linked program has errors' };
   if (c.cid !== m[1]) return { ok: false, cid: m[1], canonical: c.canonical, verified: false, error: `refused: the link says ${m[1]} but its text is ${c.cid}` };
-  return { ok: true, cid: c.cid, canonical: c.canonical, verified: true, warnings: [], notes_unverified: [], error: null };
+  return { ok: true, cid: c.cid, canonical: c.canonical, verified: true, warnings: [], notes_unverified: [], error: null, bundle: {} };
 }
 
 export const mockInstruments = () => ({ voices: ['wobble-lead', 'pwm-lead', 'warm-pad', 'sub-bass', 'detuned-saw'], families: ['bass', 'pad', 'acid', 'reese'], kits: ['drums-808', 'drums-909'], palettes: [] });
@@ -579,6 +602,7 @@ export function mockModule() {
     btw_fmt: j(mockFmt),
     btw_highlight: j(mockHighlight),
     btw_open: j(mockOpen),
+    btw_know: j(mockKnow),
     btw_share: (t, s, n) => JSON.stringify(mockShare(t, s, n)),
     btw_instruments: j(mockInstruments),
     btw_generation: () => JSON.stringify({ ok: true, cid: 'zMockGen', scope: 'drop', n: 1 }),

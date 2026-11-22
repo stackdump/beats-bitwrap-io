@@ -10,6 +10,12 @@ export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
  * blocks takes about 2.7 s, in the page's one thread), so what a stranger's link or push can hand it has a bound.
  */
 export const MAX_LOAD_TEXT = 32768;
+/**
+ * The most text the programs a link carries (`*` and their bundle: what its program imports, with what those import) may inflate to
+ * together. They are only read when the program imports them, and each is hashed against its CID, so this is larger than one
+ * program's bound: four of the biggest programs the server keeps.
+ */
+export const MAX_LINK_BUNDLE = 4 * 16384;
 /** The longest link (characters) the page will look at. A 32 KiB program deflates to well under this. */
 export const MAX_LINK_CHARS = 262144;
 /** A CID: base58btc, `z...`. Anything that goes into a URL path as a CID is checked against this first. */

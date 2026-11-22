@@ -1960,3 +1960,173 @@ test('engine-calls: the FX unit\'s drive is the engine\'s own `fx` action on a d
   assert.match(mapCall('fx', { action: 'kill', deck: 'A' }).ignored, /fx kill/);
   for (const p of [null, undefined, 3, 'a', {}, { deck: 3 }, { action: 'set', param: 'drive' }]) mapCall('fx', p);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// the programs a program draws on (closure.js): fetched once by CID, kept, told to the module, never fetched by it
+// ---------------------------------------------------------------------------------------------------------------
+
+const CID_A = 'z4EBG9jB3vwMeCJNSp8WJLWDRM7ADEWxi23HyNSij5cHBL94r7v';
+const CID_B = 'z4EBG9j7vEqQ8hLkYDPHmnk2wGvyJt3d1Fo9sUUe2mZ5aCqx6Rr';
+const CID_C = 'z4EBG9jEdtQnCvXk8bRzhGfS5nJw2MqL9yUe4ArTx3PpV7oKcDa';
+
+test('closure: the CIDs a program names are found in its code, each once, and a comment names nothing', async () => {
+  const { cidsIn } = await J('closure.js');
+  const text = `#! forked-from: ${CID_C}\n# credit ${CID_C}\nimport ${CID_A}\nimport "${CID_B}"\ndeck A: bass riff\nimport ${CID_A}\ndeck B: kick x # ${CID_C}\n`;
+  assert.deepEqual(cidsIn(text), [CID_A, CID_B]);
+  assert.deepEqual(cidsIn(''), []);
+  assert.deepEqual(cidsIn(null), []);
+  // not a CID: too short, or a longer word with one inside it
+  assert.deepEqual(cidsIn('import zShort\nx_' + CID_A + '_y\n'), []);
+  // a borrowed section or part names a CID too: `<cid>.drop`, `<cid>.drop.bass`
+  assert.deepEqual(cidsIn(`section hook from ${CID_A}.drop\ndeck B: bass ${CID_B}.drop.bass inst=hoover | kick ${CID_A}\nlet riff = ${CID_C}.melody\n`), [CID_A, CID_B, CID_C]);
+});
+
+test('closure: a program is fetched once, kept by CID, told to the module, and what it draws on is fetched in turn', async () => {
+  const { Resolver } = await J('closure.js');
+  const texts = { [CID_A]: `import ${CID_B}\nlet riff = c2 e2\n`, [CID_B]: 'let low = a1 e2\n' };
+  const fetched = [];
+  const told = [];
+  let changes = 0;
+  const r = new Resolver({
+    fetchProgram: async (cid) => { fetched.push(cid); if (!(cid in texts)) throw new Error('404'); return { text: texts[cid] }; },
+    know: (cid, text) => { told.push(cid); return { ok: true }; },
+    onChange: () => { changes++; },
+  });
+  assert.equal(r.on, true);
+  assert.deepEqual(r.want(`tempo 120\nimport ${CID_A}\n`), [CID_A]);
+  assert.deepEqual(r.want(`import ${CID_A}\n`), [], 'on its way: not asked for again');
+  assert.deepEqual([...r.pending.keys()], [CID_A]);
+  await r.settled();
+  // A named B, so B was fetched too; the module was told B first (it needs it) is not required: both are told
+  assert.deepEqual(fetched.sort(), [CID_A, CID_B].sort());
+  assert.deepEqual(told.sort(), [CID_A, CID_B].sort());
+  assert.equal(changes, 2);
+  // kept: asking again fetches nothing
+  assert.deepEqual(r.want(`import ${CID_A}\nimport ${CID_B}\n`), []);
+  assert.equal(fetched.length, 2);
+  // a report's `uses` (leaves first) is what a store takes, in that order
+  assert.deepEqual(r.closureOf({ uses: [CID_B, CID_A, CID_C] }), [[CID_B, texts[CID_B]], [CID_A, texts[CID_A]]]);
+});
+
+test('closure: a program that is not there is asked for once, and its "not here" shows only once the fetch has failed', async () => {
+  const { Resolver, isNotHere } = await J('closure.js');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  let n = 0;
+  const r = new Resolver({ fetchProgram: async () => { n++; await gate; throw new Error('no program here'); }, know: () => ({ ok: true }) });
+  const text = `tempo 120\nimport ${CID_A}\n`;
+  r.want(text);
+  const at = text.indexOf(CID_A);
+  const notHere = { severity: 'error', message: '`z…xxxxxxxx` is not here: this program draws on it, and `check` needs its text', start: at, end: at + CID_A.length };
+  const other = { severity: 'error', message: 'expected a step', start: 0, end: 5 };
+  const report = { ok: false, errors: 2, warnings: 0, diagnostics: [notHere, other] };
+  assert.equal(isNotHere(notHere), true);
+  assert.equal(isNotHere(other), false);
+  // in flight: the "not here" waits, the other error stays, and the report says what it waits for
+  const waiting = r.settle(report, text);
+  assert.deepEqual(waiting.diagnostics, [other]);
+  assert.equal(waiting.errors, 1);
+  assert.deepEqual(waiting.waiting, [CID_A]);
+  assert.equal(report.diagnostics.length, 2, 'the report itself is not changed');
+  release();
+  await r.settled();
+  // failed: shown, and not asked for again
+  assert.deepEqual(r.settle(report, text).diagnostics, [notHere, other]);
+  assert.deepEqual(r.want(text), []);
+  assert.equal(n, 1);
+  assert.match(r.failed.get(CID_A), /no program here/);
+});
+
+test('closure: a program the module refuses is not kept, and a module without know() fetches nothing', async () => {
+  const { Resolver } = await J('closure.js');
+  const r = new Resolver({ fetchProgram: async () => ({ text: 'let a = c2\n' }), know: (cid) => (cid === CID_A ? { ok: false, error: 'the text is not the program it names: refused' } : { ok: true }) });
+  r.want(`import ${CID_A}\nimport ${CID_B}\n`);
+  await r.settled();
+  assert.equal(r.texts.has(CID_A), false);
+  assert.match(r.failed.get(CID_A), /not the program it names/);
+  assert.equal(r.texts.has(CID_B), true);
+  // a link's bundle is kept the same way, each re-hashed by the module; something that is not a CID or not text is skipped
+  const told = [];
+  const b = new Resolver({ fetchProgram: async () => { throw new Error('never'); }, know: (cid) => { told.push(cid); return { ok: true }; } });
+  assert.equal(b.keepBundle({ [CID_A]: 'let a = c2\n', notACid: 'x', [CID_B]: 7 }), 1);
+  assert.deepEqual(told, [CID_A]);
+  assert.equal(b.keepBundle(null), 0);
+  const off = new Resolver({ fetchProgram: async () => { throw new Error('never'); }, know: null });
+  assert.equal(off.on, false);
+  assert.deepEqual(off.want(`import ${CID_A}\n`), []);
+  assert.equal(off.keep(CID_A, 'x'), true, 'nothing to tell: no error');
+});
+
+test('closure: the page never fetches more than it is allowed to', async () => {
+  const { Resolver } = await J('closure.js');
+  let n = 0;
+  const r = new Resolver({ fetchProgram: async () => { n++; return { text: '' }; }, know: () => ({ ok: true }), max: 2 });
+  r.want(`import ${CID_A}\nimport ${CID_B}\nimport ${CID_C}\n`);
+  await r.settled();
+  assert.equal(n, 2);
+  assert.match(r.failed.get(CID_C), /at most 2/);
+});
+
+test('link: what a link carries after the * is bounded on its own, and the program in it on its own', async () => {
+  const zlib = await import('node:zlib');
+  const { guardLink } = await J('link.js');
+  const { MAX_LINK_BUNDLE, MAX_LOAD_TEXT } = await J('util.js');
+  const cid = CID_A;
+  const b64 = (n) => Buffer.from(zlib.deflateRawSync(Buffer.alloc(n, 'a'), { level: 9 })).toString('base64url');
+  const fine = Buffer.from(zlib.deflateRawSync(Buffer.from('tempo 120\ndeck A: kick x ~ x ~\n'))).toString('base64url');
+  const link = (bundle) => `https://beats.bitwrap.io/p#${cid}.${fine}*${bundle}`;
+  // programs together over what a program is (but within what a bundle may be): fine
+  assert.deepEqual(await guardLink(link(b64(MAX_LOAD_TEXT * 2))), { ok: true });
+  assert.deepEqual(await guardLink(link(b64(MAX_LINK_BUNDLE))), { ok: true });
+  // past the bundle's bound, and a bomb: refused, in words about the programs it carries
+  for (const n of [MAX_LINK_BUNDLE + 1, 64 << 20]) {
+    const r = await guardLink(link(b64(n)));
+    assert.equal(r.ok, false, `${n}`);
+    assert.match(r.error, /programs this link carries are larger than 65,536 bytes/);
+  }
+  // the program in front of the * keeps its own bound
+  const r = await guardLink(`https://beats.bitwrap.io/p#${cid}.${b64(MAX_LOAD_TEXT + 1)}*${fine}`);
+  assert.equal(r.ok, false);
+  assert.match(r.error, /larger than 32,768 bytes, and the page opens programs of at most that/);
+});
+
+test('wasm facade: know() tells the module a program, and an import of a CID it was not told is "not here" in the module\'s words', async () => {
+  const wasm = await J('wasm-mock.js');
+  const mod = wasm.mockModule();
+  const f = makeFacade(mod);
+  assert.equal(typeof f.know, 'function');
+  wasm.mockForget();
+  const text = `import ${CID_A}\ndeck A: kick x ~ x ~\n`;
+  const before = f.check(text);
+  assert.equal(before.ok, false);
+  assert.match(before.diagnostics[0].message, /is not here: this program draws on it/);
+  assert.equal(text.slice(before.diagnostics[0].start, before.diagnostics[0].end), CID_A);
+  assert.deepEqual(f.know(CID_A, 'let a = c2\n'), { ok: true });
+  assert.equal(f.check(text).ok, true);
+  assert.equal(f.know('not a cid', 'x').ok, false);
+  // a module that predates it has no know(): the facade says so, and the page fetches nothing
+  assert.equal(makeFacade({ btw_check: () => '{}' }).know, null);
+  assert.deepEqual(f.open('zNotALink').bundle ?? {}, {}, 'the mock hands no bundle back');
+  wasm.mockForget();
+});
+
+test('real wasm: an import resolves from what it was told, refuses a text that is not the program, and a link carries it', { skip: !realWasm }, () => {
+  const lib = 'let riff = c2 e2 g2 b2\n';
+  const f = facade.fmt(lib);
+  const text = `import ${f.cid}\ndeck A: bass riff\n`;
+  const before = facade.check(text);
+  assert.equal(before.ok, false);
+  assert.match(before.diagnostics[0].message, /is not here/);
+  assert.equal(facade.know(f.cid, 'let riff = c2\n').ok, false, 'not the program its CID names');
+  assert.equal(facade.check(text).ok, false);
+  assert.deepEqual(facade.know(f.cid, f.canonical), { ok: true });
+  const after = facade.check(text);
+  assert.equal(after.ok, true, JSON.stringify(after.diagnostics));
+  assert.deepEqual(after.uses, [f.cid]);
+  const shared = facade.share(text);
+  assert.equal(shared.ok, true);
+  assert.match(shared.url, /\*/, 'the link carries the program');
+  const opened = facade.open(shared.url);
+  assert.equal(opened.ok, true);
+  assert.equal(opened.bundle[f.cid], f.canonical);
+});
