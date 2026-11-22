@@ -55,7 +55,10 @@ export function arrangeLabel(play, arrange) {
   const passes = arrange && arrange.passes > 1 ? `pass ${play.pass + 1}/${arrange.passes}` : arrange && arrange.unbounded ? 'loop' : '';
   const head = play.coda ? 'coda' : passes;
   const reads = (play.reads || []).map((r) => `${r.pattern}@${r.gen}${r.once ? '+once' : ''}`);
-  const text = [head, ...reads].filter(Boolean).join(' · ');
+  // a counted line (`~3`, `@4`) that fired just before this play, the first to read it (check's `arrange.fires`)
+  const at = arrange && Array.isArray(arrange.fires) && Array.isArray(arrange.plays) ? arrange.plays.indexOf(play) : -1;
+  const fired = at < 0 ? [] : arrange.fires.filter((f) => (f.plays || []).includes(at)).map((f) => `${f.once ? '@' : '~'}${f.every} fired`);
+  const text = [head, ...reads, ...fired].filter(Boolean).join(' · ');
   const title = (play.reads || []).map((r) => `${r.pattern}@${r.gen}${r.once ? ' (this section only)' : ''} = ${r.text}`).join('\n');
   return text ? { text, title, section: play.section } : null;
 }

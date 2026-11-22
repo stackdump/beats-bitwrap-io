@@ -1617,6 +1617,21 @@ test('arrange mutations: the play under the playhead and its generations', () =>
   assert.equal(arrangeLabel(null, arrange), null);
 });
 
+test('arrange mutations: a counted line says it fired at the play that first reads it', () => {
+  const play = (name, pass, start, reads) => ({ section: 'drop', name, pass, coda: false, start_bar: start, bars: 4, reads });
+  const arrange = {
+    passes: 3,
+    unbounded: false,
+    plays: [play('drop', 0, 0, []), play('drop', 1, 4, []), play('drop@2', 2, 8, [{ pattern: 'acid', gen: 1, once: false, text: '~ a2' }, { pattern: 'kik', gen: 0, once: true, text: 'x x' }])],
+    fires: [{ mutation: 0, every: 3, once: false, passes: [2], plays: [2] }, { mutation: 1, every: 3, once: true, passes: [2], plays: [2] }],
+  };
+  assert.equal(arrangeLabel(arrangePlay(arrange, 9), arrange).text, 'pass 3/3 · acid@1 · kik@0+once · ~3 fired · @3 fired');
+  // the plays before it say nothing of it, and a program with no counted line has no `fires`
+  assert.equal(arrangeLabel(arrangePlay(arrange, 5), arrange).text, 'pass 2/3');
+  const plain = { ...arrange, fires: undefined };
+  assert.equal(arrangeLabel(arrangePlay(plain, 9), plain).text, 'pass 3/3 · acid@1 · kik@0+once');
+});
+
 test('program-ld: the editor\'s program block is read from <beatscript-view data-editor>', () => {
   const doc = { '@context': ['https://beatscript.app/schema', 'https://schema.org'], '@type': ['Program', 'MusicComposition'], '@version': '1', '@id': 'z4EBG9jCtKY4ioQ3TEJCQQmTTJZjugJRihCNbBxNJrBaWr1adMi', name: 'night bus', license: 'https://creativecommons.org/publicdomain/zero/1.0/', licenseId: 'CC0-1.0', tempo: 128, key: 'am', text: 'tempo 128\nkey am\n', signature: '0xabc' };
   const p = parseProgramLd(JSON.stringify(doc));
