@@ -407,5 +407,15 @@ parity:
 	BTWD_BIN=$(BTWD) node btwsite/test/parity/run.mjs --corpus $(PARITY_CORPUS) $(PARITY_ARGS)
 	BTWD_BIN=$(BTWD) node btwsite/test/parity/loop.mjs
 
-.PHONY: btwsite-test parity
+# the self-contained player (btwsite/player, <beatscript-track>, project-datum 6669): the npm package / artifact files,
+# assembled into btwsite/player/dist (git-ignored: the wasm is built from a private repo). Publishing it is Matt's call.
+btwsite-player:
+	node btwsite/player/build.mjs
+# it plays under a Claude-artifact-like CSP (files beside the page, and from a second origin as from a CDN), and says why it
+# cannot under the CSP without 'wasm-unsafe-eval'. Needs btwsite/web/wasm and Chrome; skips without the wasm. On a Mac
+# whose sound card is busy, BTW_CHROME_ARGS=--disable-audio-output (else the AudioContext clock can stay frozen).
+btwsite-player-test:
+	node btwsite/test/player-csp.mjs
+
+.PHONY: btwsite-test parity btwsite-player btwsite-player-test
 

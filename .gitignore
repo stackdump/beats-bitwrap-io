@@ -24,6 +24,7 @@ test-out/
 # btw.bitwrap.io (btwsite/DESIGN.md "Public repo"): this repo is PUBLIC; these are built from or copied from the
 # PRIVATE, UNLICENSED stackdump/djrust-vevr-se. They ship to the host as deploy artifacts and never go in git.
 /btwsite/web/wasm/
+/btwsite/player/dist/
 /btwsite/web/docs/BTW.md
 /btwsite/web/docs/cheatsheet.md
 /btwsite/web/docs/arrange.md
