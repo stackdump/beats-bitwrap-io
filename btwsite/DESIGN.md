@@ -120,8 +120,10 @@ only for usage/IO/panic):
   render has the same limit: say so in `start.notes`).
 - Reads/writes nothing on disk except what it is told. No network.
 - Build recipe for pflow.dev (Ubuntu 24.04, glibc 2.39, x86_64): `scripts/build-btwd-linux.sh` in the djrust
-  worktree, using docker on valoper (`ubuntu:24.04` or `debian:bookworm` + rustup) or musl; writes
-  `dist/btwd-linux-x86_64` and its sha256. The binary is **not** committed anywhere.
+  worktree, on a build host (`scripts/build-host.sh`: workbit, cross-compiled with cargo-zigbuild for
+  `x86_64-unknown-linux-gnu.2.39`, then smoked on gir; else gir or valoper.local in an `ubuntu:24.04` container).
+  Either way it refuses a binary that needs a GLIBC symbol version above 2.39; writes `dist/btwd-linux-x86_64`
+  and its sha256. The binary is **not** committed anywhere.
 
 ### btwapi and btwd as built (R1) — what differs from, or adds to, the shapes above (all additive)
 - **Checked against** a static snapshot of djhost's control registry and engine catalog (`crates/btwapi/data/snapshot.json`,
