@@ -115,25 +115,25 @@ export function unhex(s) {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Where the caret goes when the text is replaced by its canonical form: after the same number of
- * non-space code characters (comments, which the canonical form drops, do not count).
+ * Where the caret goes when the text is replaced by its formatted form: after the same number of non-space code characters
+ * (comments do not count, in either text: the formatter keeps them, an older module's canonical form drops them).
  */
 export function mapCaret(oldText, caret, newText) {
-  const code = (s, upto) => {
-    let n = 0;
+  // walks `s` from the start, calling `f(i)` at each code character (not a space, not in a comment) until it says stop
+  const eachCode = (s, upto, f) => {
     let comment = false;
     for (let i = 0; i < upto; i++) {
       const c = s[i];
       if (c === '\n') comment = false;
       else if (c === '#' && (i === 0 || /\s/.test(s[i - 1]))) comment = true;
-      if (!comment && !/\s/.test(c)) n++;
+      if (!comment && !/\s/.test(c) && f(i) === false) return;
     }
-    return n;
   };
   if (caret >= oldText.length) return newText.length;
-  let want = code(oldText, caret);
+  let want = 0;
+  eachCode(oldText, caret, () => { want++; });
   if (want === 0) return 0;
-  let i = 0;
-  for (; i < newText.length && want > 0; i++) if (!/\s/.test(newText[i])) want--;
-  return i;
+  let at = newText.length;
+  eachCode(newText, newText.length, (i) => { if (--want > 0) return true; at = i + 1; return false; });
+  return at;
 }

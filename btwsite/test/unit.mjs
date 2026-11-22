@@ -550,6 +550,35 @@ test('util: the caret keeps its place in the code when the text is replaced by i
   assert.equal(mapCaret(old, old.length, neu), neu.length);
 });
 
+test('util: the caret keeps its place when the formatted text keeps the header and the comments', () => {
+  const old = '#! name: x\ntempo   140  # speed\n\n\ndeck A:  kick x ~ x ~  # four\n';
+  const neu = '#! name: x\ntempo 140  # speed\n\ndeck A: kick x ~ x ~  # four\n';
+  const caret = old.indexOf('kick') + 2;
+  assert.equal(neu.slice(0, mapCaret(old, caret, neu)), '#! name: x\ntempo 140  # speed\n\ndeck A: ki');
+  // a caret in a comment is where the code before it ends; one at the start is at the start
+  assert.equal(neu.slice(0, mapCaret(old, old.indexOf('speed'), neu)), '#! name: x\ntempo 140');
+  assert.equal(mapCaret(old, 0, neu), 0);
+  assert.equal(mapCaret(old, old.length, neu), neu.length);
+  // a long program (up to 16 KB) is one walk of each text
+  const long = 'tempo  1\n'.repeat(3000);
+  assert.ok(mapCaret(long, long.length - 3, 'tempo 1\n'.repeat(3000)) > 20000);
+});
+
+test('fmt: the header lines, the comments and the blank lines between blocks are kept, and formatting twice is formatting once', () => {
+  const src = '#! btw 1\n#! name: loose\n# a track\ntempo   120   # fast\n\n\ndeck A:   kick x ~ x ~ | snare ~ x ~ x\n';
+  const r = facade.fmt(src);
+  assert.equal(r.ok, true);
+  const want = '#! btw 1\n#! name: loose\n# a track\ntempo 120  # fast\n\ndeck A: kick x ~ x ~ | snare ~ x ~ x\n';
+  assert.equal(r.text, want);
+  // the canonical text, which the CID is of, has none of them; formatting does not change it
+  assert.ok(!r.canonical.includes('#'));
+  assert.equal(r.canonical, facade.fmt(want).canonical);
+  assert.equal(r.cid, facade.fmt(want).cid);
+  assert.equal(facade.fmt(r.text).text, r.text);
+  // text that does not read is not formatted
+  assert.equal(facade.fmt('tempo\n').ok, false);
+});
+
 // ---------------------------------------------------------------------------------------------------------------
 // the stream player on a fake AudioContext and a fake fetch
 // ---------------------------------------------------------------------------------------------------------------
