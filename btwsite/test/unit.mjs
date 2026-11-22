@@ -501,6 +501,14 @@ test('errors: diagnostics read as line:col, the message, "expected: ..." and a d
   assert.equal(errs.summary({ errors: 2, warnings: 1 }), '2 errors, 1 warning');
   assert.equal(errs.summary({ errors: 0, warnings: 0 }), 'no problems');
   assert.equal(errs.summary({ errors: 1, warnings: 0 }), '1 error');
+  // 6685: infos are notes, never warnings
+  const info = { severity: 'info', line: 3, col: 1, message: "the ontology's kick rhythm of blues" };
+  const warn = { severity: 'warning', line: 4, col: 1, message: 'generations 4 to 12 never play' };
+  assert.equal(errs.summary({ errors: 0, warnings: 0, infos: 3, diagnostics: [info, info, info] }), '3 notes');
+  assert.equal(errs.summary({ errors: 0, warnings: 1, infos: 1, diagnostics: [info, warn] }), '1 warning, 1 note');
+  // an engine that counted infos in `warnings` (no `infos`): the warnings are counted from the diagnostics
+  assert.equal(errs.summary({ errors: 0, warnings: 3, diagnostics: [info, info, info] }), '3 notes');
+  assert.deepEqual(errs.counts({ errors: 0, warnings: 2, diagnostics: [info, warn] }), { errors: 0, warnings: 1, infos: 1 });
 });
 
 test('errors: the real checker gives line, column and a did-you-mean for a broken part', { skip: !realWasm }, () => {

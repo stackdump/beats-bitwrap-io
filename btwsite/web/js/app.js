@@ -15,7 +15,7 @@ import { headerModel, programName, arrangePlay, arrangeLabel } from './header-mo
 import { readProgramView, defineProgramView } from './program-ld.js';
 import { reportedMixer } from './mixer-model.js';
 import { chooseSource, renderEndedMessage } from './source-model.js';
-import { describeError, diagLine, diagDetails, summary, ApiError } from './errors.js';
+import { describeError, diagLine, diagDetails, summary, severityOf, ApiError } from './errors.js';
 import { suggestionsFor } from './suggest.js';
 import { h, debounce, fmtTime, shortCid, accountKind, mapCaret, clamp, CID_RE, MAX_LOAD_TEXT, trunc, cleanName, isLoopbackHost, marksPrivate } from './util.js';
 import { fragmentOf, guardLink } from './link.js';
@@ -528,20 +528,22 @@ export class App {
     const notes = [...this.engineNotes];
     const sumEl = this.el['pr-sum-txt'];
     sumEl.textContent = r ? `${summary(r)}${notes.length ? ` · ${notes.length} not played here` : ''}` : '';
-    const errs = ds.filter((d) => d.severity !== 'warning');
-    const dotClass = `pr-dot ${errs.length ? 'error' : ds.length || notes.length ? 'warn' : ''}`;
+    // infos are notes (6685): listed and counted on their own, never a warning's colour or count
+    const errs = ds.filter((d) => severityOf(d) === 'error');
+    const warns = ds.filter((d) => severityOf(d) === 'warning');
+    const dotClass = `pr-dot ${errs.length ? 'error' : warns.length || notes.length ? 'warn' : ''}`;
     this.el['pr-dot'].className = dotClass;
     this.el['t-prob-dot'].className = dotClass;
-    this.setText(this.el['t-prob-n'], String(ds.length + notes.length));
+    this.setText(this.el['t-prob-n'], String(errs.length + warns.length + notes.length));
     const said = `${r ? summary(r) : 'no problems'}${notes.length ? `, ${notes.length} not played here` : ''}`;
     this.el['t-prob'].setAttribute('aria-label', ds.length || notes.length ? `${said}: open the list of problems` : 'No problems');
     this.el['t-prob'].title = ds.length || notes.length ? said : 'No problems';
-    const first = errs[0] || ds[0];
+    const first = errs[0] || warns[0] || ds[0];
     // the summary already counts the skipped lines ("1 not played here"); the slot beside it names them, once
     this.el['pr-first'].textContent = first ? `${first.line}:${first.col} ${first.message}` : notes.length ? notes.join(', ') : '';
     const list = this.el['pr-list'];
     list.replaceChildren(...ds.map((d) => {
-      const b = h('button', { type: 'button', class: 'pr-row', title: 'Jump to this' }, h('span', { class: 'pos' }, `${d.line}:${d.col}`), h('span', { class: `sev-${d.severity || 'error'}` }, `${d.severity || 'error'}: `), d.message,
+      const b = h('button', { type: 'button', class: 'pr-row', title: 'Jump to this' }, h('span', { class: 'pos' }, `${d.line}:${d.col}`), h('span', { class: `sev-${severityOf(d)}` }, `${severityOf(d) === 'info' ? 'note' : severityOf(d)}: `), d.message,
         ...diagDetails(d).map((t) => h('span', { class: `more${t.startsWith('did you mean') ? ' help' : ''}` }, t)));
       b.addEventListener('click', () => this.editor.jumpTo(d.line, d.col, d.end_col));
       // one Apply button per candidate, only while the report still matches the text (a stale span is never edited)
@@ -672,7 +674,7 @@ export class App {
       if (!report || !report.ok) {
         const n = report ? report.errors : 0;
         this.toast(`Not applied: ${n} error${n === 1 ? '' : 's'}. The last good program keeps playing.`, 'warn');
-        const first = (report.diagnostics || []).find((d) => d.severity !== 'warning');
+        const first = (report.diagnostics || []).find((d) => severityOf(d) === 'error');
         if (first) this.editor.jumpTo(first.line, first.col, first.end_col);
         return;
       }

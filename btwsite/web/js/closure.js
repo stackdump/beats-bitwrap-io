@@ -132,8 +132,9 @@ export class Resolver {
     const waits = (d) => isNotHere(d) && [...this.pending.keys()].some((c) => String(text).slice(d.start, d.end).includes(c));
     const shown = report.diagnostics.filter((d) => !waits(d));
     if (shown.length === report.diagnostics.length) return report;
-    const errors = shown.filter((d) => d.severity !== 'warning').length;
-    return { ...report, diagnostics: shown, errors, warnings: shown.length - errors, waiting: [...this.pending.keys()] };
+    // an info is a note, not a warning or an error (6685)
+    const n = (s) => shown.filter((d) => (d.severity === 'warning' || d.severity === 'info' ? d.severity : 'error') === s).length;
+    return { ...report, diagnostics: shown, errors: n('error'), warnings: n('warning'), infos: n('info'), waiting: [...this.pending.keys()] };
   }
 
   /** The programs a report says it drew on (`uses`, leaves first) as [cid, text] a store can take in that order. */

@@ -34,15 +34,35 @@ export function diagDetails(d) {
   return out;
 }
 
-/** "2 errors, 1 warning" / "no problems". */
+/** A diagnostic's severity: `error` (also when it says none), `warning` or `info`. */
+export function severityOf(d) {
+  return d && (d.severity === 'warning' || d.severity === 'info') ? d.severity : 'error';
+}
+
+/**
+ * Errors, warnings and infos of a report (6685: an info is a note, never a warning). A report from an engine that counts no
+ * `infos` counted them in `warnings`, so then the warnings are counted from its diagnostics.
+ */
+export function counts(report) {
+  const ds = (report && report.diagnostics) || [];
+  const n = (s) => ds.filter((d) => severityOf(d) === s).length;
+  const hasInfos = report && typeof report.infos === 'number';
+  return {
+    errors: report && typeof report.errors === 'number' ? report.errors : n('error'),
+    warnings: (hasInfos || !ds.length) && typeof report.warnings === 'number' ? report.warnings : n('warning'),
+    infos: hasInfos ? report.infos : n('info'),
+  };
+}
+
+/** "2 errors, 1 warning, 3 notes" / "3 notes" / "no problems". */
 export function summary(report) {
   if (!report) return '';
-  const e = report.errors ?? (report.diagnostics || []).filter((d) => d.severity !== 'warning').length;
-  const w = report.warnings ?? (report.diagnostics || []).filter((d) => d.severity === 'warning').length;
-  if (!e && !w) return 'no problems';
+  const { errors: e, warnings: w, infos: i } = counts(report);
+  if (!e && !w && !i) return 'no problems';
   const parts = [];
   if (e) parts.push(`${e} error${e === 1 ? '' : 's'}`);
   if (w) parts.push(`${w} warning${w === 1 ? '' : 's'}`);
+  if (i) parts.push(`${i} note${i === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
 

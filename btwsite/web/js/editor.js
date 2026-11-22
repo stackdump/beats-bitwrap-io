@@ -310,7 +310,7 @@ export class Editor {
     const { lineH } = this.metrics;
     this.diagLayer.textContent = '';
     for (const r of this.rows) r.sev = '';
-    const sevRank = (s) => (s === 'error' ? 2 : 1);
+    const sevRank = (s) => ({ error: 3, warning: 2, info: 1 })[s] || 0;
     for (const d of this.diags) {
       const l = d.line - 1;
       if (l < 0 || l >= starts.length) continue;
@@ -322,17 +322,19 @@ export class Editor {
       let c1 = visualCol(text, starts[l], b);
       if (c1 <= c0) c1 = c0 + 1;
       for (const p of pieces(this.wrap, l, c0, c1)) {
-        const sq = h('div', { class: `sq sq-${d.severity === 'warning' ? 'warn' : 'error'}` });
+        // an info (a note, 6685) is underlined in its own quiet colour, never as an error
+        const sq = h('div', { class: `sq sq-${d.severity === 'warning' ? 'warn' : d.severity === 'info' ? 'info' : 'error'}` });
         sq.style.left = `${p.x}px`;
         sq.style.top = `${p.y + lineH - 3}px`;
         sq.style.width = `${p.w}px`;
         this.diagLayer.append(sq);
       }
       const row = this.rows[l];
-      if (row && sevRank(d.severity) > sevRank(row.sev)) row.sev = d.severity;
+      const sev = d.severity === 'warning' || d.severity === 'info' ? d.severity : 'error';
+      if (row && sevRank(sev) > sevRank(row.sev)) row.sev = sev;
     }
     for (const r of this.rows) {
-      const want = r.sev === 'error' ? 'error' : r.sev ? 'warn' : '';
+      const want = r.sev === 'error' ? 'error' : r.sev === 'warning' ? 'warn' : '';
       if (r.gi.dataset.sev !== want) {
         if (want) r.gi.dataset.sev = want;
         else delete r.gi.dataset.sev;
