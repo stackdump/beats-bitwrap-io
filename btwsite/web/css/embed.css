@@ -78,9 +78,10 @@ body.bsp {
 .bsp-name:hover { text-decoration: underline; }
 .bsp-pos { font-variant-numeric: tabular-nums; }
 .bsp-sec { color: var(--ink); }
-.bsp-bar, .bsp-state, .bsp-facts, .bsp-rights { color: var(--dim); }
-.bsp-state:empty, .bsp-bar:empty { display: none; }
-.bsp-facts, .bsp-rights { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bsp-bar, .bsp-state, .bsp-facts, .bsp-rights, .bsp-doc { color: var(--dim); }
+.bsp-state:empty, .bsp-bar:empty, .bsp-doc:empty { display: none; }
+.bsp-doc { font-style: italic; }
+.bsp-facts, .bsp-rights, .bsp-doc { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bsp-rights a, .bsp-open { color: var(--link); }
 
 .bsp-open {
@@ -93,9 +94,9 @@ body.bsp {
 
 beatscript-view { display: none; }
 
-/* compact: a smaller button and no facts line; the rights line stays */
+/* compact: a smaller button and no facts or doc line; the rights line stays */
 .bsp.compact .bsp-card { padding: 8px 12px; grid-template-rows: 1fr; grid-template-columns: auto 1fr auto; }
 .bsp.compact .bsp-play { grid-row: 1; width: 44px; height: 44px; }
 .bsp.compact .bsp-ic::before { font-size: 16px; }
-.bsp.compact .bsp-facts { display: none; }
+.bsp.compact .bsp-facts, .bsp.compact .bsp-doc { display: none; }
 .bsp.compact .bsp-open { grid-column: 3; align-self: center; }

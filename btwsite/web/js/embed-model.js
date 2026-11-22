@@ -21,6 +21,23 @@ export function barLabel(status) {
   return '';
 }
 
+/** The section's doc comment as the page's program block gives it (`section: [{name, description}]`, a `#` line above
+ * the section in the shared text), for the section playing; '' when it has none. */
+export function sectionDoc(status, sections, docs) {
+  const st = status || {};
+  const secs = Array.isArray(sections) ? sections : [];
+  const list = Array.isArray(docs) ? docs : [];
+  let name = st.section ? String(st.section) : '';
+  const bar = st.song_bar;
+  if (bar != null && secs.length) {
+    const s = secs.find((x) => bar - 1 >= x.start && bar - 1 < x.start + x.bars);
+    if (s) name = s.name;
+  }
+  if (!name) return '';
+  const d = list.find((x) => x && x.name === name && typeof x.description === 'string');
+  return d ? d.description : '';
+}
+
 /** Both, for a status; `idle` when nothing plays. */
 export function positionModel(status, sections, playing) {
   if (!playing) return { sec: 'not playing', bar: '' };

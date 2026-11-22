@@ -7,7 +7,7 @@ import { readProgramView } from './program-ld.js';
 import { loadBtw } from './wasm.js';
 import { createEngine } from './engine.js';
 import { Resolver } from './closure.js';
-import { positionModel } from './embed-model.js';
+import { positionModel, sectionDoc } from './embed-model.js';
 
 const TICK_MS = 25;
 const $ = (id) => document.getElementById(id);
@@ -18,6 +18,10 @@ class EmbedPlayer {
     this.sec = $('bsp-sec');
     this.bar = $('bsp-bar');
     this.state = $('bsp-state');
+    // the section's doc line: only on a page whose program documents a section; the server writes the first one's
+    this.doc = $('bsp-doc');
+    this.idleDoc = this.doc ? this.doc.textContent : '';
+    this.docs = [];
     this.program = null;
     this.ctx = null;
     this.btw = null;
@@ -36,6 +40,7 @@ class EmbedPlayer {
       return this.say(String(e.message || e));
     }
     if (!this.program) return this.say('this page has no program');
+    this.docs = Array.isArray(this.program.doc.section) ? this.program.doc.section : [];
     if (!window.AudioContext || !('audioWorklet' in AudioContext.prototype)) return this.say('this browser cannot play it here: open it in BeatScript');
     this.btn.disabled = false;
     this.btn.addEventListener('click', () => this.toggle());
@@ -53,6 +58,7 @@ class EmbedPlayer {
     const m = positionModel(st, this.sections, this.playing);
     this.sec.textContent = m.sec;
     this.bar.textContent = m.bar;
+    if (this.doc) this.doc.textContent = this.playing ? sectionDoc(st, this.sections, this.docs) : this.idleDoc;
     this.btn.classList.toggle('playing', this.playing);
     this.btn.setAttribute('aria-pressed', String(this.playing));
     this.btn.setAttribute('aria-label', `${this.playing ? 'Stop' : 'Play'} ${this.program ? this.program.name || 'the program' : ''}`.trim());

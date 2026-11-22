@@ -2149,6 +2149,17 @@ test('embed: the position line names the section n/m and the bar in it, and says
   assert.deepEqual(embedModel.positionModel(null, null, true), { sec: 'playing', bar: '' });
 });
 
+test('embed: the doc line is the playing section\'s doc comment, from the program block, and empty without one', () => {
+  const secs = [{ name: 'intro', start: 0, bars: 4 }, { name: 'drop', start: 4, bars: 8 }];
+  const docs = [{ name: 'drop', description: 'the kick and the bass' }];
+  assert.equal(embedModel.sectionDoc({ song_bar: 6 }, secs, docs), 'the kick and the bass');
+  assert.equal(embedModel.sectionDoc({ song_bar: 2 }, secs, docs), '', 'intro has no doc');
+  assert.equal(embedModel.sectionDoc({ section: 'drop' }, [], docs), 'the kick and the bass', 'the runtime\'s section name, without the check\'s');
+  assert.equal(embedModel.sectionDoc({ song_bar: 6 }, secs, null), '');
+  assert.equal(embedModel.sectionDoc(null, null, docs), '');
+  assert.equal(embedModel.sectionDoc({ section: 'drop' }, [], [{ name: 'drop' }]), '', 'a doc that is not text is none');
+});
+
 // ---------------------------------------------------------------------------------------------------------------
 // <beatscript-player> (embed.js): a classic script, run here in a vm with just enough of a DOM
 // ---------------------------------------------------------------------------------------------------------------
