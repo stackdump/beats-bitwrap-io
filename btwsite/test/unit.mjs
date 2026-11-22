@@ -2130,3 +2130,21 @@ test('real wasm: an import resolves from what it was told, refuses a text that i
   assert.equal(opened.ok, true);
   assert.equal(opened.bundle[f.cid], f.canonical);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// the embed player's position line (embed-model.js; /embed/<CID>, btwserve cards/embed.rs)
+// ---------------------------------------------------------------------------------------------------------------
+
+const embedModel = await J('embed-model.js');
+
+test('embed: the position line names the section n/m and the bar in it, and says when nothing plays', () => {
+  const secs = [{ name: 'intro', start: 0, bars: 4 }, { name: 'drop', start: 4, bars: 8 }];
+  // the runtime's status: `bar` is the clock's line (0-based, never shown), `section_bar` 1-based in the section
+  assert.deepEqual(embedModel.positionModel({ song_bar: 6, bar: 5, section_bar: 2, section_bars: 8, section: 'drop' }, secs, true), { sec: 'drop 2/2', bar: 'bar 2/8' });
+  assert.deepEqual(embedModel.positionModel({ song_bar: 1, bar: 0, section_bar: 1, section_bars: 4 }, secs, true), { sec: 'intro 1/2', bar: 'bar 1/4' });
+  assert.deepEqual(embedModel.positionModel({ bar: 3, section: 'loop' }, [], true), { sec: 'loop', bar: '' });
+  assert.deepEqual(embedModel.positionModel({ song_bar: 3, song_bars: 12 }, [], true), { sec: 'playing', bar: 'bar 3/12' });
+  assert.deepEqual(embedModel.positionModel({}, secs, true), { sec: 'playing', bar: '' });
+  assert.deepEqual(embedModel.positionModel({ song_bar: 6 }, secs, false), { sec: 'not playing', bar: '' });
+  assert.deepEqual(embedModel.positionModel(null, null, true), { sec: 'playing', bar: '' });
+});

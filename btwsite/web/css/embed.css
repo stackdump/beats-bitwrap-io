@@ -1,0 +1,101 @@
+/* The embed player (/embed/<CID>): one row in a frame another site sizes (480 x 152, compact 480 x 80). The editor's
+   palette (btw.css) in dark, a paper one in light. No transitions on what marks the song. */
+
+.bsp {
+  color-scheme: dark;
+  --bg: #16213e;
+  --ink: #eceef6;
+  --dim: #8d95b0;
+  --line: #243055;
+  --btn: #0f3460;
+  --btn-hover: #1a4a7a;
+  --accent: #e94560;
+  --link: #88aaff;
+}
+.bsp.theme-light {
+  color-scheme: light;
+  --bg: #f6f7fb;
+  --ink: #1a1a2e;
+  --dim: #5d6585;
+  --line: #d6d9e6;
+  --btn: #dfe6f7;
+  --btn-hover: #c9d5f2;
+  --accent: #c2304a;
+  --link: #2b4fb3;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body.bsp {
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+
+.bsp-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 4px 14px;
+  height: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.bsp-play {
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--btn);
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.bsp-play:hover:not(:disabled) { background: var(--btn-hover); }
+.bsp-play:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.bsp-play:disabled { opacity: .45; cursor: default; }
+.bsp-ic::before { content: "\25B6"; font-size: 24px; margin-left: 4px; }
+.bsp-play.playing .bsp-ic::before { content: "\25A0"; margin-left: 0; color: var(--accent); }
+
+.bsp-body { min-width: 0; align-self: center; }
+.bsp-body p { margin: 2px 0 0; }
+.bsp-name {
+  display: block;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bsp-name:hover { text-decoration: underline; }
+.bsp-pos { font-variant-numeric: tabular-nums; }
+.bsp-sec { color: var(--ink); }
+.bsp-bar, .bsp-state, .bsp-facts, .bsp-rights { color: var(--dim); }
+.bsp-state:empty, .bsp-bar:empty { display: none; }
+.bsp-facts, .bsp-rights { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bsp-rights a, .bsp-open { color: var(--link); }
+
+.bsp-open {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 12px;
+  text-decoration: none;
+}
+.bsp-open:hover { text-decoration: underline; }
+
+beatscript-view { display: none; }
+
+/* compact: a smaller button and no facts line; the rights line stays */
+.bsp.compact .bsp-card { padding: 8px 12px; grid-template-rows: 1fr; grid-template-columns: auto 1fr auto; }
+.bsp.compact .bsp-play { grid-row: 1; width: 44px; height: 44px; }
+.bsp.compact .bsp-ic::before { font-size: 16px; }
+.bsp.compact .bsp-facts { display: none; }
+.bsp.compact .bsp-open { grid-column: 3; align-self: center; }
