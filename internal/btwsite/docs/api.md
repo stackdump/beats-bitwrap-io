@@ -89,7 +89,7 @@ tools and drive their own browser tabs.
 error in caret form. `cid` and `canonical` are null when `ok` is false. **Always check before you play, share or render, and fix every
 error at its line:col**; a program with an error is refused whole.
 
-- `POST /api/fmt` `{"text"}` gives `{"ok", "canonical", "cid", "comments": [...], "diagnostics": [...]}`: the canonical form and the comments it dropped.
+- `POST /api/fmt` `{"text"}` gives `{"ok", "text", "canonical", "cid", "comments": [...], "diagnostics": [...]}`: `text` is the program formatted with its `#!` header lines, comments and blank lines between blocks kept; `canonical` has none of them (the CID is of it).
 - `POST /api/open` `{"url": "<link, #fragment, <CID>.<packed> or CID>"}` gives `{"ok", "cid", "canonical", "verified", "warnings", "notes_unverified", "error"}`.
   A link whose CID is not its text's is refused (`verified: false`, never trust its text).
 - `POST /api/share` `{"text"}` gives `{"ok", "url", "social_url", "beats_url", "cid", "chars", "canonical", "warnings"}`, see [Share links](#share-links).
@@ -234,7 +234,7 @@ name"), so use a voice that starts with a letter (`inst=sub-bass` for a deep bas
 | tool | needs a token | arguments | does |
 |---|---|---|---|
 | `check` | | `text`, `same_as`? | check a program: diagnostics with line:col, cid, canonical text. **Run it before anything else and fix the errors**. With `same_as` (a CID or another program's text) it also answers whether the two are the same song by their compiled nets and song-level settings, and, when they are not, a `diff` saying what changed in music: song settings, sections inserted/removed/moved/repeated/renamed, and per part a transform (transposed, rotated, reversed, ...) or the notes changed at bar:step, each with a one-line summary |
-| `fmt` | | `text` | the canonical form and its CID |
+| `fmt` | | `text` | the program formatted (`text`, header lines and comments kept), its canonical form (`canonical`) and its CID |
 | `share` | for the short links | `text`, `license`, `forked_from`, `credits`, `name` | the self-sealing link, the social link, the CID; with a token also stores the program and gives the CID-only `short_url`, `short_social_url`, `short_beats_url` and `fetch_url` |
 | `open` | | `url` | decode a link (self-sealing or CID-only: `/p/<CID>`, `/c/<CID>`, `#<CID>`, a bare CID), verified, with its rights |
 | `render` | | `text` or `cid` or `example`, `format` | store the program and answer `stream_url`, `status_url`, `cid`, `seconds` |
@@ -249,7 +249,7 @@ name"), so use a voice that starts with a letter (`inst=sub-bass` for a deep bas
 | `push_private` | yes | `device`, `text` or `sealed`, `load`, `play` | send a private program (a cover, local samples, `use restricted`) to one of your paired phones, end-to-end encrypted and never stored: see [What we store](#what-we-store) |
 | `queue` | yes | `action` (list, add, remove, clear, skip), `items`, `item`, `session` | an up-next list on a tab of programs that already exist (`{cid}`, `{example}`, `{url}`, with `bars` or `minutes`); never composes; advances only while a listener is present, else `paused_reason` |
 
-`eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from
+What `eval`, `load`, `queue`, `share` and `push_private` send on is formatted on the way in, as `fmt` prints it (header lines and comments kept, the CID the same). `eval`, `load`, `stop` and `get` need a browser tab open at https://btw.bitwrap.io (signed in as the token's account), or the session id from
 the page's MCP panel; with no tab connected they answer `no_session` and say so. Tool failures are MCP tool results with `isError: true`
 whose text is the error body above (`{"error": {"code", "message", "retry_after", "details"}}`), so a client reads the code and the words.
 Calls to the checker are limited per client (about 60 a minute), programs for `render` per hour.
