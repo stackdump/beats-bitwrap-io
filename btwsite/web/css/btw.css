@@ -408,3 +408,5 @@ html.record .as-pop, html.record .as-bulb { display: none !important; }
 .sc-thumb:focus-visible { outline: 2px solid var(--amber, #e5c07b); outline-offset: 2px; }
 .sc-read { text-align: center; color: var(--amber, #e5c07b); }
 html.record .sc-handle, html.record .sc-flash, html.record .sc-pop { display: none !important; }
+/* the footer btwserve's own pages end with (the pairing page links this sheet): one link to /authorship */
+footer.rights{margin:2rem auto 1.5rem;padding:0 1rem;max-width:72rem;font-size:.85rem;opacity:.8}

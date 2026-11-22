@@ -119,3 +119,6 @@ a { color: var(--link); }
   .doc h1 { font-size: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+/* the footer every docs page ends with (btwserve rights::FOOTER): one link to /authorship */
+footer.rights{margin:2rem auto 1.5rem;padding:0 1rem;max-width:72rem;font-size:.85rem;opacity:.8}
+footer.rights a{color:inherit}

@@ -26,6 +26,7 @@ const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
 const { parseMixer, reportedMixer } = await J('mixer-model.js');
 const { makeFacade } = await J('wasm.js');
+const { SHARE_RIGHTS, AUTHORSHIP_PATH } = await J('rights.js');
 const mockMod = (await J('wasm-mock.js')).mockModule();
 
 // the real wasm when it is built, else the mock
@@ -1846,3 +1847,22 @@ test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, n
   assert.equal(reportedMixer('stream', m), null, 'a stream has no mixer');
   assert.equal(reportedMixer('engine', null), null, 'an older wasm: null');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// the share dialog's rights line: one line, and the link to /authorship (the one text, btwserve)
+// ---------------------------------------------------------------------------------------------------------------
+
+test('the share dialog says one line on rights and links /authorship', () => {
+  assert.equal(AUTHORSHIP_PATH, '/authorship');
+  assert.equal(SHARE_RIGHTS.href, '/authorship');
+  // the approved text's first sentence (djrust-vevr-se docs/AUTHORSHIP.md), not the whole of it
+  assert.equal(SHARE_RIGHTS.text, 'Programs here are CC0: anyone can use them for anything.');
+  assert.ok(SHARE_RIGHTS.link.length > 0 && !SHARE_RIGHTS.text.includes('\n'));
+  const panels = fs.readFileSync(path.join(web, 'js', 'panels.js'), 'utf8');
+  const share = panels.slice(panels.indexOf('  share() {'), panels.indexOf('  open() {'));
+  assert.match(share, /SHARE_RIGHTS\.href/, 'the share dialog does not link /authorship');
+  for (const page of ['index.html', 'privacy/index.html', 'delete-account/index.html']) {
+    assert.match(fs.readFileSync(path.join(web, page), 'utf8'), /<a href="\/authorship">/, `${page} has no footer link to /authorship`);
+  }
+});
+

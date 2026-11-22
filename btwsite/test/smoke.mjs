@@ -261,6 +261,7 @@ try {
     check('and puts it in the address bar', (await page.eval('location.hash')).startsWith('#z'));
     check('and says how many characters', /\d+ characters/.test(await page.eval('document.querySelector(".pop").textContent')));
     check('and offers the social /c/ form', (await page.eval('[...document.querySelectorAll(".pop input")].some(i=>/\\/c\\/z/.test(i.value))')) === true);
+    check('and says in one line what rights it has, linking /authorship', (await page.eval('!!document.querySelector(".pop p.rights a[href=\\"/authorship\\"]")')) === true);
     await shot(5, 'share');
     const frag = link.slice(link.indexOf('#'));
     // open: a fresh page at that link shows the program with a banner and a Play button, and does not play

@@ -268,9 +268,14 @@ A program is also published as linked data, in the same convention as pflow.xyz:
 ```text
 https://btw.bitwrap.io/context/v1.jsonld      the @context (application/ld+json, CORS *, immutable; a change is a new version, v2)
 https://btw.bitwrap.io/context.jsonld         the latest version (cached five minutes)
-https://btw.bitwrap.io/c/<CID>.jsonld         a program: @id, @type djrust:Program, cid, name, key, tempo, sections, licenseId
+https://btw.bitwrap.io/c/<CID>.jsonld         a program: @id, @type djrust:Program, cid, name, key, tempo, sections, licenseId, license,
+                                              credit, forkedFrom / isBasedOn (as stored), usageInfo (https://btw.bitwrap.io/authorship)
 https://btw.bitwrap.io/c/<CID>.<packed>.jsonld   the same for a program the site has not stored (the link carries it)
 ```
+
+A stored program's `@context` is `[v1, {schema.org's usageInfo and isBasedOn}]`: v1 stays as published. Its rights statement is the
+licence and only what the site keeps beside it (credits, the program it was forked from); `usageInfo` is the page that says plainly
+who authored a program and what rights it has.
 
 `/c/<CID>` embeds that document in a `<script type="application/ld+json">` block and answers with `Link: <.../c/<CID>.jsonld>; rel="describedby"`.
 The context's vocabulary is the bitwrap ontology (`https://ontology.bitwrap.io/ns#`); the MCP `share` tool returns `jsonld_url` and `context`, and `get` does too.
@@ -288,6 +293,7 @@ The program is **in** the link: nothing is stored for it to work, and whoever op
 where they differ. Optional `~<base64url(deflate(notes))>` after the sealed part carries the comments, which are in neither the CID nor the
 signature and are shown as unverified; an optional `.<sig>` is the author's signature over the CID. Links over about 2000 characters
 may be cut by some apps; `POST /api/share` and the MCP `share` tool report `chars`. `GET /c/<CID>` shows a card for a program the site has stored.
+Who authored a program and what rights it has, in plain language: [/authorship](https://btw.bitwrap.io/authorship).
 
 **CID-only short links** keep the program on the site instead of in the link:
 

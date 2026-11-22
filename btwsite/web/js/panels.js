@@ -4,6 +4,7 @@
 import { h, shortCid, accountKind } from './util.js';
 import { describeError, ApiError } from './errors.js';
 import { qrChoice } from './qr-model.js';
+import { SHARE_RIGHTS } from './rights.js';
 import { signIn, hasWallet, localKeyInfo, resetLocalKey } from './auth.js';
 
 // the seeded generator's genres (btwapi::generate::genres, beats' catalogue)
@@ -700,6 +701,8 @@ export class Panels {
     if (this.lastShare && (app.stored.has(this.lastShare.cid) || app.examples.some((e) => e.cid === this.lastShare.cid))) paintTree(this.lastShare.cid);
     const box = this.pop('Share this program', h('p', { class: 'note' }, 'The link carries the program and its CID; opening it checks that the text hashes to the CID before anything plays. The address bar now holds it too.'),
       rows, qrBox, shortBox, treeBox, h('label', { class: 'check dim' }, notes, 'also carry my comments (as unverified notes; they are not part of the CID)'),
+      // one line on rights, and the page that says the rest (btwserve /authorship): never the whole text here
+      h('p', { class: 'note rights' }, SHARE_RIGHTS.text, ' ', h('a', { href: SHARE_RIGHTS.href, class: 'link', target: '_blank', rel: 'noopener' }, SHARE_RIGHTS.link)),
       h('div', { class: 'btnrow' }, h('button', { type: 'button', class: 'tb primary', onclick: () => this.copy(this.lastShare.url) }, 'Copy link'), h('button', { type: 'button', class: 'tb', onclick: () => this.close() }, 'Close')));
     // copy at once: the click that opened this is the gesture
     this.copy(this.lastShare.url);
