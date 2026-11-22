@@ -11,6 +11,9 @@
 #   btwsite/deploy/deploy.sh docs        copy only btwsite/web/docs (BTW.md redacted by scripts/btw-gen-docs.sh, cheatsheet.md)
 #   btwsite/deploy/deploy.sh restart     restart btw-rust only, /healthz on :18099
 #   btwsite/deploy/deploy.sh upstream    install conf.d/btw-front.conf (upstream btw_front -> :18099) if it is missing
+#   btwsite/deploy/deploy.sh retire-go         one time: stop the Go server, drop its btw-bitwrap entry from ~/services
+#                                               (backup first; refuses unless btw_front -> :18099 and btwserve is healthy)
+#   btwsite/deploy/deploy.sh retire-go-binary  one time, after retire-go: delete the old Go binary ./btw-bitwrap-io
 #   btwsite/deploy/deploy.sh nginx-http  port-80 vhost only (ACME), reload
 #   btwsite/deploy/deploy.sh cert        certbot (webroot) for btw.bitwrap.io
 #   btwsite/deploy/deploy.sh nginx-full  the real btw.bitwrap.io vhost (443 + proxy to btw_front), nginx -t, reload
@@ -83,6 +86,44 @@ services|public-url)
   echo "$step: retired with the Go server (it wrote the btw-bitwrap entry in ~/services). btw-rust's entry is" >&2
   echo "written by djrust-vevr-se crates/btwserve/deploy/cutover.sh install." >&2
   exit 1 ;;
+retire-go)
+  # One time: stop the retired Go server and take its btw-bitwrap entry out of ~/services (backup first). Refuses
+  # unless nginx's btw_front names btwserve (:18099) and btwserve answers /healthz. Touches nothing of btw-rust:
+  # not its entry, not ~/.env-services/btw-bitwrap (btw-rust's env links to it), not data/. Idempotent.
+  run "bash -s -- '${FRONT_CONF:-/etc/nginx/conf.d/btw-front.conf}'" <<'EOS'
+set -euo pipefail
+conf=$1; f=$HOME/services
+grep -Eq '^\s*server 127\.0\.0\.1:18099;' "$conf" || { echo "$conf does not send btw_front to 127.0.0.1:18099: not retiring Go" >&2; exit 1; }
+curl -sf -m 5 http://127.0.0.1:18099/healthz >/dev/null || { echo "btwserve on :18099 is not healthy: not retiring Go" >&2; exit 1; }
+if ! grep -q '"btw-bitwrap"' "$f"; then echo "no btw-bitwrap entry in $f: already retired"; exit 0; fi
+b="$f.bak-retire-go-$(date +%Y%m%d%H%M%S)"; cp -p "$f" "$b"; echo "backup: $b"
+"$f" stop btw-bitwrap
+python3 - "$f" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+cuts = ['    ["btw-bitwrap"]="18097|beatscript.app|$HOME/Workspace/btw-bitwrap-io"\n',
+        next(l for l in s.splitlines(keepends=True) if l.startswith('        btw-bitwrap)'))]
+for c in cuts:
+    assert s.count(c) == 1, "anchor: " + c.strip()
+    s = s.replace(c, "")
+o = ' "btw-bitwrap" "btw-rust")'
+assert s.count(o) == 1, "SERVICE_ORDER anchor"
+s = s.replace(o, ' "btw-rust")')
+assert '"btw-bitwrap"' not in s and '\n        btw-bitwrap)' not in s
+assert '["btw-rust"]="18099|' in s and '\n        btw-rust)' in s, "btw-rust entry missing"
+open(p, "w").write(s); print("removed the btw-bitwrap entry (SERVICES, SERVICE_ORDER, CMD)")
+PY
+bash -n "$f" && echo "services syntax ok"
+diff "$b" "$f" || true
+if curl -s -m 3 -o /dev/null http://127.0.0.1:18097/healthz; then echo "something still answers on :18097" >&2; exit 1; fi
+echo ":18097 closed"; curl -s -m 5 http://127.0.0.1:18099/healthz; echo
+EOS
+  ;;
+retire-go-binary)
+  # One time, after retire-go: delete the Go binary the old build step left in the checkout (untracked, ~21 MB).
+  # Refuses while ~/services still names it.
+  run "set -e; cd $REMOTE_DIR; if grep -q 'btw-bitwrap-io -addr' ~/services; then echo '~/services still runs ./btw-bitwrap-io: run retire-go first' >&2; exit 1; fi; if [ -e btw-bitwrap-io ]; then ls -l btw-bitwrap-io; rm -f btw-bitwrap-io; echo 'removed ./btw-bitwrap-io'; else echo 'no ./btw-bitwrap-io: already removed'; fi"
+  ;;
 upstream)
   scp -q "$HERE/nginx/btw-front.conf" "$HOST:/tmp/btw-front.conf"
   run bash -s <<'EOS'
