@@ -26,6 +26,7 @@ const { StreamPlayer } = await J('stream-player.js');
 const { mapCaret } = await J('util.js');
 const { parseMixer, reportedMixer } = await J('mixer-model.js');
 const { makeFacade } = await J('wasm.js');
+const { mapCall } = await J('engine-calls.js');
 const mockMod = (await J('wasm-mock.js')).mockModule();
 
 // the real wasm when it is built, else the mock
@@ -1845,4 +1846,16 @@ test('mixer: the engine\'s Dj.mixer() JSON is reported while the engine plays, n
   assert.equal(reportedMixer('engine', m), m);
   assert.equal(reportedMixer('stream', m), null, 'a stream has no mixer');
   assert.equal(reportedMixer('engine', null), null, 'an older wasm: null');
+});
+
+test('engine-calls: the FX unit\'s drive is the engine\'s own `fx` action on a deck, on both for the master, and nothing else of the unit is played', () => {
+  const op = (deck, value) => ({ type: 'perform', deck, json: JSON.stringify({ op: 'fx', param: 'drive', value }) });
+  assert.deepEqual(mapCall('fx', { action: 'set', deck: 'A', param: 'drive', value: 0.6 }), { ops: [op('A', 0.6)] });
+  assert.deepEqual(mapCall('fx', { action: 'set', param: 'drive', value: 0.25 }), { ops: [op('A', 0.25), op('B', 0.25)] }, 'no deck: both, as `master: drive` is');
+  assert.deepEqual(mapCall('fx', { action: 'set', deck: 'B', param: 'drive', value: 0 }).ops, [op('B', 0)], '0 is sent as 0: the unit at neutral');
+  assert.equal(mapCall('fx', { action: 'set', deck: 'A', param: 'drive', value: 2 }).ops[0].json, op('A', 1).json, 'held to 0..1');
+  assert.match(mapCall('fx', { action: 'set', deck: 'A', param: 'crush', value: 0.5 }).ignored, /fx crush/);
+  assert.match(mapCall('fx', { action: 'set', deck: 'L', param: 'drive', value: 0.5 }).ignored, /on L/);
+  assert.match(mapCall('fx', { action: 'kill', deck: 'A' }).ignored, /fx kill/);
+  for (const p of [null, undefined, 3, 'a', {}, { deck: 3 }, { action: 'set', param: 'drive' }]) mapCall('fx', p);
 });

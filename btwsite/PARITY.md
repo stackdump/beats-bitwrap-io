@@ -201,6 +201,7 @@ From `engine-calls.js` and from the `ignored` events and console lines captured 
 | `deck A: filter ...` | the strip's filter knob (2nd-order Butterworth) | cutoff clamped to the knob's range (LP 200 Hz..20 kHz, HP 20 Hz..5 kHz) |
 | `master: reverb X` | each strip's reverb wet | there is no master reverb; strip wet trades dry for wet, so the engine gets quieter as the reverb rises (repro 4: -7 LU) |
 | `master: crush X` | both decks' crush bits at position X | bits, not a dry/wet mix |
+| `deck A: drive X` / `master: drive X` (+ ramps) | the FX unit's drive (`perform {op: fx, param: drive}`) on that deck, on both for the master | the same engine code and the same offline render as the booth's, so the same samples (0 is off, bit for bit); the master's drive is each deck's, not one on the sum |
 | `kit=` / `sound=` | `setKit` / `setRoleVoice` once the net lands | as the desktop runtime |
 
 ## `loop`
