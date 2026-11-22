@@ -1866,3 +1866,40 @@ test('the share dialog says one line on rights and links /authorship', () => {
   }
 });
 
+// ---------------------------------------------------------------------------------------------------------------
+// the name is BeatScript: no page says "btw" where a person reads it (product imperative BeatScript #11). Code is
+// exempt (`#! btw 1`, `.btw`, `btw_` tokens, data-btw, css/btw.css, btw.bitwrap.io): only prose, titles and meta.
+// btwserve's own pages have the same check (djrust-vevr-se crates/btwserve/src/docs.rs).
+// ---------------------------------------------------------------------------------------------------------------
+
+// a following '.' joins only a host or a file name (btw.bitwrap.io, btw.css), not a sentence's end
+const STANDALONE_BTW = /(?<![A-Za-z0-9_./:#$`'-])btw(?![A-Za-z0-9_/:`'-]|\.[A-Za-z0-9])/gi;
+
+/** What a person reads on a page: its title, its meta descriptions and its text, without code, scripts or styles. */
+export function visibleText(html) {
+  const meta = [...html.matchAll(/<meta\s+(?:name|property)="(?:description|og:title|og:description|twitter:title|twitter:description)"\s+content="([^"]*)"/gi)].map((m) => m[1]);
+  const body = html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style|pre|code|kbd|samp)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+  return [...meta, body].join('\n');
+}
+
+/** The same for markdown: no fenced blocks, inline code or link targets. */
+export function visibleMarkdown(md) {
+  return md.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ').replace(/\]\([^)]*\)/g, '] ').replace(/https?:\/\/\S+/g, ' ');
+}
+
+test('no page a person reads says "btw": the name is BeatScript', () => {
+  const hits = [];
+  const look = (where, text) => { for (const m of text.matchAll(STANDALONE_BTW)) hits.push(`${where}: …${text.slice(Math.max(0, m.index - 30), m.index + 33).replace(/\s+/g, ' ')}…`); };
+  for (const page of ['index.html', 'privacy/index.html', 'delete-account/index.html', 'parity.html', 'engine-test.html']) {
+    look(page, visibleText(fs.readFileSync(path.join(web, page), 'utf8')));
+  }
+  look('internal/btwsite/docs/api.md', visibleMarkdown(fs.readFileSync(path.join(here, '..', '..', 'internal', 'btwsite', 'docs', 'api.md'), 'utf8')));
+  assert.deepEqual(hits, []);
+  // and the check itself sees what it should, and leaves code alone
+  assert.equal([...visibleText('<title>btw</title><p>a <code>#! btw 1</code> line, <a href="css/btw.css">btw.css</a>, BTW.</p>').matchAll(STANDALONE_BTW)].length, 2);
+  assert.equal([...visibleMarkdown('the `btw` CLI, `#! btw 1`, [link](https://btw.bitwrap.io/x)\n```\nbtw jsonld\n```').matchAll(STANDALONE_BTW)].length, 0);
+});

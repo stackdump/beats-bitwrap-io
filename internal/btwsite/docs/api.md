@@ -218,12 +218,15 @@ lifts a pause. The queue never composes or renders anything, holds at most 50 it
 A browser `GET` shows a page that lists the tools.
 
 ```bash
-claude mcp add --transport http btw https://btw.bitwrap.io/mcp --header 'Authorization: Bearer btw_...'
+claude mcp add --transport http beatscript https://btw.bitwrap.io/mcp --header 'Authorization: Bearer btw_...'
 ```
+
+The server's name in a client is yours to choose; these docs call it `beatscript` (older installs may show `btw`: the same server).
+The token keeps its `btw_` prefix.
 
 Without the header the read tools still work; `eval`, `load`, `get`, `stop`, `devices` and `queue` answer an MCP tool error `auth_required` that says how to get a token
 (sign in on the page and press **Create an MCP token**). Other clients take the same URL and header, for example
-`{"mcpServers": {"btw": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
+`{"mcpServers": {"beatscript": {"type": "http", "url": "https://btw.bitwrap.io/mcp", "headers": {"Authorization": "Bearer btw_..."}}}}`.
 
 There is **no `compose` tool**: an MCP client is already a model, so it writes the program itself ([Compose](#compose) is the web app's).
 The loop: read [cheatsheet.md](https://btw.bitwrap.io/docs/cheatsheet.md) and one or two `list_examples` programs, call `instruments`, write the program, call `check`
@@ -279,7 +282,8 @@ who authored a program and what rights it has.
 
 `/c/<CID>` embeds that document in a `<script type="application/ld+json">` block and answers with `Link: <.../c/<CID>.jsonld>; rel="describedby"`.
 The context's vocabulary is the bitwrap ontology (`https://ontology.bitwrap.io/ns#`); the MCP `share` tool returns `jsonld_url` and `context`, and `get` does too.
-`btw jsonld` (djctl) names the same context URL. Genre, tags and Euclidean rhythms need the engine's ontology, so only `btw jsonld` adds them.
+The engine's own JSON-LD export (on the command line, `djctl btw jsonld FILE`) names the same context URL. Genre, tags and Euclidean
+rhythms need the engine's ontology, so only that export adds them.
 
 ## Share links
 
