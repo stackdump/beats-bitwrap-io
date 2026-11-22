@@ -1,0 +1,10 @@
+#! btw 1
+#! name: the Assyrian, 122
+#! license: CC0-1.0
+#! visibility: public
+# assyrian-122: the same deep house over an anapestic line (CC0-1.0; the words are Byron's, Hebrew Melodies, 1815, in the public
+# domain). "The Assyrian came down like the wolf on the fold" is twelve syllables, two weak and a strong, four times. The book says
+# its feel is triplet, so the voice and the shaker go in a cycle of twelve sixteenths, a 6/8 bar of three syllables to the beat
+# against the four-on-the-floor kick, and come round together every three bars. The sections are twelve bars. Four passes, about
+# six minutes.
+arrange from template(deep-house, @byron_assyrian_wolf)

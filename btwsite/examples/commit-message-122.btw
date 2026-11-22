@@ -1,0 +1,9 @@
+#! btw 1
+#! name: a commit message, 122
+#! license: CC0-1.0
+#! visibility: public
+# commit-message-122: any words are a phrase (CC0-1.0, original). A commit message has no curated scansion, so its stress is worked
+# out: the small words (the, and) are weak and the first syllable of every other word is strong, which here gives nine syllables
+# with the stress on make, drop, deeper, move and kick. They are accented and sit on the beats; the weak ones fall between. It
+# is a two-bar line in the straight feel, sung four times in each eight-bar section. `check` says what the phrase gave.
+arrange from template(deep-house, "make the drop deeper and move the kick")
