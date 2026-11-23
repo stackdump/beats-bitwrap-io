@@ -390,32 +390,4 @@ test-djwasm-030-browser:
 test-djrust-newglue:
 	@DJRUST_GLUE=$(DJRUST_WASM) node --import ./scripts/djrust-glue-hook.mjs scripts/test-djrust-wasm.mjs
 
-# --- beatscript.app (btwsite/DESIGN.md) ---
-# The server is btwserve (Rust, djrust-vevr-se crates/btwserve); the Go btwsite server is retired. This repo keeps
-# the page (btwsite/web), the examples, the test fixtures and the docs data btwserve reads (-docs-src
-# internal/btwsite/docs). btwsite-test is the checks that are still here: host literals in the page.
-BTWD ?= $(CURDIR)/btwsite/bin/btwd
-btwsite-test:
-	scripts/btw-host-literals.sh
-	node --test btwsite/test/unit.mjs
-
-# parity: does the page's in-browser ENGINE sound like the server's STREAM (btwd render)? btwsite/test/parity/README.md.
-#   needs btwsite/web/wasm (djrust-vevr-se scripts/build-web-wasm.sh), Chrome, and btwd (BTWD). Skips when one is missing.
-#   PARITY_CORPUS=repros,examples (default) or more dirs of .btw / programs-store .json; PARITY_ARGS for run.mjs flags.
-PARITY_CORPUS ?= repros,examples
-parity:
-	BTWD_BIN=$(BTWD) node btwsite/test/parity/run.mjs --corpus $(PARITY_CORPUS) $(PARITY_ARGS)
-	BTWD_BIN=$(BTWD) node btwsite/test/parity/loop.mjs
-
-# the self-contained player (btwsite/player, <beatscript-track>, project-datum 6669): the npm package / artifact files,
-# assembled into btwsite/player/dist (git-ignored: the wasm is built from a private repo). Publishing it is Matt's call.
-btwsite-player:
-	node btwsite/player/build.mjs
-# it plays under a Claude-artifact-like CSP (files beside the page, and from a second origin as from a CDN), and says why it
-# cannot under the CSP without 'wasm-unsafe-eval'. Needs btwsite/web/wasm and Chrome; skips without the wasm. On a Mac
-# whose sound card is busy, BTW_CHROME_ARGS=--disable-audio-output (else the AudioContext clock can stay frozen).
-btwsite-player-test:
-	node btwsite/test/player-csp.mjs
-
-.PHONY: btwsite-test parity btwsite-player btwsite-player-test
 

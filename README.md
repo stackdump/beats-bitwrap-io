@@ -132,13 +132,12 @@ The share-v1 format is an IR — any producer that emits valid JSON against the 
 
 > *A prompt is a wish. A Petri net is a score.*
 
-## BeatScript site (`btwsite/`)
 
-`btwsite/` holds the public half of [beatscript.app](https://beatscript.app): the page (`btwsite/web`), the CC0
-example programs, test fixtures, and the nginx/deploy files. **beatscript.app runs only btwserve**, the Rust server
-in the private engine repo; the Go `btwsite` server that used to live here (`cmd/btwsite`, `internal/btwsite`) is
-retired. `internal/btwsite/docs/` keeps `api.md` and its assets because btwserve reads them (`-docs-src`). Design and
-deploy: `btwsite/DESIGN.md`, `btwsite/deploy/deploy.sh`.
+## BeatScript
+
+[beatscript.app](https://beatscript.app) and its site, which lived here under `btwsite/`, are in
+[stackdump/beatscript](https://github.com/stackdump/beatscript) (with their history, under `site/`). This repo keeps
+its own client of it: `public/lib/btw/link.js` and the `/p/<CID>` page, which load programs from beatscript.app.
 
 ## Acknowledgments
 

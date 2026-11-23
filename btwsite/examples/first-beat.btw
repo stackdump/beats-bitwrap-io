@@ -1,9 +1,0 @@
-#! btw 1
-#! name: first-beat
-#! license: CC0-1.0
-#! visibility: public
-# first-beat: a four-line beat. A deck line is one bar of sixteen steps: x is a hit, ~ a rest, | joins parts.
-tempo 124
-deck A: kick x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ | snare ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~ | hihat ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ vel=60..90
-deck B: bass a2 ~ ~ a2 ~ ~ a2 ~ ~ ~ c3 ~ e2 ~ ~ ~ inst=sub-bass | harmony chord(am) inst=warm-pad
-end at bar 8

@@ -1,6 +1,0 @@
-# master reverb
-tempo 128
-deck A: kick x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ | hihat ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ ~ ~ x ~ | clap ~ ~ ~ ~ x ~ ~ ~ ~ ~ ~ ~ x ~ ~ ~
-deck B: bass a1 ~ a1 ~ c2 ~ a1 ~ e1 ~ a1 ~ g1 ~ a1 ~ inst=sub-bass | harmony <chord(am) chord(f) chord(c) chord(g)> inst=warm-pad
-end at bar 8
-master: reverb 0.6
