@@ -10,15 +10,16 @@
 // sequencer-worker.js, a stub element, no browser. Held here:
 //
 //   - engine-gaps: the dropdown is a disabled label and » is hidden on a module without
-//     INSTRUMENT (djwasm 0.3.0, the pinned one today), both live on one that reports it;
+//     INSTRUMENT (djwasm 0.3.0), both live on one that reports it (0.3.2, the pinned one, does);
 //   - routing: mixer.js changeInstrument changes the page's project, sends one
 //     'instrument-change' (the worker and a server backend get it), and wave.js posts
 //     {type:'instrument'} to the engine for every net of a grouped row (never a control net),
 //     only when the module reports INSTRUMENT; Shuffle's instruments-changed the same;
 //   - the worker keeps its project in step, so a later message that sends the worker's nets
 //     back (a pattern edit) does not undo the instrument;
+//   - the pinned module reports INSTRUMENT (a re-pin to one without it fails here);
 //   - end to end, page → worklet.js → djwasm (a module with INSTRUMENT): the change sounds from
-//     the block after it, the audio before it is untouched, and the song does not move (the
+//     the block after it, on every track (drums too), the audio before it is untouched, and the song does not move (the
 //     wave-tick stream, its ticks and fired transitions, is the unchanged run's). On a module
 //     without it the page posts nothing and the engine plays on as before.
 //
@@ -220,6 +221,15 @@ async function runE2E(project, { quanta, at = -1, change = null } = {}) {
     } finally { delete globalThis.sampleRate; delete globalThis.currentTime; }
 }
 
+// The regression this file exists for: the mixer's dropdown went dead when Tone.js was removed
+// and the pinned module (djwasm 0.3.0) had no djw_set_instrument. A re-pin must not lose it again.
+await test('the pinned module reports INSTRUMENT, so the dropdown is live in the shipped page', async () => {
+    if (!mod || process.env.DJRUST_WASM) { skipped++; return; } // only the pin itself is held to it
+    const dj = await mod.loader.instantiate(mod.module);
+    const features = dj.features | 0;
+    assert.ok((features & INSTRUMENT) === INSTRUMENT, `djwasm pinned in public/djrust/pin.js reports features ${features}, no INSTRUMENT (2048)`);
+});
+
 const same = (a, b) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
 
 await test('e2e: a live change sounds from the next block, the song does not move', async () => {
@@ -255,6 +265,29 @@ await test('e2e: a live change sounds from the next block, the song does not mov
     const atZero = await runE2E(project, { quanta: 1200, at: 0, change });
     assert.ok(same(atZero.audio, fromStart.audio), 'not the changed document\'s voice');
     assert.deepEqual(atZero.ticks, fromStart.ticks);
+});
+
+// Every track, drums included: the dropdown of each row swaps that net's sound live. The
+// target is the other side of a voice family for each role (a kit for a drum, not a melodic voice).
+await test('e2e: every track swaps its instrument live, drums too, from the next block', async () => {
+    if (!mod) { skipped++; return; }
+    const dj = await mod.loader.instantiate(mod.module);
+    const project = dj.compose({ genre: 'techno', seed: 42 }).doc;
+    const swaps = { kick: 'drums-808', snare: 'drums-808', hihat: 'drums-808', bass: 'acid', melody: 'vibes', harmony: 'vibes' };
+    const QUANTA = 3000, AT = 1500, cut = AT * 256;
+    const base = await runE2E(project, { quanta: QUANTA });
+    if (!(base.ready.features & INSTRUMENT)) { skipped++; return; }
+    for (const [id, instrument] of Object.entries(swaps)) {
+        const net = project.nets[id];
+        assert.ok(net, `a ${id} net`);
+        assert.notEqual(net.track.instrument, instrument, `${id} already plays ${instrument}`);
+        const live = await runE2E(project, { quanta: QUANTA, at: AT, change: { netId: id, riffGroup: '', instrument } });
+        assert.ok(ofType(live.el.wave, 'instrument').some((m) => m.netId === id && m.instrument === instrument), `${id}: the page posted the change`);
+        assert.equal(live.el._project.nets[id].track.instrument, instrument, `${id}: the page's project`);
+        assert.ok(same(live.audio.subarray(0, cut), base.audio.subarray(0, cut)), `${id}: the change touched the past`);
+        assert.ok(!same(live.audio.subarray(cut), base.audio.subarray(cut)), `${id}: no change heard`);
+        assert.deepEqual(live.ticks, base.ticks, `${id}: the song moved`);
+    }
 });
 
 await test('e2e: changing a net to the instrument it plays is silent (bit for bit)', async () => {

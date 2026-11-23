@@ -32,6 +32,7 @@
  *   dj.eventCount && dj.events();              // [{k, id, src, res, frame, tick[, bpm]}]
  *   dj.seek(tick); dj.setGroove(swing, humanize);
  *   dj.keys();                                 // the key tables (djw_keys), once, cached
+ *   dj.setInstrument('lead', 'vibes');         // FEATURE.INSTRUMENT: live, the song keeps going
  *
  * Nothing here is called on the default path: an instance that never uses them renders
  * djwasm 0.2.0's bytes.
@@ -365,5 +366,20 @@ export class DjWasm {
      */
     setGroove(swing, humanize) {
         return this.x.djw_set_groove ? this.x.djw_set_groove(Number(swing), Number(humanize)) : ERR_UNSUPPORTED;
+    }
+
+    /**
+     * Play net `netId` on `instrument` from the next block on (FEATURE.INSTRUMENT,
+     * djw_set_instrument): its lanes are rebuilt as a load of the project with that
+     * `track.instrument` would build them, and the tick, the marking and every other net play
+     * on. Applies to a project queued for the bar too. 0, ERR_ARG (not a net with lanes, or an
+     * empty name), ERR_NOT_READY (no project) or ERR_UNSUPPORTED (a module without it: the
+     * instrument is then only what the next load carries). Allocates, like load().
+     */
+    setInstrument(netId, instrument) {
+        const f = this.x.djw_set_instrument;
+        if (!f) return ERR_UNSUPPORTED;
+        return this._withText(String(netId), (ip, il) =>
+            this._withText(String(instrument), (np, nl) => f(ip, il, np, nl)));
     }
 }

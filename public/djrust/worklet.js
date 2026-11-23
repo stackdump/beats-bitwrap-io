@@ -24,6 +24,7 @@
  *                   {type:'control-macros', on?, disabled?: [ids]}   disabled replaces the list
  *                   {type:'seek', tick}                       then a state tick at once
  *                   {type:'groove', swing, humanize}          kept for later loads too
+ *                   {type:'instrument', netId, instrument}   live instrument change (INSTRUMENT)
  *   worklet → page  {type:'macro-fired', id, source: 'page'|'control', result, frame?, tick?}
  *                   {type:'macro-skipped', id, source, result, frame, tick}   (disabled list)
  *                   {type:'macro-restored', id, source, result, frame, tick}  (effect ended)
@@ -31,6 +32,7 @@
  *                   {type:'macro-overflow', dropped}          (the engine's ring filled)
  *                   {type:'macro-released', id, result}       (only when result is not 0)
  *                   {type:'seeked', tick, requested}
+ *                   {type:'instrument-refused', netId, instrument, result}   (only when not 0)
  *
  * A control net's fire comes back as `macro-fired` with source 'control'. Result -3 there means
  * the page must run it (a master or aux macro in 0.3: sweep-lp, riser, ping-pong …); result 0
@@ -211,6 +213,15 @@ class DjrustProcessor extends AudioWorkletProcessor {
                 break;
             }
             case 'groove': dj.setGroove(Number(msg.swing) || 0, Number(msg.humanize) || 0); break;
+            case 'instrument': {
+                // {netId, instrument}: a live instrument change (FEATURE.INSTRUMENT). A module
+                // without it, or a net it has no lanes for, keeps playing what it plays.
+                const result = dj.setInstrument(msg.netId, msg.instrument);
+                if (!this.quiet && result !== 0) {
+                    this.port.postMessage({ type: 'instrument-refused', netId: msg.netId, instrument: msg.instrument, result });
+                }
+                break;
+            }
             }
         } catch (err) {
             // A bad project must not take the audio thread down: say so and keep the old one.

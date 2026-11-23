@@ -6,14 +6,14 @@
 // and `make djrust-verify-cdn` (online). Never a range or latest.
 export default {
     "package": "djwasm",
-    "version": "0.3.0",
+    "version": "0.3.2",
     "source": "bundled",
-    "url": "https://cdn.jsdelivr.net/npm/djwasm@0.3.0/djwasm.wasm",
-    "integrity": "sha384-XugD4tTbMr4FU8/NqG1zdCZf7FZM9HDG5BoxC7WZKm1lTaZ0TE6hIq37ymWZ4gKt",
-    "sha256": "afaeb01d78cfa13693450aafa1bb10c6a406cf37a58af287c71a716a5d4839da",
-    "bytes": 902599,
+    "url": "https://cdn.jsdelivr.net/npm/djwasm@0.3.2/djwasm.wasm",
+    "integrity": "sha384-7xKJUMiW+GZTfeUd4B/ksWo9y1ZNCtufdwQXweF+uSPX5lrU5iFiobC/kAotGz/w",
+    "sha256": "870b93589bfdd183827965cbcf14ec15ef438107e3e1fa561c7edce76fabcd18",
+    "bytes": 912909,
     "glue": {
-        "loader.js": "e8bc8964d3c3ef6f8f94cc7f17975d97566c2b630b4e5c62ade678fb08baa29c",
-        "worklet.js": "c8610a036f2e500ad9cea87ec3a2a9781e803d6deb9576e943e288d5ac4b60f0"
+        "loader.js": "a3a67179bb48461ebf9f8709f1b6585a5d7b843e400313842b5e71968c674feb",
+        "worklet.js": "91ce916d5a2f954b11f01af022be272cb5a99c175c8741573adb20bc2f565a0a"
     }
 };
