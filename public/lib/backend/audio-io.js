@@ -8,6 +8,7 @@
 
 import { vizBegin, vizEnd, VIZ } from '../perf/monitor.js';
 import { audioHost } from '../../audio/host.js';
+import { layoutDots, windowSec } from '../viz/timeline-math.js';
 import { resolveDurationMs } from '../pflow.js';
 import { apcSync } from './apc-mini-mk2.js';
 import { scopeSync } from '../ui/scope.js';
@@ -723,8 +724,10 @@ export function vizColorForNet(netId) {
     return VIZ_COLORS[base] || VIZ_DEFAULT_COLOR;
 }
 
-export function vizSpawnParticle(el, netId, midi) {
-    el._vizHistory.push({ time: Date.now(), netId, note: midi?.note });
+// `audioT` is djwasm's audio-clock time (AudioContext seconds) at which the
+// note sounds; the clock timebase (?vizclock=1) positions dots from it.
+export function vizSpawnParticle(el, netId, midi, audioT) {
+    el._vizHistory.push({ time: Date.now(), at: typeof audioT === 'number' ? audioT : undefined, netId, note: midi?.note });
     if (el._vizHistory.length > 200) el._vizHistory.shift();
 }
 
@@ -771,45 +774,65 @@ export function vizDrawFrame(el) {
     el._updatePlayhead();
 }
 
+// ?vizclock=1 — position dots from djwasm's audio clock instead of the
+// main-thread Date.now() at message arrival (docs/animation-analysis.md).
+function vizClockOn() {
+    try { return new URLSearchParams(location.search).get('vizclock') === '1'; } catch { return false; }
+}
+let vizClock = null;
+
 export function vizDrawTimeline(el, ctx, w, h) {
-    const now = Date.now();
-    // Adaptive window: shrinks to fit available dots, grows to max 4 bars.
-    // At 120bpm, 4 bars = 8s. Use elapsed since first dot as the window.
-    const maxWindowMs = (240 / Math.max(60, el._tempo)) * 1000;
-    const elapsed = el._vizHistory.length > 0 ? now - el._vizHistory[0].time : 0;
-    const windowMs = Math.max(2000, Math.min(maxWindowMs, elapsed + 500));
-    // A transiently non-finite _tempo makes every x NaN and createLinearGradient throws.
-    if (!Number.isFinite(windowMs) || windowMs <= 0) return;
+    if (vizClock === null) vizClock = vizClockOn();
+    let dots;
+    let win;
+    const actx = vizClock ? audioHost.getContext() : null;
+    if (actx) {
+        // Fixed window and the audible "now": what the speakers play is the
+        // context time minus the output latency, so a dot sits on the
+        // playhead exactly while its note is heard. No dependence on how
+        // many events are retained, so the scroll speed is constant.
+        win = windowSec(el._tempo);
+        const heardNow = actx.currentTime - (actx.outputLatency || actx.baseLatency || 0);
+        const evts = [];
+        for (const e of el._vizHistory) if (typeof e.at === 'number') evts.push({ t: e.at, netId: e.netId });
+        dots = layoutDots(evts, heardNow, win, w);
+        // Prune what scrolled off.
+        while (el._vizHistory.length > 0 && typeof el._vizHistory[0].at === 'number' && heardNow - el._vizHistory[0].at > win) {
+            el._vizHistory.shift();
+        }
+    } else {
+        const now = Date.now();
+        // Adaptive window: shrinks to fit available dots, grows to max 4 bars.
+        // At 120bpm, 4 bars = 8s. Use elapsed since first dot as the window.
+        const maxWindowMs = (240 / Math.max(60, el._tempo)) * 1000;
+        const elapsed = el._vizHistory.length > 0 ? now - el._vizHistory[0].time : 0;
+        const windowMs = Math.max(2000, Math.min(maxWindowMs, elapsed + 500));
+        // A transiently non-finite _tempo makes every x NaN and createLinearGradient throws.
+        if (!Number.isFinite(windowMs) || windowMs <= 0) return;
+        win = windowMs / 1000;
+        dots = layoutDots(el._vizHistory.map(e => ({ t: e.time / 1000, netId: e.netId })), now / 1000, win, w);
+        // Prune old events.
+        while (el._vizHistory.length > 0 && now - el._vizHistory[0].time > windowMs) {
+            el._vizHistory.shift();
+        }
+    }
 
-    for (const evt of el._vizHistory) {
-        const age = now - evt.time;
-        if (age > windowMs) continue;
-        const x = w - (age / windowMs) * w;
-        if (!Number.isFinite(x)) continue;
-        const color = vizColorForNet(evt.netId);
-        // Stay visible across the full screen: fade only in the last 15%.
-        const pct = age / windowMs;
-        const alpha = pct < 0.85 ? 0.7 : 0.7 * (1 - (pct - 0.85) / 0.15);
-
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = color;
-        // Short streak trailing behind the dot.
-        const streakLen = Math.min(20, (w / windowMs) * 120);
-        const grad = ctx.createLinearGradient(x - streakLen, 0, x, 0);
-        grad.addColorStop(0, 'transparent');
-        grad.addColorStop(1, color);
+    for (const d of dots) {
+        const color = vizColorForNet(d.evt.netId);
+        ctx.globalAlpha = d.alpha;
+        // Streak BEHIND the dot: the dot moves toward x = 0, so the trail
+        // extends toward the playhead (larger x) and fades away from the dot.
+        const { dotEnd, farEnd, x0, x1 } = d.trail;
+        const grad = ctx.createLinearGradient(dotEnd, 0, farEnd, 0);
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, 'transparent');
         ctx.fillStyle = grad;
-        ctx.fillRect(x - streakLen, 27, streakLen, 6);
+        ctx.fillRect(x0, 27, x1 - x0, 6);
         // Dot head.
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(x, 30, 4, 0, Math.PI * 2);
+        ctx.arc(d.x, 30, 4, 0, Math.PI * 2);
         ctx.fill();
-    }
-
-    // Prune old events.
-    while (el._vizHistory.length > 0 && now - el._vizHistory[0].time > windowMs) {
-        el._vizHistory.shift();
     }
     ctx.globalAlpha = 1;
 }

@@ -112,10 +112,15 @@ test:
 	@$(MAKE) --no-print-directory test-model-parity
 	@$(MAKE) --no-print-directory test-btw-link
 	@$(MAKE) --no-print-directory test-wave
+	@$(MAKE) --no-print-directory test-timeline-math
 	@$(MAKE) --no-print-directory check-djrust-pin
 	@$(MAKE) --no-print-directory cid-freeze
 	@$(MAKE) --no-print-directory test-djrust-golden
 	@$(MAKE) --no-print-directory test-djrust-node
+
+# Lane-view geometry: direction of time, trail behind the dot.
+test-timeline-math:
+	node scripts/test-timeline-math.mjs
 
 # Headless macro-audio verification on the djrust engine. Boots a local
 # server and runs scripts/test-macro-audio.py against it across N parallel
