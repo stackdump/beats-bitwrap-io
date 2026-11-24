@@ -9,6 +9,7 @@
 // every call site stays unchanged.
 
 import { applyEngineGaps } from './engine-gaps.js';
+import { NATIVE_GENRE_TRAITS } from '../genres/native-genres.js';
 import { audioHost } from '../../audio/host.js';
 import { prettifyInstrumentName, oneShotSpec, ONESHOT_INSTRUMENTS } from '../audio/oneshots.js';
 import { MACROS, TRANSITION_MACRO_IDS } from '../macros/catalog.js';
@@ -250,16 +251,20 @@ export function buildUI(el) {
                 <option value="extended">Extended</option>
             </select>
             <select class="pn-genre-select">
+                <option value="acid">Acid</option>
                 <option value="ambient">Ambient</option>
                 <option value="blues">Blues</option>
                 <option value="bossa">Bossa Nova</option>
                 <option value="country">Country</option>
+                <option value="deephouse">Deep House</option>
                 <option value="dnb">DnB</option>
                 <option value="dubstep">Dubstep</option>
                 <option value="edm">EDM</option>
+                <option value="electro">Electro</option>
                 <option value="funk">Funk</option>
                 <option value="garage">Garage</option>
                 <option value="house">House</option>
+                <option value="italo">Italo Disco</option>
                 <option value="jazz">Jazz</option>
                 <option value="lofi">Lo-fi</option>
                 <option value="metal">Metal</option>
@@ -375,6 +380,8 @@ export function buildUI(el) {
         trap:      { name: 'trap',      bpm: 140, swing: 10, humanize: 8,  syncopation: 0.3, ghostNotes: 0.4, drumFills: true, tensionCurve: true },
         garage:    { name: 'garage',    bpm: 130, swing: 30, humanize: 18, syncopation: 0.35, ghostNotes: 0.45, drumFills: true },
         metal:     { name: 'metal',     bpm: 180, swing: 0,  humanize: 8,  syncopation: 0.15, ghostNotes: 0.2, drumFills: true, tensionCurve: true },
+        // composed by djwasm, not the JS composer (lib/genres/native.js)
+        ...NATIVE_GENRE_TRAITS,
     };
     el._updateTraits();
     el.querySelector('.pn-genre-select').addEventListener('change', () => {

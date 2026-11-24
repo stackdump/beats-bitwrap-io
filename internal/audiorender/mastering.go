@@ -52,11 +52,15 @@ var genreMastering = map[string]MasterTarget{
 	"dubstep":   {LUFS: -13, LRA: 6},
 	"trap":      {LUFS: -13, LRA: 6},
 	"speedcore": {LUFS: -13, LRA: 5},
+	"acid":      {LUFS: -14, LRA: 7},
+	"deephouse": {LUFS: -14, LRA: 8},
+	"electro":   {LUFS: -14, LRA: 7},
 
 	// Mid bucket
 	"metal":     {LUFS: -14, LRA: 8},
 	"funk":      {LUFS: -15, LRA: 9},
 	"synthwave": {LUFS: -15, LRA: 9},
+	"italo":     {LUFS: -15, LRA: 9},
 }
 
 // MasteringFor returns the per-genre target, or the zero MasterTarget

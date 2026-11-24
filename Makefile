@@ -7,7 +7,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
         djrust-wasm djrust-pin djrust-publish check-djrust-pin djrust-verify-cdn test-djrust test-djrust-browser \
         test-djrust-golden test-djrust-neutral test-djrust-cpu djrust-ref cid-freeze \
         test-djrust-node test-scope-kernels test-insert-render test-wave-tick-feed test-crop \
-        test-djwasm-030 test-djwasm-030-browser test-djrust-newglue \
+        test-djwasm-030 test-djwasm-030-browser test-djrust-newglue test-native-genres test-native-genres-browser \
         probe-djrust-gaps test-djrust-page-macros test-djrust-page-instrument test-djrust-render-freeze \
         seed-collection-extended bazel-build bazel-test bazel-gazelle
 
@@ -116,6 +116,7 @@ test:
 	@$(MAKE) --no-print-directory cid-freeze
 	@$(MAKE) --no-print-directory test-djrust-golden
 	@$(MAKE) --no-print-directory test-djrust-node
+	@$(MAKE) --no-print-directory test-native-genres
 
 # Headless macro-audio verification on the djrust engine. Boots a local
 # server and runs scripts/test-macro-audio.py against it across N parallel
@@ -381,6 +382,17 @@ test-crop:
 #                            control dispatch, seek, groove, mechanism parity with beats' worker
 #   test-djwasm-030-browser  the 0.3.0 scripts rendered four ways (Node direct / worklet / Offline / live)
 #   test-djrust-newglue      scripts/test-djrust-wasm.mjs with the package's loader.js/worklet.js
+# The four genres only djwasm composes (acid, deephouse, electro, italo: public/lib/generator/
+# native.js): picker, compose, and that each renders audibly, master and every lane on its own.
+test-native-genres:
+	@node --no-warnings scripts/test-native-genres.mjs
+
+NATIVE_PORT ?= 18137
+NATIVE_CDP_PORT ?= 9344
+test-native-genres-browser: build
+	@./$(BINARY) -addr :$(NATIVE_PORT) -public public -data /tmp/native-genres-data-$(NATIVE_PORT) >/tmp/native-genres-server-$(NATIVE_PORT).log 2>&1 & \
+	  pid=$$!; sleep 2; CDP_PORT=$(NATIVE_CDP_PORT) node --no-warnings scripts/test-native-genres-browser.mjs http://localhost:$(NATIVE_PORT); rc=$$?; kill $$pid; exit $$rc
+
 test-djwasm-030:
 	@node --no-warnings scripts/test-djwasm-030.mjs
 

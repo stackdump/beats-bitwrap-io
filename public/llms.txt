@@ -12,9 +12,10 @@ Tracks are shared as a content-addressed `BeatsShare` v1 JSON envelope
 `base58btc(CIDv1(dag-json, sha256(canonical-JSON(payload))))`, computed
 identically in JS and Go; a `?cid=z…` URL reproduces byte-identical playback
 in the browser. Minimum valid payload: `{"@context": …, "@type":
-"BeatsShare", "v": 1, "genre": "techno", "seed": 42}`. Valid genres: ambient,
-blues, bossa, country, dnb, dubstep, edm, funk, garage, house, jazz, lofi,
-metal, reggae, speedcore, synthwave, techno, trance, trap.
+"BeatsShare", "v": 1, "genre": "techno", "seed": 42}`. Valid genres: acid,
+ambient, blues, bossa, country, deephouse, dnb, dubstep, edm, electro, funk,
+garage, house, italo, jazz, lofi, metal, reggae, speedcore, synthwave, techno,
+trance, trap.
 
 ## Docs
 

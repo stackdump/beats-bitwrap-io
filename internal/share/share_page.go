@@ -123,6 +123,11 @@ var genreColors = map[string]string{
 	"blues":     "#4a90d9",
 	"bossa":     "#f5a623",
 	"funk":      "#e94560",
+	// djwasm's own genres (public/lib/generator/native-genres.js)
+	"acid":      "#b6ff00",
+	"deephouse": "#2b6cb0",
+	"electro":   "#00e5c7",
+	"italo":     "#ff7ac8",
 }
 
 // GenreColors returns the public read-only genre→hex colour map.
@@ -180,6 +185,9 @@ func effectiveTempo(p sharePayload) int {
 		return p.Tempo
 	}
 	if g, ok := generator.Genres[p.Genre]; ok && g.BPM > 0 {
+		return int(g.BPM)
+	}
+	if g, ok := generator.NativeGenres[p.Genre]; ok {
 		return int(g.BPM)
 	}
 	return 120
@@ -773,6 +781,10 @@ var genreLayout = map[string]string{
 	"funk":      "irregular",
 	"country":   "irregular",
 	"reggae":    "irregular",
+	"acid":      "concentric",
+	"deephouse": "concentric",
+	"electro":   "grid",
+	"italo":     "spiral",
 }
 
 func layoutForGenre(g string) string {

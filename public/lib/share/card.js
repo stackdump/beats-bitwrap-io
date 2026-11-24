@@ -8,12 +8,15 @@
 // pattern uses a simpler PRNG than Go's fnv+math/rand so individual
 // dots may differ, but the composition is identical.
 
+import { NATIVE_GENRE_COLORS } from '../genres/native-genres.js';
+
 const GENRE_COLORS = {
     techno: '#e94560', house: '#f5a623', jazz: '#9b59b6', ambient: '#4a90d9',
     dnb: '#2ecc71', edm: '#00d2ff', speedcore: '#ff2a2a', dubstep: '#8b00ff',
     trance: '#ffaa00', lofi: '#d4a574', trap: '#ff6b6b', synthwave: '#ff00aa',
     reggae: '#2ecc71', country: '#d4a574', metal: '#555555', garage: '#00aaff',
     blues: '#4a90d9', bossa: '#f5a623', funk: '#e94560',
+    ...NATIVE_GENRE_COLORS,
 };
 
 function colorForGenre(g) { return GENRE_COLORS[g] || '#4a90d9'; }

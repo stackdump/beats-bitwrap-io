@@ -18,7 +18,7 @@ Required fields:
   "@context": "https://beats.bitwrap.io/schema/beats-share"
   "@type":    "BeatsShare"
   "v":        1
-  "genre":    one of: ambient, blues, bossa, country, dnb, dubstep, edm, funk, garage, house, jazz, lofi, metal, reggae, speedcore, synthwave, techno, trance, trap
+  "genre":    one of: acid, ambient, blues, bossa, country, deephouse, dnb, dubstep, edm, electro, funk, garage, house, italo, jazz, lofi, metal, reggae, speedcore, synthwave, techno, trance, trap
   "seed":     any integer — same (genre, seed) → byte-identical track
 
 Optional overrides (omit defaults to keep the CID stable):

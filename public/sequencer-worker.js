@@ -7,6 +7,7 @@
 import { parseProject, parseNetBundle, projectToJSON } from './lib/pflow.js';
 import { compose, shuffleInstruments, Genres, GenreInstrumentSets, rebuildControlNets } from './lib/generator/index.js?v=6';
 import { regenerateTrack } from './lib/generator/regenerate.js';
+import { isNativeGenre, composeNativeDoc } from './lib/genres/native.js';
 import { buildMacroRestoreNet, MACRO_NET_PREFIX, pruneMacroNets } from './lib/generator/macros.js';
 
 const DefaultTempo = 120;
@@ -614,6 +615,20 @@ self.onmessage = function(e) {
         }
 
         case 'generate': {
+            // A genre only the engine knows (acid, deephouse, electro, italo) is composed by
+            // djwasm itself, asynchronously; every other genre by the JS composer, as before.
+            if (isNativeGenre(msg.genre)) {
+                composeNativeDoc(msg.genre, msg.params || {})
+                    .then((doc) => {
+                        const proj = parseProject(doc);
+                        if (msg.injectTransitionNet?.netId && msg.injectTransitionNet?.net) {
+                            proj.nets[msg.injectTransitionNet.netId] = parseNetBundle(msg.injectTransitionNet.net);
+                        }
+                        queueProject(proj);
+                    })
+                    .catch((e) => console.error(`[worker] compose ${msg.genre} in djwasm failed:`, e));
+                break;
+            }
             const proj = compose(msg.genre, msg.params || {});
             // Auto-DJ-requested transition: add a transient control net
             // to the composed project before it's queued. The client
@@ -628,6 +643,12 @@ self.onmessage = function(e) {
         }
 
         case 'generate-preview': {
+            if (isNativeGenre(msg.genre)) {
+                composeNativeDoc(msg.genre, msg.params || {})
+                    .then((doc) => post({ type: 'preview-ready', project: doc, reqId: msg.reqId }))
+                    .catch((e) => console.error(`[worker] compose ${msg.genre} in djwasm failed:`, e));
+                break;
+            }
             const proj = compose(msg.genre, msg.params || {});
             post({ type: 'preview-ready', project: projectToJSON(proj), reqId: msg.reqId });
             break;

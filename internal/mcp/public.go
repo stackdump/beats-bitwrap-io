@@ -41,6 +41,17 @@ func genreNames() []string {
 	return names
 }
 
+// shareGenreNames is genreNames plus the genres only the djwasm engine composes: a share
+// envelope may carry them (the page asks the engine), the Go sequencer cannot play them.
+func shareGenreNames() []string {
+	names := genreNames()
+	for name := range generator.NativeGenres {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // genreDescription is the shared genre argument description for the generate tools.
 func genreDescription() string {
 	return "Genre preset: " + strings.Join(genreNames(), ", ") + ". Use list_genres for tempo and scale."
@@ -75,7 +86,7 @@ func generateShareTool() mcp.Tool {
 		mcp.WithDescription("Create a shareable, deterministic beat from a genre + seed and return a playable URL. Builds a share-v1 envelope, computes its content-address (CID), and seals it to the store. Opening the URL regenerates byte-identical playback in the browser — no server, no AI at play time."),
 		mcp.WithString("genre",
 			mcp.Required(),
-			mcp.Description(genreDescription()),
+			mcp.Description("Genre preset: "+strings.Join(shareGenreNames(), ", ")+". Use list_genres for tempo and scale."),
 		),
 		mcp.WithNumber("seed",
 			mcp.Description("Integer seed for reproducible generation (default 0). Same genre+seed always yields the same track."),
@@ -110,7 +121,7 @@ func handleGenerateShare(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	if genre == "" {
 		return mcp.NewToolResultError("genre is required"), nil
 	}
-	if _, ok := generator.Genres[genre]; !ok {
+	if !generator.KnownGenre(genre) {
 		return mcp.NewToolResultError(fmt.Sprintf("unknown genre %q — see list_genres", genre)), nil
 	}
 
@@ -301,8 +312,11 @@ func handleListGenresLocal(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		BPM   float64 `json:"bpm"`
 		Scale string  `json:"scale"`
 	}
-	out := make([]g, 0, len(generator.Genres))
+	out := make([]g, 0, len(generator.Genres)+len(generator.NativeGenres))
 	for name, gen := range generator.Genres {
+		out = append(out, g{Name: name, BPM: gen.BPM, Scale: gen.ScaleName})
+	}
+	for name, gen := range generator.NativeGenres {
 		out = append(out, g{Name: name, BPM: gen.BPM, Scale: gen.ScaleName})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

@@ -15,6 +15,8 @@
 // Releasing the puck resets it to its pre-grab position so dragging
 // is a temporary modulation, not a destructive setter.
 
+import { NATIVE_GENRE_FEEL } from '../genres/native-genres.js';
+
 export const CORNERS = [
     { id: 'dark-slow',   name: 'Dark / Slow',   x: 0, y: 0, bpmMult: 0.6, lpFreq:  50 },
     { id: 'bright-slow', name: 'Bright / Slow', x: 1, y: 0, bpmMult: 0.6, lpFreq: 100 },
@@ -53,6 +55,7 @@ export const GENRE_FEEL_POSITIONS = {
     dnb:       [0.90, 0.55],
     metal:     [0.92, 0.18],
     speedcore: [0.98, 0.08],
+    ...NATIVE_GENRE_FEEL,
 };
 
 export function clampPuck([x, y]) {

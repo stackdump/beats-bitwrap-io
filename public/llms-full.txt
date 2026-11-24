@@ -51,9 +51,10 @@ check enabled transitions, resolve conflicts, fire, post `transition-fired`
 messages to the main thread, which plays the sound. The server is not
 involved during playback.
 
-19 genre presets: ambient, blues, bossa, country, dnb, dubstep, edm, funk,
-garage, house, jazz, lofi, metal, reggae, speedcore, synthwave, techno,
-trance, trap. Each defines BPM, scale, root, Euclidean drum parameters,
+23 genre presets: acid, ambient, blues, bossa, country, deephouse, dnb,
+dubstep, edm, electro, funk, garage, house, italo, jazz, lofi, metal, reggae,
+speedcore, synthwave, techno, trance, trap. (acid, deephouse, electro and italo
+are composed by the djwasm engine itself.) Each defines BPM, scale, root, Euclidean drum parameters,
 melody density, swing, humanize, and variety traits (ghost notes, walking
 bass, call/response, modal interchange, tension curves).
 
