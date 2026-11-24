@@ -1,0 +1,22 @@
+{
+  "@context": [
+    "https://schema.org",
+    {"bw": "https://beatscript.app/ontology/ns#"}
+  ],
+  "@type": "Dataset",
+  "@id": "https://beats.bitwrap.io/schema/beatscript",
+  "name": "beats.bitwrap.io adopts the BeatScript descriptor",
+  "description": "BeatScript (beatscript.app) is the authority for the language and its vocabulary; beats.bitwrap.io is an adopter and defines no BeatScript term of its own. This record names the authority release beats is pinned to, what beats takes from it, and the concepts beats has that the authority has no term for yet (proposals, written up in docs/BEATSCRIPT-ADOPTION.md).",
+  "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "isBasedOn": [
+    {"@type": "CreativeWork", "@id": "https://beatscript.app/ontology/", "name": "BeatScript ontology", "version": "0.4.0", "url": "https://beatscript.app/ontology/ns#"},
+    {"@type": "CreativeWork", "@id": "https://beatscript.app/context/beatscript-v1.jsonld", "name": "BeatScript JSON-LD context", "version": "1"},
+    {"@type": "CreativeWork", "@id": "https://beatscript.app/grammar.ebnf", "name": "BeatScript grammar (EBNF)"}
+  ],
+  "additionalProperty": [
+    {"@type": "PropertyValue", "name": "track", "value": "schema:MusicRecording", "description": "A beats share (BeatsShare, CID of its envelope) is not a BeatScript program, so beats does not give it a BeatScript type. Its genre is the authority's genre IRI (bw genre/<name>) beside the plain word."},
+    {"@type": "PropertyValue", "name": "set", "value": "schema:MusicComposition + context terms isBasedOn, resolves, derivation", "description": "A BeatsComposition (tracks in order, with in/len/fades) is described as the authority describes a program built from other programs: isBasedOn items that resolve to a CID. The authority has the grammar production `set` (https://beatscript.app/ontology/concept/grammar-set) and no class for a set: proposal P1."},
+    {"@type": "PropertyValue", "name": "playlist", "value": "proposal:P2", "description": "A beats playlist is a list in the browser. The authority's playlist is an account's list over /api/playlists, with no linked-data term. beats says nothing it cannot point at."},
+    {"@type": "PropertyValue", "name": "radio", "value": "proposal:P3", "description": "The authority's radio is the `station` program (https://beatscript.app/ontology/concept/grammar-station): position N is always the same track. beats' Auto-DJ is a seeded walk too, with no station program yet. Up-next is the authority's MCP `queue` tool, a tab's state, not a document."}
+  ]
+}

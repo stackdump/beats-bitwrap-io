@@ -105,6 +105,12 @@ test-model-parity:
 test-btw-link:
 	@node scripts/test-btw-link.mjs
 
+# beats adopts BeatScript's descriptor and pins the release (beatscript-authority.lock). check is offline and fails if the
+# code, used-terms.txt and the lock disagree; `scripts/beatscript-authority.sh verify|status` compare the lock with a
+# beatscript checkout or with beatscript.app (docs/BEATSCRIPT-ADOPTION.md).
+check-beatscript-authority:
+	@scripts/beatscript-authority.sh check
+
 # Full pre-commit gate: Go unit tests + both Go↔JS parity checks.
 test:
 	go test ./...
@@ -114,6 +120,7 @@ test:
 	@$(MAKE) --no-print-directory test-wave
 	@$(MAKE) --no-print-directory check-djrust-pin
 	@$(MAKE) --no-print-directory cid-freeze
+	@$(MAKE) --no-print-directory check-beatscript-authority
 	@$(MAKE) --no-print-directory test-djrust-golden
 	@$(MAKE) --no-print-directory test-djrust-node
 	@$(MAKE) --no-print-directory test-native-genres

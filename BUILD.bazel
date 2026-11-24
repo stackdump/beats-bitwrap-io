@@ -2,6 +2,9 @@ load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@io_bazel_rules_go//go:def.bzl", "TOOLS_NOGO", "go_binary", "go_library", "nogo")
 
 # gazelle:prefix beats-bitwrap-io
+
+# The pin of the BeatScript authority (internal/beatscript tests read it).
+exports_files(["beatscript-authority.lock"])
 gazelle(name = "gazelle")
 
 # Static analysis run as part of every `bazel build` (go vet + x/tools passes).
@@ -66,6 +69,7 @@ go_library(
         "insert_notes_handler.go",
         "main.go",
         "metrics.go",
+        "set_description.go",
     ],
     embedsrcs = [
         "public/archive.html",
@@ -228,6 +232,7 @@ go_library(
     deps = [
         "//internal/audiorender",
         "//internal/bench",
+        "//internal/beatscript",
         "//internal/deploy",
         "//internal/devserve",
         "//internal/generator",
