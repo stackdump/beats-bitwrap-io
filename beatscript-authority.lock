@@ -1,0 +1,39 @@
+# beats.bitwrap.io's pin of the BeatScript authority. Written by scripts/beatscript-authority.sh sync; do not edit.
+# BeatScript is the authority, beats the adopter (docs/BEATSCRIPT-ADOPTION.md). Hashes, names and kinds only: no authority text.
+authority beatscript
+source https://github.com/stackdump/beatscript e2467802bb7c77ff43325d028dd0a14ccdc55a05
+ontology-version 0.4.0
+ontology-namespace https://beatscript.app/ontology/ns#
+ontology-version-iri https://beatscript.app/ontology/0.4.0
+context-url https://beatscript.app/context/beatscript-v1.jsonld
+grammar-url https://beatscript.app/grammar.ebnf
+sha256 ontology-manifest ae1ce50fd58aaab126bcdacfb57a115b988a77f4f1b2abcc9c2211e785646ceb
+sha256 ontology-ns.nt cee6c3d8e2c0f0d45be8fb7bc904d457608446455979fb694cf05e6c0b581100
+sha256 context 4e8a23e5d4d958e75aa6ed1bff917446a02949f590dc27052c5701ebdf19214b
+sha256 grammar 835ecc1e6d36699e4d8c61f8f8afdb6dad4112327ecb63fc9803884db754407d
+term iri https://beatscript.app/ontology/genre/ambient Genre
+term iri https://beatscript.app/ontology/genre/blues Genre
+term iri https://beatscript.app/ontology/genre/bossa Genre
+term iri https://beatscript.app/ontology/genre/country Genre
+term iri https://beatscript.app/ontology/genre/dnb Genre
+term iri https://beatscript.app/ontology/genre/dubstep Genre
+term iri https://beatscript.app/ontology/genre/edm Genre
+term iri https://beatscript.app/ontology/genre/funk Genre
+term iri https://beatscript.app/ontology/genre/garage Genre
+term iri https://beatscript.app/ontology/genre/house Genre
+term iri https://beatscript.app/ontology/genre/jazz Genre
+term iri https://beatscript.app/ontology/genre/lofi Genre
+term iri https://beatscript.app/ontology/genre/metal Genre
+term iri https://beatscript.app/ontology/genre/reggae Genre
+term iri https://beatscript.app/ontology/genre/speedcore Genre
+term iri https://beatscript.app/ontology/genre/synthwave Genre
+term iri https://beatscript.app/ontology/genre/techno Genre
+term iri https://beatscript.app/ontology/genre/trance Genre
+term iri https://beatscript.app/ontology/genre/trap Genre
+term iri https://beatscript.app/ontology/ns#Genre Class
+term ctx derivation bs:derivation
+term ctx genre bs:genre
+term ctx isBasedOn schema:isBasedOn
+term ctx name schema:name
+term ctx resolves bs:resolves
+term ctx tempo bs:tempo

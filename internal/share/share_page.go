@@ -33,6 +33,7 @@ import (
 	"strings"
 	texttemplate "text/template"
 
+	"beats-bitwrap-io/internal/beatscript"
 	"beats-bitwrap-io/internal/generator"
 
 	qrcode "github.com/skip2/go-qrcode"
@@ -545,7 +546,7 @@ func buildProjectionJSONLD(shareURL, cid, genre, userTitle, desc string) (string
 		"name":        name,
 		"url":         shareURL,
 		"identifier":  cid,
-		"genre":       genre,
+		"genre":       genreProjection(genre),
 		"description": desc,
 		// All shared tracks are licensed CC BY 4.0 — same license
 		// YouTube's "Creative Commons" option uses, so embeds and
@@ -558,6 +559,16 @@ func buildProjectionJSONLD(shareURL, cid, genre, userTitle, desc string) (string
 		return "", err
 	}
 	return string(b), nil
+}
+
+// genreProjection is the genre word and, when the BeatScript ontology has the genre, its IRI beside it
+// (schema.org's genre takes Text or URL). beats adopts that vocabulary and mints none (internal/beatscript).
+// The projection is a view over the envelope, not part of the hashed payload, so no CID moves.
+func genreProjection(genre string) any {
+	if iri := beatscript.GenreIRI(genre); iri != "" {
+		return []string{genre, iri}
+	}
+	return genre
 }
 
 // indexBytes is a minimal substring scanner — pulling in `bytes.Index`
