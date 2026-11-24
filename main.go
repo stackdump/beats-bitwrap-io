@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"beats-bitwrap-io/internal/audiorender"
+	"beats-bitwrap-io/internal/beatscript"
 	"beats-bitwrap-io/internal/bench"
 	"beats-bitwrap-io/internal/telemetry"
 	"beats-bitwrap-io/internal/deploy"
@@ -283,6 +284,8 @@ func main() {
 	mux.HandleFunc("/schema/beats-composition", share.HandleBeatsCompositionSchema)
 	mux.HandleFunc("/schema/snapshot-manifest", share.HandleSnapshotManifestSchema)
 	mux.HandleFunc("/schema/beats-audio-analysis", share.HandleBeatsAudioAnalysisSchema)
+	// What beats adopts from the BeatScript authority (internal/beatscript, docs/BEATSCRIPT-ADOPTION.md).
+	mux.HandleFunc(beatscript.DescriptorPath, beatscriptDescriptorHandler)
 	// /api/operator-pubkey — public always (even without -authoring).
 	// Publishes the Ed25519 public key used to sign source=official
 	// envelopes so any verifier (including third-party hosts mirroring
@@ -308,6 +311,7 @@ func main() {
 	}))
 	mux.Handle("/qr", share.HandleQRCode())
 	mux.HandleFunc("/composition-card/", compositionCardHandler(compositionStore))
+	mux.HandleFunc("/set/", setDescriptionHandler(compositionStore))
 	// /api/insert-notes — ephemeral store used by the PR-4.3.2
 	// counterMelody Tone.js synth path (Go side POSTs notes, chromedp
 	// page-side GETs them).

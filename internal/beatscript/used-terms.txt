@@ -1,0 +1,32 @@
+# What beats.bitwrap.io references from the BeatScript authority (https://beatscript.app/ontology/ns#).
+# One reference a line: `iri <IRI>` is a term of the ontology, `ctx <key>` a term of the JSON-LD context.
+# scripts/beatscript-authority.sh sync resolves each against the authority and records it in beatscript-authority.lock;
+# `go test ./internal/beatscript` fails if a line here is not in the lock, or the code emits a term that is not here.
+# Nothing here is a copy of the authority's definitions: only the names beats points at.
+# Not here, on purpose: any set, station or playlist class. The authority has none (docs/BEATSCRIPT-ADOPTION.md, proposals P1-P3).
+iri https://beatscript.app/ontology/ns#Genre
+iri https://beatscript.app/ontology/genre/techno
+iri https://beatscript.app/ontology/genre/house
+iri https://beatscript.app/ontology/genre/jazz
+iri https://beatscript.app/ontology/genre/ambient
+iri https://beatscript.app/ontology/genre/dnb
+iri https://beatscript.app/ontology/genre/edm
+iri https://beatscript.app/ontology/genre/speedcore
+iri https://beatscript.app/ontology/genre/dubstep
+iri https://beatscript.app/ontology/genre/country
+iri https://beatscript.app/ontology/genre/blues
+iri https://beatscript.app/ontology/genre/synthwave
+iri https://beatscript.app/ontology/genre/trance
+iri https://beatscript.app/ontology/genre/lofi
+iri https://beatscript.app/ontology/genre/reggae
+iri https://beatscript.app/ontology/genre/funk
+iri https://beatscript.app/ontology/genre/bossa
+iri https://beatscript.app/ontology/genre/trap
+iri https://beatscript.app/ontology/genre/garage
+iri https://beatscript.app/ontology/genre/metal
+ctx name
+ctx tempo
+ctx isBasedOn
+ctx resolves
+ctx derivation
+ctx genre

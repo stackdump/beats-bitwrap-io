@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "beatscript",
+    srcs = ["authority.go"],
+    embedsrcs = [
+        "adoption.jsonld",
+        "used-terms.txt",
+    ],
+    importpath = "beats-bitwrap-io/internal/beatscript",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "beatscript_test",
+    srcs = ["authority_test.go"],
+    data = ["//:beatscript-authority.lock"],
+    embed = [":beatscript"],
+    deps = ["//internal/generator"],
+)

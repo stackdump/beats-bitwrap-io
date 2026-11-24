@@ -104,6 +104,10 @@ Everything else is **transient by design** and intentionally omitted:
 
 When adding a new user-tunable knob: ask "would the author expect this setting to be preserved when they share?". If yes, add a collector in `lib/share/collect.js`, an applier in `lib/share/apply.js`, and a `$defs` / property entry in `public/schema/beats-share.schema.json`. Defaults should be **omitted from the payload** so unconfigured shares stay byte-identical for CID stability. Appliers run in dependency order in `applyShareOverrides` — DOM-touching appliers (`applyHitState`) run **after** the panel toggle that creates their DOM (`applyUiState`).
 
+## BeatScript is the authority (adopter pin)
+
+BeatScript (beatscript.app) owns the language and its vocabulary; beats adopts it and mints no BeatScript term. `beatscript-authority.lock` pins the release (ontology version, source commit, sha256 of the context, grammar and ontology files, every term beats names); `internal/beatscript/used-terms.txt` is the only list of names beats refers to. `make check-beatscript-authority` (part of `make test`) fails if the code, that list and the lock disagree, or if a beats genre has no authority IRI; `scripts/beatscript-authority.sh verify|status|sync` compare the lock with a checkout or with beatscript.app. Re-pin deliberately (`sync`) and say why. Concepts beats has that BeatScript lacks are **proposals** in `docs/BEATSCRIPT-ADOPTION.md`, never local terms; that file also holds the adopter findings (friction hit while adopting). Served: `/schema/beatscript` (what is adopted), `/set/<cid>.jsonld` (a composition as a set). No CID moves: the genre IRI is in the projection, not the payload.
+
 ## Schemas
 
 `GET /schema/beats-share` is content-negotiated: default / `application/ld+json` → JSON-LD `@context`; `application/schema+json` → Draft 2020-12 JSON-Schema; `text/html` → rendered glossary. Static paths always work: `/schema/beats-share.context.jsonld`, `/schema/beats-share.schema.json`.
