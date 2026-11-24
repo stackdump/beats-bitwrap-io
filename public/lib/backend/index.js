@@ -731,7 +731,7 @@ export function onRemoteTransitionFired(el, netId, transitionId, midi, playAtOff
 
     // Visualization particles.
     if (midi) {
-        el._vizSpawnParticle(netId, midi);
+        el._vizSpawnParticle(netId, midi, audioT);
     }
 
     // Full-page Stage: pulse the matching transition in its panel.

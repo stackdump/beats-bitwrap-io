@@ -1675,7 +1675,7 @@ class PetriNote extends HTMLElement {
     _vizColorForNet(netId) { return vizColorForNet(netId); }
     _scopeSync() { return scopeSync(this); }
     _scopeStats() { return scopeStats(this); }
-    _vizSpawnParticle(netId, midi) { return vizSpawnParticle(this, netId, midi); }
+    _vizSpawnParticle(netId, midi, audioT) { return vizSpawnParticle(this, netId, midi, audioT); }
     _vizStartLoop() { return vizStartLoop(this); }
     _vizStopLoop() { return vizStopLoop(this); }
     _vizDrawFrame() { return vizDrawFrame(this); }
